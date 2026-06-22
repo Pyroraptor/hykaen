@@ -1,0 +1,21 @@
+# Godot 4+
+.godot/
+.import/
+export.cfg
+export_presets.cfg
+
+# Godot build/export output
+/build/
+/export/
+*.tmp
+
+# Mono/C# (unused — GDScript project), kept for safety
+.mono/
+data_*/
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*~
+\#*\#
+.\#*

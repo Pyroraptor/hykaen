@@ -1,0 +1,63 @@
+#+TITLE: Hykaen — Sear-Ulf Vignette
+#+SUBTITLE: A turn-based narrative CRPG in the Hollow World system
+
+A short, turn-based narrative CRPG set in the world of *Hykaen*
+(continent of *Sear-Ulf*), built on the custom *Hollow World* tabletop
+ruleset, implemented in *Godot 4 / GDScript*.
+
+The first release is a tightly-scoped *vignette*: the founding party of
+heroes who fought the first demonic invasion, at the moment they
+discover it and swear to stop it together. It ships standalone and
+doubles as the combat tutorial / prologue for the full campaign.
+
+* Status
+
+Pre-development. The design brief and source material exist; no game
+code has been written yet. See =Roadmap= below.
+
+* Repository layout
+
+#+BEGIN_SRC text
+  core/      Pure GDScript rules engine — NO Godot Nodes/rendering.
+    rules/   Attributes, action economy, resolution, damage, conditions
+    model/   Data classes (character, combatant, spell, talent)
+    combat/  Encounter state machine + enemy AI
+    sim/     Headless combat simulator (tests + balance)
+  data/      Game content as Godot Resources (.tres): classes, spells,
+             talents, weapons, encounters, dialogue, maps
+  game/      Godot presentation layer — scenes, UI, exploration, save
+  tests/     GUT test suite (runs headless via `godot --headless`)
+  docs/
+    design-source/   The author's original Hollow World / setting docs
+#+END_SRC
+
+The rules engine in =core/= is deliberately decoupled from rendering so
+combat can be unit-tested and balance-checked headlessly, with no human
+watching the screen.
+
+* Design documents
+
+- *Setting & system source*: =docs/design-source/= (Hollow World rules,
+  Hykaen geography, gods, races).
+- *Project brief / build plan*: lives in the AEF repo at
+  =process/briefs/aef-hykaen-vignette.org= (it is an AEF planning
+  artifact). It is the authoritative scope, architecture, and
+  phase plan for this project.
+
+* Roadmap (from the brief)
+
+| Phase | Focus                                |
+|-------+--------------------------------------|
+| 0     | Freeze Hollow World v0 ruleset spec  |
+| 1     | Rules engine core (headless)         |
+| 2     | Playable combat in Godot             |
+| 3     | Characters / talents / content data  |
+| 4     | Exploration & narrative              |
+| 5     | Vignette content, polish, export     |
+
+* Tech
+
+- Godot 4.x, GDScript
+- GUT for testing, run headless in CI
+- All source kept in text formats (=.gd=, =.tscn=, =.tres=) — no binary
+  scenes/resources in version control
