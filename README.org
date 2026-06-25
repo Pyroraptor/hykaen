@@ -39,10 +39,16 @@ watching the screen.
 
 - *Setting & system source*: =docs/design-source/= (Hollow World rules,
   Hykaen geography, gods, races).
-- *Project brief / build plan*: lives in the AEF repo at
-  =process/briefs/aef-hykaen-vignette.org= (it is an AEF planning
-  artifact). It is the authoritative scope, architecture, and
-  phase plan for this project.
+- *Project brief / build plan*: =docs/brief.org= — the authoritative
+  scope, architecture, and phase plan for this project.
+
+* Setup
+
+This project is meant to live as a top-level sibling of the =aef=
+framework checkout (so it mounts as its own =/workspace= with =aef=
+read-only at =/aef=). If it is still nested inside an aef checkout, run
+=bootstrap.sh= *on the host* to promote it and copy in the launch
+harness. See =docs/brief.org= → /Project logistics/.
 
 * Roadmap (from the brief)
 

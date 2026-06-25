@@ -1,0 +1,90 @@
+name: GUT Test Suite
+
+"on":
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    name: Run GUT headless tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Godot 4
+        run: |
+          GODOT_VERSION="4.3"
+          curl -L "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip" \
+            -o /tmp/godot.zip
+          unzip /tmp/godot.zip -d /tmp/godot
+          sudo install -m 755 "/tmp/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64" /usr/local/bin/godot
+          godot --version
+
+      # ---------------------------------------------------------------
+      # Linter 1: enforce pure GDScript domain (ADR-001)
+      # No Godot Node/Control/CanvasItem inheritance in core/
+      # ---------------------------------------------------------------
+      - name: Lint — domain purity (ADR-001)
+        run: |
+          if grep -rn "extends Node\|extends Control\|extends CanvasItem" core/ 2>/dev/null; then
+            echo "ERROR: core/ contains Godot framework inheritance. Domain layer must be pure GDScript." >&2
+            exit 1
+          fi
+          echo "OK: no Node/Control/CanvasItem inheritance found in core/"
+
+      # ---------------------------------------------------------------
+      # Linter 2: enforce text-format resources (ADR-009)
+      # No binary .scn/.res files outside addons/
+      # ---------------------------------------------------------------
+      - name: Lint — text-format resources (ADR-009)
+        run: |
+          VIOLATIONS=$(find . \( -name "*.scn" -o -name "*.res" \) ! -path "./addons/*" ! -path "./.git/*" 2>/dev/null)
+          if [ -n "$VIOLATIONS" ]; then
+            echo "ERROR: Binary resource files found outside addons/:" >&2
+            echo "$VIOLATIONS" >&2
+            echo "All resources must be text-format (.tscn/.tres). See ADR-009." >&2
+            exit 1
+          fi
+          echo "OK: no binary .scn/.res files found outside addons/"
+
+      # ---------------------------------------------------------------
+      # Linter 3: enforce injected RNG (ADR-002)
+      # No direct randf/randi/RandomNumberGenerator.new() in core/
+      # (rng.gd is the authorised exception — it defines the injectable)
+      # ---------------------------------------------------------------
+      - name: Lint — injected RNG (ADR-002)
+        run: |
+          if grep -rn "randf\|randi\b\|RandomNumberGenerator\.new()" core/ \
+               --exclude="rng.gd" 2>/dev/null; then
+            echo "ERROR: Direct RNG usage found in core/ (outside rng.gd). Use injected RNG. See ADR-002." >&2
+            exit 1
+          fi
+          echo "OK: no direct RNG usage in core/ (excluding rng.gd)"
+
+      # ---------------------------------------------------------------
+      # Run GUT headless test suite
+      # ---------------------------------------------------------------
+      - name: Run GUT tests
+        run: |
+          godot --headless -- --gut-run-all
+        # Exit code forwarded to branch protection
+
+      # ---------------------------------------------------------------
+      # Upload GUT output as CI artifact (always, pass or fail)
+      # ---------------------------------------------------------------
+      - name: Upload GUT output artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gut-test-output-${{ github.run_number }}
+          path: |
+            *.log
+            *.html
+          if-no-files-found: ignore
+          retention-days: 30

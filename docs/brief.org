@@ -1,0 +1,649 @@
+#+TITLE: Brief: Hykaen — Sear-Ulf Vignette (Hollow World CRPG, Godot)
+#+DATE: 2026-06-22
+#+REVISED: 2026-06-23 — (1) reconciled against the eight source PDFs in
+#  docs/design-source/: corrected class names (Cleric → Divine
+#  Channeler, Holy Warrior → Divine Warrior), the action/reaction set
+#  (removed non-existent Dash/Lunge/Charge; Charge & Riposte are
+#  Combinations), Stamina/Skills formulas, the two land-bridge
+#  fortresses, and the timeline. (2) Folded in author notes: the
+#  vignette is set on the Old Continent BEFORE the Demonstorms and is
+#  the origin of Titus (future Duke) & Gram Marx; the v1 party is
+#  Fighter/Wizard/Divine Warrior/Divine Channeler (Rogue deferred); and
+#  the HP and defense formulas are now specified. Remaining v0 gaps:
+#  armor table, speed, spell-attack bonus, talent/spell contents.
+#  Ruleset v0 spec itself is NOT yet written — it is the next
+#  deliverable (Phase 0), to be done by AEF.
+#+PROPERTY: STATUS PROPOSED
+#+PROPERTY: PRIORITY MEDIUM
+#+PROPERTY: PROJECT hykaen, aef
+
+* Purpose
+
+Build a short, shippable, turn-based narrative CRPG set in the world
+of *Hykaen* (continent of *Sear-Ulf*), running on the author's custom
+tabletop ruleset, the *Hollow World* system, implemented in *Godot 4 /
+GDScript*.
+
+The first release is a tightly-scoped *vignette*, set on the *Old
+Continent of Grok before the Demonstorms*: a four-person adventuring
+party discovers evidence of the coming invasion deep within an
+ignominious dungeon and swears an oath to one another to counter it.
+That party is the *origin story* of two figures the present-day lore
+already names — *Titus*, the Human Fighter who will become the *First
+Duke of Ulfendon*, and *Gram Marx*, the Tiefling Wizard who will later
+research how to end the Storms and break the land bridge. This vignette
+ships as a standalone short game *and* becomes the combat-tutorial /
+prologue for the eventual full campaign (a present-day party racing to
+stop the *second* invasion).
+
+This project serves three goals simultaneously:
+1. *A real game to ship* — a complete, polished vignette.
+2. *An AEF dogfood* — a greenfield, Godot-based build that stress-tests
+   AEF outside its established web + Expo/RN stack.
+3. *A portfolio piece* — an end-to-end artifact demonstrating what AEF
+   can produce from a brief to a cross-platform binary.
+
+* Problem Statement
+
+Two distinct problems must be solved together.
+
+** Design problem: the ruleset is still in flux
+
+The Hollow World system is partially specified across seven source
+documents. It is internally rich but contains gaps and contradictions
+(see =Open Questions= below). The most consequential:
+
+- The *"New Subraces"* content is still written in raw D&D 5e terms
+  (Charisma, Wisdom, Intelligence, proficiency bonus, bonus actions,
+  cantrips, 5e-style ASIs). *Decision (author, 2026-06-22): this is a
+  leftover artifact from running 5e games in the setting and is CUT.*
+  Racial mechanics are out of scope for v1 (the party is hand-authored;
+  races are cosmetic in the vignette).
+- The *Skills* section is an empty stub (=Building a Character.pdf=
+  literally reads "Skills / Skills"); skill-based exploration and
+  social encounters depend on it.
+- The eight classes are each specified to the *same* depth (Class HP,
+  Stamina/Skills formulas, spellcasting attribute, a list of talent
+  *trees*) but the *contents* of the talent trees and the full spell
+  lists do not exist in the source docs — only a handful of sample
+  spells and one named talent (Lethality) are given.
+- Some *derived stats had no formula in the source at all*. The author
+  has since supplied the *HP* and *defense* formulas (see the ruleset
+  digest), but the following remain undefined and must be authored for
+  v0: an *armor list/table* (no =Armor.pdf= exists), character *speed*,
+  and the precise *spell-attack* bonus. These are hard gaps v0 fills,
+  not contradictions to resolve.
+- =Races of Hykaen.pdf= leaves *Humans*, *Tieflings*, and *Goblins* as
+  empty stubs, and the "New Subraces" block is the 5e-termed artifact
+  noted above.
+- The *seven-actions-per-round* economy is unusually large and
+  unproven; it is the system's signature mechanic and its biggest
+  balance risk.
+
+A custom combat system is the highest-value, highest-uncertainty
+component of the game. Building game code on an unstable spec produces
+churn. *Therefore the first deliverable is a frozen, self-consistent
+v0 ruleset spec scoped to exactly what the vignette needs* — not the
+whole system.
+
+** Engineering problem: AEF + Godot is unproven
+
+AEF's playbooks to date target web (=aef-web-client=) and Expo/React
+Native (EQTRACKER, HAULNDIRT). Godot introduces new questions the
+brief must answer up front:
+
+- *Headless execution in CI*: =godot --headless= must run the test
+  suite (GUT) and exit non-zero on failure, with no display server.
+- *Agent-editable formats*: =.gd= is plain text; =.tscn= / =.tres=
+  use Godot's text resource format (good for diffs and agent edits).
+  Binary =.scn=/=.res= are to be avoided in source.
+- *Verification without a human watching the screen*: how does AEF
+  confirm combat behaves correctly? (Answer: a headless, deterministic
+  rules engine with unit tests, plus a simulation harness — see
+  Architecture.)
+- *Asset pipeline*: programmer art / placeholder assets generated or
+  sourced so AEF is never blocked on art it cannot produce.
+
+* Scope: what ships in the vignette
+
+Deliberately bounded to force the combat core while keeping authored
+content small.
+
+| Dimension        | Vignette (v1)                                  | Deferred to full game            |
+|------------------+------------------------------------------------+----------------------------------|
+| Party            | Fixed, pre-generated band (3-4 heroes)         | Full character creator           |
+| Tiers            | Tier 1 only                                    | Tiers 2-3, scaling               |
+| Classes          | 4: Fighter, Wizard, Divine Warrior, Divine     | Rogue, Sorcerer, Primal Channeler, |
+|                  | Channeler (the hand-authored vignette party)   | Primal Warrior                     |
+| Races            | Cosmetic/flavor only (party is hand-authored)  | Playable race/subrace mechanics  |
+| Actions/spells   | Curated subset (the cards in =Combat.pdf= +    | Full spell lists, all talents    |
+|                  | a handful of spells + 1-2 talent tiers each)   |                                  |
+| Encounters       | 3-5 combat encounters, 1 set-piece             | Open content, random encounters  |
+| Exploration      | Small, mostly-linear maps; a few skill checks  | Open exploration, full skills    |
+| Narrative        | Linear with 2-3 meaningful choice points       | Branching, choice-heavy campaign |
+| Save/load        | Single slot, checkpoint-based                  | Full save management             |
+| Platforms        | Desktop (Linux/Win/Mac) first; web export next | Mobile, console                  |
+
+The vignette is the *vertical slice*: every core system exists, but
+content breadth is minimal.
+
+* World & Story Canon (consolidated reference)
+
+Condensed from =Geography of Hykaen=, =Gods of Hykaen=, =Races of
+Hykaen=. This section is the canonical lore reference AEF builds
+against; resolve any conflict in favor of this digest (and flag it).
+
+** The shape of the world
+
+- Two continents: the *Lost Continent of Grok* (former heartland of
+  mortal civilization) and *Sear-Ulf* (the colony continent, the
+  game's setting), nearest each other at the poles.
+- The *Stormseas* / *Storm Years*: cyclical, decade-long periods when
+  the oceans become impassable, severing the colonies from their
+  mother nations.
+- *The Demonstorms* (the first invasion): an Abyssal horde — surging
+  Gnoll/Orc populations, greater Demons, whole cities vanishing
+  overnight — consumed Grok during a Storm Year. Only *Mansear*, which
+  controlled the polar *land bridge*, kept contact with the homeland
+  (Jerisear) and learned of it. Two fortresses guarded the bridge:
+  *Ripliesser* on the Old-Continent side (whose defenders died
+  covering the last refugees) and *Riplianckh* on the Sear-Ulf side
+  (which held). The South ignored the warnings until the *Duke of
+  Ulfendon* marched north; with the magic of his wizard *Gram Marx*,
+  the Sear halted the horde and *destroyed the land bridge*, severing
+  the Abyss's path. In gratitude, the surviving Searan Houses each
+  pledged an elite warrior, scout, arcanist, artist, or scholar to the
+  Duke — *fourteen* champions in all, who then served in his court.
+- "From Sear to Ulf" → *Sear-Ulf*: the Duke went on to unite the
+  South; the phrase for "a great distance" became the continent's name.
+- *Present day* (~400 years after the conquest — pinned: =200= years
+  from the conquest to the First Duke's line dying out, then another
+  =200= under the Steward): the realm fractured, a near-powerless
+  *Steward of the Throne* rules only the city of *Ulf*, and fear,
+  xenophobia, and cults (including daemoniacs) are rising — the omens of
+  a *second* invasion that the full game addresses. *The vignette
+  predates all of this*: it is set on the Old Continent before the
+  Demonstorms and follows the young Titus and Gram Marx — the future
+  First Duke and his wizard — long before the march north (see the
+  /Vignette narrative/ below).
+
+** Regions (for map/setting work)
+
+- *North (Mansear)*: Hroww mountains (Frost Giants), Erester River
+  basin (heavily wooded, capital *Searan* on a fey spring), Lengfell
+  tundra, the fortress *Riplianckh* at the old land bridge.
+- *Paghfirld Wildlands*: central steppes/forests/deserts; free goblin
+  tribes; poorly mapped.
+- *South*: Ulfin Highlands (city of *Ulf*, three-tiered), Inmou high
+  desert, Marengian Lowlands (breadbasket, chivalric lords), Korabath
+  (rocky seafarers, Drakoran/dragonborn roots), the Sulesse
+  (jungles/savannah city-states).
+
+** Peoples & gods (flavor anchors)
+
+- Races: Dwarves (Broken Anvil refugees; Mountain/Hill), Elves
+  (Mansear; Winter Eladrin, High, Wood, Wild/Errentei, City),
+  Dragonborn (Korabath; Khadzish tongue), Gnomes (nomads),
+  Half-Elves, Halflings, Humans, plus rarer Goblinoids, Tieflings,
+  Half-Orcs. Note: the elven *Dark Elf* myth ties to the destruction
+  of the Feywild — a useful demon/shadow thread.
+- A deliberately *secular* pantheon of distant, alien gods worshipped
+  through *avatars* (gods rarely intervene; nonbelievers are common).
+  Twelve are named in =Gods of Hykaen=. Antagonist anchor: *Ghierdeus,
+  Dark Lord of Flames* (Chaotic Evil; Fire, Destruction; an insectoid
+  mandible with six blinded eyes) — plus violent *daemoniac* cults, the
+  natural divine threads for the demonic invasion. Plausible patrons for
+  a Divine Channeler PC: *Roth, the Lord of Law* (LG; Justice, War,
+  Protection), *Madara the Hearthkeeper* (LG; Fire, Hospitality), or
+  *Hamerung the Merciful* (NG; Mercy, Sun, Life).
+
+** Vignette narrative (author-specified)
+
+The vignette is set on the *Old Continent of Grok, before the
+Demonstorms*. A four-person adventuring party delves an ignominious
+dungeon and, deep within it, discovers concrete evidence of the coming
+Abyssal invasion. Across the delve they confirm the threat and, at the
+finale, swear an oath to one another to counter it. This is the
+*founding oath* the present-day campaign's lore looks back on — and the
+origin of the First Duke and his wizard. The party:
+
+- *Titus* — Human *Fighter*. In the years between the vignette and the
+  Demonstorms he becomes the *Duke of Ulfendon*, and fulfils his oath by
+  uniting the South and raising the army that marches north.
+- *Gram Marx* — Tiefling *Wizard*. He researches how to end the
+  Stormseas; in the established canon, his magic helps the Sear halt the
+  horde and *destroy the land bridge*.
+- *Marigold* — Elven *Divine Warrior* on the *Divine Champion* talent
+  path, built for *stealth and Dexterity* (filling the skirmisher role a
+  Rogue otherwise would). She stays at Titus' side thereafter.
+- A *Dwarf Divine Channeler* — name TBD by the author.
+
+The party is *hand-authored*, so Human / Tiefling / Elf / Dwarf are
+purely cosmetic here — no racial mechanics are required (consistent with
+the race-cut decision above). This narrative supersedes the earlier
+placeholder anchor and resolves Open Question #6.
+
+* Hollow World ruleset digest (for the rules engine)
+
+Captured from =Combat.pdf=, =Building a Character.pdf=, =Classes.pdf=,
+=Magic and Spellcasting.pdf=. This is the v0 implementation target.
+
+** Attributes (seven)
+
+Strength, Constitution, Dexterity, Willpower, Intellect, Intuition,
+Social. Point-buy from 0; 27 points; cost table:
+
+| Score | 1 | 2 | 3 | 4 | 5 |  6 |
+|-------+---+---+---+---+---+----|
+| Cost  | 1 | 2 | 4 | 6 | 9 | 12 |
+
+** Derived stats
+
+- *Hit Points* (formula author-specified): =HP = Race HP + Class HP ×
+  Level + Constitution × Tier=. The source's flat per-class *Class HP*
+  values are Fighter 6, Divine Warrior 6, Primal Warrior 7, Primal
+  Channeler 6, Rogue 5, Divine Channeler 5, Wizard 4, Sorcerer 4. For
+  the vignette, *Tier = 1* and *Level = 1*, and *Race HP is normalized
+  to 8* (it spans 6–10 across races, but the party is hand-authored and
+  races are cosmetic). So a v0 character's HP = =8 + Class HP +
+  Constitution= — e.g. Titus the Fighter has 14 + Con, Gram Marx the
+  Wizard has 12 + Con. Race-specific Race HP and Tier/Level scaling are
+  deferred past v0.
+- *Stamina*: =base + Willpower + Constitution=, base per class (Fighter
+  4, Sorcerer 4, Divine Warrior 3, Rogue/Wizard*/Divine Channeler/Primal
+  Channeler/Primal Warrior 2; Wizard base is 1). Shared resource spent
+  on healing and on *Combining Actions* (1 Stamina per combine); fully
+  refills only on an uninterrupted long rest.
+- *Defenses* (formula author-specified): each is =10 + base
+  armor/defense + attributes=, specifically —
+  - *Armor Class* = =10 + armor + Dexterity= (Dex applies only in light
+    or no armor);
+  - *Reflex* = =10 + Dexterity + Intuition=;
+  - *Fortitude* = =10 + Constitution + Strength=;
+  - *Will* = =10 + Willpower + Social=.
+  Balance is *untested* — this is a deliberate starting point. Still
+  outstanding: an *armor table* (analogous to the weapon table) giving
+  each armor's AC base and its light/medium/heavy category, which v0
+  must author.
+- *Initiative*: =d20 + Intuition + Dexterity= (confirmed by the
+  Bobbin/Dmitri worked example).
+- *Attack rolls*: =d20 + (Strength or Dexterity) + weapon Proficiency
+  bonus= vs the target defense (the weapon table carries a per-weapon
+  Prof. bonus of +1 to +3). Spell attacks are =d20 + spellcasting
+  attribute (+ TBD)= — the spell-attack bonus is not fully pinned and
+  is a v0 decision.
+- *Speed*: never stated; v0 must set a default (suggest 30 ft / 6
+  squares). Movement is in 5-ft squares/hexes.
+- *Skills known*: =base + Intellect= (Rogue 4, Wizard/Divine Channeler/
+  Sorcerer/Primal 2, Fighter/Divine Warrior 1). The skill *list itself
+  is an empty stub* — see Open Questions.
+
+** The round (combat core)
+
+- A round ≈ 6 seconds. Each participant gets *seven actions* per
+  round (modifiable by effects like Haste / Stunned).
+- Initiative once at combat start sets turn order.
+- On a turn a participant may *Step* (a free 5-ft move that triggers no
+  reactions — distinct from the *Stride* action, which moves up to your
+  speed and can be reacted to) and take *one action*. Taking the free
+  Step forbids your action that turn from having the Movement trait.
+- A participant with no actions left is *spent* (cannot act/react).
+- *Reactions* cost one of your remaining actions and trigger off events;
+  a spent character cannot react.
+- *Critical hit*: attack exceeds the targeted defense by *10+* → roll
+  damage dice twice and double the modifier (talents can lower the
+  threshold / add dice).
+- *Damage scaling by Tier*: =1[W]= → =2[W]= (T2) → =3[W]= (T3), where
+  =[W]= is the weapon die.
+
+*** Actions / reactions to implement (v0 set)
+
+These are the *canonical* names and the full set from =Combat.pdf=
+(the brief previously listed several non-existent actions — Dash,
+Lunge, Charge — which do not exist as discrete actions):
+
+- Actions: *Strike, Stride, Cast a spell, Interact, Guard, Take Cover*,
+  plus *Step* (a free/"Special" 5-ft move).
+- Reactions: *Block, Parry, Dodge, Opportunistic Strike, Steel,
+  Shield* (a spell).
+- *Combinations* (not separate actions): spend *1 Stamina* to fuse two
+  actions into one — e.g. *Charge* = Stride+Strike, *Riposte* =
+  Block/Parry + Strike, sprint = Stride+Stride, double-attack =
+  Strike+Strike. Only actions with the *Repeat* trait can be fused with
+  themselves. The *Dazed* condition forbids all combining.
+
+Defenses split into *passive* (AC/Reflex/Fortitude/Will, always-on
+target numbers) and *active* reactions that substitute a check or
+reduce/negate: *Dodge* (Mobility check vs AC/Reflex; needs an open
+square to Step into and you must not be Immobilized), *Block* (reduce
+damage by 1[W]+weapon Block value; only vs AC), *Parry* (contested
+attack roll + weapon Parry bonus; only vs AC), and *Steel*
+(Determination check vs Fortitude/Will; conscious only). This
+active+passive duality is the system's defining tactical hook and must
+be modeled as a clean, testable resolution pipeline.
+
+** Spellcasting (three paradigms)
+
+- *Channeling* (Divine + Primal classes — Divine Channeler, Divine
+  Warrior, Primal Channeler, Primal Warrior): a per-round energy pool
+  (max = spellcasting attribute) filled by the =Channel= action, spent
+  on spells; empties at end of round.
+- *Prepared/attuned* (Wizard and other Magi, e.g. Swordmage): prepare
+  known spells into attuned items (count = attuned items; total energy
+  ≤ level); an item discharges on cast and must be re-primed (0-energy
+  spells don't discharge). Wizards can also ritual-cast.
+- *Sorcerer*: converts *Stamina* directly into spell energy as part of
+  the casting action.
+- Spells carry: action cost, energy cost, components (Somatic, Verbal,
+  Material, Implement) and damage keywords (Fire, Life, …), hands
+  required, Concentration, range, damage/effect. Spellcasting attribute
+  by class: *Wizard = Intellect, Divine Channeler = Social, Divine
+  Warrior = Willpower, Sorcerer = Willpower, Primal Channeler/Warrior =
+  Intuition*. (Sample spells in the source: Channel, Shield, Fire Bolt,
+  Heal, Fireball.)
+
+** Classes (vignette subset in bold)
+
+The source defines *eight* classes on a =<Source> <Channeler|Warrior>=
+naming pattern, grouped by power source:
+
+- Martial: *Fighter*, Rogue (Spellcasting N/A)
+- Arcane: *Wizard* (Intellect), Sorcerer (Willpower)
+- Divine: *Divine Channeler* (Social — this is the source's "Cleric"),
+  *Divine Warrior* (Willpower — the source's "Holy Warrior")
+- Primal: Primal Channeler (Intuition), Primal Warrior (Intuition)
+
+*Naming note:* "Cleric", "Druid", "Warden", "Paladin" appearing in
+=Building a Character.pdf= are 4e/flavor references in the attribute
+descriptions, *not* class names; the actual classes are the eight
+above. *Fighter*, *Wizard*, *Divine Warrior*, and *Divine Channeler*
+ship in v1 — the hand-authored vignette party (note this takes the
+*Divine Warrior*, Marigold, into the playable set and leaves *Rogue*
+deferred). The other four (Rogue, Sorcerer, Primal Channeler, Primal
+Warrior) are fully specified at the same depth but deferred. Each class
+defines a Class HP value, Stamina/Skills formulas, a spellcasting
+attribute (or N/A), and a set of *talent trees*.
+
+** Leveling (Tales of Maj'Eyal-inspired)
+
+Progression is via *talent trees* (e.g. Fighter: Guardian,
+Conditioning, Weapon Styles, Tactics…; Rogue: Lethality, Infiltration,
+Poisons…). ToME-style: points invested into trees unlock and deepen
+talents; some trees gate behind investment levels. v1 implements the
+tree/point framework with 1-2 tiers of talents per playable class.
+
+* Proposed Architecture
+
+The central principle: *the rules engine is pure, headless, and
+deterministic — fully decoupled from Godot rendering.* This is what
+makes the game testable and AEF-verifiable without a human at the
+screen.
+
+** Layered structure
+
+#+BEGIN_SRC text
+  res://
+    core/                 # PURE GDScript — no Node, no rendering
+      rules/
+        attributes.gd     # 7 attributes, point-buy, derived stats
+        action_economy.gd # round/turn/action budget, "spent" state
+        resolution.gd     # attack vs defense, active defenses, crits
+        damage.gd         # [W] scaling, types, crit doubling
+        conditions.gd     # Dazed, Immobilized, Haste, etc.
+        rng.gd            # injectable, seedable RNG (determinism)
+      model/              # data classes loaded from Resources
+        character.gd
+        combatant.gd
+        spell.gd
+        talent.gd
+      combat/
+        encounter.gd      # combat state machine over core/rules
+        ai.gd             # enemy decision-making
+      sim/
+        simulator.gd      # headless combat runner for tests/balance
+    data/                 # CONTENT AS DATA (.tres custom Resources)
+      classes/  races/  actions/  spells/  talents/  weapons/
+      encounters/  dialogue/  maps/
+    game/                 # GODOT layer — Nodes, scenes, presentation
+      combat_ui/  exploration/  dialogue_ui/  menus/  save/
+    tests/                # GUT tests, headless
+      unit/  integration/  sim/
+#+END_SRC
+
+** Why this shape
+
+- =core/= has *zero* Godot scene dependencies, so its entire surface is
+  unit-testable under =godot --headless= with GUT. Combat correctness
+  is asserted in code, not eyeballed.
+- *Content is data* (=.tres= custom =Resource= types): actions, spells,
+  talents, classes, encounters, and dialogue are authored as resources,
+  not hardcoded. This is friendlier for both AEF (small, schema'd,
+  diffable edits) and a human designer, and lets balance change without
+  touching logic.
+- *Deterministic, injectable RNG*: every random outcome flows through a
+  seeded =rng.gd=. Tests pin a seed; the simulator replays exact
+  combats; bugs are reproducible.
+- =sim/= lets AEF run *thousands of headless combats* to check balance
+  invariants (e.g. "Tier 1 party wins encounter 3 between 55-75% of
+  the time", "no encounter has zero-variance auto-loss") — automated
+  balance feedback no human could provide at that volume.
+
+** Verification strategy (the AEF-critical part)
+
+| Layer            | How AEF verifies it autonomously                      |
+|------------------+-------------------------------------------------------|
+| Rules engine     | GUT unit tests, headless, seeded RNG, exit code gates |
+| Combat flows     | Integration tests driving =encounter.gd= end-to-end   |
+| Balance          | =sim/= Monte-Carlo runs asserting win-rate invariants |
+| UI / scenes      | Headless render-to-image screenshots + visual diff    |
+| Full vignette    | Scripted playthrough harness hitting each story beat  |
+| Cross-platform   | Export-template CI builds per platform; smoke-launch   |
+
+* Implementation Plan (phased)
+
+** Phase 0 — Freeze the ruleset v0 (gating, human-in-loop)
+
+Resolve the contradictions in =Open Questions= for *only* the vignette
+subset. Produce =docs/hollow-world-v0-spec.org= as the single source
+of truth: the seven attributes, the action economy, the v0 action/
+reaction/spell/talent cards, the four playable-adjacent classes, and
+HP/Stamina/defense formulas. Port any 5e-termed content into Hollow
+World terms or cut it from v1.
+
+Deliverable: a frozen, self-consistent spec. *AEF does not build combat
+logic before this exists.*
+
+** Phase 1 — Rules engine core (headless, no scenes)
+
+Implement =core/= against the v0 spec: attributes/derived stats, the
+round/action-economy state machine, attack-vs-defense resolution with
+active defenses, crit rule, damage/Tier scaling, a starter set of
+conditions, and the seeded RNG. Comprehensive GUT unit tests.
+
+Deliverable: =godot --headless= runs a green test suite that exercises
+the full combat resolution pipeline. No rendering yet.
+
+** Phase 2 — Playable combat in Godot
+
+Build the =game/combat_ui/=: grid/positioning, turn & action-budget
+HUD, action selection, reaction prompts, target/defense display,
+damage feedback. Wire one full encounter end-to-end (player party vs
+enemies, win/lose). Enemy =ai.gd= v1.
+
+Deliverable: a human can play one complete combat encounter; the
+scripted playthrough harness drives it headlessly.
+
+** Phase 3 — Characters, classes, talents, content pipeline
+
+The =.tres= authoring pipeline for classes/actions/spells/talents/
+weapons; the talent-tree framework with 1-2 tiers per playable class;
+the pre-generated party; the spell paradigms needed by the party's
+classes. Add the =sim/= balance harness.
+
+Deliverable: the fixed party is fully realized in data; balance sims
+run in CI.
+
+** Phase 4 — Exploration & narrative
+
+Small tile/grid maps, interaction, a minimal skill-check system (the
+exploration/social half), a branching *dialogue system* with flags and
+2-3 choice points, and save/checkpoint.
+
+Deliverable: the player can move between scenes, talk, make choices,
+and trigger combats; state persists.
+
+** Phase 5 — Vignette build, polish, export
+
+Author the actual vignette content (story beats, the 3-5 encounters,
+the set-piece, the oath finale), placeholder art/audio, main menu,
+and cross-platform export templates in CI.
+
+Deliverable: a downloadable, playable vignette on desktop (web export
+as stretch).
+
+* Key Design Decisions
+
+** Engine: Godot 4 / GDScript
+
+Chosen (by the author). Reinforced by AEF-fit: =.gd= and =.tscn=/=.tres=
+are text and diff cleanly; =godot --headless= + GUT gives real CI;
+true cross-platform export from one codebase. *Decision: keep all
+source resources in text format (=.tres=/=.tscn=), never binary, so
+agents and version control can read every change.*
+
+** Rules engine decoupled from rendering
+
+Non-negotiable. It is the only way to make combat correctness
+machine-verifiable and is the linchpin of the whole AEF-dogfood thesis.
+
+** Content as data, not code
+
+Custom =Resource= types for all game content. Keeps logic stable,
+makes authoring an AEF-friendly schema'd-edit task, and lets the human
+designer tune without programming.
+
+** Determinism first
+
+Seeded, injected RNG everywhere. Enables reproducible tests, replayable
+combats, and the Monte-Carlo balance harness.
+
+** Spec-before-code (Phase 0 gate)
+
+The ruleset is frozen for the vignette subset before combat logic is
+written, to stop churn on a moving target.
+
+* Open Questions / contradictions to resolve (Phase 0 inputs)
+
+These are the in-progress conflicts found across the source docs. Each
+needs an author decision before or during Phase 0.
+
+1. *5e vs Hollow World terms*: RESOLVED — the "New Subraces" content is
+   a 5e-era artifact and is cut; racial mechanics are out of scope for
+   v1 (party hand-authored, races cosmetic). Future: re-author race
+   traits in Hollow World terms for the full game.
+2. *Skills*: the Skills section is empty (literally "Skills / Skills").
+   Define the v0 skill list — at minimum the checks combat already
+   names (*Mobility* for Dodge, *Determination* for Steel, plus
+   Perception/Stealth/Thievery/Persuasion from the attribute text) — or
+   defer skills entirely and gate exploration/social checks on raw
+   attributes for v1.
+3. *Class roster + naming*: RESOLVED — the v1 roster is the
+   hand-authored vignette party: *Fighter* (Titus), *Wizard* (Gram
+   Marx), *Divine Warrior* (Marigold, Divine Champion / Dex-stealth
+   build), and *Divine Channeler* (the Dwarf). Naming: the source's
+   "Cleric" = Divine Channeler, "Holy Warrior" = Divine Warrior. Still
+   open: the *contents* of talent trees and full spell lists are absent
+   from the source and must be authored for v0 (incl. a stealth-capable
+   Divine Champion build for Marigold).
+4. *Seven-action economy*: signature but unproven. Phase 1's sim
+   harness should pressure-test whether seven actions/round is fun and
+   balanced, or wants tuning, *before* heavy content is built on it.
+5. *Timeline*: RESOLVED. Present day = conquest + ~200 yrs (Duke's
+   line) + ~200 yrs (Steward) ≈ 400 yrs. Dwarven Broken-Anvil migration
+   ≈ 700 yrs ago (predates the conquest). *The vignette sits at the
+   Demonstorms / Duke's northern march*, ~400 yrs before the full
+   game's present.
+6. *Vignette plot*: RESOLVED — see /Vignette narrative/ above. The
+   proto-Duke's band (Titus, Gram Marx, Marigold, and a Dwarf Divine
+   Channeler) discovers the coming Demonstorms in an Old-Continent
+   dungeon and swears the founding oath. Remaining detail: the Dwarf's
+   name and the dungeon's specifics/encounters.
+7. *"Combining Actions" and the Stamina economy*: RESOLVED by
+   =Combat.pdf=. Combining two actions into one costs *1 Stamina*;
+   Repeat-trait actions may self-combine; reactions may combine with
+   actions (riposte); Dazed forbids combining. Stamina is also spent on
+   healing (the =Heal= spell trades a target's Stamina for HP) and
+   refills only on a long rest.
+8. *Derived stats*: PARTIALLY RESOLVED — the four *defense* formulas
+   are now author-specified (see Derived stats above; balance untested).
+   Still open: the *armor table* (AC base + light/medium/heavy category
+   per armor), character *speed* (v0 default suggested 30 ft / 6
+   squares), and the precise *spell-attack* bonus. Weapon-attack rolls
+   and initiative are derivable from the worked example.
+9. *HP model*: RESOLVED — =HP = Race HP + Class HP × Level +
+   Constitution × Tier=; for v0, Tier = Level = 1 and Race HP is
+   normalized to 8 (see Derived stats above).
+
+* Success Criteria
+
+1. =godot --headless= runs the full GUT suite green in CI; exit codes
+   gate merges.
+2. The rules engine reproduces, in code, every worked example in
+   =Combat.pdf= (e.g. the Bobbin-vs-Dmitri duel) deterministically.
+3. A human can play a complete combat encounter with action budget,
+   active defenses, reactions, and criticals all functioning.
+4. The fixed party, its classes, talents, and spells are defined
+   entirely as =.tres= data.
+5. The balance harness runs N headless combats and reports win-rate
+   invariants per encounter.
+6. The full vignette is completable start-to-finish: explore → dialogue
+   → choices → combat → the founding-oath finale, with save/checkpoint.
+7. A downloadable desktop build exists for at least one platform,
+   produced by CI from export templates.
+8. No binary scene/resource files in source; every change is a text
+   diff.
+
+* Risks
+
+| Risk                                          | Mitigation                                                   |
+|-----------------------------------------------+-------------------------------------------------------------|
+| Ruleset churn destabilizes combat code        | Phase 0 freeze; build only the v0 subset; spec is law       |
+| Seven-action economy isn't fun/balanced       | Sim harness validates balance early, before content scale   |
+| AEF unproven on Godot (headless CI, .tscn)    | Phase 1 is headless-only; prove the test loop before scenes |
+| Combat unverifiable without a human watching  | Pure decoupled rules engine + seeded RNG + sim harness      |
+| Art/audio blocks an agent that can't make it  | Placeholder/programmer art; data-driven so assets swap late |
+| Scope creep from a deep world into the full RPG | Hard vignette scope table; everything else is "deferred"   |
+| Save/version drift as data schemas evolve     | Versioned save format; data resources carry a schema field  |
+
+* Estimated effort
+
+Rough, assuming AEF does the bulk with human gating at Phase 0 and at
+each phase boundary.
+
+| Phase | Focus                              | Effort   | Depends on |
+|-------+------------------------------------+----------+------------|
+| 0     | Freeze ruleset v0 spec             | 1-2 days | —          |
+| 1     | Rules engine core (headless)       | 3-5 days | Phase 0    |
+| 2     | Playable combat in Godot           | 3-5 days | Phase 1    |
+| 3     | Characters/talents/content pipeline| 2-4 days | Phase 1    |
+| 4     | Exploration & narrative            | 3-5 days | Phase 2    |
+| 5     | Vignette content, polish, export   | 3-5 days | Phase 3,4  |
+| Total |                                    | ~15-26 d |            |
+
+Phase 1 is the keystone: a correct, headless, deterministic rules
+engine is what makes the rest of the game both buildable and
+AEF-verifiable. Most early risk and value concentrate there.
+
+* Project logistics
+
+- *Game code repo*: the game is its own git repository, currently
+  nested at =hykaen/= inside the aef checkout. The included
+  =bootstrap.sh= (run on the *host*) promotes it to a top-level sibling
+  of =aef/=, so it mounts cleanly as its own =/workspace= with the
+  framework mounted read-only at =/aef=. Not yet pushed to a remote —
+  requires =gh auth login= first.
+- *Design source*: the author's original Hollow World / setting
+  documents live in =docs/design-source/=. The =World & Story Canon=
+  and =ruleset digest= sections above consolidate them.
+- *This brief*: lives with the game at =docs/brief.org= (moved out of
+  the aef repo so the project folder is self-contained).
