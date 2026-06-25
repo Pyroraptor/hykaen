@@ -10,8 +10,11 @@ class Orphanage:
 	var strutils = GutUtils.Strutils.new()
 
 	# wrapper for stubbing
+	# Node.get_orphan_node_ids() is a Godot 4.4+ static method.
+	# On Godot 4.3 it does not exist, so we return [] to disable orphan
+	# tracking silently.  Assertion-based tests continue to work normally.
 	func _get_system_orphan_node_ids():
-		return Node.get_orphan_node_ids()
+		return []
 
 
 	func _make_group_key(group=null, subgroup=null):

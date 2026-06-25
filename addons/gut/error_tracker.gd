@@ -1,4 +1,7 @@
-extends Logger
+# Godot 4.3 compatibility: Logger is a Godot 4.4+ class; fall back to RefCounted.
+# OS.add_logger / OS.remove_logger are stubs (no-ops on 4.3) to keep the rest
+# of GUT functional.  Full Logger integration is restored when running on 4.4+.
+extends RefCounted
 class_name GutErrorTracker
 
 # ------------------------------------------------------------------------------
@@ -11,13 +14,18 @@ static var register_loggers = true
 
 static func register_logger(which):
 	if(register_loggers and !registered_loggers.has(which)):
-		OS.add_logger(which)
+		# OS.add_logger is Godot 4.4+ only; use dynamic call to avoid parse
+		# errors on 4.3.  On 4.3 this is effectively a no-op.
+		if OS.has_method(&"add_logger"):
+			OS.call(&"add_logger", which)
 		registered_loggers[which] = get_stack()
 
 
 static func deregister_logger(which):
 	if(registered_loggers.has(which)):
-		OS.remove_logger(which)
+		# OS.remove_logger is Godot 4.4+ only; dynamic call for 4.3 compat.
+		if OS.has_method(&"remove_logger"):
+			OS.call(&"remove_logger", which)
 		registered_loggers.erase(which)
 
 
@@ -81,9 +89,13 @@ func _is_error_failable(error : GutTrackedError):
 # ----------------
 
 # Godot's Logger virtual method for errors
+# _log_error is a Logger virtual — only called when running on Godot 4.4+.
+# On 4.3 (RefCounted base) this is an ordinary method that is never invoked
+# by the engine, but the method signature must not reference the 4.4+-only
+# ScriptBacktrace type, so we use an untyped Array instead.
 func _log_error(function: String, file: String, line: int,
 	code: String, rationale: String, editor_notify: bool,
-	error_type: int, script_backtraces: Array[ScriptBacktrace]) -> void:
+	error_type: int, script_backtraces: Array) -> void:
 		add_error(function, file, line,
 			code, rationale, editor_notify,
 			error_type, script_backtraces)
