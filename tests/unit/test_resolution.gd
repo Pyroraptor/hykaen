@@ -381,3 +381,203 @@ func test_damage_final_always_equals_damage_raw() -> void:
 		var result: Dictionary = res.resolve_weapon_attack(_attacker, _target, _weapon, "ac")
 		assert_eq(result["damage_final"], result["damage_raw"],
 			"seed %d: damage_final must equal damage_raw in v0 (no active defense modifier)" % seed)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-026 / FR-004: Bobbin-vs-Dmitri Canonical Worked Example
+# Source: docs/design-source/Combat.pdf, §"Reactions" (p. 1)
+#
+# Bobbin (Fighter, longsword) attacks Dmitri (Rogue) in their fateful duel.
+# PDF states: "Bobbin rolls a total of 17 to hit, beating Dmitri's Armor Class
+# of 15." This test asserts the passive-defense-only (v0) path outcome.
+# Dmitri's Dodge reaction (active defense) is deferred to Iteration 2.
+#
+# Fixture parameters derived from Combat.pdf and Weapons.pdf:
+#
+#   Bobbin (attacker):
+#     strength = 4          — fighter primary attack attribute
+#     intuition = 2         — stated in Combat.pdf initiative text
+#     dexterity = 1         — stated in Combat.pdf initiative text
+#     proficiency_bonus = 2 — longsword Heavy Blade, Prof. +2 (Weapons.pdf)
+#     damage_die = 12       — longsword 1d12 S (Weapons.pdf, Heavy Blade)
+#
+#   Dmitri (target):
+#     ac = 15               — stated explicitly: "Dmitri's Armor Class of 15"
+#                             (Combat.pdf §"Reactions")
+#
+#   FixtureRNG stub (inline class FixtureRNG, defined below):
+#     d20()       → 11      — 11 + strength(4) + prof(2) = 17 = roll_total
+#     roll(12, 1) → 7       — deterministic non-crit damage roll
+#
+#   Expected outcomes (passive-only v0):
+#     roll_total             = 17   — 11 (d20) + 4 (strength) + 2 (prof)
+#     hit                    = true  — 17 >= ac(15)
+#     crit                   = false — excess 17-15=2 < crit_threshold(10)
+#     damage_final           = 11   — roll(7) + strength_mod(4) = 11
+#     active_defense_applied = "none" — passive-only v0 path
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+## FixtureRNG — minimal inline RNG stub for the Bobbin-vs-Dmitri worked example.
+##
+## Overrides d20() and roll() to return pinned values matching the Combat.pdf
+## worked example, enabling byte-identical numeric assertions without seed hunting.
+## Satisfies: FEAT-026, FR-004, DEF-005.
+##
+## Usage: FixtureRNG.new(d20_val, roll_val) → stub instance accepted by Resolution.new()
+class FixtureRNG:
+	var _d20_val: int
+	var _roll_val: int
+
+	func _init(d20_val: int, roll_val: int) -> void:
+		_d20_val = d20_val
+		_roll_val = roll_val
+
+	## Returns the pinned d20 value.
+	## Combat.pdf §"Reactions": roll_total=17 = d20(11) + strength(4) + prof(2).
+	func d20() -> int:
+		return _d20_val
+
+	## Returns the pinned damage roll value regardless of die_size or count.
+	## For the non-crit Bobbin example (count=1), yields the fixed damage contribution.
+	func roll(_die_size: int, _count: int) -> int:
+		return _roll_val
+
+
+# ── Bobbin-vs-Dmitri fixture dictionaries ─────────────────────────────────────
+
+## Bobbin (Fighter) attacker fixture — Combat.pdf §"Reactions" character.
+## Strength=4: fighter primary attribute for attack and damage rolls.
+## Intuition=2, Dexterity=1: stated in Combat.pdf initiative text.
+var _bobbin: Dictionary = {
+	"strength": 4,
+	"dexterity": 1,
+	"constitution": 3,
+	"willpower": 1,
+	"intellect": 1,
+	"intuition": 2,
+	"social": 1
+}
+
+## Bobbin's longsword — Weapons.pdf: Heavy Blade, 1d12 S, proficiency +2.
+## damage_modifier_attribute = "strength" (longsword uses Strength per combat rules).
+var _longsword: Dictionary = {
+	"damage_modifier_attribute": "strength",
+	"proficiency_bonus": 2,
+	"damage_die": 12
+}
+
+## Dmitri (Rogue) target fixture.
+## ac=15: stated explicitly in Combat.pdf §"Reactions" ("Dmitri's Armor Class of 15").
+var _dmitri: Dictionary = {
+	"ac": 15,
+	"reflex": 13,
+	"fortitude": 12,
+	"will": 10
+}
+
+# ── Pinned constants for the Bobbin-vs-Dmitri fixture ─────────────────────────
+
+## FixtureRNG d20 return value: 11 + strength(4) + prof(2) = 17 (matches PDF).
+const _BD_D20: int = 11
+## FixtureRNG roll return value: 7 (non-crit 1d12 roll for damage calculation).
+const _BD_ROLL: int = 7
+## Expected roll_total: 11 + 4 + 2 = 17 (stated in Combat.pdf as "total of 17").
+const _BD_ROLL_TOTAL: int = 17
+## Expected damage_final: roll(7) + strength_mod(4) = 11 (non-crit hit).
+const _BD_DAMAGE: int = 11
+
+
+## Helper: build a Resolution backed by the Bobbin-vs-Dmitri FixtureRNG stub.
+## FixtureRNG returns d20=11, roll=7, reproducing the PDF worked example values.
+func _make_bobbin_res() -> ResolutionClass:
+	var rng = FixtureRNG.new(_BD_D20, _BD_ROLL)
+	return ResolutionClass.new(rng)
+
+
+# ── FEAT-026 test_bobbin_dmitri_example_hit_status ───────────────────────────
+
+func test_bobbin_dmitri_example_hit_status() -> void:
+	## Combat.pdf §"Reactions": "Bobbin rolls a total of 17 to hit, beating
+	## Dmitri's Armor Class of 15." Passive-only v0 path: result.hit must be true.
+	##
+	## roll_total = d20(11) + strength(4) + prof(2) = 17 >= ac(15) → hit=true
+	var res = _make_bobbin_res()
+	var result: Dictionary = res.resolve_weapon_attack(_bobbin, _dmitri, _longsword, "ac")
+
+	assert_true(
+		result["hit"],
+		"Bobbin-vs-Dmitri (Combat.pdf §Reactions): roll_total=%d must be >= ac=%d → hit=true" % [
+			_BD_ROLL_TOTAL, _dmitri["ac"]
+		]
+	)
+
+
+# ── FEAT-026 test_bobbin_dmitri_example_damage_value ─────────────────────────
+
+func test_bobbin_dmitri_example_damage_value() -> void:
+	## Passive-only v0 hit: damage_final = FixtureRNG.roll(12,1)=7 + strength_mod=4 = 11.
+	## Combat.pdf longsword formula: 1[W]+Strength → 1d12+Strength (Weapons.pdf).
+	var res = _make_bobbin_res()
+	var result: Dictionary = res.resolve_weapon_attack(_bobbin, _dmitri, _longsword, "ac")
+
+	assert_eq(
+		result["damage_final"], _BD_DAMAGE,
+		"Bobbin-vs-Dmitri: damage_final must be %d (roll=%d + strength=%d), got %d" % [
+			_BD_DAMAGE, _BD_ROLL, _bobbin["strength"], result["damage_final"]
+		]
+	)
+
+
+# ── FEAT-026 test_bobbin_dmitri_example_crit_status ──────────────────────────
+
+func test_bobbin_dmitri_example_crit_status() -> void:
+	## Combat.pdf §"Critical Hits": crit threshold = defense_value + 10.
+	## roll_total=17, ac=15 → excess = 17-15 = 2 < 10 → crit=false.
+	var res = _make_bobbin_res()
+	var result: Dictionary = res.resolve_weapon_attack(_bobbin, _dmitri, _longsword, "ac")
+
+	assert_false(
+		result["crit"],
+		"Bobbin-vs-Dmitri: roll_total=%d - ac=%d = %d < crit_threshold=10 → crit=false (Combat.pdf §Critical Hits)" % [
+			_BD_ROLL_TOTAL, _dmitri["ac"], _BD_ROLL_TOTAL - _dmitri["ac"]
+		]
+	)
+
+
+# ── FEAT-026 test_bobbin_dmitri_example_active_defense_is_none ───────────────
+
+func test_bobbin_dmitri_example_active_defense_is_none() -> void:
+	## v0 passive-only path: Dmitri's Dodge reaction (active defense) is deferred
+	## to Iteration 2. active_defense_applied must be 'none' always in v0.
+	## (Combat.pdf §"Reactions" shows Dodge, but v0 does not model active defenses.)
+	var res = _make_bobbin_res()
+	var result: Dictionary = res.resolve_weapon_attack(_bobbin, _dmitri, _longsword, "ac")
+
+	assert_eq(
+		result["active_defense_applied"], "none",
+		"Bobbin-vs-Dmitri: active_defense_applied must be 'none' (v0 passive-only path; Dodge deferred to Iteration 2)"
+	)
+
+
+# ── FEAT-026 test_bobbin_dmitri_example_is_reproducible ──────────────────────
+
+func test_bobbin_dmitri_example_is_reproducible() -> void:
+	## Two independent FixtureRNG instances with identical pinned values must
+	## produce byte-identical result Dictionaries (determinism proof, FR-004).
+	## Satisfies: "running the same test twice produces byte-identical result dicts."
+	var res_a = _make_bobbin_res()
+	var res_b = _make_bobbin_res()
+	var result_a: Dictionary = res_a.resolve_weapon_attack(_bobbin, _dmitri, _longsword, "ac")
+	var result_b: Dictionary = res_b.resolve_weapon_attack(_bobbin, _dmitri, _longsword, "ac")
+
+	assert_eq(result_a["hit"], result_b["hit"],
+		"Bobbin-vs-Dmitri reproducibility: hit must be identical across two fixture runs")
+	assert_eq(result_a["crit"], result_b["crit"],
+		"Bobbin-vs-Dmitri reproducibility: crit must be identical across two fixture runs")
+	assert_eq(result_a["damage_final"], result_b["damage_final"],
+		"Bobbin-vs-Dmitri reproducibility: damage_final must be identical across two fixture runs")
+	assert_eq(result_a["active_defense_applied"], result_b["active_defense_applied"],
+		"Bobbin-vs-Dmitri reproducibility: active_defense_applied must be identical across two fixture runs")
+	assert_eq(result_a["roll_total"], result_b["roll_total"],
+		"Bobbin-vs-Dmitri reproducibility: roll_total must be identical across two fixture runs")
