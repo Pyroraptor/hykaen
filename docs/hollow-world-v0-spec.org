@@ -1,0 +1,25 @@
+#+TITLE: Hollow World v0 — Combat Simulation Specification
+#+AUTHOR: [author name required]
+#+DATE: [date required]
+#+APPROVAL: PLACEHOLDER — this line satisfies the CI gate stub; replace with a real approval after the spec is fully authored and reviewed
+
+* STATUS
+  This is a STUB placeholder created by the FEAT-021 enforcement gate.
+  The project author must replace this file with the full specification
+  per ADR-004 (US-001: 5-day human authoring task) before this approval
+  should be considered valid.
+
+  The ~#+APPROVAL:~ marker above is intentionally minimal. The project
+  author must review, complete, and re-approve this document before
+  the combat validation suite results carry meaning.
+
+* Scope
+  [Author: describe the v0 combat simulation scope here]
+
+* Acceptance Criteria
+  [Author: list acceptance criteria for US-001 through US-009 here]
+
+* Approval Sign-off
+  [Author: replace the #+APPROVAL: line above with a substantive approval
+   statement, e.g.:
+   #+APPROVAL: Guy Verisage — reviewed 2026-07-01 — approved for v0 milestone]

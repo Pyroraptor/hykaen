@@ -68,6 +68,17 @@ jobs:
           echo "OK: no direct RNG usage in core/ (excluding rng.gd)"
 
       # ---------------------------------------------------------------
+      # Linter 4: enforce spec approval gate (FEAT-021 / ADR-004)
+      # docs/hollow-world-v0-spec.org must exist AND contain #+APPROVAL:
+      # Exit 1 blocks merge until the spec is hand-authored and signed.
+      # ---------------------------------------------------------------
+      - name: lint-spec-approval-marker
+        run: |
+          grep -q '#+APPROVAL:' docs/hollow-world-v0-spec.org \
+            && exit 0 \
+            || (echo 'GATE FAIL: hollow-world-v0-spec.org missing or unsigned' && exit 1)
+
+      # ---------------------------------------------------------------
       # Run GUT headless test suite
       # FEAT-010 DETERMINISM PROOF: test_steel_thread_e2e.gd runs
       # Encounter twice with seed 99999 and asserts byte-identical
