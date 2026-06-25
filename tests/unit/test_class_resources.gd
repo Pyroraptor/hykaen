@@ -71,7 +71,7 @@ func test_fighter_loads_non_null() -> void:
 func test_fighter_is_class_resource() -> void:
 	var res = ResourceLoader.load("res://data/classes/fighter.tres")
 	if res == null:
-		fail("fighter.tres failed to load — cannot check type")
+		fail_test("fighter.tres failed to load — cannot check type")
 		return
 	assert_is(res, ClassResource, "fighter.tres must be an instance of ClassResource")
 
@@ -79,7 +79,7 @@ func test_fighter_is_class_resource() -> void:
 func test_fighter_class_hp() -> void:
 	var res = ResourceLoader.load("res://data/classes/fighter.tres")
 	if res == null:
-		fail("fighter.tres failed to load")
+		fail_test("fighter.tres failed to load")
 		return
 	assert_eq(res.class_hp, 6, "fighter class_hp must be 6")
 
@@ -87,7 +87,7 @@ func test_fighter_class_hp() -> void:
 func test_fighter_stamina_base() -> void:
 	var res = ResourceLoader.load("res://data/classes/fighter.tres")
 	if res == null:
-		fail("fighter.tres failed to load")
+		fail_test("fighter.tres failed to load")
 		return
 	assert_eq(res.stamina_base, 4, "fighter stamina_base must be 4")
 
@@ -95,7 +95,7 @@ func test_fighter_stamina_base() -> void:
 func test_fighter_skills_base() -> void:
 	var res = ResourceLoader.load("res://data/classes/fighter.tres")
 	if res == null:
-		fail("fighter.tres failed to load")
+		fail_test("fighter.tres failed to load")
 		return
 	assert_eq(res.skills_base, 1, "fighter skills_base must be 1")
 
@@ -103,7 +103,7 @@ func test_fighter_skills_base() -> void:
 func test_fighter_spellcasting_attribute() -> void:
 	var res = ResourceLoader.load("res://data/classes/fighter.tres")
 	if res == null:
-		fail("fighter.tres failed to load")
+		fail_test("fighter.tres failed to load")
 		return
 	assert_eq(res.spellcasting_attribute, "", "fighter spellcasting_attribute must be ''")
 
@@ -118,7 +118,7 @@ func test_wizard_loads_non_null() -> void:
 func test_wizard_is_class_resource() -> void:
 	var res = ResourceLoader.load("res://data/classes/wizard.tres")
 	if res == null:
-		fail("wizard.tres failed to load — cannot check type")
+		fail_test("wizard.tres failed to load — cannot check type")
 		return
 	assert_is(res, ClassResource, "wizard.tres must be an instance of ClassResource")
 
@@ -126,7 +126,7 @@ func test_wizard_is_class_resource() -> void:
 func test_wizard_class_hp() -> void:
 	var res = ResourceLoader.load("res://data/classes/wizard.tres")
 	if res == null:
-		fail("wizard.tres failed to load")
+		fail_test("wizard.tres failed to load")
 		return
 	assert_eq(res.class_hp, 4, "wizard class_hp must be 4")
 
@@ -134,7 +134,7 @@ func test_wizard_class_hp() -> void:
 func test_wizard_stamina_base() -> void:
 	var res = ResourceLoader.load("res://data/classes/wizard.tres")
 	if res == null:
-		fail("wizard.tres failed to load")
+		fail_test("wizard.tres failed to load")
 		return
 	assert_eq(res.stamina_base, 1, "wizard stamina_base must be 1")
 
@@ -142,7 +142,7 @@ func test_wizard_stamina_base() -> void:
 func test_wizard_skills_base() -> void:
 	var res = ResourceLoader.load("res://data/classes/wizard.tres")
 	if res == null:
-		fail("wizard.tres failed to load")
+		fail_test("wizard.tres failed to load")
 		return
 	assert_eq(res.skills_base, 2, "wizard skills_base must be 2")
 
@@ -150,7 +150,7 @@ func test_wizard_skills_base() -> void:
 func test_wizard_spellcasting_attribute() -> void:
 	var res = ResourceLoader.load("res://data/classes/wizard.tres")
 	if res == null:
-		fail("wizard.tres failed to load")
+		fail_test("wizard.tres failed to load")
 		return
 	assert_eq(res.spellcasting_attribute, "intellect", "wizard spellcasting_attribute must be 'intellect'")
 
@@ -165,7 +165,7 @@ func test_divine_warrior_loads_non_null() -> void:
 func test_divine_warrior_is_class_resource() -> void:
 	var res = ResourceLoader.load("res://data/classes/divine_warrior.tres")
 	if res == null:
-		fail("divine_warrior.tres failed to load — cannot check type")
+		fail_test("divine_warrior.tres failed to load — cannot check type")
 		return
 	assert_is(res, ClassResource, "divine_warrior.tres must be an instance of ClassResource")
 
@@ -173,7 +173,7 @@ func test_divine_warrior_is_class_resource() -> void:
 func test_divine_warrior_class_hp() -> void:
 	var res = ResourceLoader.load("res://data/classes/divine_warrior.tres")
 	if res == null:
-		fail("divine_warrior.tres failed to load")
+		fail_test("divine_warrior.tres failed to load")
 		return
 	assert_eq(res.class_hp, 6, "divine_warrior class_hp must be 6")
 
@@ -181,7 +181,7 @@ func test_divine_warrior_class_hp() -> void:
 func test_divine_warrior_stamina_base() -> void:
 	var res = ResourceLoader.load("res://data/classes/divine_warrior.tres")
 	if res == null:
-		fail("divine_warrior.tres failed to load")
+		fail_test("divine_warrior.tres failed to load")
 		return
 	assert_eq(res.stamina_base, 3, "divine_warrior stamina_base must be 3")
 
@@ -189,7 +189,7 @@ func test_divine_warrior_stamina_base() -> void:
 func test_divine_warrior_skills_base() -> void:
 	var res = ResourceLoader.load("res://data/classes/divine_warrior.tres")
 	if res == null:
-		fail("divine_warrior.tres failed to load")
+		fail_test("divine_warrior.tres failed to load")
 		return
 	assert_eq(res.skills_base, 1, "divine_warrior skills_base must be 1")
 
@@ -197,7 +197,7 @@ func test_divine_warrior_skills_base() -> void:
 func test_divine_warrior_spellcasting_attribute() -> void:
 	var res = ResourceLoader.load("res://data/classes/divine_warrior.tres")
 	if res == null:
-		fail("divine_warrior.tres failed to load")
+		fail_test("divine_warrior.tres failed to load")
 		return
 	assert_eq(res.spellcasting_attribute, "willpower", "divine_warrior spellcasting_attribute must be 'willpower'")
 
@@ -212,7 +212,7 @@ func test_divine_channeler_loads_non_null() -> void:
 func test_divine_channeler_is_class_resource() -> void:
 	var res = ResourceLoader.load("res://data/classes/divine_channeler.tres")
 	if res == null:
-		fail("divine_channeler.tres failed to load — cannot check type")
+		fail_test("divine_channeler.tres failed to load — cannot check type")
 		return
 	assert_is(res, ClassResource, "divine_channeler.tres must be an instance of ClassResource")
 
@@ -220,7 +220,7 @@ func test_divine_channeler_is_class_resource() -> void:
 func test_divine_channeler_class_hp() -> void:
 	var res = ResourceLoader.load("res://data/classes/divine_channeler.tres")
 	if res == null:
-		fail("divine_channeler.tres failed to load")
+		fail_test("divine_channeler.tres failed to load")
 		return
 	assert_eq(res.class_hp, 5, "divine_channeler class_hp must be 5")
 
@@ -228,7 +228,7 @@ func test_divine_channeler_class_hp() -> void:
 func test_divine_channeler_stamina_base() -> void:
 	var res = ResourceLoader.load("res://data/classes/divine_channeler.tres")
 	if res == null:
-		fail("divine_channeler.tres failed to load")
+		fail_test("divine_channeler.tres failed to load")
 		return
 	assert_eq(res.stamina_base, 2, "divine_channeler stamina_base must be 2")
 
@@ -236,7 +236,7 @@ func test_divine_channeler_stamina_base() -> void:
 func test_divine_channeler_skills_base() -> void:
 	var res = ResourceLoader.load("res://data/classes/divine_channeler.tres")
 	if res == null:
-		fail("divine_channeler.tres failed to load")
+		fail_test("divine_channeler.tres failed to load")
 		return
 	assert_eq(res.skills_base, 2, "divine_channeler skills_base must be 2")
 
@@ -244,7 +244,7 @@ func test_divine_channeler_skills_base() -> void:
 func test_divine_channeler_spellcasting_attribute() -> void:
 	var res = ResourceLoader.load("res://data/classes/divine_channeler.tres")
 	if res == null:
-		fail("divine_channeler.tres failed to load")
+		fail_test("divine_channeler.tres failed to load")
 		return
 	assert_eq(res.spellcasting_attribute, "social", "divine_channeler spellcasting_attribute must be 'social'")
 

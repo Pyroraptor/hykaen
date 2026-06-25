@@ -48,7 +48,7 @@ func test_longsword_loads_non_null() -> void:
 func test_longsword_is_weapon_resource() -> void:
 	var res = ResourceLoader.load("res://data/weapons/longsword.tres")
 	if res == null:
-		fail("longsword.tres failed to load — cannot check type")
+		fail_test("longsword.tres failed to load — cannot check type")
 		return
 	assert_is(res, WeaponResource, "longsword.tres must be an instance of WeaponResource")
 
@@ -56,7 +56,7 @@ func test_longsword_is_weapon_resource() -> void:
 func test_longsword_damage_die() -> void:
 	var res = ResourceLoader.load("res://data/weapons/longsword.tres")
 	if res == null:
-		fail("longsword.tres failed to load")
+		fail_test("longsword.tres failed to load")
 		return
 	assert_eq(res.damage_die, 6, "longsword damage_die must be 6")
 
@@ -64,7 +64,7 @@ func test_longsword_damage_die() -> void:
 func test_longsword_damage_count() -> void:
 	var res = ResourceLoader.load("res://data/weapons/longsword.tres")
 	if res == null:
-		fail("longsword.tres failed to load")
+		fail_test("longsword.tres failed to load")
 		return
 	assert_eq(res.damage_count, 1, "longsword damage_count must be 1")
 
@@ -72,7 +72,7 @@ func test_longsword_damage_count() -> void:
 func test_longsword_damage_modifier_attribute() -> void:
 	var res = ResourceLoader.load("res://data/weapons/longsword.tres")
 	if res == null:
-		fail("longsword.tres failed to load")
+		fail_test("longsword.tres failed to load")
 		return
 	assert_eq(res.damage_modifier_attribute, "str", "longsword damage_modifier_attribute must be 'str'")
 
@@ -80,7 +80,7 @@ func test_longsword_damage_modifier_attribute() -> void:
 func test_longsword_proficiency_bonus() -> void:
 	var res = ResourceLoader.load("res://data/weapons/longsword.tres")
 	if res == null:
-		fail("longsword.tres failed to load")
+		fail_test("longsword.tres failed to load")
 		return
 	assert_eq(res.proficiency_bonus, 1, "longsword proficiency_bonus must be 1")
 
@@ -95,7 +95,7 @@ func test_scale_mail_loads_non_null() -> void:
 func test_scale_mail_is_armor_resource() -> void:
 	var res = ResourceLoader.load("res://data/armor/scale_mail.tres")
 	if res == null:
-		fail("scale_mail.tres failed to load — cannot check type")
+		fail_test("scale_mail.tres failed to load — cannot check type")
 		return
 	assert_is(res, ArmorResource, "scale_mail.tres must be an instance of ArmorResource")
 
@@ -103,7 +103,7 @@ func test_scale_mail_is_armor_resource() -> void:
 func test_scale_mail_ac_base() -> void:
 	var res = ResourceLoader.load("res://data/armor/scale_mail.tres")
 	if res == null:
-		fail("scale_mail.tres failed to load")
+		fail_test("scale_mail.tres failed to load")
 		return
 	assert_eq(res.ac_base, 4, "scale_mail ac_base must be 4")
 
@@ -111,7 +111,7 @@ func test_scale_mail_ac_base() -> void:
 func test_scale_mail_category() -> void:
 	var res = ResourceLoader.load("res://data/armor/scale_mail.tres")
 	if res == null:
-		fail("scale_mail.tres failed to load")
+		fail_test("scale_mail.tres failed to load")
 		return
 	assert_eq(res.category, "medium", "scale_mail category must be 'medium'")
 
