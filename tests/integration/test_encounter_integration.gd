@@ -561,3 +561,215 @@ func test_spend_action_return_checked_in_encounter() -> void:
 		2000 - recorded_damage,
 		"Skeleton hp must reflect exactly the 7 recorded Strike damages (no unrecorded 8th attack)"
 	)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-025: Encounter Round Event Queue for Observer Decoupling
+# ══════════════════════════════════════════════════════════════════════════════
+
+## Criterion FEAT-025-1: get_round_events() returns a non-empty array after one run_round().
+func test_round_events_not_empty_after_run_round() -> void:
+	var enc = EncounterClass.new(
+		[_titus_durable()], [_skeleton_durable()], RNGClass.new(42)
+	)
+	enc.initialize()
+	enc.run_round()
+	assert_true(
+		enc.get_round_events().size() > 0,
+		"get_round_events() must return a non-empty Array after one run_round()"
+	)
+
+
+## Criterion FEAT-025-2: At least one event in get_round_events() has type == 'attack'.
+func test_attack_event_present_after_run_round() -> void:
+	var enc = EncounterClass.new(
+		[_titus_durable()], [_skeleton_durable()], RNGClass.new(42)
+	)
+	enc.initialize()
+	enc.run_round()
+	var events: Array = enc.get_round_events()
+	var has_attack: bool = false
+	for ev in events:
+		if ev.get("type", "") == "attack":
+			has_attack = true
+			break
+	assert_true(
+		has_attack,
+		"get_round_events() must contain at least one event with type == 'attack'"
+	)
+
+
+## Criterion FEAT-025-3: The attack event dict contains exactly the required keys.
+## Required keys: type, round, attacker_name, target_name, roll,
+##                defense_type, defense_value, hit, crit, damage_final
+func test_attack_event_has_all_required_fields() -> void:
+	var enc = EncounterClass.new(
+		[_titus_durable()], [_skeleton_durable()], RNGClass.new(42)
+	)
+	enc.initialize()
+	enc.run_round()
+
+	# Find first attack event
+	var attack_ev: Dictionary = {}
+	for ev in enc.get_round_events():
+		if ev.get("type", "") == "attack":
+			attack_ev = ev
+			break
+
+	if attack_ev.is_empty():
+		fail_test("No 'attack' event found in get_round_events() — cannot check fields")
+		return
+
+	var required_keys: Array = [
+		"type", "round", "attacker_name", "target_name",
+		"roll", "defense_type", "defense_value", "hit", "crit", "damage_final"
+	]
+	for key in required_keys:
+		assert_true(
+			attack_ev.has(key),
+			"Attack event must contain key '%s'; got keys: %s" % [key, str(attack_ev.keys())]
+		)
+	# Verify exactly these keys (no extras)
+	assert_eq(
+		attack_ev.keys().size(), required_keys.size(),
+		"Attack event must have exactly %d keys; got %d: %s"
+		% [required_keys.size(), attack_ev.keys().size(), str(attack_ev.keys())]
+	)
+
+
+## Criterion FEAT-025-4: When the encounter terminates (outcome != ''),
+## get_round_events() contains an event with type == 'encounter_result'
+## and outcome in ['won', 'lost'].
+func test_outcome_event_present_when_encounter_ends() -> void:
+	# Use standard combatants — let the encounter run to completion
+	var enc = _make_encounter(99999)
+	enc.run()
+
+	# After run(), the last round's events should include the encounter_result
+	var events: Array = enc.get_round_events()
+	var result_ev: Dictionary = {}
+	for ev in events:
+		if ev.get("type", "") == "encounter_result":
+			result_ev = ev
+			break
+
+	assert_false(
+		result_ev.is_empty(),
+		"get_round_events() must contain an 'encounter_result' event when the encounter ends"
+	)
+	var outcome: String = result_ev.get("outcome", "")
+	assert_true(
+		outcome == "won" or outcome == "lost",
+		"encounter_result event's outcome must be 'won' or 'lost'; got '%s'" % outcome
+	)
+
+
+## Criterion FEAT-025-5: When a combatant's hp_current drops to 0 or below,
+## a {type: 'combatant_defeated'} event is present in that round's events.
+func test_defeated_event_emitted_when_combatant_reaches_zero_hp() -> void:
+	# Skeleton has hp=1 and ac=1 → Titus always hits and always kills in one blow.
+	var titus: Dictionary = _titus_dict()
+	var skeleton_fragile: Dictionary = {
+		"name": "Skeleton",
+		"hp_current": 1,
+		"ac": 1,
+		"strength": 2,
+		"dexterity": 1,
+		"intuition": 1,
+		"weapon": {
+			"damage_modifier_attribute": "strength",
+			"proficiency_bonus": 1,
+			"damage_die": 6
+		}
+	}
+	# Use seed 42; initiative roll ensures Titus acts first (dex+intuition=4 vs 2)
+	# Even if skeleton goes first, it can't kill Titus (hp=18, max skeleton damage=8)
+	# so Titus always gets to strike and one-shot the skeleton.
+	var enc = EncounterClass.new([titus], [skeleton_fragile], RNGClass.new(42))
+	enc.run()
+
+	# The round in which the skeleton dies must contain a combatant_defeated event
+	var events: Array = enc.get_round_events()
+	var defeated_ev: Dictionary = {}
+	for ev in events:
+		if ev.get("type", "") == "combatant_defeated":
+			defeated_ev = ev
+			break
+
+	assert_false(
+		defeated_ev.is_empty(),
+		"get_round_events() must contain a 'combatant_defeated' event when a combatant's HP reaches 0"
+	)
+	assert_eq(
+		defeated_ev.get("name", ""),
+		"Skeleton",
+		"combatant_defeated event must name the defeated combatant"
+	)
+
+
+## Criterion FEAT-025-6: run two rounds; after round 2 get_round_events() contains
+## only round-2 events: event[0].round == 2 and no events have round == 1.
+func test_round_events_cleared_at_start_of_each_round() -> void:
+	# Use durable combatants (hp=2000) so neither dies in round 1
+	var enc = EncounterClass.new(
+		[_titus_durable()], [_skeleton_durable()], RNGClass.new(42)
+	)
+	enc.initialize()
+	enc.run_round()  # Round 1
+	enc.run_round()  # Round 2
+
+	var events: Array = enc.get_round_events()
+	assert_true(
+		events.size() > 0,
+		"get_round_events() must not be empty after round 2"
+	)
+
+	# No event should be from round 1
+	var has_round1: bool = false
+	for ev in events:
+		if ev.get("round", 0) == 1:
+			has_round1 = true
+			break
+	assert_false(
+		has_round1,
+		"get_round_events() after round 2 must not contain any round-1 events"
+	)
+
+	# First event must be from round 2
+	assert_eq(
+		events[0].get("round", -1), 2,
+		"First event in get_round_events() after round 2 must have round == 2"
+	)
+
+
+## Criterion FEAT-025-7: Two independent encounters with seed 99999 produce
+## identical get_round_events() after equivalent run_round() calls (determinism).
+func test_round_events_deterministic_same_seed() -> void:
+	var enc_a = EncounterClass.new(
+		[_titus_durable()], [_skeleton_durable()], RNGClass.new(99999)
+	)
+	var enc_b = EncounterClass.new(
+		[_titus_durable()], [_skeleton_durable()], RNGClass.new(99999)
+	)
+
+	enc_a.initialize()
+	enc_b.initialize()
+	enc_a.run_round()
+	enc_b.run_round()
+
+	var events_a: Array = enc_a.get_round_events()
+	var events_b: Array = enc_b.get_round_events()
+
+	assert_eq(
+		events_a.size(), events_b.size(),
+		"Both encounters (same seed) must produce the same number of round events"
+	)
+
+	# Compare event by event for byte-identical content
+	for idx in range(events_a.size()):
+		var ev_a: Dictionary = events_a[idx]
+		var ev_b: Dictionary = events_b[idx]
+		assert_eq(
+			ev_a, ev_b,
+			"Event at index %d must be identical between both encounters (seed 99999)" % idx
+		)

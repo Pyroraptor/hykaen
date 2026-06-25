@@ -34,6 +34,7 @@ var _action_economies: Array ## One ActionEconomy per combatant (parallel to _tu
 var _outcome: String         ## 'won', 'lost', or '' while combat is ongoing
 var _round_count: int        ## Number of complete rounds elapsed
 var _round_history: Array    ## [{attacker, action, target, roll, damage_final, budget_remaining, round}, ...]
+var _round_events: Array     ## Observer event queue; reset each run_round() call (FEAT-025)
 var _resolution              ## Resolution instance (wraps the shared _rng)
 var _initialized: bool       ## True once initialize() has been called
 
@@ -53,6 +54,7 @@ func _init(party: Array, enemies: Array, rng) -> void:
 	_outcome          = ""
 	_round_count      = 0
 	_round_history    = []
+	_round_events     = []
 	_turn_order       = []
 	_action_economies = []
 	_initialized      = false
@@ -123,6 +125,9 @@ func initialize() -> void:
 func run_round() -> void:
 	var this_round: int = _round_count + 1
 
+	# Clear the per-round observer queue — fresh log for each round (FEAT-025)
+	_round_events = []
+
 	for i in range(_turn_order.size()):
 		# Stop processing turns if the outcome has already been decided
 		if _outcome != "":
@@ -172,10 +177,36 @@ func run_round() -> void:
 				combatant, target, weapon, "ac"
 			)
 
+			# Capture defense value before modifying target state (FEAT-025)
+			var defense_value: int = target.get("ac", 0)
+
 			# Apply damage to target
 			var damage: int = result.get("damage_final", 0)
 			if damage > 0:
 				target["hp_current"] = target.get("hp_current", 0) - damage
+
+			# Append structured attack event to the per-round observer queue (FEAT-025)
+			_round_events.append({
+				"type":          "attack",
+				"round":         this_round,
+				"attacker_name": combatant.get("name", ""),
+				"target_name":   target.get("name", ""),
+				"roll":          result.get("roll_total", 0),
+				"defense_type":  "ac",
+				"defense_value": defense_value,
+				"hit":           result.get("hit", false),
+				"crit":          result.get("crit", false),
+				"damage_final":  result.get("damage_final", 0)
+			})
+
+			# Emit combatant_defeated event if the target's HP just reached zero (FEAT-025)
+			if target.get("hp_current", 0) <= 0:
+				_round_events.append({
+					"type":        "combatant_defeated",
+					"round":       this_round,
+					"name":        target.get("name", ""),
+					"defeated_by": combatant.get("name", "")
+				})
 
 			# Record the attack for logging / replay
 			_round_history.append({
@@ -197,6 +228,12 @@ func run_round() -> void:
 
 			if all_enemies_dead:
 				_outcome = "won"
+				# Emit encounter_result event when the encounter ends (FEAT-025)
+				_round_events.append({
+					"type":    "encounter_result",
+					"round":   this_round,
+					"outcome": _outcome
+				})
 				break
 
 			var all_party_dead: bool = true
@@ -207,6 +244,12 @@ func run_round() -> void:
 
 			if all_party_dead:
 				_outcome = "lost"
+				# Emit encounter_result event when the encounter ends (FEAT-025)
+				_round_events.append({
+					"type":    "encounter_result",
+					"round":   this_round,
+					"outcome": _outcome
+				})
 				break
 
 	# End of round — reset every combatant's ActionEconomy
@@ -259,3 +302,20 @@ func get_round_history() -> Array:
 ## for the combatant at the given turn-order index. Useful for test inspection.
 func get_action_economy(index: int):
 	return _action_economies[index]
+
+
+## get_round_events() → Array — per-round observer event queue (FEAT-025).
+##
+## Returns the structured event list populated during the most recent run_round() call.
+## The queue is cleared at the start of each run_round() so observers poll after each round.
+##
+## Event types emitted:
+##   {type:'attack', round:int, attacker_name:String, target_name:String,
+##    roll:int, defense_type:String, defense_value:int, hit:bool, crit:bool, damage_final:int}
+##   {type:'combatant_defeated', round:int, name:String, defeated_by:String}
+##   {type:'encounter_result', round:int, outcome:String}
+##
+## A future UI layer calls run_round() and consumes get_round_events() to drive
+## animations without any coupling to domain internals (FR-012).
+func get_round_events() -> Array:
+	return _round_events
