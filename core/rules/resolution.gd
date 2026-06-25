@@ -63,6 +63,7 @@ func resolve_weapon_attack(attacker: Dictionary, target: Dictionary, weapon: Dic
 		return {
 			"hit": false,
 			"crit": false,
+			"roll_total": 0,
 			"damage_raw": 0,
 			"active_defense_applied": "none",
 			"damage_final": 0,
@@ -98,6 +99,7 @@ func resolve_weapon_attack(attacker: Dictionary, target: Dictionary, weapon: Dic
 	return {
 		"hit": hit,
 		"crit": crit,
+		"roll_total": roll_total,
 		"damage_raw": damage_raw,
 		"active_defense_applied": active_defense_applied,
 		"damage_final": damage_final
