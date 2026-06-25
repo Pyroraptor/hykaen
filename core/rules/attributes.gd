@@ -25,6 +25,12 @@ const COST_TABLE: Dictionary = {1: 1, 2: 2, 3: 4, 4: 6, 5: 9, 6: 12}
 ## Maximum total point-buy budget (ADR-010).
 const MAX_BUY: int = 27
 
+## The seven canonical attribute keys required by point_buy_validate (FEAT-022 / DEF-004).
+const REQUIRED_KEYS: Array = [
+	"strength", "constitution", "dexterity", "willpower",
+	"intellect", "intuition", "social"
+]
+
 
 var _rng  # RNG — injected at construction; never instantiated here (ADR-002)
 
@@ -51,6 +57,30 @@ func _init(rng) -> void:
 ##     cost  — total spend computed from COST_TABLE (0 on range error)
 ##     error — human-readable failure reason; empty string on success
 func point_buy_validate(scores: Dictionary) -> Dictionary:
+	# Guard: check for missing and unknown keys before any cost computation (FEAT-022 / DEF-004).
+	var missing_keys: Array = []
+	for k in REQUIRED_KEYS:
+		if not scores.has(k):
+			missing_keys.append(k)
+
+	var unknown_keys: Array = []
+	for k in scores.keys():
+		if not k in REQUIRED_KEYS:
+			unknown_keys.append(k)
+
+	if missing_keys.size() > 0 or unknown_keys.size() > 0:
+		var parts: Array = []
+		if missing_keys.size() > 0:
+			parts.append("Missing required attributes: %s" % ", ".join(missing_keys))
+		if unknown_keys.size() > 0:
+			parts.append("unknown keys: %s" % ", ".join(unknown_keys))
+		return {
+			"valid": false,
+			"cost": 0,
+			"error": "; ".join(parts)
+		}
+
+	# Key set is exactly correct — proceed with cost computation.
 	var total_cost: int = 0
 	for key in scores:
 		var score: int = scores[key]

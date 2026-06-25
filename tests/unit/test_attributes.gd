@@ -285,6 +285,112 @@ func test_attributes_gd_no_node_inheritance() -> void:
 	)
 
 
+# ── point_buy_validate — key validation (FEAT-022 / DEF-004) ─────────────────
+
+## Criterion: {strength: 5} alone → {valid:false, error contains 'Missing required attributes'}
+func test_point_buy_validate_single_key_returns_invalid() -> void:
+	var attrs = _make_attrs()
+	var scores := {"strength": 5}
+	var result = attrs.point_buy_validate(scores)
+	assert_false(result["valid"], "single-key dict must be invalid")
+	assert_true(
+		result["error"].contains("Missing required attributes"),
+		"error must mention 'Missing required attributes'; got: '%s'" % result["error"]
+	)
+	assert_eq(result["cost"], 0, "cost must be 0 when keys are invalid")
+
+
+## Criterion: abbreviated keys → {valid:false, error contains 'unknown keys'}
+func test_point_buy_validate_wrong_key_name_returns_invalid() -> void:
+	var attrs = _make_attrs()
+	# abbreviated/misspelled keys: str, con, dex, wil, int are NOT the canonical names
+	var scores := {
+		"str": 5,
+		"con": 4,
+		"dex": 2,
+		"wil": 2,
+		"int": 1,
+		"intuition": 2,
+		"social": 1
+	}
+	var result = attrs.point_buy_validate(scores)
+	assert_false(result["valid"], "abbreviated keys must be invalid")
+	assert_true(
+		result["error"].to_lower().contains("unknown keys"),
+		"error must mention 'unknown keys'; got: '%s'" % result["error"]
+	)
+
+
+## Criterion: empty dict → {valid:false, error lists all 7 missing keys}
+func test_point_buy_validate_empty_dict_returns_invalid() -> void:
+	var attrs = _make_attrs()
+	var scores := {}
+	var result = attrs.point_buy_validate(scores)
+	assert_false(result["valid"], "empty dict must be invalid")
+	assert_true(
+		result["error"].contains("Missing required attributes"),
+		"error must mention 'Missing required attributes'; got: '%s'" % result["error"]
+	)
+	# All 7 required keys should be listed
+	assert_true(result["error"].contains("strength"), "error must list 'strength'")
+	assert_true(result["error"].contains("constitution"), "error must list 'constitution'")
+	assert_true(result["error"].contains("dexterity"), "error must list 'dexterity'")
+	assert_true(result["error"].contains("willpower"), "error must list 'willpower'")
+	assert_true(result["error"].contains("intellect"), "error must list 'intellect'")
+	assert_true(result["error"].contains("intuition"), "error must list 'intuition'")
+	assert_true(result["error"].contains("social"), "error must list 'social'")
+	assert_eq(result["cost"], 0, "cost must be 0 for empty dict")
+
+
+## Criterion: six keys, missing 'willpower' → {valid:false, error contains 'willpower'}
+func test_point_buy_validate_six_keys_missing_one_returns_invalid() -> void:
+	var attrs = _make_attrs()
+	var scores := {
+		"strength": 5,
+		"constitution": 4,
+		"dexterity": 2,
+		"intellect": 1,
+		"intuition": 1,
+		"social": 1
+		# willpower is intentionally missing
+	}
+	var result = attrs.point_buy_validate(scores)
+	assert_false(result["valid"], "six keys (missing willpower) must be invalid")
+	assert_true(
+		result["error"].contains("willpower"),
+		"error must mention missing key 'willpower'; got: '%s'" % result["error"]
+	)
+	assert_eq(result["cost"], 0, "cost must be 0 when key missing")
+
+
+## Criterion: all 7 correct keys + extra 'charisma' → {valid:false, error contains 'unknown keys: charisma'}
+func test_point_buy_validate_extra_key_returns_invalid() -> void:
+	var attrs = _make_attrs()
+	var scores := {
+		"strength": 5,
+		"constitution": 4,
+		"dexterity": 2,
+		"willpower": 1,
+		"intellect": 1,
+		"intuition": 1,
+		"social": 1,
+		"charisma": 3  # extra, unknown key
+	}
+	var result = attrs.point_buy_validate(scores)
+	assert_false(result["valid"], "extra key 'charisma' must make result invalid")
+	assert_true(
+		result["error"].to_lower().contains("unknown keys"),
+		"error must mention 'unknown keys'; got: '%s'" % result["error"]
+	)
+	assert_true(
+		result["error"].contains("charisma"),
+		"error must mention the unknown key 'charisma'; got: '%s'" % result["error"]
+	)
+	assert_eq(result["cost"], 0, "cost must be 0 when unknown keys present")
+
+
+# ── Domain purity — no Node/Control inheritance ───────────────────────────────
+
 ## The CI RNG-linter (ADR-002) must not flag attributes.gd.
 ## Ensures attributes.gd contains no direct RandomNumberGenerator.new(),
 ## randf(), or randi() calls — all randomness flows through the injected RNG.
