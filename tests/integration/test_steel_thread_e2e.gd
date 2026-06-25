@@ -1,10 +1,10 @@
 extends GutTest
 ## tests/integration/test_steel_thread_e2e.gd
 ##
-## GUT integration test — FEAT-010: Steel Thread End-to-End Smoke Test.
-## CI-Gated deterministic encounter validation.
+## GUT integration test — FEAT-010 / FEAT-028: Steel Thread End-to-End Smoke Test.
+## CI-Gated deterministic encounter validation with all FIX-001 through FIX-007 applied.
 ##
-## Satisfies: US-002, US-003, US-009
+## Satisfies: US-001, US-002, US-003, US-004, US-005, US-006, US-007, US-008, US-009
 ##
 ## Steel thread entry → exit:
 ##   data layer       → ResourceLoader.load('data/characters/titus.tres') non-null
@@ -14,6 +14,12 @@ extends GutTest
 ##   determinism proof → Run 1 and Run 2 with seed 99999 produce byte-identical
 ##                       roll and damage_final sequences (exit_point)
 ##
+## FEAT-028 additions validate:
+##   FIX-003 → longsword.damage_modifier_attribute used directly (no key-remap shim)
+##   FIX-004 → action budget spend_action() called during Strike (budget_remaining == 6)
+##   FIX-005 → get_round_events() populated with attack events containing all required fields
+##   Full pipeline → all resources loaded without attribute overrides; derived stats correct
+##
 ## CI exit contract: godot --headless -- --gut-run-all exits 0.
 
 const EncounterClass    = preload("res://core/combat/encounter.gd")
@@ -21,6 +27,8 @@ const RNGClass          = preload("res://core/rules/rng.gd")
 const AttributesClass   = preload("res://core/rules/attributes.gd")
 const ResolutionClass   = preload("res://core/rules/resolution.gd")
 const CharacterResource = preload("res://core/model/character_resource.gd")
+const ClassResource     = preload("res://core/model/class_resource.gd")
+const WeaponResource    = preload("res://core/model/weapon_resource.gd")
 
 ## Pinned seed for all steel-thread determinism tests.
 const STEEL_SEED: int = 99999
@@ -391,4 +399,408 @@ func test_resolution_uses_resource_field_for_attribute_lookup() -> void:
 	assert_eq(
 		result_resource["damage_final"], result_manual["damage_final"],
 		"resource-field weapon dict must produce identical damage_final to manually-keyed fixture (FEAT-023)"
+	)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-028 Criterion 1 — Full Pipeline: all resources without attribute overrides
+# Loads titus.tres, fighter.tres (via class_ref), and longsword.tres via
+# ResourceLoader; computes ALL six derived stats directly from resource data
+# (no hardcoded attribute values); asserts v0 formula expectations.
+# Validates: DEF-001, DEF-002 — data layer fully wired
+# ══════════════════════════════════════════════════════════════════════════════
+
+## test_pipeline_loads_all_resources_without_overrides
+##
+## Verifies the complete data layer of the steel thread:
+##   1. All three resources load non-null via ResourceLoader (no fallback stubs).
+##   2. fighter.tres is a ClassResource (loaded as titus.class_ref dependency).
+##   3. longsword.tres is a WeaponResource.
+##   4. All six derived stats computed from resource fields (no literal overrides)
+##      match v0 formula expectations exactly.
+##
+## Expected: HP=18, Stamina=10, AC=14, Reflex=14, Fortitude=19, Will=13
+func test_pipeline_loads_all_resources_without_overrides() -> void:
+	if _titus == null or _fighter_class == null or _longsword == null or _scale_mail == null:
+		fail_test(
+			"One or more required resources failed to load — "
+			+ "cannot verify pipeline without attribute overrides"
+		)
+		return
+
+	# Verify all resources loaded non-null via ResourceLoader
+	assert_not_null(
+		_titus,
+		"titus.tres must load non-null via ResourceLoader (FEAT-028 pipeline)"
+	)
+	assert_not_null(
+		_fighter_class,
+		"fighter.tres (via titus.class_ref) must load non-null — ResourceLoader dependency chain intact"
+	)
+	assert_not_null(
+		_longsword,
+		"longsword.tres must load non-null via ResourceLoader (FEAT-028 pipeline)"
+	)
+
+	# Verify correct resource types
+	assert_is(
+		_titus, CharacterResource,
+		"titus.tres must be an instance of CharacterResource (FEAT-028)"
+	)
+	assert_is(
+		_fighter_class, ClassResource,
+		"fighter.tres must be an instance of ClassResource (FEAT-028)"
+	)
+	assert_is(
+		_longsword, WeaponResource,
+		"longsword.tres must be an instance of WeaponResource (FEAT-028)"
+	)
+
+	# Compute ALL six derived stats directly from resource data — zero hardcoded values.
+	# Proves the full data → business_logic pipeline is wired (FEAT-028, FIX-001, FIX-002).
+	var attrs = AttributesClass.new(RNGClass.new(0))
+	var hp: int       = attrs.compute_hp(_titus.attributes, _fighter_class)
+	var stamina: int  = attrs.compute_stamina(_titus.attributes, _fighter_class)
+	var ac: int       = attrs.compute_ac(_titus.attributes, _scale_mail.ac_base, _scale_mail.category)
+	var reflex: int   = attrs.compute_reflex(_titus.attributes)
+	var fortitude: int = attrs.compute_fortitude(_titus.attributes)
+	var will: int     = attrs.compute_will(_titus.attributes)
+
+	assert_eq(hp, 18,
+		"HP from resource data must be 18 (8 + class_hp=6 + constitution=4) — FEAT-028 pipeline")
+	assert_eq(stamina, 10,
+		"Stamina from resource data must be 10 (stamina_base=4 + willpower=2 + constitution=4) — FEAT-028 pipeline")
+	assert_eq(ac, 14,
+		"AC from resource data must be 14 (10 + ac_base=4, medium armor, no DEX) — FEAT-028 pipeline")
+	assert_eq(reflex, 14,
+		"Reflex from resource data must be 14 (10 + dexterity=2 + intuition=2) — FEAT-028 pipeline")
+	assert_eq(fortitude, 19,
+		"Fortitude from resource data must be 19 (10 + constitution=4 + strength=5) — FEAT-028 pipeline")
+	assert_eq(will, 13,
+		"Will from resource data must be 13 (10 + willpower=2 + social=1) — FEAT-028 pipeline")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-028 Criterion 2 — Weapon attribute key convention end-to-end (FIX-003)
+# Encounter built using longsword.damage_modifier_attribute directly in weapon dict
+# (no manual key-remap shim present in _build_titus_combatant).
+# Titus deals non-zero damage_final in at least one attack event.
+# Validates: DEF-003, FIX-003
+# ══════════════════════════════════════════════════════════════════════════════
+
+## test_weapon_attribute_key_convention_e2e
+##
+## Verifies end-to-end that the canonical 'strength' key stored in
+## longsword.tres.damage_modifier_attribute is used directly in the weapon dict
+## passed to the encounter — no manual remap (e.g. 'damage_modifier' → 'strength').
+##
+## Also verifies that with this wiring, Titus successfully deals non-zero damage_final
+## in at least one attack event during the encounter run (seed 99999).
+func test_weapon_attribute_key_convention_e2e() -> void:
+	if _titus == null or _longsword == null:
+		fail_test(
+			"titus.tres or longsword.tres failed to load — "
+			+ "cannot verify weapon attribute key convention"
+		)
+		return
+
+	# Build Titus combatant and verify weapon dict reads resource field directly
+	var titus_c: Dictionary = _build_titus_combatant()
+	var weapon_attr: String = titus_c.get("weapon", {}).get("damage_modifier_attribute", "")
+	assert_eq(
+		weapon_attr, _longsword.damage_modifier_attribute,
+		"weapon dict 'damage_modifier_attribute' must equal longsword resource field directly "
+		+ "(no manual remap shim — FEAT-028 FIX-003)"
+	)
+	assert_eq(
+		weapon_attr, "strength",
+		"longsword.damage_modifier_attribute must be 'strength' (canonical full key, FIX-003)"
+	)
+
+	# Run the full encounter with seed 99999 and verify Titus deals damage
+	var enc = _make_encounter(STEEL_SEED)
+	enc.run()
+
+	var titus_dealt_damage: bool = false
+	for entry in enc.get_round_history():
+		if entry.get("attacker", {}).get("name", "") == "Titus" \
+				and entry.get("damage_final", 0) > 0:
+			titus_dealt_damage = true
+			break
+
+	assert_true(
+		titus_dealt_damage,
+		"Titus must deal non-zero damage_final in at least one attack event "
+		+ "(weapon key convention wired correctly — FEAT-028 FIX-003)"
+	)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-028 Criterion 3 — Action budget consumed after Strike (FIX-004)
+# After the first run_round(), round_history[0].budget_remaining must equal 6,
+# confirming spend_action() was called during Strike execution and the action
+# budget was decremented from the starting value of 7 to 6.
+# Validates: DEF-004 / DEF-005, FIX-004
+# ══════════════════════════════════════════════════════════════════════════════
+
+## test_action_budget_consumed_after_strike
+##
+## Uses a real-resource encounter (seed 99999) to verify the action economy
+## spend_action() integration within the Strike execution path.
+##
+## The round_history entry for the first Strike must record budget_remaining == 6
+## (spend_action returned {success: true, remaining: 6} after decrementing from 7).
+##
+## This is the FIX-004 smoke test: prior to the fix, spend_action() was not called
+## and budget_remaining would be absent or incorrect in round_history.
+func test_action_budget_consumed_after_strike() -> void:
+	if _titus == null:
+		fail_test("titus.tres failed to load — cannot verify action budget spend")
+		return
+
+	var enc = _make_encounter(STEEL_SEED)
+	enc.initialize()
+	enc.run_round()
+
+	var history: Array = enc.get_round_history()
+	assert_true(
+		history.size() >= 1,
+		"round_history must have at least 1 entry after run_round() — "
+		+ "spend_action() must have been called (FEAT-028 FIX-004)"
+	)
+
+	if history.size() < 1:
+		return
+
+	# The first Strike decrements budget from 7 to 6
+	var first_entry: Dictionary = history[0]
+	assert_true(
+		first_entry.has("budget_remaining"),
+		"round_history[0] must contain 'budget_remaining' key — "
+		+ "spend_action() return value must be captured (FEAT-028 FIX-004)"
+	)
+	assert_eq(
+		first_entry.get("budget_remaining", -1), 6,
+		"First Strike must decrement action budget 7 → 6; "
+		+ "budget_remaining must be 6 (FEAT-028 FIX-004)"
+	)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-028 Criterion 4 — Round events populated with attack events (FIX-005)
+# get_round_events() after any run_round() contains at least one event
+# with type == 'attack' and all required fields populated.
+# Required fields: roll, hit, crit, damage_final.
+# Validates: DEF-006 / DEF-007, FIX-005
+# ══════════════════════════════════════════════════════════════════════════════
+
+## test_round_events_populated_with_attack_events
+##
+## Verifies the FEAT-025 round event queue is correctly populated by the
+## encounter's run_round() execution path (FIX-005).
+##
+## After a single run_round() call, get_round_events() must contain at least
+## one event with type == 'attack' that has all four required fields populated:
+##   roll        — int: the attack roll total (d20 + modifier + proficiency)
+##   hit         — bool: whether the attack hit the target
+##   crit        — bool: whether the attack was a critical hit
+##   damage_final — int: the final damage value after active defense resolution
+func test_round_events_populated_with_attack_events() -> void:
+	if _titus == null:
+		fail_test("titus.tres failed to load — cannot verify round events (FEAT-028 FIX-005)")
+		return
+
+	var enc = _make_encounter(STEEL_SEED)
+	enc.initialize()
+	enc.run_round()
+
+	var events: Array = enc.get_round_events()
+	assert_true(
+		events.size() > 0,
+		"get_round_events() must be non-empty after run_round() (FEAT-028 FIX-005)"
+	)
+
+	# Locate the first attack event in the round queue
+	var attack_ev: Dictionary = {}
+	for ev in events:
+		if ev.get("type", "") == "attack":
+			attack_ev = ev
+			break
+
+	assert_false(
+		attack_ev.is_empty(),
+		"get_round_events() must contain at least one event with type == 'attack' (FEAT-028 FIX-005)"
+	)
+
+	if attack_ev.is_empty():
+		return
+
+	# Verify all four required attack event fields are present
+	for key in ["roll", "hit", "crit", "damage_final"]:
+		assert_true(
+			attack_ev.has(key),
+			"Attack event must contain required field '%s' — "
+			+ "FEAT-028 FIX-005; present keys: %s" % [key, str(attack_ev.keys())]
+		)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-028 Criterion 5 — Steel thread Run 1 terminates (seed 99999 CI gate)
+# Encounter with seed 99999 using only real resources must reach a valid
+# outcome ('won' or 'lost') with round_count >= 1.
+# This is the CI entry point for the steel thread exit gate.
+# ══════════════════════════════════════════════════════════════════════════════
+
+## test_steel_thread_seed_99999_run1_terminates
+##
+## Runs the complete steel thread encounter (seed 99999, real Titus resources)
+## and asserts:
+##   1. Encounter terminates with outcome in ['won', 'lost'].
+##   2. At least one complete round was executed (round_count >= 1).
+##
+## This is the primary CI gate test: if the full pipeline (data → business logic →
+## encounter) is broken, this test fails and blocks the merge.
+func test_steel_thread_seed_99999_run1_terminates() -> void:
+	if _titus == null:
+		fail_test(
+			"titus.tres failed to load — steel thread Run 1 (seed %d) cannot execute"
+			% STEEL_SEED
+		)
+		return
+
+	var enc = _make_encounter(STEEL_SEED)
+	enc.run()
+
+	var outcome: String = enc.get_outcome()
+	assert_true(
+		outcome == "won" or outcome == "lost",
+		"Steel thread Run 1 (seed %d) must terminate with 'won' or 'lost'; got '%s'"
+		% [STEEL_SEED, outcome]
+	)
+	assert_true(
+		enc.get_round_count() >= 1,
+		"Steel thread Run 1 (seed %d) must complete at least 1 round; got %d"
+		% [STEEL_SEED, enc.get_round_count()]
+	)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-028 Criterion 6 — Run 2 byte-identical roll sequence (determinism proof)
+# Second fresh instantiation with seed 99999 produces a roll sequence array
+# that is equal to the roll sequence array from Run 1 (GDScript array == assertion).
+# ══════════════════════════════════════════════════════════════════════════════
+
+## test_steel_thread_seed_99999_run2_byte_identical_rolls
+##
+## Proves the steel thread determinism guarantee at the exit point:
+## two independent encounters with the same seed produce byte-identical roll sequences.
+##
+## Extracts the roll value from every round_history entry and asserts
+## GDScript array equality (rolls_run2 == rolls_run1).
+##
+## This covers the FEAT-028 requirement: "second fresh instantiation with seed 99999
+## produces roll sequence array == roll sequence array from run 1".
+func test_steel_thread_seed_99999_run2_byte_identical_rolls() -> void:
+	if _titus == null:
+		fail_test(
+			"titus.tres failed to load — "
+			+ "cannot verify byte-identical rolls (seed %d)" % STEEL_SEED
+		)
+		return
+
+	var enc1 = _make_encounter(STEEL_SEED)
+	var enc2 = _make_encounter(STEEL_SEED)
+	enc1.run()
+	enc2.run()
+
+	# Extract roll sequences from both independent round histories
+	var rolls_1: Array = []
+	var rolls_2: Array = []
+	for entry in enc1.get_round_history():
+		rolls_1.append(entry.get("roll", -1))
+	for entry in enc2.get_round_history():
+		rolls_2.append(entry.get("roll", -1))
+
+	# GDScript array equality assertion — byte-identical roll sequences
+	assert_eq(
+		rolls_2, rolls_1,
+		("Run 2 roll sequence must be byte-identical to Run 1 (seed %d) "
+			+ "— steel thread determinism proof (FEAT-028)") % STEEL_SEED
+	)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-028 Criterion 7 — Run 2 byte-identical damage sequence (determinism proof)
+# Second fresh instantiation with seed 99999 produces a damage_final sequence array
+# that is equal to the damage_final sequence array from Run 1.
+# ══════════════════════════════════════════════════════════════════════════════
+
+## test_steel_thread_seed_99999_run2_byte_identical_damage
+##
+## Proves the steel thread determinism guarantee for damage values:
+## two independent encounters with the same seed produce byte-identical damage_final sequences.
+##
+## Extracts damage_final from every round_history entry and asserts
+## GDScript array equality (damage_run2 == damage_run1).
+##
+## This covers the FEAT-028 requirement: "second run produces damage_final sequence
+## array == damage_final sequence array from run 1".
+func test_steel_thread_seed_99999_run2_byte_identical_damage() -> void:
+	if _titus == null:
+		fail_test(
+			"titus.tres failed to load — "
+			+ "cannot verify byte-identical damage (seed %d)" % STEEL_SEED
+		)
+		return
+
+	var enc1 = _make_encounter(STEEL_SEED)
+	var enc2 = _make_encounter(STEEL_SEED)
+	enc1.run()
+	enc2.run()
+
+	# Extract damage_final sequences from both independent round histories
+	var damage_1: Array = []
+	var damage_2: Array = []
+	for entry in enc1.get_round_history():
+		damage_1.append(entry.get("damage_final", -1))
+	for entry in enc2.get_round_history():
+		damage_2.append(entry.get("damage_final", -1))
+
+	# GDScript array equality assertion — byte-identical damage_final sequences
+	assert_eq(
+		damage_2, damage_1,
+		("Run 2 damage_final sequence must be byte-identical to Run 1 (seed %d) "
+			+ "— steel thread determinism proof (FEAT-028)") % STEEL_SEED
+	)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-028 Criterion 8 — Run 2 identical outcome string (determinism proof)
+# Both fresh instantiations with seed 99999 must return the same outcome string.
+# ══════════════════════════════════════════════════════════════════════════════
+
+## test_steel_thread_seed_99999_run2_identical_outcome
+##
+## Proves the steel thread determinism guarantee for the encounter outcome:
+## two independent encounters with the same seed return the same 'won' or 'lost' string.
+##
+## This covers the FEAT-028 requirement: "both runs return identical outcome string
+## ('won' or 'lost')".
+func test_steel_thread_seed_99999_run2_identical_outcome() -> void:
+	if _titus == null:
+		fail_test(
+			"titus.tres failed to load — "
+			+ "cannot verify outcome determinism (seed %d)" % STEEL_SEED
+		)
+		return
+
+	var enc1 = _make_encounter(STEEL_SEED)
+	var enc2 = _make_encounter(STEEL_SEED)
+	enc1.run()
+	enc2.run()
+
+	assert_eq(
+		enc2.get_outcome(), enc1.get_outcome(),
+		("Run 2 outcome must be identical to Run 1 (seed %d) "
+			+ "— steel thread determinism proof (FEAT-028)") % STEEL_SEED
 	)
