@@ -4,7 +4,7 @@ extends GutTest
 ## GUT test suite for FEAT-006: Titus Fighter Character .tres Resource.
 ## Validates all test criteria for US-006 — Titus character data and derived stats.
 ##
-## Attribute spread (18 points — within 27-point budget):
+## Attribute spread (23 points — within 27-point budget):
 ##   STR=5 (cost 9), CON=4 (cost 6), DEX=2 (cost 2), WIL=2 (cost 2),
 ##   INT=1 (cost 1), Intuition=2 (cost 2), SOC=1 (cost 1) → total 23 points
 
