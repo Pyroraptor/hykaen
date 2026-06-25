@@ -14,7 +14,11 @@
 ##   name, hp_current, ac, <attribute>, weapon: {damage_modifier_attribute, proficiency_bonus, damage_die}
 ##   intuition, dexterity  (used for initiative)
 ##
-## Satisfies: US-009, ADR-006
+## FEAT-024: spend_action() is now called before each Strike. The combatant
+## loops through all 7 actions per turn (striking until Spent or no target).
+## If spend_action() returns {success: false}, the Strike is aborted.
+##
+## Satisfies: US-007, US-009, ADR-006
 
 class_name Encounter
 
@@ -29,7 +33,7 @@ var _turn_order: Array       ## All combatants sorted descending by initiative r
 var _action_economies: Array ## One ActionEconomy per combatant (parallel to _turn_order)
 var _outcome: String         ## 'won', 'lost', or '' while combat is ongoing
 var _round_count: int        ## Number of complete rounds elapsed
-var _round_history: Array    ## [{attacker, action, target, roll, damage_final}, ...]
+var _round_history: Array    ## [{attacker, action, target, roll, damage_final, budget_remaining, round}, ...]
 var _resolution              ## Resolution instance (wraps the shared _rng)
 var _initialized: bool       ## True once initialize() has been called
 
@@ -100,18 +104,25 @@ func initialize() -> void:
 ## run_round() — executes one complete combat round.
 ##
 ## For each living combatant in _turn_order (in initiative order):
-##   1. Calls start_of_turn() on their ActionEconomy.
-##   2. Picks the first living combatant on the opposing side as target.
-##   3. Resolves a weapon attack via Resolution (using "ac" as the defense type).
-##   4. Applies damage_final to the target's hp_current.
-##   5. Appends an attack record to _round_history.
-##   6. Checks win/loss:
-##        all enemies hp <= 0 → _outcome = 'won'; break.
-##        all party hp <= 0   → _outcome = 'lost'; break.
+##   1. Calls start_of_turn() on their ActionEconomy (resets budget to 7).
+##   2. Enters an action loop — each iteration:
+##      a. Picks the first living combatant on the opposing side as target.
+##         If no living target found, breaks the action loop.
+##      b. Calls spend_action({name:'Strike', traits:[]}) on the ActionEconomy.
+##         If {success: false} (Spent), breaks the action loop — no attack fired.
+##      c. Resolves a weapon attack via Resolution (using "ac" as the defense type).
+##      d. Applies damage_final to the target's hp_current.
+##      e. Appends an attack record (including budget_remaining and round) to _round_history.
+##      f. Checks win/loss:
+##           all enemies hp <= 0 → _outcome = 'won'; break.
+##           all party hp <= 0   → _outcome = 'lost'; break.
+##   3. Continues action loop until Spent, no target, or combat ends.
 ##
 ## After iterating all combatants (or breaking early):
 ##   Calls end_of_round() on every ActionEconomy and increments _round_count.
 func run_round() -> void:
+	var this_round: int = _round_count + 1
+
 	for i in range(_turn_order.size()):
 		# Stop processing turns if the outcome has already been decided
 		if _outcome != "":
@@ -129,59 +140,74 @@ func run_round() -> void:
 		var is_enemy: bool    = combatant.get("_is_enemy", false)
 		var target_pool: Array = _party if is_enemy else _enemies
 
-		# Pick first living target from the opposing pool
-		var target: Dictionary = {}
-		var found_target: bool = false
-		for t in target_pool:
-			if t.get("hp_current", 0) > 0:
-				target     = t
-				found_target = true
+		# ── Action loop: strike until Spent or no living target ───────────────
+		while true:
+			# Stop the action loop if the outcome was decided in a prior strike
+			if _outcome != "":
 				break
 
-		# No valid target on the opposing side — skip this combatant's attack
-		if not found_target:
-			continue
+			# Pick first living target from the opposing pool
+			var target: Dictionary = {}
+			var found_target: bool = false
+			for t in target_pool:
+				if t.get("hp_current", 0) > 0:
+					target       = t
+					found_target = true
+					break
 
-		# Resolve weapon attack against the target's AC
-		var weapon: Dictionary = combatant.get("weapon", {})
-		var result: Dictionary = _resolution.resolve_weapon_attack(
-			combatant, target, weapon, "ac"
-		)
-
-		# Apply damage to target
-		var damage: int = result.get("damage_final", 0)
-		if damage > 0:
-			target["hp_current"] = target.get("hp_current", 0) - damage
-
-		# Record the attack for logging / replay
-		_round_history.append({
-			"attacker":     combatant,
-			"action":       "Strike",
-			"target":       target,
-			"roll":         result.get("roll_total", 0),
-			"damage_final": result.get("damage_final", 0)
-		})
-
-		# Check win/loss after each attack (ADR-006)
-		var all_enemies_dead: bool = true
-		for e in _enemies:
-			if e.get("hp_current", 0) > 0:
-				all_enemies_dead = false
+			# No valid target on the opposing side — this combatant is done
+			if not found_target:
 				break
 
-		if all_enemies_dead:
-			_outcome = "won"
-			break
+			# Spend action for Strike — if Spent, abort without resolving
+			var spend_result: Dictionary = _action_economies[i].spend_action(
+				{"name": "Strike", "traits": []}
+			)
+			if not spend_result["success"]:
+				break  # Combatant is Spent; no attack fired for this iteration
 
-		var all_party_dead: bool = true
-		for p in _party:
-			if p.get("hp_current", 0) > 0:
-				all_party_dead = false
+			# Resolve weapon attack against the target's AC
+			var weapon: Dictionary = combatant.get("weapon", {})
+			var result: Dictionary = _resolution.resolve_weapon_attack(
+				combatant, target, weapon, "ac"
+			)
+
+			# Apply damage to target
+			var damage: int = result.get("damage_final", 0)
+			if damage > 0:
+				target["hp_current"] = target.get("hp_current", 0) - damage
+
+			# Record the attack for logging / replay
+			_round_history.append({
+				"attacker":         combatant,
+				"action":           "Strike",
+				"target":           target,
+				"roll":             result.get("roll_total", 0),
+				"damage_final":     result.get("damage_final", 0),
+				"budget_remaining": spend_result.get("remaining", -1),
+				"round":            this_round
+			})
+
+			# Check win/loss after each attack (ADR-006)
+			var all_enemies_dead: bool = true
+			for e in _enemies:
+				if e.get("hp_current", 0) > 0:
+					all_enemies_dead = false
+					break
+
+			if all_enemies_dead:
+				_outcome = "won"
 				break
 
-		if all_party_dead:
-			_outcome = "lost"
-			break
+			var all_party_dead: bool = true
+			for p in _party:
+				if p.get("hp_current", 0) > 0:
+					all_party_dead = false
+					break
+
+			if all_party_dead:
+				_outcome = "lost"
+				break
 
 	# End of round — reset every combatant's ActionEconomy
 	for ae in _action_economies:
@@ -223,6 +249,13 @@ func get_round_count() -> int:
 
 ## get_round_history() → Array — attack records from all rounds.
 ## Each entry: {attacker: Dictionary, action: String, target: Dictionary,
-##              roll: int, damage_final: int}
+##              roll: int, damage_final: int,
+##              budget_remaining: int, round: int}
 func get_round_history() -> Array:
 	return _round_history
+
+
+## get_action_economy(index: int) → ActionEconomy — returns the ActionEconomy
+## for the combatant at the given turn-order index. Useful for test inspection.
+func get_action_economy(index: int):
+	return _action_economies[index]

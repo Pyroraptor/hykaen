@@ -394,3 +394,170 @@ func test_same_seed_produces_same_round_count() -> void:
 		enc_a.get_round_count(), enc_b.get_round_count(),
 		"Same seed must produce identical round_count (determinism)"
 	)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-024: Action Economy spend_action() wired into Strike execution path
+# ══════════════════════════════════════════════════════════════════════════════
+
+## Helper: build combatants with very high HP so neither dies during the test round.
+## budget=MAX budget=2000 hp ensures 7 Strikes (max 7 * ~22 damage) cannot kill them.
+func _titus_durable() -> Dictionary:
+	var d: Dictionary = _titus_dict()
+	d["hp_current"] = 2000
+	return d
+
+
+func _skeleton_durable() -> Dictionary:
+	var d: Dictionary = _skeleton_dict()
+	d["hp_current"] = 2000
+	return d
+
+
+## Criterion FEAT-024-1: First Strike of a round decrements action budget from 7 to 6.
+## The round_history entry records budget_remaining == 6 after the first spend_action().
+func test_strike_decrements_action_budget() -> void:
+	var enc = EncounterClass.new(
+		[_titus_durable()], [_skeleton_durable()], RNGClass.new(42)
+	)
+	enc.initialize()
+	enc.run_round()
+
+	var history: Array = enc.get_round_history()
+	assert_true(
+		history.size() >= 1,
+		"round_history must have at least 1 entry after run_round()"
+	)
+
+	var first_entry: Dictionary = history[0]
+	assert_true(
+		first_entry.has("budget_remaining"),
+		"round_history entry must contain 'budget_remaining' key (FEAT-024)"
+	)
+	assert_eq(
+		first_entry.get("budget_remaining", -1), 6,
+		"First Strike of the round must decrement budget 7 → 6; got %d"
+		% first_entry.get("budget_remaining", -1)
+	)
+
+
+## Criterion FEAT-024-2: Combatant whose budget reaches 0 (Spent) cannot fire
+## additional Strikes in the same round. With 7-action budget and high-HP targets
+## (no early termination), each combatant takes exactly 7 Strikes and no more.
+func test_spent_combatant_cannot_fire_additional_strike() -> void:
+	var enc = EncounterClass.new(
+		[_titus_durable()], [_skeleton_durable()], RNGClass.new(42)
+	)
+	enc.initialize()
+	enc.run_round()
+
+	var history: Array = enc.get_round_history()
+
+	# Count strikes per combatant in round 1
+	var titus_strikes: int    = 0
+	var skeleton_strikes: int = 0
+	for entry in history:
+		if entry.get("round", 0) != 1:
+			continue
+		var name: String = entry.get("attacker", {}).get("name", "")
+		if name == "Titus":
+			titus_strikes += 1
+		elif name == "Skeleton":
+			skeleton_strikes += 1
+
+	# Budget = 7 → exactly 7 Strikes each; 8th spend_action() returns {success:false}
+	assert_eq(
+		titus_strikes, 7,
+		"Titus must take exactly 7 Strikes (budget exhausted, 8th spend aborted); got %d"
+		% titus_strikes
+	)
+	assert_eq(
+		skeleton_strikes, 7,
+		"Skeleton must take exactly 7 Strikes (budget exhausted, 8th spend aborted); got %d"
+		% skeleton_strikes
+	)
+
+
+## Criterion FEAT-024-3: After end_of_round(), each combatant's budget resets to 7.
+## The first Strike of round 2 must also decrement from 7 → 6 (budget_remaining == 6).
+func test_action_budget_resets_to_7_next_round() -> void:
+	var enc = EncounterClass.new(
+		[_titus_durable()], [_skeleton_durable()], RNGClass.new(42)
+	)
+	enc.initialize()
+	enc.run_round()  # Round 1
+	enc.run_round()  # Round 2
+
+	var history: Array = enc.get_round_history()
+
+	# Collect round 2 entries in order
+	var round2_entries: Array = []
+	for entry in history:
+		if entry.get("round", 0) == 2:
+			round2_entries.append(entry)
+
+	assert_true(
+		round2_entries.size() >= 1,
+		"Round 2 must have at least 1 history entry (FEAT-024)"
+	)
+
+	var first_r2: Dictionary = round2_entries[0]
+	assert_eq(
+		first_r2.get("budget_remaining", -1), 6,
+		"First Strike of round 2 must show budget_remaining=6 (reset to 7, then 1 spent); got %d"
+		% first_r2.get("budget_remaining", -1)
+	)
+
+
+## Criterion FEAT-024-4: spend_action() returning {success: false} (Spent state)
+## causes encounter to skip the attack — no damage applied to target for that aborted
+## attempt, and no extra history entry recorded beyond the 7th Strike.
+##
+## Verification strategy:
+##   - Use high-HP targets (neither dies during the round).
+##   - After run_round(), Titus has exactly 7 history entries for round 1.
+##   - The 7th entry shows budget_remaining == 0 (Spent reached).
+##   - The skeleton's hp_current == 2000 - sum(all Titus damages recorded in history),
+##     proving no phantom 8th attack was applied.
+func test_spend_action_return_checked_in_encounter() -> void:
+	var titus_c: Dictionary    = _titus_durable()
+	var skeleton_c: Dictionary = _skeleton_durable()
+
+	var enc = EncounterClass.new([titus_c], [skeleton_c], RNGClass.new(42))
+	enc.initialize()
+	enc.run_round()
+
+	var history: Array = enc.get_round_history()
+
+	# Collect all Titus strikes in round 1
+	var titus_r1: Array = []
+	for entry in history:
+		if entry.get("round", 0) == 1 \
+				and entry.get("attacker", {}).get("name", "") == "Titus":
+			titus_r1.append(entry)
+
+	# Exactly 7 entries: 8th spend_action() returned {success:false} → no extra entry
+	assert_eq(
+		titus_r1.size(), 7,
+		"spend_action returning {success:false} must stop Titus at 7 Strikes (not 8+); got %d"
+		% titus_r1.size()
+	)
+
+	# 7th Strike must show budget_remaining == 0 (Spent state triggered)
+	if titus_r1.size() == 7:
+		var last_entry: Dictionary = titus_r1[6]
+		assert_eq(
+			last_entry.get("budget_remaining", -1), 0,
+			"7th Strike must show budget_remaining=0 (Spent state reached)"
+		)
+
+	# Target hp must equal 2000 minus the sum of all RECORDED Titus damages —
+	# no phantom 8th-attack damage was applied.
+	var recorded_damage: int = 0
+	for entry in titus_r1:
+		recorded_damage += entry.get("damage_final", 0)
+	assert_eq(
+		skeleton_c.get("hp_current", -1),
+		2000 - recorded_damage,
+		"Skeleton hp must reflect exactly the 7 recorded Strike damages (no unrecorded 8th attack)"
+	)
