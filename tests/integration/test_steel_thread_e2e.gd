@@ -19,6 +19,7 @@ extends GutTest
 const EncounterClass    = preload("res://core/combat/encounter.gd")
 const RNGClass          = preload("res://core/rules/rng.gd")
 const AttributesClass   = preload("res://core/rules/attributes.gd")
+const ResolutionClass   = preload("res://core/rules/resolution.gd")
 const CharacterResource = preload("res://core/model/character_resource.gd")
 
 ## Pinned seed for all steel-thread determinism tests.
@@ -45,9 +46,8 @@ func before_all() -> void:
 ## Computes HP and AC via attributes.gd (business_logic layer) so the encounter
 ## receives real derived stats rather than hardcoded constants.
 ##
-## Note: longsword.tres stores damage_modifier_attribute as "str" (abbreviated),
-## but the combat system resolves attacker.get("strength"). The key is mapped
-## here to match the combat dictionary convention shared by all encounter tests.
+## FEAT-023: longsword.tres now stores damage_modifier_attribute='strength' (canonical
+## full key). The weapon dict uses the resource field directly — no key-remap shim needed.
 func _build_titus_combatant() -> Dictionary:
 	var attrs = AttributesClass.new(RNGClass.new(0))
 	var hp    = attrs.compute_hp(_titus.attributes, _fighter_class)
@@ -60,8 +60,7 @@ func _build_titus_combatant() -> Dictionary:
 		"dexterity":  _titus.attributes.get("dexterity", 0),
 		"intuition":  _titus.attributes.get("intuition", 0),
 		"weapon": {
-			## "str" resource key → "strength" combat key (encounter convention)
-			"damage_modifier_attribute": "strength",
+			"damage_modifier_attribute": _longsword.damage_modifier_attribute,
 			"proficiency_bonus":         _longsword.proficiency_bonus,
 			"damage_die":                _longsword.damage_die
 		}
@@ -328,4 +327,68 @@ func test_steel_thread_validated_banner() -> void:
 	assert_true(
 		outcome == "won" or outcome == "lost",
 		"Steel thread banner: encounter must complete with valid outcome"
+	)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-023 — Resource field drives attribute lookup end-to-end
+# resolve_weapon_attack() with weapon dict built from longsword.tres fields
+# produces identical result to the previous manually-keyed test fixture.
+# ══════════════════════════════════════════════════════════════════════════════
+
+## test_resolution_uses_resource_field_for_attribute_lookup
+##
+## Verifies that using _longsword.damage_modifier_attribute directly in the weapon
+## dict produces an identical resolve_weapon_attack() result to the previous
+## manually-keyed fixture (which hardcoded "strength").
+##
+## Since longsword.tres now stores 'strength', both weapon dicts are equivalent,
+## and the two resolutions (same pinned seed) must agree on hit, crit, and damage_final.
+##
+## Pinned seed 2: d20=11, Titus strength=5, prof_bonus=1 → roll_total=17 vs ac=12 → hit.
+func test_resolution_uses_resource_field_for_attribute_lookup() -> void:
+	if _titus == null or _longsword == null:
+		fail_test("titus.tres or longsword.tres failed to load — cannot check resource field lookup")
+		return
+
+	# Build attacker dict from titus.tres attributes
+	var attacker: Dictionary = {}
+	for k in _titus.attributes:
+		attacker[k] = _titus.attributes[k]
+
+	var target: Dictionary = {"ac": 12, "reflex": 12, "fortitude": 14, "will": 11}
+
+	# Weapon dict A: built from the longsword resource field directly (FEAT-023 path)
+	var weapon_from_resource: Dictionary = {
+		"damage_modifier_attribute": _longsword.damage_modifier_attribute,
+		"proficiency_bonus":         _longsword.proficiency_bonus,
+		"damage_die":                _longsword.damage_die
+	}
+
+	# Weapon dict B: the previous manually-keyed fixture (hardcoded "strength")
+	var weapon_manual: Dictionary = {
+		"damage_modifier_attribute": "strength",
+		"proficiency_bonus":         _longsword.proficiency_bonus,
+		"damage_die":                _longsword.damage_die
+	}
+
+	# Both resolutions use the same pinned seed → must produce byte-identical output
+	const LOOKUP_SEED: int = 2
+	var res_a = ResolutionClass.new(RNGClass.new(LOOKUP_SEED))
+	var res_b = ResolutionClass.new(RNGClass.new(LOOKUP_SEED))
+
+	var result_resource: Dictionary = res_a.resolve_weapon_attack(attacker, target, weapon_from_resource, "ac")
+	var result_manual: Dictionary   = res_b.resolve_weapon_attack(attacker, target, weapon_manual, "ac")
+
+	assert_eq(
+		result_resource["hit"], result_manual["hit"],
+		"resource-field weapon dict must produce identical 'hit' to manually-keyed fixture (FEAT-023)"
+	)
+	assert_eq(
+		result_resource["crit"], result_manual["crit"],
+		"resource-field weapon dict must produce identical 'crit' to manually-keyed fixture (FEAT-023)"
+	)
+	assert_eq(
+		result_resource["damage_final"], result_manual["damage_final"],
+		"resource-field weapon dict must produce identical damage_final to manually-keyed fixture (FEAT-023)"
 	)

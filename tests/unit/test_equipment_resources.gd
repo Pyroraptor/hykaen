@@ -4,10 +4,14 @@ extends GutTest
 ## GUT test suite for FEAT-004: WeaponResource, ArmorResource, CharacterResource
 ## schemas and starter equipment .tres data files.
 ## Validates all test criteria for US-006 (schema and equipment data portions).
+##
+## FEAT-023 additions: canonical attribute key convention ('strength' not 'str').
 
 const WeaponResource = preload("res://core/model/weapon_resource.gd")
 const ArmorResource  = preload("res://core/model/armor_resource.gd")
 const CharacterResource = preload("res://core/model/character_resource.gd")
+const ResolutionClass = preload("res://core/rules/resolution.gd")
+const RNGClass = preload("res://core/rules/rng.gd")
 
 
 # ── ADR-003 text-format verification ─────────────────────────────────────────
@@ -74,7 +78,19 @@ func test_longsword_damage_modifier_attribute() -> void:
 	if res == null:
 		fail_test("longsword.tres failed to load")
 		return
-	assert_eq(res.damage_modifier_attribute, "str", "longsword damage_modifier_attribute must be 'str'")
+	assert_eq(res.damage_modifier_attribute, "strength", "longsword damage_modifier_attribute must be 'strength' (FEAT-023: canonical full key)")
+
+
+## FEAT-023: Canonical attribute key — explicit name mirrors the new test criterion.
+func test_longsword_damage_modifier_attribute_is_strength() -> void:
+	var res = ResourceLoader.load("res://data/weapons/longsword.tres")
+	if res == null:
+		fail_test("longsword.tres failed to load")
+		return
+	assert_eq(
+		res.damage_modifier_attribute, "strength",
+		"longsword.tres damage_modifier_attribute must be 'strength' — abbreviated 'str' is forbidden (FEAT-023)"
+	)
 
 
 func test_longsword_proficiency_bonus() -> void:
@@ -220,3 +236,96 @@ func _scan_for_binary_res(dir_path: String, violations: Array) -> void:
 			violations.append(dir_path + "/" + entry)
 		entry = dir.get_next()
 	dir.list_dir_end()
+
+
+# ── FEAT-023: Canonical attribute key convention ──────────────────────────────
+
+## test_all_weapon_tres_files_use_canonical_attribute_names
+##
+## Loops over every .tres file in data/weapons/, loads each as a WeaponResource,
+## and asserts that damage_modifier_attribute is a full canonical name
+## ('strength' or 'dexterity') — never an abbreviated form ('str', 'dex', etc.).
+func test_all_weapon_tres_files_use_canonical_attribute_names() -> void:
+	var CANONICAL: Array = ["strength", "dexterity"]
+	var FORBIDDEN_PREFIXES: Array = ["str", "dex", "con", "wil", "int", "soc"]
+	var violations: Array = []
+
+	var dir := DirAccess.open("res://data/weapons")
+	if dir == null:
+		fail_test("Cannot open res://data/weapons — directory missing")
+		return
+
+	dir.list_dir_begin()
+	var entry: String = dir.get_next()
+	while entry != "":
+		if not dir.current_is_dir() and entry.ends_with(".tres"):
+			var path: String = "res://data/weapons/" + entry
+			var res = ResourceLoader.load(path)
+			if res == null:
+				violations.append(path + ": failed to load")
+			elif not res.get("damage_modifier_attribute") is String:
+				violations.append(path + ": damage_modifier_attribute is not a String")
+			else:
+				var attr: String = res.damage_modifier_attribute
+				if not (attr in CANONICAL):
+					violations.append(
+						"%s: damage_modifier_attribute='%s' is not canonical (must be one of %s)"
+						% [path, attr, str(CANONICAL)]
+					)
+		entry = dir.get_next()
+	dir.list_dir_end()
+
+	assert_eq(
+		violations.size(), 0,
+		"All weapon .tres files must use canonical full attribute names:\n" + "\n".join(violations)
+	)
+
+
+## test_weapon_attribute_key_resolves_without_remap
+##
+## Loads longsword.tres and titus.tres, builds attacker/weapon dicts from the
+## resources directly (no manual key remapping), calls resolve_weapon_attack()
+## using longsword.damage_modifier_attribute — and asserts damage_final > 0.
+##
+## A non-zero damage_final proves the attribute key lookup found
+## attacker['strength'] without any shim or override (FEAT-023 / DEF-003).
+##
+## Pinned seed: 2 → d20=11, roll_total = 11 + strength(5) + prof_bonus(1) = 17
+## Target AC = 1 guarantees a hit regardless of roll.
+func test_weapon_attribute_key_resolves_without_remap() -> void:
+	var longsword = ResourceLoader.load("res://data/weapons/longsword.tres")
+	var titus = ResourceLoader.load("res://data/characters/titus.tres")
+	if longsword == null:
+		fail_test("longsword.tres failed to load — cannot run remap test")
+		return
+	if titus == null:
+		fail_test("titus.tres failed to load — cannot run remap test")
+		return
+
+	# Build attacker dict from titus.tres attributes directly — no hardcoding
+	var attacker: Dictionary = {}
+	for k in titus.attributes:
+		attacker[k] = titus.attributes[k]
+
+	# Build weapon dict using longsword resource fields directly (no manual remap)
+	var weapon: Dictionary = {
+		"damage_modifier_attribute": longsword.damage_modifier_attribute,
+		"proficiency_bonus":         longsword.proficiency_bonus,
+		"damage_die":                longsword.damage_die
+	}
+
+	# Target with minimal AC to guarantee a hit and confirm damage_final > 0
+	var target: Dictionary = {"ac": 1, "reflex": 1, "fortitude": 1, "will": 1}
+
+	# seed 2 → d20=11, guaranteed hit; damage > 0 proves key resolved correctly
+	var rng = RNGClass.new(2)
+	var resolution = ResolutionClass.new(rng)
+	var result: Dictionary = resolution.resolve_weapon_attack(attacker, target, weapon, "ac")
+
+	assert_true(
+		result.get("damage_final", 0) > 0,
+		(
+			"resolve_weapon_attack using longsword.damage_modifier_attribute='%s' must produce "
+			+ "damage_final > 0 — key lookup must succeed without any shim (FEAT-023)"
+		) % longsword.damage_modifier_attribute
+	)
