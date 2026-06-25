@@ -69,11 +69,17 @@ jobs:
 
       # ---------------------------------------------------------------
       # Run GUT headless test suite
+      # FEAT-010 DETERMINISM PROOF: test_steel_thread_e2e.gd runs
+      # Encounter twice with seed 99999 and asserts byte-identical
+      # roll + damage_final sequences — proving RNG reproducibility.
+      # Exit 0 gates merge (branch protection rule).
       # ---------------------------------------------------------------
-      - name: Run GUT tests
+      - name: Run GUT tests (includes FEAT-010 steel thread determinism proof)
         run: |
+          echo "--- DETERMINISM PROOF: FEAT-010 steel thread exercises Encounter with seed 99999 ---"
+          echo "--- Expected output: 'STEEL THREAD VALIDATED: seed 99999, outcome <won|lost>, rounds <N>' ---"
           godot --headless -- --gut-run-all
-        # Exit code forwarded to branch protection
+          echo "--- GUT suite completed successfully (exit 0) ---"
 
       # ---------------------------------------------------------------
       # Upload GUT output as CI artifact (always, pass or fail)
