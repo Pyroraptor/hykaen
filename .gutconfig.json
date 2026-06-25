@@ -4,5 +4,6 @@
     "should_exit": true,
     "log_level": 1,
     "prefix": "test_",
-    "suffix": ".gd"
+    "suffix": ".gd",
+    "output_dir": "res://"
 }

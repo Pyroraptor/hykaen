@@ -17,13 +17,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Godot 4
+      # ---------------------------------------------------------------
+      # Godot version pinned to a fixed release-binary URL (FEAT-039).
+      # The version string is hardcoded directly in the URL — no shell
+      # variable indirection — so the binary cannot drift silently.
+      # Pin: Godot_v4.3-stable_linux.x86_64
+      # ---------------------------------------------------------------
+      - name: Install Godot 4 (pinned 4.3-stable)
         run: |
-          GODOT_VERSION="4.3"
-          curl -L "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip" \
+          curl -L "https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip" \
             -o /tmp/godot.zip
           unzip /tmp/godot.zip -d /tmp/godot
-          sudo install -m 755 "/tmp/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64" /usr/local/bin/godot
+          sudo install -m 755 "/tmp/godot/Godot_v4.3-stable_linux.x86_64" /usr/local/bin/godot
           godot --version
 
       # ---------------------------------------------------------------
@@ -68,18 +73,34 @@ jobs:
           echo "OK: no direct RNG usage in core/ (excluding rng.gd)"
 
       # ---------------------------------------------------------------
-      # Linter 4: enforce spec approval gate (FEAT-021 / ADR-004)
-      # docs/hollow-world-v0-spec.org must exist AND contain #+APPROVAL:
+      # Linter 4a: enforce spec approval gate (FEAT-021 / ADR-004)
+      # docs/hollow-world-v0-spec.org MUST contain a #+APPROVAL: line.
       # Exit 1 blocks merge until the spec is hand-authored and signed.
       # ---------------------------------------------------------------
       - name: lint-spec-approval-marker
         run: |
           grep -q '#+APPROVAL:' docs/hollow-world-v0-spec.org \
-            && exit 0 \
-            || (echo 'GATE FAIL: hollow-world-v0-spec.org missing or unsigned' && exit 1)
+            || (echo 'GATE FAIL: hollow-world-v0-spec.org missing or unsigned' >&2 && exit 1)
 
       # ---------------------------------------------------------------
-      # Run GUT headless test suite
+      # Linter 4b: enforce genuine approval — no PLACEHOLDER (FEAT-039 / DEF-001)
+      # The #+APPROVAL: line must NOT contain the word PLACEHOLDER.
+      # Exit 1 blocks merge until the author replaces the stub text
+      # with a genuine signed approval.
+      # ---------------------------------------------------------------
+      - name: lint-spec-no-placeholder
+        run: |
+          grep -q PLACEHOLDER docs/hollow-world-v0-spec.org \
+            && (echo 'GATE FAIL: hollow-world-v0-spec.org approval line still contains PLACEHOLDER' >&2 && \
+                echo 'Replace the PLACEHOLDER with a genuine signed approval before merging.' >&2 && \
+                exit 1) \
+            || exit 0
+
+      # ---------------------------------------------------------------
+      # Run GUT headless test suite (FEAT-039: DEF-002 output capture)
+      # Output is captured to gut_output.log via tee so the artifact-
+      # upload step always finds a non-empty log file (pass or fail).
+      # set -o pipefail ensures godot's exit code propagates through tee.
       # FEAT-010 DETERMINISM PROOF: test_steel_thread_e2e.gd runs
       # Encounter twice with seed 99999 and asserts byte-identical
       # roll + damage_final sequences — proving RNG reproducibility.
@@ -89,11 +110,13 @@ jobs:
         run: |
           echo "--- DETERMINISM PROOF: FEAT-010 steel thread exercises Encounter with seed 99999 ---"
           echo "--- Expected output: 'STEEL THREAD VALIDATED: seed 99999, outcome <won|lost>, rounds <N>' ---"
-          godot --headless -- --gut-run-all
+          set -o pipefail
+          godot --headless -- --gut-run-all 2>&1 | tee gut_output.log
           echo "--- GUT suite completed successfully (exit 0) ---"
 
       # ---------------------------------------------------------------
       # Upload GUT output as CI artifact (always, pass or fail)
+      # gut_output.log is produced by the tee above (FEAT-039 DEF-002).
       # ---------------------------------------------------------------
       - name: Upload GUT output artifacts
         if: always()
@@ -101,6 +124,7 @@ jobs:
         with:
           name: gut-test-output-${{ github.run_number }}
           path: |
+            gut_output.log
             *.log
             *.html
           if-no-files-found: ignore
