@@ -62,7 +62,7 @@ func test_longsword_damage_die() -> void:
 	if res == null:
 		fail_test("longsword.tres failed to load")
 		return
-	assert_eq(res.damage_die, 6, "longsword damage_die must be 6")
+	assert_eq(res.damage_die, 12, "longsword damage_die must be 12 (d12, Heavy Blade per Weapons.pdf — FEAT-046 DEF-003 fix: was incorrectly 6)")
 
 
 func test_longsword_damage_count() -> void:

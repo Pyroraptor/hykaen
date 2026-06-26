@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="CharacterResource" load_steps=3 format=3 uid="uid://btitus1a2b3c4d"]
+
+[ext_resource type="Script" uid="uid://bchar1a2b3c4d5e" path="res://core/model/character_resource.gd" id="1_chrscr"]
+[ext_resource type="Resource" uid="uid://cr1a2b3c4d5e6f" path="res://data/classes/fighter.tres" id="2_fghtr"]
+
+[resource]
+script = ExtResource("1_chrscr")
+name = "Titus"
+race = "Human"
+class_ref = ExtResource("2_fghtr")
+attributes = {"constitution": 4, "dexterity": 2, "intellect": 1, "intuition": 2, "social": 1, "strength": 5, "willpower": 2}
+starting_equipment = ["res://data/weapons/longsword.tres", "res://data/armor/scale_mail.tres"]
+talent_selections = []

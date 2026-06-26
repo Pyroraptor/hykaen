@@ -1,0 +1,11 @@
+[gd_resource type="Resource" script_class="ClassResource" load_steps=2 format=3 uid="uid://cr1a2b3c4d5e6f"]
+
+[ext_resource type="Script" uid="uid://cs1a2b3c4d5e6f" path="res://core/model/class_resource.gd" id="1_fght1"]
+
+[resource]
+script = ExtResource("1_fght1")
+class_id = "fighter"
+class_hp = 6
+stamina_base = 4
+skills_base = 1
+spellcasting_attribute = ""

@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="CharacterResource" load_steps=3 format=3 uid="uid://bmrgl1a2b3c4d"]
+
+[ext_resource type="Script" uid="uid://bchar1a2b3c4d5e" path="res://core/model/character_resource.gd" id="1_chrscr"]
+[ext_resource type="Resource" uid="uid://er3c4d5e6f7g8h" path="res://data/classes/divine_warrior.tres" id="2_dw1r1"]
+
+[resource]
+script = ExtResource("1_chrscr")
+name = "Marigold"
+race = "Elven"
+class_ref = ExtResource("2_dw1r1")
+attributes = {"constitution": 3, "dexterity": 3, "intellect": 1, "intuition": 3, "social": 2, "strength": 3, "willpower": 4}
+starting_equipment = []
+talent_selections = ["divine_champion_stealth"]

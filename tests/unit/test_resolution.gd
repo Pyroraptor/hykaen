@@ -581,3 +581,310 @@ func test_bobbin_dmitri_example_is_reproducible() -> void:
 		"Bobbin-vs-Dmitri reproducibility: active_defense_applied must be identical across two fixture runs")
 	assert_eq(result_a["roll_total"], result_b["roll_total"],
 		"Bobbin-vs-Dmitri reproducibility: roll_total must be identical across two fixture runs")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-046 / DEF-003: Longsword .tres regression tests
+#
+# Permanently closes the masking gap exposed by DEF-003:
+#   data/weapons/longsword.tres was shipping damage_die=6 (d6) while the unit
+#   fixture _longsword already had damage_die=12 (d12 per Weapons.pdf).
+#
+# These two tests load longsword.tres directly via ResourceLoader so any future
+# revert of the data file will immediately fail here — not just in integration.
+# ══════════════════════════════════════════════════════════════════════════════
+
+## test_longsword_is_d12
+##
+## Loads data/weapons/longsword.tres via ResourceLoader and asserts damage_die == 12.
+## This test did not exist before FEAT-046; it permanently blocks any future
+## regression where the .tres file reverts to damage_die=6 (or any other value).
+##
+## Satisfies: FEAT-046 test criterion 1, DEF-003.
+func test_longsword_is_d12() -> void:
+	var longsword = ResourceLoader.load("res://data/weapons/longsword.tres")
+	assert_not_null(
+		longsword,
+		"ResourceLoader.load('res://data/weapons/longsword.tres') must return non-null"
+	)
+	if longsword == null:
+		return
+	assert_eq(
+		longsword.damage_die, 12,
+		"longsword.tres damage_die must be 12 (d12, Heavy Blade per Weapons.pdf) — DEF-003 fix"
+	)
+
+
+## test_longsword_tres_matches_resolution_fixture
+##
+## Asserts that:
+##   (a) ResourceLoader.load('data/weapons/longsword.tres').damage_die == 12
+##   (b) the local _longsword fixture's damage_die == 12
+##   (c) both values are equal to each other
+##
+## This test permanently closes the masking gap: previously the unit fixture had
+## damage_die=12 while the .tres file had damage_die=6, allowing unit tests to
+## pass while integration tests used wrong (d6) damage.  Now both must be 12 and
+## must match — a discrepancy causes an immediate CI failure.
+##
+## Satisfies: FEAT-046 test criterion 2, DEF-003.
+func test_longsword_tres_matches_resolution_fixture() -> void:
+	var longsword = ResourceLoader.load("res://data/weapons/longsword.tres")
+	assert_not_null(
+		longsword,
+		"ResourceLoader.load('res://data/weapons/longsword.tres') must return non-null"
+	)
+	if longsword == null:
+		return
+	assert_eq(
+		longsword.damage_die, 12,
+		"longsword.tres damage_die must be 12 (d12) — FEAT-046 DEF-003"
+	)
+	assert_eq(
+		_longsword["damage_die"], 12,
+		"_longsword fixture damage_die must be 12 (d12) — FEAT-046 fixture integrity check"
+	)
+	assert_eq(
+		longsword.damage_die, _longsword["damage_die"],
+		"longsword.tres damage_die must equal _longsword fixture damage_die — "
+		+ "masking gap permanently closed (FEAT-046 DEF-003)"
+	)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-047 / DEF-006: resolve_spell_attack() — Wizard, Divine Warrior, Divine Channeler
+#
+# Adds resolve_spell_attack(attacker, target, spell, defense_type) to resolution.gd.
+# Roll: rng.d20() + attacker[attacker.spellcasting_attribute] + attacker.spell_attack_bonus
+# Crit: roll_total − defense >= 10
+# Returns identical shape to resolve_weapon_attack().
+#
+# All tests use FixtureRNG (defined above under FEAT-026 Bobbin-vs-Dmitri) to
+# pin d20 and roll values for fully deterministic assertions.
+#
+# PINNED VALUES:
+#   spell attacker: {spellcasting_attribute: 'intellect', intellect: 3, spell_attack_bonus: 1}
+#   spell fixture:  {damage_die: 6}
+#
+#   HIT  — FixtureRNG(d20=15, roll=3): roll_total = 15+3+1=19 >= 15 → hit=true,  crit=false (19-15=4 < 10)
+#   MISS — FixtureRNG(d20=3,  roll=3): roll_total = 3+3+1=7   < 15  → hit=false, damage_final=0
+#   CRIT — FixtureRNG(d20=18, roll=3): roll_total = 18+3+1=22 >= 8, 22-8=14 >= 10 → crit=true, damage = 3+3*2=9 > 6
+# ══════════════════════════════════════════════════════════════════════════════
+
+## Standard spell attacker (Wizard): intellect 3 is the spellcasting attribute.
+var _spell_attacker: Dictionary = {
+	"spellcasting_attribute": "intellect",
+	"intellect": 3,
+	"spell_attack_bonus": 1
+}
+
+## Standard spell: d6 damage.
+var _spell: Dictionary = {
+	"damage_die": 6
+}
+
+## Spell target — defense 15 (used for hit and miss tests).
+var _spell_target_15: Dictionary = {
+	"ac": 15
+}
+
+## Spell target — defense 8 (used for crit test; low defense ensures 10+ excess).
+var _spell_target_8: Dictionary = {
+	"ac": 8
+}
+
+## Pinned d20 values for the three spell attack scenarios.
+const _SPELL_HIT_D20: int = 15   # roll_total = 15+3+1=19 >= 15 → hit, not crit
+const _SPELL_MISS_D20: int = 3   # roll_total = 3+3+1=7   < 15  → miss
+const _SPELL_CRIT_D20: int = 18  # roll_total = 18+3+1=22 >= 8, excess=14 >= 10 → crit
+const _SPELL_ROLL_VAL: int = 3   # pinned roll() result for all damage assertions
+
+
+## Helper: build a Resolution backed by a FixtureRNG with the given pinned values.
+func _make_spell_res(d20_val: int, roll_val: int) -> ResolutionClass:
+	var rng = FixtureRNG.new(d20_val, roll_val)
+	return ResolutionClass.new(rng)
+
+
+# ── FEAT-047 Criterion 1: resolve_spell_attack() exists and returns correct shape ─
+
+func test_spell_attack_returns_all_required_keys() -> void:
+	## resolve_spell_attack() must return a Dictionary with all five required keys:
+	## hit, crit, damage_raw, active_defense_applied, damage_final.
+	## Satisfies: FEAT-047 test criterion 1.
+	var res = _make_spell_res(_SPELL_HIT_D20, _SPELL_ROLL_VAL)
+	var result: Dictionary = res.resolve_spell_attack(
+		_spell_attacker, _spell_target_15, _spell, "ac"
+	)
+	for key in ["hit", "crit", "damage_raw", "active_defense_applied", "damage_final"]:
+		assert_true(
+			result.has(key),
+			"resolve_spell_attack() must return key '%s'" % key
+		)
+
+
+# ── FEAT-047 Criterion 2: Hit scenario ────────────────────────────────────────
+
+func test_spell_attack_hit() -> void:
+	## FixtureRNG d20=15; attacker {spellcasting_attribute:'intellect', intellect:3, spell_attack_bonus:1};
+	## target defense=15 → roll_total=15+3+1=19 >= 15 → hit=true, crit=false.
+	## Satisfies: FEAT-047 test criterion 2.
+	var res = _make_spell_res(_SPELL_HIT_D20, _SPELL_ROLL_VAL)
+	var result: Dictionary = res.resolve_spell_attack(
+		_spell_attacker, _spell_target_15, _spell, "ac"
+	)
+	assert_true(
+		result["hit"],
+		"spell attack: d20=%d + intellect=%d + bonus=%d = 19 >= defense=15 → hit=true" % [
+			_SPELL_HIT_D20, _spell_attacker["intellect"], _spell_attacker["spell_attack_bonus"]
+		]
+	)
+	assert_false(
+		result["crit"],
+		"spell attack: roll_total=19 - defense=15 = 4 < 10 → crit=false"
+	)
+
+
+# ── FEAT-047 Criterion 3: Miss scenario ───────────────────────────────────────
+
+func test_spell_attack_miss() -> void:
+	## FixtureRNG d20=3; same attacker; defense=15 → roll_total=3+3+1=7 < 15 → miss.
+	## Satisfies: FEAT-047 test criterion 3.
+	var res = _make_spell_res(_SPELL_MISS_D20, _SPELL_ROLL_VAL)
+	var result: Dictionary = res.resolve_spell_attack(
+		_spell_attacker, _spell_target_15, _spell, "ac"
+	)
+	assert_false(
+		result["hit"],
+		"spell attack: d20=%d + intellect=%d + bonus=%d = 7 < defense=15 → hit=false" % [
+			_SPELL_MISS_D20, _spell_attacker["intellect"], _spell_attacker["spell_attack_bonus"]
+		]
+	)
+	assert_eq(
+		result["damage_final"], 0,
+		"spell attack: miss must produce damage_final=0, got %d" % result["damage_final"]
+	)
+
+
+# ── FEAT-047 Criterion 4: Crit scenario ───────────────────────────────────────
+
+func test_spell_attack_crit() -> void:
+	## FixtureRNG d20=18; same attacker; defense=8
+	## → roll_total=18+3+1=22, 22-8=14 >= 10 → crit=true.
+	## Crit damage: roll(6,2)=3 + intellect*2=6 = 9 > spell.damage_die(6).
+	## Satisfies: FEAT-047 test criterion 4.
+	var res = _make_spell_res(_SPELL_CRIT_D20, _SPELL_ROLL_VAL)
+	var result: Dictionary = res.resolve_spell_attack(
+		_spell_attacker, _spell_target_8, _spell, "ac"
+	)
+	assert_true(
+		result["hit"],
+		"spell attack crit: roll_total=22 >= defense=8 → hit=true"
+	)
+	assert_true(
+		result["crit"],
+		"spell attack crit: roll_total=22 - defense=8 = 14 >= 10 → crit=true"
+	)
+	assert_true(
+		result["damage_final"] > _spell["damage_die"],
+		"spell attack crit: damage_final=%d must exceed single damage_die=%d (2-die crit)" % [
+			result["damage_final"], _spell["damage_die"]
+		]
+	)
+
+
+# ── FEAT-047 Criterion 5: active_defense_applied always 'none' ────────────────
+
+func test_spell_attack_active_defense_always_none() -> void:
+	## All three spell attack outcomes (hit, miss, crit) must return
+	## active_defense_applied == 'none' per ADR-011 Iteration 2 stub.
+	## Satisfies: FEAT-047 test criterion 5.
+	var scenarios: Array = [
+		{
+			"label": "hit",
+			"d20": _SPELL_HIT_D20,
+			"target": _spell_target_15
+		},
+		{
+			"label": "miss",
+			"d20": _SPELL_MISS_D20,
+			"target": _spell_target_15
+		},
+		{
+			"label": "crit",
+			"d20": _SPELL_CRIT_D20,
+			"target": _spell_target_8
+		}
+	]
+	for scenario in scenarios:
+		var res = _make_spell_res(scenario["d20"], _SPELL_ROLL_VAL)
+		var result: Dictionary = res.resolve_spell_attack(
+			_spell_attacker, scenario["target"], _spell, "ac"
+		)
+		assert_eq(
+			result["active_defense_applied"], "none",
+			"spell attack (%s): active_defense_applied must be 'none' (ADR-011 stub)" % scenario["label"]
+		)
+
+
+# ── FEAT-047 Criterion 6: attribute score sensitivity ─────────────────────────
+
+func test_spell_attack_uses_spellcasting_attribute() -> void:
+	## Call once with intellect=3, once with intellect=5, same pinned d20=15.
+	## Second roll_total must be exactly 2 higher than the first.
+	## Confirms the attribute score drives roll_total, not a hardcoded constant.
+	## Satisfies: FEAT-047 test criterion 6.
+	var attacker_low: Dictionary = {
+		"spellcasting_attribute": "intellect",
+		"intellect": 3,
+		"spell_attack_bonus": 1
+	}
+	var attacker_high: Dictionary = {
+		"spellcasting_attribute": "intellect",
+		"intellect": 5,
+		"spell_attack_bonus": 1
+	}
+
+	var res_low  = _make_spell_res(_SPELL_HIT_D20, _SPELL_ROLL_VAL)
+	var res_high = _make_spell_res(_SPELL_HIT_D20, _SPELL_ROLL_VAL)
+
+	var result_low:  Dictionary = res_low.resolve_spell_attack(attacker_low,  _spell_target_15, _spell, "ac")
+	var result_high: Dictionary = res_high.resolve_spell_attack(attacker_high, _spell_target_15, _spell, "ac")
+
+	assert_eq(
+		result_high["roll_total"] - result_low["roll_total"], 2,
+		"spell attack: intellect=5 roll_total (%d) must be exactly 2 higher than intellect=3 roll_total (%d)" % [
+			result_high["roll_total"], result_low["roll_total"]
+		]
+	)
+
+
+# ── FEAT-047 Criterion 7: Divine Channeler attribute dispatch (social) ────────
+
+func test_divine_channeler_spell_attack_uses_social() -> void:
+	## Divine Channeler uses spellcasting_attribute='social'.
+	## Attacker: {spellcasting_attribute:'social', social:4, intellect:1, spell_attack_bonus:1}
+	## Pinned d20=15 → expected roll_total = 15 + social(4) + bonus(1) = 20.
+	## If intellect(1) were used incorrectly: 15 + 1 + 1 = 17. Must get 20.
+	## Satisfies: FEAT-047 test criterion 7.
+	var divine_channeler: Dictionary = {
+		"spellcasting_attribute": "social",
+		"social": 4,
+		"intellect": 1,
+		"spell_attack_bonus": 1
+	}
+	var target: Dictionary = {
+		"ac": 5  # low defense so social-based roll always hits
+	}
+	var res = _make_spell_res(_SPELL_HIT_D20, _SPELL_ROLL_VAL)
+	var result: Dictionary = res.resolve_spell_attack(divine_channeler, target, _spell, "ac")
+
+	# roll_total must use social(4), not intellect(1)
+	# Expected: 15 + 4 + 1 = 20; wrong: 15 + 1 + 1 = 17
+	assert_eq(
+		result["roll_total"], 20,
+		"Divine Channeler: roll_total must be %d (d20=%d + social=%d + bonus=%d), got %d — must NOT use intellect=%d" % [
+			20, _SPELL_HIT_D20, divine_channeler["social"], divine_channeler["spell_attack_bonus"],
+			result["roll_total"], divine_channeler["intellect"]
+		]
+	)

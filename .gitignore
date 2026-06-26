@@ -19,3 +19,8 @@ Thumbs.db
 *~
 \#*\#
 .\#*
+
+# Python pytest cache (the GDScript-via-pytest CI tests)
+__pycache__/
+*.pyc
+.pytest_cache/

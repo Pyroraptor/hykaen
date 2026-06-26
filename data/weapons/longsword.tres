@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="WeaponResource" load_steps=2 format=3 uid="uid://bwpn1a2b3c4d5"]
+
+[ext_resource type="Script" uid="uid://bwpns1a2b3c4d" path="res://core/model/weapon_resource.gd" id="1_lngswd"]
+
+[resource]
+script = ExtResource("1_lngswd")
+weapon_id = "longsword"
+name = "Longsword"
+damage_die = 12
+damage_count = 1
+damage_modifier_attribute = "strength"
+proficiency_bonus = 1

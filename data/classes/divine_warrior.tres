@@ -1,0 +1,11 @@
+[gd_resource type="Resource" script_class="ClassResource" load_steps=2 format=3 uid="uid://er3c4d5e6f7g8h"]
+
+[ext_resource type="Script" uid="uid://es3c4d5e6f7g8h" path="res://core/model/class_resource.gd" id="1_dw1r1"]
+
+[resource]
+script = ExtResource("1_dw1r1")
+class_id = "divine_warrior"
+class_hp = 6
+stamina_base = 3
+skills_base = 1
+spellcasting_attribute = "willpower"

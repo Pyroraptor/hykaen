@@ -87,14 +87,59 @@ jobs:
       # The #+APPROVAL: line must NOT contain the word PLACEHOLDER.
       # Exit 1 blocks merge until the author replaces the stub text
       # with a genuine signed approval.
+      #
+      # FEAT-044 / DEF-005 cross-reference: the GUT tests in
+      # tests/unit/test_spec_gate.gd (test_spec_approval_not_placeholder,
+      # test_spec_has_approval_marker, test_spec_approval_has_content) now
+      # mirror this gate exactly so local GUT runs catch the same condition
+      # without needing to run the CI pipeline first.  Both gates must agree:
+      # if this step exits 1, the corresponding GUT tests also fail.
+      #
+      # NOTE: uses { } grouped commands (not () subshell) so that exit 1
+      # terminates the step shell directly — a subshell exit 1 would not
+      # propagate through the || and would silently pass (DEF-001 fix).
       # ---------------------------------------------------------------
       - name: lint-spec-no-placeholder
         run: |
           grep -q PLACEHOLDER docs/hollow-world-v0-spec.org \
-            && (echo 'GATE FAIL: hollow-world-v0-spec.org approval line still contains PLACEHOLDER' >&2 && \
-                echo 'Replace the PLACEHOLDER with a genuine signed approval before merging.' >&2 && \
-                exit 1) \
-            || exit 0
+            && { echo 'GATE FAIL: hollow-world-v0-spec.org approval line still contains PLACEHOLDER' >&2; \
+                 echo 'Replace the PLACEHOLDER with a genuine signed approval before merging.' >&2; \
+                 exit 1; } \
+            || true
+          grep -qE '^\#\+APPROVAL:[[:space:]]*[^[:space:]]' docs/hollow-world-v0-spec.org \
+            || { echo 'GATE FAIL: #+APPROVAL: line has no non-whitespace content after the colon' >&2; \
+                 echo 'Add a genuine author sign-off after #+APPROVAL: before merging.' >&2; \
+                 exit 1; }
+
+      # ---------------------------------------------------------------
+      # GDScript static type-check gate (FEAT-040)
+      # Runs Godot's built-in parser/type-checker across the whole project
+      # in --check-only mode: no test logic executes, no scene is loaded.
+      # Surfaces type-annotation errors, undefined variable references, and
+      # missing return types as a distinct CI failure reason before the more
+      # expensive GUT suite runs.  Exit code is forwarded directly; a non-
+      # zero result blocks merge and appears under this named step for clear
+      # attribution.
+      # ---------------------------------------------------------------
+      - name: GDScript Type Check
+        run: |
+          godot --headless --check-only --path .
+
+      # ---------------------------------------------------------------
+      # Entry-point smoke test (FEAT-041 / DEF-003)
+      # Runs game/main.gd in headless check-only mode to prove the entry-
+      # point script is syntactically and structurally valid in headless
+      # mode.  Uses -s to target the specific entry-point file and
+      # --check-only to parse + type-check it without requiring
+      # SceneTree/MainLoop inheritance (game/main.gd extends Node, which
+      # is correct for a scene script).  Runs AFTER the project-wide type-
+      # check gate so errors are clearly attributable to the entry-point.
+      # Exit 0 proves DEF-003 is resolved; any SCRIPT ERROR exits non-zero.
+      # ---------------------------------------------------------------
+      - name: Entry-Point Smoke Test (DEF-003)
+        run: |
+          godot --headless -s game/main.gd --check-only
+          echo "OK: game/main.gd is syntactically and structurally valid in headless mode (DEF-003)"
 
       # ---------------------------------------------------------------
       # Run GUT headless test suite (FEAT-039: DEF-002 output capture)
@@ -127,5 +172,52 @@ jobs:
             gut_output.log
             *.log
             *.html
+          if-no-files-found: ignore
+          retention-days: 30
+
+  # ---------------------------------------------------------------
+  # Balance Simulation Gate (FEAT-048 / DEF-004)
+  # Runs the balance invariant tests in tests/sim/ and blocks merge
+  # if the v0 win-rate is outside [0.40, 0.80].  Distinct from the
+  # main 'test' job so its failure is clearly attributable.
+  # ---------------------------------------------------------------
+  balance-simulation:
+    name: Balance Simulation Gate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Godot 4 (pinned 4.3-stable)
+        run: |
+          curl -L "https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip" \
+            -o /tmp/godot.zip
+          unzip /tmp/godot.zip -d /tmp/godot
+          sudo install -m 755 "/tmp/godot/Godot_v4.3-stable_linux.x86_64" /usr/local/bin/godot
+          godot --version
+
+      # ---------------------------------------------------------------
+      # Run balance simulation GUT tests.
+      # Propagates the Godot exit code through tee via pipefail so that
+      # any test failure exits non-zero and blocks merge.
+      # ---------------------------------------------------------------
+      - name: Run balance simulation tests
+        run: |
+          set -o pipefail
+          godot --headless -- --gut-run-all tests/sim/ 2>&1 | tee balance_sim_output.log
+
+      # ---------------------------------------------------------------
+      # Upload simulation output as CI artifact unconditionally
+      # (if: always() ensures upload even when the step above fails).
+      # ---------------------------------------------------------------
+      - name: Upload balance simulation results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: balance-sim-results
+          path: |
+            balance_sim_output.log
+            *.log
           if-no-files-found: ignore
           retention-days: 30

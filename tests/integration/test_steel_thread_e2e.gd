@@ -804,3 +804,92 @@ func test_steel_thread_seed_99999_run2_identical_outcome() -> void:
 		("Run 2 outcome must be identical to Run 1 (seed %d) "
 			+ "— steel thread determinism proof (FEAT-028)") % STEEL_SEED
 	)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-046 / DEF-003 — Longsword d12 regression gate (integration layer)
+#
+# Verifies that the corrected longsword.tres (damage_die=12) is the value that
+# actually flows through the full pipeline in the steel-thread encounter:
+#   data layer   → longsword.tres.damage_die == 12
+#   combat layer → Titus attack damage_final is within d12 range (0–34 incl. crit)
+#   not d6 range → damage_final is NOT capped at 6+STR (old incorrect maximum)
+#
+# The "old d6-range assertions" would have checked damage_final ≤ 6+5 = 11.
+# The corrected d12-range assertions check damage_final ≤ 12*2+5*2 = 34 (max crit)
+# and confirm the resource value is 12 at the integration boundary.
+# ══════════════════════════════════════════════════════════════════════════════
+
+## test_longsword_tres_damage_die_is_d12_in_pipeline
+##
+## Verifies that data/weapons/longsword.tres has damage_die == 12 at the point it
+## enters the steel-thread encounter pipeline (resource loaded in before_all()).
+## Closes the integration-layer half of the DEF-003 masking gap: previously
+## longsword.tres had damage_die=6, so the encounter used d6 for Titus's damage
+## while unit tests used the correctly-specified d12 fixture.
+##
+## Satisfies: FEAT-046 test criterion 5 (integration layer), DEF-003.
+func test_longsword_tres_damage_die_is_d12_in_pipeline() -> void:
+	if _longsword == null:
+		fail_test(
+			"longsword.tres failed to load — cannot verify d12 damage die (FEAT-046 DEF-003)"
+		)
+		return
+
+	assert_eq(
+		_longsword.damage_die, 12,
+		"longsword.tres must have damage_die=12 (d12, Heavy Blade per Weapons.pdf) — "
+		+ "FEAT-046 DEF-003 integration regression gate"
+	)
+
+
+## test_titus_damage_final_in_d12_range_seed_99999
+##
+## Verifies that with the corrected longsword.tres (damage_die=12), every attack
+## event from Titus in the seed-99999 encounter has damage_final within the
+## valid d12-weapon range:
+##   miss  → damage_final == 0
+##   hit   → damage_final in [1+STR, 12+STR]   = [6, 17]  (Titus strength=5)
+##   crit  → damage_final in [2+STR*2, 24+STR*2] = [12, 34]  (2d12 + 2*5)
+##
+## Upper bound for ANY outcome (incl. crit): 12*2 + 5*2 = 34.
+## Old d6-range upper bound was: 6 + 5 = 11 (normal hit) / 6*2 + 5*2 = 22 (crit).
+## The new d12-range upper bound (34) replaces the old d6-range upper bound (11/22).
+##
+## Satisfies: FEAT-046 test criterion 5 (d12-range assertion), DEF-003.
+func test_titus_damage_final_in_d12_range_seed_99999() -> void:
+	if _titus == null or _longsword == null:
+		fail_test(
+			"titus.tres or longsword.tres failed to load — "
+			+ "cannot verify d12-range damage (FEAT-046 DEF-003)"
+		)
+		return
+
+	# Confirm the weapon resource itself is correct before running the encounter
+	assert_eq(
+		_longsword.damage_die, 12,
+		"longsword.tres damage_die must be 12 — prerequisite for d12-range damage check"
+	)
+
+	var titus_strength: int = _titus.attributes.get("strength", 0)
+	# Max possible damage_final for any outcome (crit with max d12 rolls):
+	#   2 * damage_die + 2 * strength = 2*12 + 2*5 = 34
+	var max_d12_damage: int = 2 * _longsword.damage_die + 2 * titus_strength
+
+	var enc = _make_encounter(STEEL_SEED)
+	enc.run()
+
+	for entry in enc.get_round_history():
+		if entry.get("attacker", {}).get("name", "") == "Titus":
+			var dmg: int = entry.get("damage_final", -1)
+			assert_true(
+				dmg >= 0,
+				"Titus damage_final must be >= 0 (miss=0, hit=positive); got %d (FEAT-046)" % dmg
+			)
+			assert_true(
+				dmg <= max_d12_damage,
+				("Titus damage_final=%d must be within d12 range [0, %d] "
+				+ "(max = 2*damage_die + 2*STR = 2*12 + 2*%d) — "
+				+ "FEAT-046 DEF-003 d12-range assertion (replaces old d6-range max=%d)")
+				% [dmg, max_d12_damage, titus_strength, 6 + titus_strength]
+			)

@@ -1,0 +1,11 @@
+[gd_resource type="Resource" script_class="ClassResource" load_steps=2 format=3 uid="uid://fr4d5e6f7g8h9i"]
+
+[ext_resource type="Script" uid="uid://fs4d5e6f7g8h9i" path="res://core/model/class_resource.gd" id="1_dc1h1"]
+
+[resource]
+script = ExtResource("1_dc1h1")
+class_id = "divine_channeler"
+class_hp = 5
+stamina_base = 2
+skills_base = 2
+spellcasting_attribute = "social"

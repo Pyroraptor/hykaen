@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="CharacterResource" load_steps=3 format=3 uid="uid://bdwch1a2b3c4d"]
+
+[ext_resource type="Script" uid="uid://bchar1a2b3c4d5e" path="res://core/model/character_resource.gd" id="1_chrscr"]
+[ext_resource type="Resource" uid="uid://fr4d5e6f7g8h9i" path="res://data/classes/divine_channeler.tres" id="2_dc1h1"]
+
+[resource]
+script = ExtResource("1_chrscr")
+name = "Dwarf Channeler"
+race = "Dwarf"
+class_ref = ExtResource("2_dc1h1")
+attributes = {"constitution": 4, "dexterity": 1, "intellect": 2, "intuition": 2, "social": 4, "strength": 2, "willpower": 3}
+starting_equipment = []
+talent_selections = []

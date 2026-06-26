@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="CharacterResource" load_steps=3 format=3 uid="uid://bgrmx1a2b3c4d"]
+
+[ext_resource type="Script" uid="uid://bchar1a2b3c4d5e" path="res://core/model/character_resource.gd" id="1_chrscr"]
+[ext_resource type="Resource" uid="uid://dr2b3c4d5e6f7g" path="res://data/classes/wizard.tres" id="2_wz1d1"]
+
+[resource]
+script = ExtResource("1_chrscr")
+name = "Gram Marx"
+race = "Tiefling"
+class_ref = ExtResource("2_wz1d1")
+attributes = {"constitution": 2, "dexterity": 2, "intellect": 5, "intuition": 3, "social": 2, "strength": 1, "willpower": 2}
+starting_equipment = []
+talent_selections = []
