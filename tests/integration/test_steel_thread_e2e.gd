@@ -857,6 +857,7 @@ func test_longsword_tres_damage_die_is_d12_in_pipeline() -> void:
 ## The new d12-range upper bound (34) replaces the old d6-range upper bound (11/22).
 ##
 ## Satisfies: FEAT-046 test criterion 5 (d12-range assertion), DEF-003.
+## (The FEAT-049 spec gate test appears after this function.)
 func test_titus_damage_final_in_d12_range_seed_99999() -> void:
 	if _titus == null or _longsword == null:
 		fail_test(
@@ -893,3 +894,71 @@ func test_titus_damage_final_in_d12_range_seed_99999() -> void:
 				+ "FEAT-046 DEF-003 d12-range assertion (replaces old d6-range max=%d)")
 				% [dmg, max_d12_damage, titus_strength, 6 + titus_strength]
 			)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-049 Criterion 6 — Spec gate consistent with CI smoke
+# Reads docs/hollow-world-v0-spec.org and asserts the approval line does NOT
+# contain PLACEHOLDER and is not empty.
+# Mirrors the CI lint-spec-no-placeholder step at the GUT test layer so that
+# local GUT runs catch the same condition without running the full CI pipeline.
+# Verifies FIX-001 from smoke level.
+# ══════════════════════════════════════════════════════════════════════════════
+
+## test_spec_gate_consistent_with_ci_smoke
+##
+## Verifies that docs/hollow-world-v0-spec.org carries a genuine approval sign-off
+## (not the stub PLACEHOLDER text) — the GUT-level mirror of the CI
+## lint-spec-no-placeholder gate (FEAT-039 / DEF-001).
+##
+## Assertions:
+##   1. docs/hollow-world-v0-spec.org is readable.
+##   2. The file contains a #+APPROVAL: line.
+##   3. The #+APPROVAL: line does NOT contain the word PLACEHOLDER.
+##   4. The content after #+APPROVAL: is non-empty (has a real sign-off).
+##
+## This test and the CI lint step must agree: if CI blocks on PLACEHOLDER,
+## this GUT test must also fail — and vice versa.
+##
+## Satisfies: FEAT-049 criterion 6, FIX-001.
+func test_spec_gate_consistent_with_ci_smoke() -> void:
+	var file := FileAccess.open("res://docs/hollow-world-v0-spec.org", FileAccess.READ)
+	assert_not_null(
+		file,
+		"docs/hollow-world-v0-spec.org must be readable (FIX-001 spec gate)"
+	)
+	if file == null:
+		return
+
+	var content: String = file.get_as_text()
+	file.close()
+
+	# Find the #+APPROVAL: line
+	var approval_line: String = ""
+	for line in content.split("\n"):
+		if line.begins_with("#+APPROVAL:"):
+			approval_line = line
+			break
+
+	assert_true(
+		approval_line != "",
+		"docs/hollow-world-v0-spec.org must contain a #+APPROVAL: line (FIX-001)"
+	)
+
+	if approval_line == "":
+		return
+
+	# The approval line must NOT contain PLACEHOLDER (mirrors CI lint-spec-no-placeholder)
+	assert_false(
+		approval_line.contains("PLACEHOLDER"),
+		"#+APPROVAL: line must not contain PLACEHOLDER — replace with genuine sign-off (FIX-001 DEF-001); got: '%s'"
+		% approval_line
+	)
+
+	# The content after "#+APPROVAL:" must be non-empty (not just whitespace)
+	var approval_content: String = approval_line.replace("#+APPROVAL:", "").strip_edges()
+	assert_true(
+		approval_content != "",
+		"#+APPROVAL: line must have non-whitespace content after the colon (FIX-001); got: '%s'"
+		% approval_line
+	)

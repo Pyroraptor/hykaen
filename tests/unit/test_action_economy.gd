@@ -132,17 +132,77 @@ func test_combine_actions_dazed_returns_forbidden_error() -> void:
 	)
 
 
-# ── Criterion 9: Not dazed — combine_actions not yet implemented ──────────────
+# ── Criterion 9 (updated): Not dazed + missing Repeat trait → Repeat error ────
 
-func test_combine_actions_not_dazed_returns_not_implemented() -> void:
+func test_combine_actions_missing_repeat_on_action_a_returns_repeat_error() -> void:
 	var ae = _make_ae()
 	ae.set_dazed(false)
-	var result: Dictionary = ae.combine_actions({}, {}, {})
-	assert_false(result["success"], "combine_actions must fail")
+	var action_a := {"name": "Strike", "traits": []}
+	var action_b := {"name": "Strike", "traits": ["Repeat"]}
+	var result: Dictionary = ae.combine_actions(action_a, action_b, 5)
+	assert_false(result["success"], "combine_actions must fail when action_a lacks Repeat")
 	assert_true(
-		result["error"].contains("Not implemented"),
-		"error must contain 'Not implemented'; got: '%s'" % result["error"]
+		result["error"].contains("Repeat trait"),
+		"error must contain 'Repeat trait' when action_a lacks Repeat; got: '%s'" % result["error"]
 	)
+
+
+# ── FEAT-058: Full combine_actions() implementation ───────────────────────────
+
+func test_combine_actions_both_repeat_stamina_5_returns_success_stamina_4() -> void:
+	var ae = _make_ae()
+	var action_a := {"name": "Strike", "traits": ["Repeat"]}
+	var action_b := {"name": "Strike", "traits": ["Repeat"]}
+	var result: Dictionary = ae.combine_actions(action_a, action_b, 5)
+	assert_true(result["success"], "combine_actions with both Repeat and stamina=5 must succeed")
+	assert_eq(result["stamina_remaining"], 4, "stamina_remaining must be 4 after spending 1 from pool of 5")
+
+
+func test_combine_actions_missing_repeat_on_action_b_returns_repeat_error() -> void:
+	var ae = _make_ae()
+	var action_a := {"name": "Strike", "traits": ["Repeat"]}
+	var action_b := {"name": "Guard", "traits": []}
+	var result: Dictionary = ae.combine_actions(action_a, action_b, 5)
+	assert_false(result["success"], "combine_actions must fail when action_b lacks Repeat")
+	assert_true(
+		result["error"].contains("Repeat trait"),
+		"error must contain 'Repeat trait' when action_b lacks Repeat; got: '%s'" % result["error"]
+	)
+
+
+func test_combine_actions_stamina_pool_zero_returns_stamina_error() -> void:
+	var ae = _make_ae()
+	var action_a := {"name": "Strike", "traits": ["Repeat"]}
+	var action_b := {"name": "Strike", "traits": ["Repeat"]}
+	var result: Dictionary = ae.combine_actions(action_a, action_b, 0)
+	assert_false(result["success"], "combine_actions with stamina_pool=0 must fail")
+	assert_true(
+		result["error"].contains("Stamina"),
+		"error must contain 'Stamina' when stamina_pool=0; got: '%s'" % result["error"]
+	)
+
+
+func test_combine_actions_success_does_not_modify_budget() -> void:
+	var ae = _make_ae()
+	var budget_before: int = ae.get_remaining()
+	var action_a := {"name": "Strike", "traits": ["Repeat"]}
+	var action_b := {"name": "Strike", "traits": ["Repeat"]}
+	var result: Dictionary = ae.combine_actions(action_a, action_b, 3)
+	assert_true(result["success"], "combine_actions must succeed")
+	assert_eq(
+		ae.get_remaining(),
+		budget_before,
+		"combine_actions must NOT modify _budget; get_remaining() must be unchanged"
+	)
+
+
+func test_combine_actions_stamina_pool_1_returns_stamina_remaining_0() -> void:
+	var ae = _make_ae()
+	var action_a := {"name": "Strike", "traits": ["Repeat"]}
+	var action_b := {"name": "Strike", "traits": ["Repeat"]}
+	var result: Dictionary = ae.combine_actions(action_a, action_b, 1)
+	assert_true(result["success"], "combine_actions with stamina_pool=1 must succeed")
+	assert_eq(result["stamina_remaining"], 0, "stamina_remaining must be 0 when pool was 1")
 
 
 # ── Criterion 10: Domain purity — no Node/Control inheritance ─────────────────

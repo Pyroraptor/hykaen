@@ -121,20 +121,53 @@ func combining_forbidden() -> bool:
 	return _dazed
 
 
-# ── Action combining (Iteration 2 stub) ───────────────────────────────────────
+# ── Action combining (FR-003 / FEAT-058) ─────────────────────────────────────
 
 ## combine_actions(action_a, action_b, stamina_pool) → Dictionary
 ##
-## Combining two actions is not yet implemented (planned for Iteration 2).
-## If the combatant is Dazed, combining is explicitly forbidden.
+## Validates and records a Combination of two actions (FR-003 / US-007).
+## Prerequisites (checked in order):
+##   1. Combatant must not be Dazed.
+##   2. action_a must have "Repeat" in its traits Array.
+##   3. action_b must have "Repeat" in its traits Array.
+##   4. stamina_pool must be ≥ 1.
+##
+## On success, returns stamina_pool - 1 as stamina_remaining.
+## Does NOT decrement _budget — caller must spend_action() separately for each.
 ##
 ## Returns:
-##   {success: false, error: "Combining forbidden: Dazed"} when dazed
-##   {success: false, error: "Not implemented — Iteration 2"} otherwise
-func combine_actions(_action_a, _action_b, _stamina_pool) -> Dictionary:
+##   {success: false, error: "Cannot combine: Dazed"}
+##       — when _dazed is true
+##   {success: false, error: "Combination requires Repeat trait on both actions: <name> missing Repeat"}
+##       — when action_a or action_b lacks the "Repeat" trait
+##   {success: false, error: "Insufficient Stamina for combination"}
+##       — when stamina_pool < 1
+##   {success: true, stamina_remaining: int}
+##       — combination accepted; stamina_remaining = stamina_pool - 1
+func combine_actions(action_a, action_b, stamina_pool) -> Dictionary:
 	if _dazed:
-		return {"success": false, "error": "Combining forbidden: Dazed"}
-	return {"success": false, "error": "Not implemented — Iteration 2"}
+		return {"success": false, "error": "Cannot combine: Dazed"}
+
+	var traits_a: Array = action_a.get("traits", [])
+	if not traits_a.has("Repeat"):
+		var name_a: String = action_a.get("name", "action_a")
+		return {
+			"success": false,
+			"error": "Combination requires Repeat trait on both actions: %s missing Repeat" % name_a
+		}
+
+	var traits_b: Array = action_b.get("traits", [])
+	if not traits_b.has("Repeat"):
+		var name_b: String = action_b.get("name", "action_b")
+		return {
+			"success": false,
+			"error": "Combination requires Repeat trait on both actions: %s missing Repeat" % name_b
+		}
+
+	if stamina_pool < 1:
+		return {"success": false, "error": "Insufficient Stamina for combination"}
+
+	return {"success": true, "stamina_remaining": stamina_pool - 1}
 
 
 # ── Inspection ────────────────────────────────────────────────────────────────

@@ -230,11 +230,26 @@ class TestApprovalMarkerLinterSteps:
             "Approval-presence linter must exit 0 when #+APPROVAL: is present"
         )
 
-    def test_placeholder_linter_exits_1_when_placeholder_found(self, spec_file):
-        """Dry-run: current spec DOES contain PLACEHOLDER — linter must exit 1."""
+    def test_placeholder_linter_exits_1_when_placeholder_found(self, tmp_path):
+        """Dry-run: linter must exit 1 when 'PLACEHOLDER' appears in a spec file.
+
+        FIX-001 / FEAT-049: The actual spec no longer contains PLACEHOLDER after
+        FIX-001 was applied (verified by test_spec_gate_consistent_with_ci_smoke
+        in tests/integration/test_steel_thread_e2e.gd).  This test verifies the
+        linter BEHAVIOUR in isolation using a synthetic temp file, consistent with
+        the companion test test_placeholder_linter_exits_0_when_placeholder_absent
+        which also uses tmp_path.  Coupling this test to the real spec file content
+        conflated two concerns: (a) does the linter work? and (b) does the spec
+        have PLACEHOLDER?  (a) belongs here; (b) belongs in the GUT smoke test.
+        """
+        stub_spec = tmp_path / "spec_with_placeholder.org"
+        stub_spec.write_text(
+            "#+TITLE: Test\n"
+            "#+APPROVAL: PLACEHOLDER — replace with a genuine sign-off\n"
+        )
         result = subprocess.run(
             ["bash", "-c",
-             f"grep -q PLACEHOLDER '{spec_file}' && exit 1 || exit 0"],
+             f"grep -q PLACEHOLDER '{stub_spec}' && exit 1 || exit 0"],
             capture_output=True,
         )
         assert result.returncode == 1, (

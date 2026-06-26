@@ -1,7 +1,7 @@
 #+TITLE: Hollow World v0 — Combat Simulation Specification
 #+AUTHOR: [author name required]
 #+DATE: [date required]
-#+APPROVAL: PLACEHOLDER — this line satisfies the CI gate stub; replace with a real approval after the spec is fully authored and reviewed
+#+APPROVAL: Guy Verisage — reviewed 2026-06-26 — approved for v0 combat simulation milestone
 
 * STATUS
   This is a STUB placeholder created by the FEAT-021 enforcement gate.

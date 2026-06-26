@@ -112,6 +112,48 @@ jobs:
                  exit 1; }
 
       # ---------------------------------------------------------------
+      # Linter 4c: enforce spec content keywords (FEAT-057 / DEF-NEW-001)
+      # docs/hollow-world-v0-spec.org must contain genuine ruleset prose,
+      # not just the structural stub that passes the approval-marker gate.
+      # Checks:
+      #   1. Body must NOT contain 'STUB placeholder' (stub detection)
+      #   2. All seven attribute names must be present
+      #   3. HP formula marker 'HP =' must be present
+      #   4. All four defense keywords (AC, Reflex, Fortitude, Will)
+      #   5. Action set keywords (Strike, Stride)
+      #   6. Armor table marker ('ac_base' or '| Armor')
+      #   7. Talent tree marker ('talent')
+      # Each missing keyword or stub marker causes exit 1, blocking merge.
+      # The human author (per ADR-004) must supply the actual ruleset prose.
+      # ---------------------------------------------------------------
+      - name: lint-spec-content-keywords
+        run: |
+          SPEC="docs/hollow-world-v0-spec.org"
+          if grep -q 'STUB placeholder' "$SPEC"; then
+            echo "GATE FAIL: $SPEC body contains 'STUB placeholder' — fill in real ruleset content before merging." >&2
+            exit 1
+          fi
+          for attr in strength constitution dexterity willpower intellect intuition social; do
+            grep -qi "$attr" "$SPEC" \
+              || { echo "GATE FAIL: $SPEC missing attribute keyword: $attr" >&2; exit 1; }
+          done
+          grep -q 'HP =' "$SPEC" \
+            || { echo "GATE FAIL: $SPEC missing HP formula marker 'HP ='" >&2; exit 1; }
+          for kw in AC Reflex Fortitude Will; do
+            grep -q "$kw" "$SPEC" \
+              || { echo "GATE FAIL: $SPEC missing defense keyword: $kw" >&2; exit 1; }
+          done
+          for kw in Strike Stride; do
+            grep -q "$kw" "$SPEC" \
+              || { echo "GATE FAIL: $SPEC missing action keyword: $kw" >&2; exit 1; }
+          done
+          grep -qE 'ac_base|\| Armor' "$SPEC" \
+            || { echo "GATE FAIL: $SPEC missing armor table marker ('ac_base' or '| Armor')" >&2; exit 1; }
+          grep -q 'talent' "$SPEC" \
+            || { echo "GATE FAIL: $SPEC missing talent tree marker 'talent'" >&2; exit 1; }
+          echo "OK: all required content keywords present in $SPEC"
+
+      # ---------------------------------------------------------------
       # GDScript static type-check gate (FEAT-040)
       # Runs Godot's built-in parser/type-checker across the whole project
       # in --check-only mode: no test logic executes, no scene is loaded.

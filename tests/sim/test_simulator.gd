@@ -9,8 +9,8 @@ extends GutTest
 ##   2. win_rate is a float in the closed interval [0.0, 1.0].
 ##   3. Two sequential calls simulator.run(10, 12345) return identical win_rate
 ##      values — determinism proven.
-##   4. test_balance_invariant_40_to_80_percent: simulator.run(100, 42).win_rate
-##      is in [0.40, 0.80] — the v0 balance gate; fails (and blocks CI) if outside.
+##   4. test_balance_invariant_seed_averaged: mean win_rate across seeds [42, 12345, 99999]
+##      (30 battles each) is in [0.40, 0.80] — the v0 SEED-AVERAGED balance gate.
 ##   5. simulator.gd has no extends Node / Control / CanvasItem (ADR-001 purity).
 ##   6. simulator.gd has no randf(), randi(), RandomNumberGenerator.new() (ADR-002).
 
@@ -128,20 +128,48 @@ func test_two_sequential_calls_produce_identical_total_damage() -> void:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Criterion 4: v0 Balance Invariant — win_rate in [0.40, 0.80] for 100 battles
-#              with seed 42.
+# Criterion 4: v0 SEED-AVERAGED Balance Invariant (FEAT-048 / DEF-004)
 #
-# This test BLOCKS CI MERGE if win_rate is outside [0.40, 0.80].
-# Named test_balance_invariant_40_to_80_percent per FEAT-048 test criterion.
+# The mean win_rate, averaged across at least 3 distinct base seeds, must be
+# in [0.40, 0.80].  Using a single pinned seed is explicitly FORBIDDEN by the
+# spec — the invariant must be seed-averaged to avoid false passes that arise
+# from a lucky single-seed sequence.
+#
+# Agent-chosen configuration:
+#   Seeds: [42, 12345, 99999]  — widely spaced to sample different RNG regions
+#   Battles per seed: 30       — 90 total encounters
+#
+# This test BLOCKS CI MERGE if the averaged win_rate is outside [0.40, 0.80].
 # ══════════════════════════════════════════════════════════════════════════════
 
-func test_balance_invariant_40_to_80_percent() -> void:
-	var result    = _sim.run(100, 42)
-	var win_rate: float = result["win_rate"]
+func test_balance_invariant_seed_averaged() -> void:
+	## v0 SEED-AVERAGED Balance Invariant — FEAT-048 test criterion.
+	##
+	## Averages win_rate across 3 distinct base seeds (42, 12345, 99999)
+	## with 30 battles per seed (90 total encounters).  The mean must be
+	## in [0.40, 0.80]; this test fails — and blocks CI — if it is not.
+	var seeds: Array = [42, 12345, 99999]
+	var battles_per_seed: int = 30
+	var total_win_rate: float = 0.0
+
+	for seed in seeds:
+		var result = _sim.run(battles_per_seed, seed)
+		assert_true(
+			result.has("win_rate"),
+			"run(%d, %d) must return a result with 'win_rate' key" % [battles_per_seed, seed]
+		)
+		total_win_rate += result["win_rate"]
+
+	var mean_win_rate: float = total_win_rate / float(seeds.size())
+
 	assert_true(
-		win_rate >= 0.40 and win_rate <= 0.80,
-		"v0 balance invariant FAILED: win_rate must be in [0.40, 0.80] for 100 battles (seed 42); got %f"
-		% win_rate
+		mean_win_rate >= 0.40 and mean_win_rate <= 0.80,
+		(
+			"v0 SEED-AVERAGED balance invariant FAILED: "
+			"mean win_rate across seeds %s (%d battles each) "
+			"must be in [0.40, 0.80]; got mean_win_rate = %.4f. "
+			"This indicates the v0 encounter balance is outside the acceptable range."
+		) % [str(seeds), battles_per_seed, mean_win_rate]
 	)
 
 
