@@ -9,5 +9,5 @@ name = "Gram Marx"
 race = "Tiefling"
 class_ref = ExtResource("2_wz1d1")
 attributes = {"constitution": 2, "dexterity": 2, "intellect": 5, "intuition": 3, "social": 2, "strength": 1, "willpower": 2}
-starting_equipment = []
+starting_equipment = ["res://data/weapons/quarterstaff.tres", "res://data/armor/robes.tres"]
 talent_selections = []

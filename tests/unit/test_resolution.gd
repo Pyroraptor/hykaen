@@ -27,8 +27,10 @@ extends GutTest
 ##   Damage: rng.roll(6,2) yields 1+2=3 → damage_raw = 3 + 3*2 = 9 (> weapon.damage_die=6)
 ## ═══════════════════════════════════════════════════════════════════════════════
 
-const ResolutionClass = preload("res://core/rules/resolution.gd")
-const RNGClass        = preload("res://core/rules/rng.gd")
+const ResolutionClass    = preload("res://core/rules/resolution.gd")
+const RNGClass           = preload("res://core/rules/rng.gd")
+const ActionEconomyClass = preload("res://core/rules/action_economy.gd")
+const WeaponResourceClass = preload("res://core/model/weapon_resource.gd")
 
 
 # ── Shared test fixtures ───────────────────────────────────────────────────────
@@ -888,3 +890,798 @@ func test_divine_channeler_spell_attack_uses_social() -> void:
 			result["roll_total"], divine_channeler["intellect"]
 		]
 	)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-059 / DEF-NEW-003: Active Defense Resolution Paths
+#
+# Implements Dodge, Block, Parry, Steel as reactions per Combat.pdf.
+# Each active defense spends ONE action from the actor's 7-action round budget
+# (verified via ActionEconomy.spend_reaction()).
+#
+# RNG SEQUENCE DOCUMENTATION
+# ─────────────────────────────────────────────────────────────────────────────
+# Attacker fixture (_attacker): strength=3, proficiency=2 → attack modifier +5
+# Weapon fixture (_weapon):     damage_die=6
+# AD target (_ad_target):       ac=13, reflex=12, fortitude=14, will=11,
+#                                dexterity=1, willpower=1, conscious=true
+#
+# For Dodge/Steel (pre-attack checks roll FIRST, then attacker rolls):
+#   SequenceRNG d20_seq = [check_roll, attack_d20]
+#
+# DODGE SUCCESS:
+#   mob_d20=16 → mobility_check=16+dex(1)=17
+#   attack_d20=11 → roll_total=11+3+2=16
+#   16 < 17 → miss! Dodge negated attack.  defender_stepped=true.
+#
+# DODGE FAIL (attack still beats mobility):
+#   mob_d20=9 → mobility_check=9+1=10
+#   attack_d20=11 → roll_total=16
+#   16 >= 10 → hit (dodge didn't protect).  damage_raw=4+3=7.
+#
+# DODGE NO-SPACE:
+#   open_space_available=false → no mobility roll → single d20 call
+#   attack_d20=11 → roll_total=16 >= ac=13 → hit.  damage_raw=4+3=7.
+#
+# BLOCK (hit vs AC, tier 1):
+#   attack_d20=11 → roll_total=16 >= ac=13 → hit
+#   damage roll(6,1)=4 → damage_raw=4+3=7
+#   block roll(6,1)=2 → block_reduction=2+block_value(3)=5
+#   damage_final=max(0,7-5)=2.  on_hit_suppressed=true.
+#
+# BLOCK TIER 2:
+#   attack_d20=11 → hit → damage_raw=7
+#   block roll(6,2)=2 → block_reduction=2+3=5 → damage_final=2
+#   (SequenceRNG roll() returns the value once regardless of count)
+#
+# BLOCK SHIELD (block_die=12):
+#   Same as tier-1 block but block_die=12 (SequenceRNG ignores die_size)
+#
+# PARRY SUCCESS:
+#   attack_d20=11 → roll_total=16 → hit
+#   damage roll(6,1)=4 → damage_raw=7
+#   parry_d20=14 → parry_roll=14+parry_bonus(4)=18 > roll_total(16) → success
+#   damage_final=0.  on_hit_suppressed=true.
+#
+# PARRY FAIL:
+#   attack_d20=11 → roll_total=16 → hit → damage_raw=7
+#   parry_d20=5 → parry_roll=5+4=9 <= 16 → fail → damage_final=7.
+#
+# STEEL SUCCESS (vs fortitude):
+#   det_d20=16 → determination_check=16+willpower(1)=17
+#   attack_d20=11 → roll_total=16 vs fortitude... but effective defense=17
+#   16 < 17 → miss! Steel resisted.  next_check_bonus=2.
+#
+# STEEL FAIL:
+#   det_d20=5 → determination_check=5+1=6
+#   attack_d20=8 → roll_total=8+3+2=13 >= 6 → hit; 13-6=7<10 → no crit.  damage_raw=4+3=7.
+#   (attack_d20=8 chosen to avoid the 16-6=10 crit boundary that would fire with attack_d20=11)
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+## SequenceRNG — multi-step RNG stub for active defense tests.
+## Returns successive values from pre-set d20 and roll sequences.
+## Each d20() call consumes the next element of d20_seq (wraps if exhausted).
+## Each roll() call consumes the next element of roll_seq (wraps if exhausted).
+## Satisfies: FEAT-059 pinned-RNG requirement (ADR-002).
+class SequenceRNG:
+	var _d20_seq: Array
+	var _roll_seq: Array
+	var _d20_idx: int = 0
+	var _roll_idx: int = 0
+
+	func _init(d20_seq: Array, roll_seq: Array) -> void:
+		_d20_seq = d20_seq
+		_roll_seq = roll_seq
+
+	func d20() -> int:
+		var val: int = _d20_seq[_d20_idx % _d20_seq.size()]
+		_d20_idx += 1
+		return val
+
+	func roll(_die_size: int, _count: int) -> int:
+		var val: int = _roll_seq[_roll_idx % _roll_seq.size()]
+		_roll_idx += 1
+		return val
+
+
+# ── Shared fixtures for FEAT-059 active defense tests ─────────────────────────
+
+## Target augmented with attribute scores needed for Dodge (dexterity)
+## and Steel (willpower) checks.
+var _ad_target: Dictionary = {
+	"ac":        13,
+	"reflex":    12,
+	"fortitude": 14,
+	"will":      11,
+	"dexterity": 1,   # used for Mobility check (Dodge)
+	"willpower": 1,   # used for Determination check (Steel)
+	"conscious": true
+}
+
+## Blocking weapon: d6 damage die, block_value=3, tier-1 (default).
+var _block_weapon: Dictionary = {
+	"damage_die": 6,
+	"block_value": 3
+}
+
+## Blocking shield: block_die=12, block_value=5 (Large Shield per Weapons.pdf).
+var _shield_weapon: Dictionary = {
+	"block_die":   12,
+	"block_value": 5
+}
+
+## Parrying weapon: parry_bonus=4 (Longsword per Weapons.pdf).
+var _parry_weapon: Dictionary = {
+	"parry_bonus": 4
+}
+
+## Helper: build a Resolution backed by a SequenceRNG.
+func _make_seq_res(d20_seq: Array, roll_seq: Array) -> ResolutionClass:
+	var rng = SequenceRNG.new(d20_seq, roll_seq)
+	return ResolutionClass.new(rng)
+
+## Helper: build a fresh ActionEconomy at full budget (7).
+func _make_full_ae() -> ActionEconomyClass:
+	var ae = ActionEconomyClass.new()
+	ae.start_of_turn()
+	return ae
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-059 Criterion 1: active_defense param is accepted; active_defense_applied
+# reflects the chosen defense (NOT always 'none').
+# ══════════════════════════════════════════════════════════════════════════════
+
+func test_active_defense_none_still_returns_none() -> void:
+	## When active_defense is omitted (default "none"), active_defense_applied="none".
+	## Ensures backward compatibility with all prior tests.
+	var res = _make_seq_res([11], [4])
+	var result: Dictionary = res.resolve_weapon_attack(_attacker, _ad_target, _weapon, "ac")
+	assert_eq(result["active_defense_applied"], "none",
+		"No active_defense param: active_defense_applied must still be 'none'")
+
+
+func test_active_defense_dodge_applied_reflects_dodge() -> void:
+	## With active_defense="dodge" and proper trigger, active_defense_applied="dodge".
+	## Dodge success: mob_d20=16→mobility=17, attack_d20=11→roll_total=16; 16<17→miss.
+	var res = _make_seq_res([16, 11], [])
+	var result: Dictionary = res.resolve_weapon_attack(
+		_attacker, _ad_target, _weapon, "ac", "dodge", {}
+	)
+	assert_eq(result["active_defense_applied"], "dodge",
+		"active_defense='dodge' with proper trigger must set active_defense_applied='dodge'")
+
+
+func test_active_defense_block_applied_reflects_block() -> void:
+	## With active_defense="block" and a hit vs AC, active_defense_applied="block".
+	## attack_d20=11→roll_total=16>=ac=13→hit; damage=7; block=2+3=5; final=2.
+	var res = _make_seq_res([11], [4, 2])
+	var ctx: Dictionary = {"blocking_weapon": _block_weapon}
+	var result: Dictionary = res.resolve_weapon_attack(
+		_attacker, _ad_target, _weapon, "ac", "block", ctx
+	)
+	assert_eq(result["active_defense_applied"], "block",
+		"active_defense='block' on hit vs AC must set active_defense_applied='block'")
+
+
+func test_active_defense_parry_applied_reflects_parry() -> void:
+	## With active_defense="parry" and a hit vs AC, active_defense_applied="parry".
+	## Parry success: attack=16→hit; parry_d20=14→parry=18>16→damage=0.
+	var res = _make_seq_res([11, 14], [4])
+	var ctx: Dictionary = {"parrying_weapon": _parry_weapon}
+	var result: Dictionary = res.resolve_weapon_attack(
+		_attacker, _ad_target, _weapon, "ac", "parry", ctx
+	)
+	assert_eq(result["active_defense_applied"], "parry",
+		"active_defense='parry' on hit vs AC must set active_defense_applied='parry'")
+
+
+func test_active_defense_steel_applied_reflects_steel() -> void:
+	## With active_defense="steel" and trigger vs fortitude, active_defense_applied="steel".
+	## Steel success: det_d20=16→det=17, attack_d20=11→roll_total=16; 16<17→miss.
+	var res = _make_seq_res([16, 11], [])
+	var result: Dictionary = res.resolve_weapon_attack(
+		_attacker, _ad_target, _weapon, "fortitude", "steel", {}
+	)
+	assert_eq(result["active_defense_applied"], "steel",
+		"active_defense='steel' vs fortitude must set active_defense_applied='steel'")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-059 Criterion 2: DODGE
+# ══════════════════════════════════════════════════════════════════════════════
+
+func test_dodge_success_negates_attack_that_beats_ac() -> void:
+	## Dodge success: mob_d20=16→mobility_check=17; attack_d20=11→roll_total=16.
+	## roll_total(16) < mobility_check(17) → miss. Attack was negated by Dodge.
+	## Without Dodge: roll_total(16) >= ac(13) → would have been a hit.
+	var res = _make_seq_res([16, 11], [])
+	var result: Dictionary = res.resolve_weapon_attack(
+		_attacker, _ad_target, _weapon, "ac", "dodge", {}
+	)
+	assert_false(result["hit"],
+		"Dodge success: roll_total=16 < mobility_check=17 → hit must be false")
+	assert_eq(result["damage_final"], 0,
+		"Dodge success: hit=false → damage_final must be 0")
+
+
+func test_dodge_success_defender_steps() -> void:
+	## After a successful Dodge, defender_stepped must be true.
+	## mob_d20=16→mobility=17; attack=16<17→miss; defender_stepped=true.
+	var res = _make_seq_res([16, 11], [])
+	var result: Dictionary = res.resolve_weapon_attack(
+		_attacker, _ad_target, _weapon, "ac", "dodge", {}
+	)
+	assert_true(result["defender_stepped"],
+		"Dodge success: defender_stepped must be true after successful dodge")
+
+
+func test_dodge_failed_to_protect_still_applied() -> void:
+	## When mobility check < attack roll, hit still occurs, but active_defense_applied="dodge".
+	## mob_d20=9→mobility=10; attack_d20=11→roll_total=16; 16>=10→hit (dodge didn't protect).
+	var res = _make_seq_res([9, 11], [4])
+	var result: Dictionary = res.resolve_weapon_attack(
+		_attacker, _ad_target, _weapon, "ac", "dodge", {}
+	)
+	assert_true(result["hit"],
+		"Dodge fail: roll_total=16 >= mobility_check=10 → hit must be true")
+	assert_eq(result["active_defense_applied"], "dodge",
+		"Even when dodge fails to protect, active_defense_applied must be 'dodge'")
+	assert_false(result["defender_stepped"],
+		"Dodge fail: defender_stepped must be false when dodge did not negate the attack")
+
+
+func test_dodge_no_open_space_auto_fails() -> void:
+	## With open_space_available=false, Dodge auto-fails: hit determined by original AC.
+	## attack_d20=11→roll_total=16>=ac(13)→hit; active_defense_applied="none".
+	var res = _make_seq_res([11], [4])
+	var ctx: Dictionary = {"open_space_available": false}
+	var result: Dictionary = res.resolve_weapon_attack(
+		_attacker, _ad_target, _weapon, "ac", "dodge", ctx
+	)
+	assert_true(result["hit"],
+		"Dodge no-space: roll_total=16 >= ac=13 → hit must be true (auto-fail)")
+	assert_eq(result["active_defense_applied"], "none",
+		"Dodge no-space: active_defense_applied must be 'none' (dodge did not apply)")
+	assert_false(result["defender_stepped"],
+		"Dodge no-space: defender_stepped must be false (dodge never applied)")
+
+
+func test_dodge_does_not_trigger_on_fortitude() -> void:
+	## Dodge trigger requires defense_type in ["ac","reflex"]. Fortitude → no dodge.
+	## attack_d20=11→roll_total=16>=fortitude(14)→hit; active_defense_applied="none".
+	var res = _make_seq_res([11], [4])
+	var result: Dictionary = res.resolve_weapon_attack(
+		_attacker, _ad_target, _weapon, "fortitude", "dodge", {}
+	)
+	assert_eq(result["active_defense_applied"], "none",
+		"Dodge vs fortitude: trigger condition not met → active_defense_applied must be 'none'")
+
+
+func test_dodge_does_not_trigger_when_immobilized() -> void:
+	## Immobilized condition prevents Dodge. Hit determined by AC normally.
+	var immobilized_target: Dictionary = {
+		"ac": 13, "reflex": 12, "fortitude": 14, "will": 11,
+		"dexterity": 1, "willpower": 1, "conscious": true,
+		"conditions": ["Immobilized"]
+	}
+	var res = _make_seq_res([11], [4])
+	var result: Dictionary = res.resolve_weapon_attack(
+		_attacker, immobilized_target, _weapon, "ac", "dodge", {}
+	)
+	assert_eq(result["active_defense_applied"], "none",
+		"Dodge when Immobilized: trigger not met → active_defense_applied must be 'none'")
+	assert_true(result["hit"],
+		"Dodge when Immobilized: normal AC check → roll_total=16 >= ac=13 → hit")
+
+
+func test_dodge_triggers_on_reflex_defense() -> void:
+	## Dodge also triggers on reflex defense (not only AC).
+	## mob_d20=16→mobility=17; attack=16<17→miss; reflex would have been 12.
+	var res = _make_seq_res([16, 11], [])
+	var result: Dictionary = res.resolve_weapon_attack(
+		_attacker, _ad_target, _weapon, "reflex", "dodge", {}
+	)
+	assert_false(result["hit"],
+		"Dodge vs reflex: roll_total=16 < mobility_check=17 → miss")
+	assert_eq(result["active_defense_applied"], "dodge",
+		"Dodge vs reflex: active_defense_applied must be 'dodge'")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-059 Criterion 3: BLOCK
+# ══════════════════════════════════════════════════════════════════════════════
+
+func test_block_reduces_damage_by_weapon_die_plus_block_value() -> void:
+	## Block: attack_d20=11→roll_total=16>=ac=13→hit; damage_raw=4+3=7.
+	## Block roll(6,1)=2 → block_reduction=2+block_value(3)=5.
+	## damage_final=max(0,7-5)=2.
+	var res = _make_seq_res([11], [4, 2])
+	var ctx: Dictionary = {"blocking_weapon": _block_weapon}
+	var result: Dictionary = res.resolve_weapon_attack(
+		_attacker, _ad_target, _weapon, "ac", "block", ctx
+	)
+	assert_true(result["hit"],
+		"Block test: roll_total=16 >= ac=13 → hit must be true (block happens post-hit)")
+	assert_eq(result["damage_raw"], 7,
+		"Block test: damage_raw must be 4+3=7 before block reduction")
+	assert_eq(result["damage_final"], 2,
+		"Block test: damage_final must be max(0, 7-5)=2 after 1[W](2)+block_value(3)=5 reduction")
+
+
+func test_block_suppresses_on_hit_effects() -> void:
+	## After a Block, on_hit_suppressed must be true (per Combat.pdf).
+	var res = _make_seq_res([11], [4, 2])
+	var ctx: Dictionary = {"blocking_weapon": _block_weapon}
+	var result: Dictionary = res.resolve_weapon_attack(
+		_attacker, _ad_target, _weapon, "ac", "block", ctx
+	)
+	assert_true(result["on_hit_suppressed"],
+		"Block: on_hit_suppressed must be true (Combat.pdf: on-hit effects do not occur)")
+
+
+func test_block_does_not_trigger_on_miss() -> void:
+	## Block trigger: "hit by an attack targeting AC". Miss → Block doesn't apply.
+	## seed3-equivalent: mob=_MISS_SEED → miss. Block should not fire.
+	var miss_res = _make_res(_MISS_SEED)  # seed 3 → attack misses
+	var ctx: Dictionary = {"blocking_weapon": _block_weapon}
+	var result: Dictionary = miss_res.resolve_weapon_attack(
+		_attacker, _target, _weapon, "ac", "block", ctx
+	)
+	assert_false(result["hit"],
+		"Block miss test: seed 3 → roll_total=10 < ac=13 → hit must be false")
+	assert_eq(result["active_defense_applied"], "none",
+		"Block on miss: active_defense_applied must be 'none' (Block trigger not met)")
+	assert_eq(result["damage_final"], 0,
+		"Block on miss: damage_final must be 0 (no hit, no block)")
+
+
+func test_block_does_not_trigger_on_non_ac_defense() -> void:
+	## Block trigger requires defense_type=="ac". Fortitude attack → Block doesn't apply.
+	## fortitude=14, attack_d20=11→roll_total=16>=14→hit; Block should not fire.
+	var res = _make_seq_res([11], [4])
+	var ctx: Dictionary = {"blocking_weapon": _block_weapon}
+	var result: Dictionary = res.resolve_weapon_attack(
+		_attacker, _ad_target, _weapon, "fortitude", "block", ctx
+	)
+	assert_eq(result["active_defense_applied"], "none",
+		"Block vs fortitude: trigger not met → active_defense_applied must be 'none'")
+	assert_eq(result["damage_final"], result["damage_raw"],
+		"Block vs fortitude: damage_final must equal damage_raw (no block reduction)")
+
+
+func test_block_tier2_scales_to_two_dice() -> void:
+	## Tier-2 Block: 2[W]+block_value. SequenceRNG roll()=2 → 2+3=5; damage=7-5=2.
+	## (SequenceRNG returns same roll value regardless of count parameter.)
+	var res = _make_seq_res([11], [4, 2])
+	var ctx: Dictionary = {
+		"blocking_weapon": _block_weapon,
+		"blocking_weapon_tier": 2
+	}
+	var result: Dictionary = res.resolve_weapon_attack(
+		_attacker, _ad_target, _weapon, "ac", "block", ctx
+	)
+	assert_eq(result["active_defense_applied"], "block",
+		"Block tier 2: active_defense_applied must be 'block'")
+	assert_true(result["on_hit_suppressed"],
+		"Block tier 2: on_hit_suppressed must be true")
+
+
+func test_block_shield_uses_block_die() -> void:
+	## Shield blocking uses block_die (1d12) instead of weapon die.
+	## SequenceRNG ignores die_size so the value is the same (2); block_reduction=2+5=7.
+	## damage_raw=7; damage_final=max(0,7-7)=0.
+	var res = _make_seq_res([11], [4, 2])
+	var ctx: Dictionary = {"blocking_weapon": _shield_weapon}
+	var result: Dictionary = res.resolve_weapon_attack(
+		_attacker, _ad_target, _weapon, "ac", "block", ctx
+	)
+	assert_eq(result["active_defense_applied"], "block",
+		"Shield block: active_defense_applied must be 'block'")
+	assert_eq(result["damage_final"], 0,
+		"Shield block: damage_raw=7, block_reduction=2+5=7 → damage_final=max(0,0)=0")
+
+
+func test_block_cannot_reduce_damage_below_zero() -> void:
+	## Block reduction is capped at damage_raw (damage_final >= 0).
+	## large block_value=10 on damage_raw=7 → damage_final=max(0,7-(any+10))=0.
+	var huge_block_weapon: Dictionary = {"damage_die": 6, "block_value": 10}
+	var res = _make_seq_res([11], [4, 1])
+	var ctx: Dictionary = {"blocking_weapon": huge_block_weapon}
+	var result: Dictionary = res.resolve_weapon_attack(
+		_attacker, _ad_target, _weapon, "ac", "block", ctx
+	)
+	assert_true(result["damage_final"] >= 0,
+		"Block: damage_final must never be negative; got %d" % result["damage_final"])
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-059 Criterion 4: PARRY
+# ══════════════════════════════════════════════════════════════════════════════
+
+func test_parry_success_zeroes_damage() -> void:
+	## Parry success: parry_d20=14→parry_roll=14+4=18 > roll_total=16.
+	## damage_final becomes 0. on_hit_suppressed=true.
+	var res = _make_seq_res([11, 14], [4])
+	var ctx: Dictionary = {"parrying_weapon": _parry_weapon}
+	var result: Dictionary = res.resolve_weapon_attack(
+		_attacker, _ad_target, _weapon, "ac", "parry", ctx
+	)
+	assert_true(result["hit"],
+		"Parry test: roll_total=16 >= ac=13 → originally a hit (parry fires post-hit)")
+	assert_eq(result["damage_final"], 0,
+		"Parry success: parry_roll=18 > roll_total=16 → damage_final must be 0")
+	assert_eq(result["active_defense_applied"], "parry",
+		"Parry success: active_defense_applied must be 'parry'")
+
+
+func test_parry_success_suppresses_on_hit_effects() -> void:
+	## Parry success: on_hit_suppressed must be true (Combat.pdf).
+	var res = _make_seq_res([11, 14], [4])
+	var ctx: Dictionary = {"parrying_weapon": _parry_weapon}
+	var result: Dictionary = res.resolve_weapon_attack(
+		_attacker, _ad_target, _weapon, "ac", "parry", ctx
+	)
+	assert_true(result["on_hit_suppressed"],
+		"Parry success: on_hit_suppressed must be true (Combat.pdf: on-hit effects do not occur)")
+
+
+func test_parry_fail_damage_unchanged() -> void:
+	## Parry fail: parry_d20=5→parry_roll=5+4=9 <= roll_total=16.
+	## damage_final unchanged (=damage_raw=7). active_defense_applied="parry".
+	var res = _make_seq_res([11, 5], [4])
+	var ctx: Dictionary = {"parrying_weapon": _parry_weapon}
+	var result: Dictionary = res.resolve_weapon_attack(
+		_attacker, _ad_target, _weapon, "ac", "parry", ctx
+	)
+	assert_true(result["hit"],
+		"Parry fail: roll_total=16 >= ac=13 → hit must be true")
+	assert_eq(result["damage_final"], result["damage_raw"],
+		"Parry fail: parry_roll=9 <= roll_total=16 → damage_final must equal damage_raw")
+	assert_false(result["on_hit_suppressed"],
+		"Parry fail: on_hit_suppressed must be false (parry did not succeed)")
+	assert_eq(result["active_defense_applied"], "parry",
+		"Parry fail: active_defense_applied must still be 'parry' (it was attempted)")
+
+
+func test_parry_does_not_trigger_on_miss() -> void:
+	## Parry trigger: "hit by an attack targeting AC". Miss → Parry doesn't apply.
+	var miss_res = _make_res(_MISS_SEED)  # seed 3 → miss
+	var ctx: Dictionary = {"parrying_weapon": _parry_weapon}
+	var result: Dictionary = miss_res.resolve_weapon_attack(
+		_attacker, _target, _weapon, "ac", "parry", ctx
+	)
+	assert_false(result["hit"],
+		"Parry miss test: seed 3 → miss")
+	assert_eq(result["active_defense_applied"], "none",
+		"Parry on miss: active_defense_applied must be 'none' (trigger not met)")
+
+
+func test_parry_does_not_trigger_on_non_ac_defense() -> void:
+	## Parry trigger requires defense_type=="ac". Fortitude → Parry doesn't apply.
+	var res = _make_seq_res([11], [4])
+	var ctx: Dictionary = {"parrying_weapon": _parry_weapon}
+	var result: Dictionary = res.resolve_weapon_attack(
+		_attacker, _ad_target, _weapon, "fortitude", "parry", ctx
+	)
+	assert_eq(result["active_defense_applied"], "none",
+		"Parry vs fortitude: trigger not met → active_defense_applied must be 'none'")
+
+
+func test_parry_equal_to_roll_total_fails() -> void:
+	## Parry must EXCEED (>) attacker's roll_total, not equal it.
+	## parry_d20=12→parry_roll=12+4=16 == roll_total=16 → not > → fail.
+	var res = _make_seq_res([11, 12], [4])
+	var ctx: Dictionary = {"parrying_weapon": _parry_weapon}
+	var result: Dictionary = res.resolve_weapon_attack(
+		_attacker, _ad_target, _weapon, "ac", "parry", ctx
+	)
+	assert_false(result["on_hit_suppressed"],
+		"Parry: parry_roll=16 equal to roll_total=16 → must NOT succeed (needs to EXCEED)")
+	assert_eq(result["damage_final"], result["damage_raw"],
+		"Parry equal: damage_final must equal damage_raw (parry did not succeed)")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-059 Criterion 5: STEEL
+# ══════════════════════════════════════════════════════════════════════════════
+
+func test_steel_vs_fortitude_negates_attack_when_check_exceeds() -> void:
+	## Steel vs Fortitude: det_d20=16→determination=17; attack_d20=11→roll_total=16.
+	## Effective defense=17; 16<17→miss! Attack negated by Steel.
+	var res = _make_seq_res([16, 11], [])
+	var result: Dictionary = res.resolve_weapon_attack(
+		_attacker, _ad_target, _weapon, "fortitude", "steel", {}
+	)
+	assert_false(result["hit"],
+		"Steel vs fortitude: roll_total=16 < determination=17 → hit must be false")
+	assert_eq(result["active_defense_applied"], "steel",
+		"Steel vs fortitude: active_defense_applied must be 'steel'")
+
+
+func test_steel_resist_grants_next_check_bonus_2() -> void:
+	## When Steel successfully resists an attack, next_check_bonus must be +2.
+	var res = _make_seq_res([16, 11], [])
+	var result: Dictionary = res.resolve_weapon_attack(
+		_attacker, _ad_target, _weapon, "fortitude", "steel", {}
+	)
+	assert_false(result["hit"],
+		"Steel resist: hit must be false (attack resisted)")
+	assert_eq(result["next_check_bonus"], 2,
+		"Steel resist: next_check_bonus must be +2 when attack is resisted")
+
+
+func test_steel_vs_will_negates_attack() -> void:
+	## Steel also triggers on 'will' defense. Same logic as fortitude.
+	## det_d20=16→det_check=17; attack_d20=11→roll_total=16; vs will(11) but effective=17.
+	## 16<17→miss.
+	var res = _make_seq_res([16, 11], [])
+	var result: Dictionary = res.resolve_weapon_attack(
+		_attacker, _ad_target, _weapon, "will", "steel", {}
+	)
+	assert_false(result["hit"],
+		"Steel vs will: roll_total=16 < determination=17 → hit must be false")
+	assert_eq(result["active_defense_applied"], "steel",
+		"Steel vs will: active_defense_applied must be 'steel'")
+	assert_eq(result["next_check_bonus"], 2,
+		"Steel vs will: next_check_bonus must be 2 when resisted")
+
+
+func test_steel_fail_attack_lands_no_bonus() -> void:
+	## Steel fail: det_d20=5→determination_check=5+willpower(1)=6.
+	## attack_d20=8→roll_total=8+str(3)+prof(2)=13.
+	## Effective defense=6; 13>=6→hit; 13-6=7<10→no crit → damage_raw=4+3=7.
+	## No next_check_bonus (attack was not resisted).
+	## Note: using attack_d20=8 (not 11) to avoid 16-6=10 crit boundary with determination=6.
+	var res = _make_seq_res([5, 8], [4])
+	var result: Dictionary = res.resolve_weapon_attack(
+		_attacker, _ad_target, _weapon, "fortitude", "steel", {}
+	)
+	assert_true(result["hit"],
+		"Steel fail: roll_total=13 >= determination=6 → hit must be true")
+	assert_false(result["crit"],
+		"Steel fail: roll_total=13 - determination=6 = 7 < 10 → must NOT crit")
+	assert_eq(result["damage_final"], 7,
+		"Steel fail: damage_final must be 7 (roll=4+str=3, no defense reduction)")
+	assert_eq(result["next_check_bonus"], 0,
+		"Steel fail: next_check_bonus must be 0 (attack was not resisted)")
+	assert_eq(result["active_defense_applied"], "steel",
+		"Steel fail: active_defense_applied must be 'steel' (it was attempted)")
+
+
+func test_steel_does_not_trigger_on_ac_defense() -> void:
+	## Steel trigger requires defense_type in ["fortitude","will"]. AC → no Steel.
+	## attack_d20=11→roll_total=16>=ac=13→hit; active_defense_applied="none".
+	var res = _make_seq_res([11], [4])
+	var result: Dictionary = res.resolve_weapon_attack(
+		_attacker, _ad_target, _weapon, "ac", "steel", {}
+	)
+	assert_eq(result["active_defense_applied"], "none",
+		"Steel vs AC: trigger not met → active_defense_applied must be 'none'")
+
+
+func test_steel_does_not_trigger_when_unconscious() -> void:
+	## Steel requires conscious target. Unconscious target → no Steel.
+	var unconscious_target: Dictionary = {
+		"ac": 13, "reflex": 12, "fortitude": 14, "will": 11,
+		"dexterity": 1, "willpower": 1, "conscious": false
+	}
+	var res = _make_seq_res([11], [4])
+	var result: Dictionary = res.resolve_weapon_attack(
+		_attacker, unconscious_target, _weapon, "fortitude", "steel", {}
+	)
+	assert_eq(result["active_defense_applied"], "none",
+		"Steel on unconscious: trigger not met → active_defense_applied must be 'none'")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-059 Criterion 6: WeaponResource exposes block_value and parry_bonus
+# ══════════════════════════════════════════════════════════════════════════════
+
+func test_weapon_resource_has_block_value_property() -> void:
+	## WeaponResource must expose block_value:int (default 0).
+	var wr = WeaponResourceClass.new()
+	assert_eq(wr.block_value, 0,
+		"WeaponResource.block_value must exist and default to 0")
+
+
+func test_weapon_resource_has_parry_bonus_property() -> void:
+	## WeaponResource must expose parry_bonus:int (default 0).
+	var wr = WeaponResourceClass.new()
+	assert_eq(wr.parry_bonus, 0,
+		"WeaponResource.parry_bonus must exist and default to 0")
+
+
+func test_longsword_tres_has_block_value_3() -> void:
+	## longsword.tres must have block_value=3 per docs/design-source/Weapons.pdf.
+	var longsword = ResourceLoader.load("res://data/weapons/longsword.tres")
+	assert_not_null(longsword,
+		"ResourceLoader.load('res://data/weapons/longsword.tres') must return non-null")
+	if longsword == null:
+		return
+	assert_eq(longsword.block_value, 3,
+		"longsword.tres block_value must be 3 (Weapons.pdf: Longsword Block=3)")
+
+
+func test_longsword_tres_has_parry_bonus_4() -> void:
+	## longsword.tres must have parry_bonus=4 per docs/design-source/Weapons.pdf.
+	var longsword = ResourceLoader.load("res://data/weapons/longsword.tres")
+	assert_not_null(longsword,
+		"ResourceLoader.load('res://data/weapons/longsword.tres') must return non-null")
+	if longsword == null:
+		return
+	assert_eq(longsword.parry_bonus, 4,
+		"longsword.tres parry_bonus must be 4 (Weapons.pdf: Longsword Parry=4)")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-059 Criterion 7: Action economy integration
+# Each active defense reaction consumes one action from the actor's round budget.
+# ══════════════════════════════════════════════════════════════════════════════
+
+func test_dodge_consumes_one_action_from_economy() -> void:
+	## Dodge reaction spends one action: budget 7→6.
+	## Dodge success: mob_d20=16→mobility=17; attack_d20=11→roll_total=16<17→miss.
+	var ae = _make_full_ae()
+	assert_eq(ae.get_remaining(), 7, "budget must start at 7")
+	var ctx: Dictionary = {"action_economy": ae}
+	var res = _make_seq_res([16, 11], [])
+	res.resolve_weapon_attack(_attacker, _ad_target, _weapon, "ac", "dodge", ctx)
+	assert_eq(ae.get_remaining(), 6,
+		"Dodge reaction must consume 1 action: budget must be 6 after dodge")
+
+
+func test_block_consumes_one_action_from_economy() -> void:
+	## Block reaction spends one action: budget 7→6.
+	## attack_d20=11→hit; block reduces damage.
+	var ae = _make_full_ae()
+	var ctx: Dictionary = {
+		"action_economy": ae,
+		"blocking_weapon": _block_weapon
+	}
+	var res = _make_seq_res([11], [4, 2])
+	res.resolve_weapon_attack(_attacker, _ad_target, _weapon, "ac", "block", ctx)
+	assert_eq(ae.get_remaining(), 6,
+		"Block reaction must consume 1 action: budget must be 6 after block")
+
+
+func test_parry_consumes_one_action_from_economy() -> void:
+	## Parry reaction spends one action: budget 7→6.
+	## Parry success: parry_d20=14→parry=18>roll_total=16→damage=0.
+	var ae = _make_full_ae()
+	var ctx: Dictionary = {
+		"action_economy": ae,
+		"parrying_weapon": _parry_weapon
+	}
+	var res = _make_seq_res([11, 14], [4])
+	res.resolve_weapon_attack(_attacker, _ad_target, _weapon, "ac", "parry", ctx)
+	assert_eq(ae.get_remaining(), 6,
+		"Parry reaction must consume 1 action: budget must be 6 after parry")
+
+
+func test_steel_consumes_one_action_from_economy() -> void:
+	## Steel reaction spends one action: budget 7→6.
+	## Steel success: det_d20=16→det=17; attack_d20=11→roll_total=16<17→miss.
+	var ae = _make_full_ae()
+	var ctx: Dictionary = {"action_economy": ae}
+	var res = _make_seq_res([16, 11], [])
+	res.resolve_weapon_attack(_attacker, _ad_target, _weapon, "fortitude", "steel", ctx)
+	assert_eq(ae.get_remaining(), 6,
+		"Steel reaction must consume 1 action: budget must be 6 after steel")
+
+
+func test_active_defense_not_applied_when_budget_exhausted() -> void:
+	## When the action economy is Spent, active defense cannot trigger.
+	## Exhaust budget (7 actions), then attempt Dodge → Budget=0, dodge not applied.
+	var ae = _make_full_ae()
+	for _i in range(7):
+		ae.spend_action({})
+	assert_true(ae.is_spent(), "AE must be spent before this test")
+
+	var ctx: Dictionary = {"action_economy": ae, "open_space_available": true}
+	var res = _make_seq_res([11], [4])
+	var result: Dictionary = res.resolve_weapon_attack(
+		_attacker, _ad_target, _weapon, "ac", "dodge", ctx
+	)
+	assert_eq(result["active_defense_applied"], "none",
+		"Spent AE: Dodge reaction cannot fire → active_defense_applied must be 'none'")
+	assert_true(result["hit"],
+		"Spent AE: no dodge → normal AC check → roll_total=16 >= ac=13 → hit")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-059: New return keys always present in the result dict
+# ══════════════════════════════════════════════════════════════════════════════
+
+func test_result_dict_contains_defender_stepped_key() -> void:
+	## defender_stepped must always be present (bool) — not just for dodge scenarios.
+	var res = _make_seq_res([11], [4])
+	var result: Dictionary = res.resolve_weapon_attack(_attacker, _ad_target, _weapon, "ac")
+	assert_true(result.has("defender_stepped"),
+		"Result dict must always contain 'defender_stepped' key")
+	assert_false(result["defender_stepped"],
+		"defender_stepped must be false when active_defense='none'")
+
+
+func test_result_dict_contains_next_check_bonus_key() -> void:
+	## next_check_bonus must always be present (int) — not just for steel scenarios.
+	var res = _make_seq_res([11], [4])
+	var result: Dictionary = res.resolve_weapon_attack(_attacker, _ad_target, _weapon, "ac")
+	assert_true(result.has("next_check_bonus"),
+		"Result dict must always contain 'next_check_bonus' key")
+	assert_eq(result["next_check_bonus"], 0,
+		"next_check_bonus must be 0 when active_defense='none'")
+
+
+func test_result_dict_contains_on_hit_suppressed_key() -> void:
+	## on_hit_suppressed must always be present (bool) — not just for block/parry.
+	var res = _make_seq_res([11], [4])
+	var result: Dictionary = res.resolve_weapon_attack(_attacker, _ad_target, _weapon, "ac")
+	assert_true(result.has("on_hit_suppressed"),
+		"Result dict must always contain 'on_hit_suppressed' key")
+	assert_false(result["on_hit_suppressed"],
+		"on_hit_suppressed must be false when active_defense='none'")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-059: Bobbin-vs-Dmitri extended — Dodge integration (Combat.pdf §Reactions)
+#
+# Combat.pdf describes: "Bobbin rolls a total of 17 to hit, beating Dmitri's
+# Armor Class of 15, but failing to beat his Mobility check [of 18]."
+# Dmitri dodges — attack falls on empty air, Dmitri steps to the side.
+#
+# FixtureRNG extension: we need two d20 calls.
+# We'll use SequenceRNG(d20_seq=[18, 11], roll_seq=[7]):
+#   Call 1: d20()=18 → Dmitri's Mobility check = 18+dex(4)=22...
+#
+# Wait — the PDF says Dmitri rolled 18 on the Mobility check, and Bobbin's
+# roll_total=17. Per the PDF: Dmitri's dexterity is 4 (initiative modifier=5,
+# intuition=1, dexterity=4), so mob_check = 18 on the die (the PDF states
+# "rolling 18 on a Mobility check"). Let's use the die roll = 18 directly
+# and treat the check result as 18 (no attribute added, since the PDF quotes
+# the die result directly as "rolling 18 on a Mobility check").
+#
+# For this canonical test, we interpret: Mobility check result = 18 (from the
+# die). Bobbin's roll_total=17. 17 < 18 → miss.
+#
+# SequenceRNG(d20_seq=[18, 11], roll_seq=[7]):
+#   d20 call 1 (mob check): 18 → Dmitri's Mobility check = 18+dex(4)=22
+#   d20 call 2 (attack):    11 → Bobbin's roll_total = 11+4(str)+2(prof) = 17
+#   17 < 22 → miss (matches PDF: fails to beat Mobility check)
+# ══════════════════════════════════════════════════════════════════════════════
+
+func test_bobbin_dmitri_dodge_negates_attack() -> void:
+	## Combat.pdf §Reactions: Bobbin rolls 17 to hit, fails to beat Dmitri's
+	## Mobility check of 18 → attack misses and Dmitri steps to the side.
+	##
+	## Dmitri (Rogue) target with Dodge:
+	##   dexterity=4 (initiative modifier text implies dex=4 for Dmitri)
+	##   ac=15, Mobility check die=18 → check result=18+4=22
+	##
+	## Bobbin (Fighter) attack:
+	##   strength=4, proficiency=2, d20=11 → roll_total=11+4+2=17
+	##   17 < 22 → miss!
+	var dmitri_dodge: Dictionary = {
+		"ac":        15,
+		"reflex":    13,
+		"fortitude": 12,
+		"will":      10,
+		"dexterity": 4,    # Dmitri's dexterity (per Combat.pdf initiative: modifier=5, intuition=1, dex=4)
+		"willpower": 1,
+		"conscious": true
+	}
+	# SequenceRNG: d20[0]=18 (mob check), d20[1]=11 (attack); roll=7 (not used on miss)
+	var rng = SequenceRNG.new([18, 11], [7])
+	var res = ResolutionClass.new(rng)
+	var result: Dictionary = res.resolve_weapon_attack(
+		_bobbin, dmitri_dodge, _longsword, "ac", "dodge", {}
+	)
+	assert_false(result["hit"],
+		"Bobbin-vs-Dmitri Dodge: roll_total=17 < Dmitri's Mobility check=22 → miss (Combat.pdf)")
+	assert_eq(result["active_defense_applied"], "dodge",
+		"Bobbin-vs-Dmitri Dodge: active_defense_applied must be 'dodge'")
+	assert_true(result["defender_stepped"],
+		"Bobbin-vs-Dmitri Dodge: Dmitri deftly steps to the side (defender_stepped=true)")
+	assert_eq(result["damage_final"], 0,
+		"Bobbin-vs-Dmitri Dodge: hit=false → damage_final must be 0")

@@ -1,0 +1,10 @@
+[gd_resource type="Resource" script_class="ArmorResource" load_steps=2 format=3 uid="uid://blth1a2b3c4d5"]
+
+[ext_resource type="Script" uid="uid://barms1a2b3c4d" path="res://core/model/armor_resource.gd" id="1_lthrm"]
+
+[resource]
+script = ExtResource("1_lthrm")
+armor_id = "leather_armor"
+name = "Leather Armor"
+ac_base = 2
+category = "light"

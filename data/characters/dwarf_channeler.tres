@@ -9,5 +9,5 @@ name = "Dwarf Channeler"
 race = "Dwarf"
 class_ref = ExtResource("2_dc1h1")
 attributes = {"constitution": 4, "dexterity": 1, "intellect": 2, "intuition": 2, "social": 4, "strength": 2, "willpower": 3}
-starting_equipment = []
+starting_equipment = ["res://data/weapons/mace.tres", "res://data/armor/chain_shirt.tres"]
 talent_selections = []

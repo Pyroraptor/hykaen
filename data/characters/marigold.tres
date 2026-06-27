@@ -9,5 +9,5 @@ name = "Marigold"
 race = "Elven"
 class_ref = ExtResource("2_dw1r1")
 attributes = {"constitution": 3, "dexterity": 3, "intellect": 1, "intuition": 3, "social": 2, "strength": 3, "willpower": 4}
-starting_equipment = []
+starting_equipment = ["res://data/weapons/shortsword.tres", "res://data/armor/leather_armor.tres"]
 talent_selections = ["divine_champion_stealth"]

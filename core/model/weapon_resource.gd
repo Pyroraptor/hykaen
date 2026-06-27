@@ -28,6 +28,10 @@ extends Resource
 ## Die size used when rolling weapon damage (e.g. 6 = d6).
 @export var damage_die: int = 0
 
+## Damage type letter: 'S' (slashing), 'P' (piercing), 'B' (bludgeoning).
+## Source: docs/design-source/Weapons.pdf (Dam. column letter suffix).
+@export var damage_type: String = ""
+
 ## Number of damage dice rolled per attack (v0: always 1).
 @export var damage_count: int = 1
 
@@ -36,3 +40,15 @@ extends Resource
 
 ## Flat proficiency bonus added to attack rolls when the character is trained.
 @export var proficiency_bonus: int = 0
+
+## Flat bonus applied when using the Block reaction.
+## Reduces incoming damage by 1[W] + block_value (scales 2[W] at tier 2, 3[W] at tier 3).
+## Zero means this weapon cannot Block effectively.
+## Source: docs/design-source/Weapons.pdf (Block column).
+@export var block_value: int = 0
+
+## Flat bonus added to the defender's attack roll when using the Parry reaction.
+## A parry roll of (d20 + parry_bonus) > attacker's attack roll negates the attack.
+## Zero means this weapon has no parry capability.
+## Source: docs/design-source/Weapons.pdf (Parry column).
+@export var parry_bonus: int = 0
