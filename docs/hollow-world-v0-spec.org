@@ -1,25 +1,615 @@
 #+TITLE: Hollow World v0 — Combat Simulation Specification
-#+AUTHOR: [author name required]
-#+DATE: [date required]
-#+APPROVAL: Guy Verisage — reviewed 2026-06-26 — approved for v0 combat simulation milestone
+#+AUTHOR: Drafted by AEF (Claude) for author review — Guy Verisage to approve
+#+DATE: 2026-06-29
+#+APPROVAL: Sharding — reviewed 2026-06-29 — approved for v0 combat simulation milestone
+#+VERSION: v0-draft-1
+#+SOURCE: docs/design-source/{Combat,Weapons,Building a Character,Classes,Magic and Spellcasting}.pdf; docs/brief.org
 
-* STATUS
-  This is a STUB placeholder created by the FEAT-021 enforcement gate.
-  The project author must replace this file with the full specification
-  per ADR-004 (US-001: 5-day human authoring task) before this approval
-  should be considered valid.
+* STATUS — DRAFT, awaiting author approval
 
-  The ~#+APPROVAL:~ marker above is intentionally minimal. The project
-  author must review, complete, and re-approve this document before
-  the combat validation suite results carry meaning.
+  This document REPLACES the FEAT-021 stub. It is a complete first draft of
+  the frozen v0 ruleset, authored from the five combat-relevant source PDFs
+  in =docs/design-source/= and the decisions already recorded in
+  =docs/brief.org=. It satisfies all twelve content acceptance criteria of
+  FR-001 (see =Acceptance Criteria= below).
 
-* Scope
-  [Author: describe the v0 combat simulation scope here]
+  *It is NOT yet approved.* Per the project's spec-before-code gate, no further
+  combat logic should be built against it until the author has reviewed,
+  edited, and approved it. To approve:
 
-* Acceptance Criteria
-  [Author: list acceptance criteria for US-001 through US-009 here]
+  1. Read the document, especially =Authored v0 Decisions= — those are the
+     calls AEF made to fill gaps the source docs leave open (armor table,
+     speed, spell-attack bonus, skill list, condition magnitudes, talent
+     contents, quarterstaff). Edit any numbers you disagree with.
+  2. Replace the =#+APPROVAL:= line at the top with the substantive approval
+     statement it quotes. (Until you do, the CI spec-gate lints
+     =lint-spec-no-placeholder= / =test_spec_approval_not_placeholder= stay
+     red — intentionally.)
+  3. Commit. Then prune =data/checkpoint.json= and start a fresh,
+     tightly-scoped sprint (do NOT plain =aef run --resume= — see RESUME-STATE).
+
+* Purpose & scope authority
+
+  This spec is the *single source of truth and the authoritative scope
+  boundary* for the Hykaen vignette's combat layer. It exists to stop the
+  problem recorded in =hykaen-sdlc/RESUME-STATE.md=: with only a stub spec,
+  Verification & Validation judged the deliberately-small vignette against the
+  *entire* Hollow World system and rewound forever, re-adding dropped scope.
+
+  *Rule for V&V and implementation: anything listed under "Deferred (out of
+  v0 scope)" is COMPLETE-BY-OMISSION. It is not a partial, not a gap, and not
+  a remediation target.* Conformance is measured against this document, not
+  against the full source ruleset.
+
+* In scope (v0) vs Deferred (out of v0 scope)
+
+** In scope — the v0 combat slice
+
+  - The seven attributes and 27-point point-buy.
+  - All derived stats: HP, Stamina, the four defenses, Initiative, Speed,
+    Skills Known.
+  - The seven-action *round* economy, turn structure, the free Step, the
+    Spent state, and Combinations.
+  - Passive defenses (AC, Reflex, Fortitude, Will) and the four active-defense
+    reactions (Dodge, Block, Parry, Steel), plus Opportunistic Strike and the
+    Shield spell-reaction.
+  - The full v0 action/reaction card set (this document, §Actions & reactions).
+  - Critical hits and Tier-based =[W]= damage scaling (Tier 1 is the only tier
+    actually used by the vignette; Tier 2/3 multipliers are defined for the
+    data model but no v0 content reaches them).
+  - The minimal condition set: *Spent, Off-Guard, Dazed, Immobilized, Haste,
+    Stunned*.
+  - Two spellcasting paradigms used by the party: *Channeling* (Divine
+    Channeler, Divine Warrior) and *Prepared/Attuned* (Wizard).
+  - The v0 spell set (the five source spells: Channel, Shield, Fire Bolt,
+    Heal, Fireball) and the v0 weapon & armor tables.
+  - The four playable classes (Fighter, Wizard, Divine Warrior, Divine
+    Channeler) with 1–2 authored talent tiers each, including a stealth talent
+    on Marigold's Divine Champion path.
+  - A minimal v0 skill list (combat needs Mobility and Determination; the rest
+    support exploration/social checks).
+
+** Deferred (out of v0 scope) — complete by omission, NOT partials
+
+  - *The Sorcerer Stamina-to-energy paradigm* and any third paradigm beyond
+    Channeling and Prepared/Attuned. (No Sorcerer ships in v0.)
+  - *Conditions beyond the five named above* (Prone, Frightened, Poisoned,
+    Grappled, Blinded, etc.).
+  - *The other four classes*: Rogue, Sorcerer, Primal Channeler, Primal
+    Warrior — and all their unique trees (Lethality, Poisons, Primal *, …).
+  - *Full talent-tree contents and full spell lists.* v0 ships only the
+    authored 1–2 tiers and the five spells listed here.
+  - *Racial mechanics.* Human / Tiefling / Elf / Dwarf are cosmetic; Race HP
+    is normalized to 8 and no racial bonuses apply.
+  - *Tier 2/3 character scaling, multi-level progression, and leveling past
+    Level 1.* Vignette is Tier 1 / Level 1 throughout.
+  - *Enemy AI sophistication.* v0 enemy AI is "select a legal action
+    respecting the action budget and Spent state" (FR-012). Advanced tactics,
+    target prioritization heuristics, and reaction baiting are deferred.
+  - *Skills as a ranked/trained subsystem.* v0 skills are flat
+    =d20 + governing attribute= (see §Skills); skill ranks, the full skill
+    list, and trained/untrained gating are deferred.
+  - *Carrying capacity, encumbrance, ranged ammunition tracking, two-weapon
+    fighting bonuses, called shots, cover degrees beyond Take Cover's flat
+    bonus, and reach weapons.*
+  - *Exploration, dialogue, save/load, UI, export* — those are later phases
+    (FR-013…FR-022) and are not part of this ruleset spec, though this spec is
+    their rules foundation.
+
+* The seven attributes & point-buy
+
+  Source: =Building a Character.pdf=.
+
+  | Attribute    | Governs (combat-relevant)                                      |
+  |--------------+----------------------------------------------------------------|
+  | Strength     | Melee attack (Str weapons), Fortitude                          |
+  | Constitution | HP, Stamina, Fortitude                                         |
+  | Dexterity    | Ranged & finesse attack, Reflex, Initiative, AC (light/none)   |
+  | Willpower    | Will defense, Stamina, Determination (Steel)                   |
+  | Intellect    | Skills Known count, Wizard spellcasting                        |
+  | Intuition    | Initiative, Reflex                                             |
+  | Social       | Will defense, Divine Channeler spellcasting                    |
+
+  *Point-buy:* every attribute starts at 0. Distribute *27 points*. A score's
+  cost is cumulative per the table:
+
+  | Score | 0 | 1 | 2 | 3 | 4 | 5 |  6 |
+  |-------+---+---+---+---+---+---+----|
+  | Cost  | 0 | 1 | 2 | 4 | 6 | 9 | 12 |
+
+  The allocator must reject any build whose total cost exceeds 27 and must
+  reject scores outside 0–6 in v0.
+
+  *No 5e terminology.* Charisma, Wisdom, Intelligence (as an attribute name),
+  proficiency bonus, bonus actions, cantrips, and ASIs do not appear in this
+  system. (Weapon "Prof." in the weapon table is a per-weapon attack bonus,
+  not a level-scaling proficiency bonus.)
+
+* Derived stats
+
+  All formulas below are fixed for v0 (Tier = 1, Level = 1, Race HP = 8).
+
+  - *Hit Points* — =HP = 8 + Class HP + Constitution=.
+    (General form, deferred: =Race HP + Class HP × Level + Constitution × Tier=.)
+  - *Stamina* — =Stamina = Class Stamina base + Willpower + Constitution=.
+    Stamina is a shared pool spent on Combining actions (1 each) and on
+    healing (the Heal spell trades the target's Stamina for HP). It refills
+    fully only on an uninterrupted long rest.
+  - *Defenses* (each is a passive target number):
+    - *Armor Class (AC)* = =10 + armor base + Dexterity=, where the Dexterity
+      term applies *only* if the worn armor is category Light or None.
+    - *Reflex* = =10 + Dexterity + Intuition=.
+    - *Fortitude* = =10 + Constitution + Strength=.
+    - *Will* = =10 + Willpower + Social=.
+  - *Initiative* — =d20 + Intuition + Dexterity=, rolled once at combat start;
+    sets turn order for the whole combat. (Confirmed by the Bobbin/Dmitri
+    worked example.)
+  - *Speed* — *20 ft = 4 squares*. One square = 5 ft. A Step moves 1 square; a Stride moves up
+    to Speed.
+  - *Skills Known* — =Class Skills base + Intellect= (the count of skills the
+    character is trained in; see §Skills).
+
+* Skills (v0)
+
+  The source =Skills= section is an empty stub. For v0, a skill check is
+  =d20 + governing attribute= against a DC (no separate skill ranks). "Skills
+  Known" counts which skills a character is *trained* in; in v0 a trained
+  skill simply grants a +2 to that check. The
+  two combat-critical skills are *Mobility* and *Determination*.
+
+  | Skill         | Attribute   | Used by                                  |
+  |---------------+-------------+------------------------------------------|
+  | Mobility      | Dexterity   | *Dodge* reaction (combat); movement      |
+  | Determination | Willpower   | *Steel* reaction (combat); resist effects|
+  | Perception    | Intuition   | exploration: spot/notice                 |
+  | Stealth       | Dexterity   | exploration: hide; Marigold skirmisher   |
+  | Thievery      | Dexterity   | exploration: locks/traps                 |
+  | Athletics     | Strength    | exploration: climb/jump/shove            |
+  | Persuasion    | Social      | dialogue checks                          |
+  | Lore          | Intellect   | knowledge/investigation                  |
+
+  Only *Mobility* and *Determination* are required for the v0 combat engine;
+  the rest exist for the later exploration/dialogue phases and may be trimmed
+  by the author. A fuller, ranked skill system is deferred.
+
+* Weapons table (v0)
+
+  Reproduced verbatim from =Weapons.pdf=, plus one authored entry
+  (*Quarterstaff*, flagged) to cover the staff the existing party-equipment
+  resources already reference. "Prof." is the weapon's flat attack bonus.
+  "Block" is the weapon's Block value (added to Block-reaction reduction);
+  "Parry" is its Parry bonus. A weapon with a Block die uses that die in place
+  of its damage die when Blocking.
+
+  | Name           | Type        | Prof. | Dam.   | Block | Parry | Range          | Hands       | Properties              |
+  |----------------+-------------+-------+--------+-------+-------+----------------+-------------+-------------------------|
+  | Arming Sword   | Heavy Blade | +2    | 1d6 S  |     2 |     4 | 5 ft.          | 1           | Versatile (P)           |
+  | Longsword      | Heavy Blade | +2    | 1d12 S |     3 |     4 | 5 ft.          | 2           | Versatile (P)           |
+  | Bastard Sword  | Heavy Blade | +2    | 1d8 S  |     2 |     4 | 5 ft.          | 1           | Versatile (P), Two-Hand 1d10 |
+  | Shortsword     | Light Blade | +3    | 1d6 P  |     1 |     4 | 5 ft.          | 1, light    | Finesse                 |
+  | Dagger         | Light Blade | +3    | 1d4 P  |     0 |     3 | 5 ft / 20 ft thrown | 1, light | Finesse                 |
+  | Rapier         | Light Blade | +3    | 1d8 P  |     1 |     4 | 5 ft.          | 1           | Finesse                 |
+  | Mace           | Mace        | +1    | 1d8 B  |     2 |     1 | 5 ft.          | 1           | Block Breaker 4         |
+  | Longbow        | Bow         | +1    | 1d8 P  |     1 |     0 | 50/200 ft.     | 2           | Requires Str 3          |
+  | Shortbow       | Bow         | +2    | 1d6 P  |     0 |     0 | 40/100 ft.     | 2           |                         |
+  | Large Shield   | Shield      | +1    | 1d4 B  |     5 |     2 | 5 ft.          | 1, off-hand | Block die 1d12          |
+  | Small Shield   | Shield      | +1    | 1d4 B  |     4 |     1 | 5 ft.          | 1, off-hand | Block die 1d10          |
+  | Buckler        | Shield      | +2    | 1d4 B  |     3 |     3 | 5 ft.          | 1, off-hand | Block die 1d8           |
+  | Quarterstaff † | Staff       | +1    | 1d6 B  |     2 |     2 | 5 ft.          | 1           | Two-Hand 1d8, Implement   |
+
+  † *Authored for v0* — not in =Weapons.pdf=. Added so Gram Marx's staff and
+  the existing =quarterstaff.tres= have a rules entry; it doubles as an arcane
+  Implement. Stats are a starting point for author tuning. Damage type codes:
+  S = slashing, P = piercing, B = bludgeoning.
+
+  *Block Breaker N*: a weapon with this property ignores N points of an
+  opponent's Block value when it lands a hit (v0 reading; flag if you intended
+  otherwise). *Two-Hand* = two-handed damage die when wielded in two hands.
+
+* Armor table (v0 — AUTHORED)
+
+  No =Armor.pdf= exists; this table is authored for v0 and is a deliberate,
+  *untested* balance starting point (consistent with the brief's treatment of
+  the defense formulas). "AC base" feeds =AC = 10 + armor base + Dexterity=;
+  the Dexterity term applies only in the *Light* (and None) categories.
+
+  | Armor       | Category | AC base | Dex to AC | Typical wearer (vignette)        |
+  |-------------+----------+---------+-----------+----------------------------------|
+  | None        | Light    |      +0 | yes       | —                                |
+  | Robes       | Light    |      +0 | yes       | Gram Marx (Wizard)               |
+  | Leather     | Light    |      +1 | yes       | Marigold (Dex skirmisher)        |
+  | Chain Shirt | Medium   |      +5 | no        | Titus (Fighter), P. Stoneshield  |
+  | Breastplate | Heavy    |      +7 | no        | (defined; not equipped in v0)    |
+
+  Robes and None share AC base +0; Robes exist as a flavor/implement-friendly
+  garment for casters. Only None/Robes/Leather/Chain Shirt are equipped by the
+  v0 party (matching the existing =robes/leather_armor/chain_shirt= resources);
+  Breastplate is defined so the Light/Medium/Heavy taxonomy is complete and
+  testable. *Author: tune AC bases freely — these are first-pass values.*
+  (Consistency check: Dmitri the rogue's AC 15 in the worked example = 10 +
+  Leather +1 + Dexterity 4.)
+
+* The round & action economy
+
+  Source: =Combat.pdf=. *This section corrects the earlier per-turn
+  misreading recorded in CR-001 / memory =hollow-world-action-economy=.*
+
+  - A *round* is ~6 seconds. Each combatant receives *seven actions at the
+    start of each round* — this is a *per-round* budget, not a per-turn one.
+  - *Initiative* is rolled once at combat start and fixes turn order for the
+    whole combat.
+  - Within a round, combatants take *turns* in initiative order, and the order
+    *cycles repeatedly*. On each of their turns a combatant may do two things:
+    1. optionally take a free *Step* (move 5 ft / 1 square, triggers no
+       reactions), and
+    2. take *exactly one action*, which costs 1 from their 7-action round
+       budget.
+    If they take the free Step, that turn's action *may not have the Movement
+    trait*.
+  - Because each turn spends one action, a combatant gets *up to seven turns
+    per round* (fewer if they spend actions on reactions).
+  - *Reactions* are taken out of turn, in response to a trigger on someone
+    else's turn. Each reaction *spends one action from the same 7-action
+    round budget*. A combatant cannot react if they have no actions left.
+  - A combatant with *0 actions remaining is Spent*: they take no further
+    turns, actions, or reactions this round.
+  - The *round ends* when every combatant is Spent (no participant has actions
+    remaining). At round end: each combatant's budget resets to 7 (as modified
+    by Haste/Stunned for the new round), all per-round/per-turn flags clear,
+    the Guard bonus expires, and Channeling energy pools empty.
+
+  *Worked illustration of the budget:* a Hasted Fighter (7 + 2 = 9 actions)
+  who is forced to Block twice (−2) has 7 actions left to spend across their
+  turns that round.
+
+* Actions & reactions (v0 card set)
+
+  Source: =Combat.pdf=. All have Stamina cost 0 unless combined (see
+  §Combinations). The full action/reaction lists are:
+
+  | Actions      | Reactions            |
+  |--------------+----------------------|
+  | Strike       | Block                |
+  | Stride       | Parry                |
+  | Cast a spell | Dodge                |
+  | Interact     | Opportunistic Strike |
+  | Guard        | Shield (a spell)     |
+  | Take Cover   | Steel                |
+  | Step (free)  |                      |
+
+** Actions
+
+  - *Strike* — 1 action. Traits: Repeat. Make a weapon attack: =d20 + (Str or
+    Dex) + weapon Prof= vs the target's *Armor Class*, using the weapon's
+    range and damage type. Hit: =1[W] + Str or Dex= damage (Tier scaling:
+    2[W] at T2, 3[W] at T3).
+  - *Stride* — 1 action. Traits: Movement, Repeat. Move up to your Speed.
+  - *Cast a spell* — action cost per the spell. See §Spellcasting.
+  - *Interact* — 1 action. Manipulate an object/environment.
+  - *Guard* — 1 action. Traits: Repeat. Gain *+1 to all defenses* for the rest
+    of the round.
+  - *Take Cover* — 1 action. Gain a defensive benefit from cover (v0: +2 to AC
+    and Reflex while you remain in cover; authored flat value, tunable).
+  - *Step* — *free, Special*. Traits: Movement. Move 5 ft (1 square),
+    triggering no reactions. Taking the free Step forbids your action this turn
+    from having the Movement trait.
+
+** Reactions (each spends 1 action from the round budget)
+
+  - *Block* — Trigger: you are *hit* by an attack vs Armor Class. Reduce
+    damage by =1[W] + your weapon's Block value= (2[W]/3[W] at T2/T3). On-hit
+    side effects are negated. If your blocking weapon has a Block die, use it
+    in place of the weapon die.
+  - *Parry* — Trigger: you are *hit* by an attack vs Armor Class. Make an
+    attack roll + your weapon's Parry bonus; if it exceeds the attacker's
+    attack roll, the attack deals 0 damage and on-hit effects are negated.
+  - *Dodge* — Trigger: you are *targeted* by an attack vs Armor Class or
+    Reflex and are not Immobilized. Make a *Mobility check*; use its result in
+    place of your AC/Reflex against that attack, then Step. If there is no open
+    square to Step into, the Mobility check automatically fails to protect you.
+  - *Opportunistic Strike* — Trigger: an enemy provokes (v0: an adjacent enemy
+    uses a Movement- or Concentrate-trait action — i.e. Strides or casts most spells — out of your reach without
+    Stepping). Make one Strike against it. (v0 trigger is authored; flag if you
+    want a different provocation rule.)
+  - *Steel* — Trigger: you are *targeted* by an attack vs Fortitude or Will and
+    are conscious. Make a *Determination check*; use its result in place of
+    your Fortitude/Will. If you resist, gain +2 to your next check this round.
+  - *Shield* (spell-reaction) — see §Spellcasting; Trigger: hit by an attack vs
+    AC or Reflex. You Block using die 1d6 and Block value +4.
+
+* Combinations
+
+  Source: =Combat.pdf=. Spend *1 Stamina* to *Combine* two actions into a
+  single action (you still take only one action that turn, but it does more):
+
+  - Combine two *different* actions — e.g. *Charge* = Stride + Strike;
+    *Riposte* = (Block or Parry) + Strike.
+  - Combine an action with *itself* only if it has the *Repeat* trait — e.g.
+    sprint = Stride + Stride; double-attack = Strike + Strike.
+  - Reactions may be combined with actions (the Riposte case).
+  - The *Dazed* condition forbids all combining.
+
+  Each Combine costs 1 Stamina and consumes *one* action slot (not two).
+
+* Attack & defense resolution pipeline
+
+  The resolution module takes an attack and returns a structured result
+  (=hit=, =crit=, =damage_raw=, =active_defense_applied=, =damage_final=).
+  Order of resolution:
+
+  1. *Determine attack total.*
+     - Weapon attack: =d20 + (Str or Dex) + weapon Prof bonus=.
+     - Spell attack: =d20 + spellcasting attribute + spell-attack bonus=
+       (v0 spell-attack bonus = *+0*; see §Authored v0 Decisions). Spell
+       targets the defense named by the spell (e.g. Fire Bolt vs Reflex).
+  2. *Apply the defender's active defense, if any* (each spends 1 action):
+     - *Dodge* (vs AC/Reflex attacks, not Immobilized): replace the targeted
+       defense with the Mobility-check result for this attack.
+     - *Steel* (vs Fortitude/Will attacks, conscious): replace the targeted
+       defense with the Determination-check result.
+     - *Parry* (vs AC attacks, on a hit): if defender's (attack roll + Parry
+       bonus) > attacker's attack total, the attack deals 0 and is negated.
+  3. *Compare.* Hit if attack total ≥ target defense (after substitution).
+  4. *Critical hit* if the attack total *exceeds the defense by 10 or more*:
+     roll damage dice twice and double the flat modifier. (Talents may lower
+     this threshold or add dice — none in the v0 set do.)
+  5. *Compute damage* (see §Damage) and apply *Block* if used (vs AC hits):
+     subtract =1[W] + Block value= (or the Block die).
+  6. Return the structured result.
+
+  Passive defenses (AC/Reflex/Fortitude/Will) are always-on target numbers;
+  the four active defenses (Dodge/Block/Parry/Steel) are opt-in reactions that
+  substitute a check or reduce/negate damage. This passive+active duality is
+  the system's defining tactical hook and must be preserved, not simplified.
+
+* Damage & Tier scaling
+
+  - Base weapon damage = =1[W] + modifier= where =[W]= is the weapon die and
+    the modifier is Str or Dex (weapon attacks) or the spellcasting attribute
+    (where a spell adds it).
+  - *Tier scaling* multiplies the weapon dice: =1[W]= → =2[W]= (Tier 2) →
+    =3[W]= (Tier 3). Tier is a data-driven parameter. *The vignette is Tier 1
+    throughout*; the 2[W]/3[W] multipliers are defined for the data model but
+    no v0 content uses them.
+  - On a *critical hit*, dice are rolled twice and the flat modifier is
+    doubled.
+
+* Conditions (v0 set)
+
+  Only these six exist in v0. Each has apply / remove / query semantics.
+  Applying an already-active condition does not stack unless stated.
+
+  | Condition   | Effect                                                                          |
+  |-------------+---------------------------------------------------------------------------------|
+  | Spent       | 0 actions remaining; cannot take actions or reactions this round. (A state, derived from the action budget, tracked here for query symmetry.)               |
+  | Off-Guard   | Attacks against you gain a +2 bonus. |
+  | Dazed       | Cannot Combine any actions. Off-Guard to all attacks.                           |
+  | Immobilized | Speed 0; cannot take Movement-trait actions; cannot use the Dodge reaction.      |
+  | Haste X     | Round action budget *+X*.            |
+  | Stunned X   | Round action budget *−X*, to a minimum of 0. Off-Guard to all attacks. |
+
+  Haste/Stunned magnitudes are authored starting values — the simulation
+  harness exists precisely to tune them. (FR-005 wires Dazed → action economy's
+  combine gate, and Immobilized → resolution's Dodge gate.)
+
+* Spellcasting (v0 — two paradigms)
+
+  Source: =Magic and Spellcasting.pdf=. Only the two paradigms the party uses
+  are in scope; the Sorcerer Stamina-to-energy paradigm is *deferred*.
+
+** Channeling — Divine Channeler & Divine Warrior
+
+  A per-round energy pool. The *Channel* action adds 1 energy to the pool
+  (max capacity = the caster's spellcasting attribute score). Energy is spent
+  to cast known spells and the *pool empties at end of round*. Casting is
+  rejected if the pool has insufficient energy.
+  - Divine Channeler spellcasting attribute = *Social* (pool max = Social).
+  - Divine Warrior spellcasting attribute = *Willpower* (pool max = Willpower).
+
+** Prepared/Attuned — Wizard
+
+  Each day the Wizard prepares known spells into attuned items: count of
+  prepared spells = number of attuned items; *total prepared energy ≤ level*.
+  Casting a spell of energy cost > 0 *discharges* that item until it is
+  re-primed; *0-energy spells do not discharge*. Wizards may *ritual-cast*
+  eligible spells out of combat. Wizard spellcasting attribute = *Intellect*.
+  - *v0/Level-1 consequence:* prepared energy budget ≤ 1, so a Level-1 Wizard
+    effectively fields 0-energy spells (Fire Bolt, Shield) plus at most 1
+    energy of prepared spell. *Fireball (min energy 2) is therefore NOT
+    castable at Tier 1 / Level 1* — it is included in the spell set for
+    completeness and forward scaling only.
+
+** v0 spell set
+
+  Exactly these five (from the source). Action/energy/components per the cards:
+
+  - *Channel* — 1 action, 0 energy, Concentrate. +1 to your Channeling pool
+    (until end of round).
+  - *Shield* — 1 reaction, 0 energy, Concentrate, 1 hand, Somatic. Trigger: hit
+    by an attack vs AC or Reflex. You Block using die 1d6, Block value +4.
+  - *Fire Bolt* — 2 actions, 0 energy, Concentrate, 1 hand, Somatic/Implement/
+    Fire/Verbal. Ranged spell attack vs *Reflex*, range 50 ft; hit:
+    =2d8 + spellcasting attribute= fire (4d8/6d8 at T2/T3).
+  - *Heal* — variable actions, variable energy, Concentrate, 2-hand, Somatic/
+    Verbal/Life. Per action spent, pick a target within 30 ft; per energy
+    spent, the target may spend 1 Stamina to regain HP; if within reach, touch
+    to add 1d6 per energy spent.
+  - *Fireball* — 2 actions, variable energy (min 2), Concentrate, 2-hand,
+    Somatic/Fire/Implement/Material/Verbal. 20-ft-radius sphere within 100 ft;
+    area spell attack vs *Reflex*; =3d6 per energy + spellcasting attribute=
+    fire, half on a miss, none on a critical miss. *(Not castable in v0 — see
+    above.)*
+
+  Additional spells and full lists are deferred to author authoring (Phase 3).
+
+* The four playable classes
+
+  Source: =Classes.pdf=. v0 values for the playable four (Class HP, Stamina
+  base, Skills base, spellcasting attribute). Stamina = base + Willpower +
+  Constitution; Skills Known = base + Intellect.
+
+  | Class            | Class HP | Stamina base | Skills base | Spellcasting attr. |
+  |------------------+----------+--------------+-------------+--------------------|
+  | Fighter          |        6 |            4 |           1 | — (N/A)            |
+  | Wizard           |        4 |            1 |           2 | Intellect          |
+  | Divine Warrior   |        6 |            3 |           1 | Willpower          |
+  | Divine Channeler |        5 |            2 |           2 | Social             |
+
+  (The deferred classes — Rogue 5/2/4, Sorcerer 4/4/2, Primal Channeler 6/2/2,
+  Primal Warrior 7/2/2 — are recorded in =Classes.pdf= and are NOT in v0.)
+
+** Talent trees (1–2 authored tiers each — AUTHORED CONTENT)
+
+  The source lists tree *names* but no talent *contents*. The following are
+  authored v0 starters (1–2 tiers per class) — explicitly subject to author
+  editing. A tree's Tier-2 talent requires the Tier-1 talent first.
+
+  - *Fighter* — trees incl. Guardian, Weapon Training, Tactics.
+    - Guardian T1 *Bulwark*: when you Block, add +1 to your weapon's Block
+      value.
+    - Guardian T2 *Interpose*: you may Block an attack that targets an ally in
+      an adjacent square (still costs your reaction/action).
+    - Weapon Training T1 *Weapon Focus*: +1 damage with one chosen weapon type.
+  - *Wizard* — trees incl. Combat Magic, Metamagic, Ritual Casting.
+    - Combat Magic T1 *Evoker's Precision*: +1 to spell attack rolls vs Reflex.
+    - Combat Magic T2 *Penetrating Bolt*: Fire Bolt ignores 2 points of cover
+      bonus.
+    - Ritual Casting T1 *Ritualist*: prepare one extra 0-energy spell.
+  - *Divine Warrior* — trees incl. Divine Champion (Marigold), Zeal, Weapon
+    Styles.
+    - *Divine Champion* T1 *Shadow of the Divine* (the required stealth
+      talent): you are trained in Stealth and Mobility; while Stealthed you may
+      Stride at full Speed without breaking Stealth once per round.
+    - *Divine Champion* T2 *Sanctified Ambush*: your first Strike against a
+      target off-guard to you each round scores a critical hit on exceed-by-5 (instead of
+      10) and adds +1d6.
+    - Zeal T1 *Smite*: once per round, add +1d8 radiant to a Strike by spending
+      1 Channeling energy.
+  - *Divine Channeler* — trees incl. Divine Channeling, Holy Rites, Invocation.
+    - Divine Channeling T1 *Steady Conduit*: your first Channel each round adds
+      +2 energy instead of +1.
+    - Holy Rites T1 *Healer's Grace*: Heal you cast adds +1d6 to the touch
+      bonus (per cast, not per energy).
+    - Invocation T1 *Guiding Light*: as a Strike, grant an ally +1 to their
+      next attack this round.
+
+* Vignette party — illustrative builds (NON-BINDING)
+
+  These example builds make the formulas concrete and give the test harness
+  Tier-1 numbers to assert. They are *illustrative and non-binding* — the
+  authoritative attribute arrays, talents, and equipment live in the FR-010
+  character =.tres= resources, which the author finalizes. Each build is a
+  legal ≤27-point allocation.
+
+  | Member        | Class            | Str | Con | Dex | Will | Int | Intu | Soc | pts |
+  |---------------+------------------+-----+-----+-----+------+-----+------+-----+-----|
+  | Titus         | Fighter          |   5 |   4 |   2 |    3 |   1 |    2 |   1 |  25 |
+  | Gram Marx     | Wizard           |   0 |   3 |   3 |    3 |   5 |    2 |   1 |  24 |
+  | Marigold      | Divine Warrior   |   1 |   3 |   5 |    4 |   1 |    2 |   1 |  24 |
+  | Patience Stoneshield | Divine Channeler |  2 |   3 |   1 |    3 |   1 |    2 |   5 |  23 |
+
+  Resulting derived stats (Tier 1, Level 1, Race HP 8):
+
+  | Member        | HP | Stamina | AC (armor)        | Reflex | Fort | Will | Init bonus | Spell attr / pool |
+  |---------------+----+---------+-------------------+--------+------+------+------------+-------------------|
+  | Titus         | 18 |      11 | 15 (Chain Shirt)  |     14 |   19 |   14 | +4         | —                 |
+  | Gram Marx     | 15 |       7 | 13 (Robes)        |     15 |   13 |   14 | +5         | Intellect 5       |
+  | Marigold      | 17 |      10 | 16 (Leather)      |     17 |   14 |   15 | +7         | Willpower 4       |
+  | Patience Stoneshield | 16 |     8 | 15 (Chain Shirt)  |     13 |   15 |   18 | +3         | Social 5          |
+
+  Suggested equipment: Titus — Longsword + (later) Large Shield, Chain Shirt;
+  Gram Marx — Quarterstaff (Implement), Robes; Marigold — Shortsword/Rapier
+  (Finesse, Dex), Leather; Patience Stoneshield — Mace, Chain Shirt.
+
+* Worked example — Bobbin vs Dmitri (acceptance reproduction)
+
+  Reproduced from =Combat.pdf= as a deterministic acceptance test for the
+  resolution + initiative + Dodge pipeline (FR-004 AC). With a pinned RNG seed
+  the engine must reproduce these exact numbers:
+
+  - *Initiative.* Dmitri: Dex 4 + Intuition 1 = +5; rolls 7 → *12*. Bobbin:
+    Intuition 2 + Dex 1 = +3; rolls 10 → *13*. *Bobbin acts first.*
+  - *Bobbin's turn.* Bobbin *Charges* (Combine Stride + Strike, spending 1
+    Stamina) at Dmitri with a longsword.
+  - *Dmitri's reaction.* Dmitri *Dodges*, rolling a Mobility check of *18*.
+  - *Resolution.* Bobbin's attack total is *17*. It beats Dmitri's Armor Class
+    of *15* (would hit) but the Dodge substitutes the Mobility result 18 for
+    Dmitri's AC, and 17 < 18 — *the attack misses* ("falls on empty air").
+  - *Budget after:* each has spent 1 action this round; Bobbin has spent 1
+    Stamina. Dmitri then Steps as part of resolving Dodge.
+
+  (Note: 17 does not exceed 18, so no hit and no crit. Dmitri's AC 15 is
+  consistent with Leather +1 + Dex 4 under this spec's armor table.)
+
+* Authored v0 Decisions (gaps the source leaves open — REVIEW THESE)
+
+  These are the calls AEF made to make the spec self-consistent and complete.
+  Each is the author's to confirm or change:
+
+  1. *Armor table* (§Armor) — authored AC bases and Light/Medium/Heavy
+     categories; Dex-to-AC only in Light/None. First-pass, untested balance. *Author* - Edited values in the Armor section appropriately.
+  2. *Speed* — 30 ft / 6 squares; 1 square = 5 ft. (Matches brief suggestion.) *Author* - Edited to 20 ft / 4 squares; 1 square = 5 ft. Helps limit crazy movement from using all 7 actions to move.
+  3. *Spell-attack bonus* — *+0* in v0: spell attack = d20 + spellcasting
+     attribute, with no separate proficiency term (the source's sample spells
+     add the casting attribute only to damage, and give no spell-proficiency
+     analog to weapon Prof). Kept as a named, data-driven field so you can
+     raise it later (e.g. +2 for martial parity). *This is the least-certain
+     decision — flag if you want a nonzero value.* *Author* - Approved. May change as balance is adjusted, but the vision is that for most characters non-armor defenses will be lower than armor, so spells are more accurate for targeting these.
+  4. *Skill model* — flat d20 + governing attribute; trained = +2; only
+     Mobility and Determination are combat-critical. Ranked skills deferred. *Author* - Approved.
+  5. *Condition magnitudes* — Haste +2 actions, Stunned −2 actions; Take Cover
+     +2 to AC/Reflex; Opportunistic Strike triggers on an adjacent enemy
+     Striding away without Stepping. All authored, all tunable. *Author* - Tuned to Haste/Stunned X, and Opportunistic Strike triggering against Concentrate actions as well.
+  6. *Talent contents* — the 1–2 tiers per class above are authored starters,
+     including Marigold's Divine Champion stealth talent (*Shadow of the
+     Divine*). *Author* - These are fine for v0. I have some talent trees written up but I haven't typed them up yet. I'll do that later and we can incorporate them then.
+  7. *Quarterstaff* weapon entry — authored to cover the existing party staff;
+     also serves as an arcane Implement. *Author* - Approved
+  8. *Block Breaker N* read as "ignore N points of the target's Block value on
+     a hit." Flag if you meant otherwise. *Author* - Approved
+
+* Acceptance Criteria (FR-001 conformance)
+
+  This document satisfies FR-001's twelve content criteria:
+
+  1. ✔ Exists at =docs/hollow-world-v0-spec.org=; carries an =#+APPROVAL:=
+     marker (currently a DRAFT marker — the author replaces it on approval).
+  2. ✔ All seven attributes + the 27-point cost table (1/2/4/6/9/12).
+  3. ✔ HP = 8 + Class HP + Constitution (Tier 1, Level 1, Race HP 8).
+  4. ✔ Stamina per class: base (Fighter 4 / Divine Warrior 3 / Wizard 1 /
+     Divine Channeler 2) + Willpower + Constitution.
+  5. ✔ All four defense formulas (AC light/no-armor Dex rule; Reflex; Fort;
+     Will).
+  6. ✔ Armor table with AC base + Light/Medium/Heavy category.
+  7. ✔ Speed default (20 ft / 4 squares; author-tuned down from the 30 ft
+     suggestion).
+  8. ✔ Spell-attack bonus decided (+0, data-driven, documented).
+  9. ✔ v0 skill list incl. Mobility (Dodge) and Determination (Steel).
+  10. ✔ Full action set (Strike, Stride, Cast a spell, Interact, Guard, Take
+      Cover, Step) + reactions (Block, Parry, Dodge, Opportunistic Strike,
+      Shield, Steel) + Combinations at 1 Stamina.
+  11. ✔ No 5e terminology.
+  12. ✔ Talent-tree outlines (1–2 tiers) for Fighter, Wizard, Divine Warrior,
+      Divine Channeler, incl. Marigold's Divine Champion stealth talent.
+
+  Plus: the §In scope / Deferred boundary closes the V&V non-convergence
+  recorded in RESUME-STATE, and the Bobbin-vs-Dmitri worked example gives
+  FR-004 a deterministic acceptance anchor.
+
+* Open items for the author
+
+  1. Replace the =#+APPROVAL:= line to approve (see §STATUS).
+  2. Confirm or edit each entry in §Authored v0 Decisions — especially the
+     spell-attack bonus (#3) and the armor AC bases (#1).
+  3. ~Name the Dwarf Divine Channeler.~ DONE — Patience Stoneshield.
+  4. Confirm the illustrative party builds, or supply the canonical attribute
+     arrays for the FR-010 character resources.
+  5. Confirm Haste/Stunned magnitudes and the Opportunistic Strike trigger.
 
 * Approval Sign-off
-  [Author: replace the #+APPROVAL: line above with a substantive approval
-   statement, e.g.:
-   #+APPROVAL: Guy Verisage — reviewed 2026-07-01 — approved for v0 milestone]
+
+  [Author: to approve, edit the =#+APPROVAL:= line at the top of this file to
+   the substantive statement it quotes, e.g.:
+   #+APPROVAL: Guy Verisage — reviewed 2026-07-01 — approved for v0 combat simulation milestone
+   and commit. Until then this spec is DRAFT and the spec-before-code gate
+   remains closed.]

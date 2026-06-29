@@ -176,12 +176,13 @@ class TestStubDetection:
             f"'STUB placeholder'\nstdout: {result.stdout}\nstderr: {result.stderr}"
         )
 
-    def test_current_spec_has_stub_placeholder(self, spec_file):
-        """Confirm the current spec contains 'STUB placeholder' (gate is active)."""
+    def test_current_spec_has_no_stub_placeholder(self, spec_file):
+        """The real v0 spec has been authored and author-approved, so it must
+        NOT contain 'STUB placeholder' (the content gate must now pass)."""
         content = spec_file.read_text()
-        assert "STUB placeholder" in content, (
-            "docs/hollow-world-v0-spec.org must still contain 'STUB placeholder' "
-            "so the new content gate blocks merge until real content is authored"
+        assert "STUB placeholder" not in content, (
+            "docs/hollow-world-v0-spec.org has been authored — it must no longer "
+            "contain 'STUB placeholder'; the content gate now passes"
         )
 
 
@@ -420,12 +421,12 @@ class TestExitZeroWithAllKeywords:
             f"stdout: {result.stdout}\nstderr: {result.stderr}"
         )
 
-    def test_step_exits_1_with_current_real_spec(self, spec_file, workflow):
-        """The current real spec contains 'STUB placeholder' so the gate should
-        exit 1 — confirming the gate actively blocks merge on a stub document."""
+    def test_step_exits_0_with_current_real_spec(self, spec_file, workflow):
+        """The current spec is the authored, approved v0 ruleset (no stub), so the
+        content-keywords gate must exit 0 — confirming the real spec passes."""
         content = spec_file.read_text()
-        assert "STUB placeholder" in content, (
-            "Pre-condition: current spec must still be a stub for this test to be valid"
+        assert "STUB placeholder" not in content, (
+            "Pre-condition: current spec must be the authored real spec (no stub)"
         )
         run_block = _get_step_run(workflow, "lint-spec-content-keywords")
         adapted_run = run_block.replace(
@@ -436,8 +437,8 @@ class TestExitZeroWithAllKeywords:
             capture_output=True,
             text=True,
         )
-        assert result.returncode == 1, (
-            f"lint-spec-content-keywords must exit 1 on the current stub spec\n"
+        assert result.returncode == 0, (
+            f"lint-spec-content-keywords must exit 0 on the authored real spec\n"
             f"stdout: {result.stdout}\nstderr: {result.stderr}"
         )
 
