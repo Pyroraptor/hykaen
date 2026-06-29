@@ -6,9 +6,10 @@ extends GutTest
 ##
 ## Combatant dictionaries are stubbed inline — no .tres resource loading.
 ##
-## Titus stats derived from titus.tres (FEAT-006):
+## Titus stats derived from titus.tres (FEAT-006) and longsword.tres (FEAT-086 DEF-003 fix):
 ##   hp_current=18, ac=14, strength=5, dexterity=2, intuition=2
-##   weapon: {damage_die:6, proficiency_bonus:1, damage_modifier_attribute:'strength'}
+##   weapon: {damage_die:12, proficiency_bonus:2, damage_modifier_attribute:'strength'}
+##   (damage_die=12 = d12 Heavy Blade per Weapons.pdf; proficiency_bonus=2 per v0 spec)
 ##
 ## Skeleton stub (inline, ADR-006 integration test):
 ##   name='Skeleton', hp_current=8, ac=12, strength=2, dexterity=1, intuition=1
@@ -20,7 +21,9 @@ const RNGClass        = preload("res://core/rules/rng.gd")
 
 # ── Shared fixture helpers ─────────────────────────────────────────────────────
 
-## Returns a fresh Titus combatant dict (stats from titus.tres, FEAT-006).
+## Returns a fresh Titus combatant dict (stats from titus.tres, FEAT-006;
+## weapon stats mirror longsword.tres after FEAT-086 DEF-003 fix:
+## damage_die=12 and proficiency_bonus=2 per v0 spec weapons table).
 func _titus_dict() -> Dictionary:
 	return {
 		"name": "Titus",
@@ -31,8 +34,8 @@ func _titus_dict() -> Dictionary:
 		"intuition": 2,
 		"weapon": {
 			"damage_modifier_attribute": "strength",
-			"proficiency_bonus": 1,
-			"damage_die": 6
+			"proficiency_bonus": 2,
+			"damage_die": 12
 		}
 	}
 

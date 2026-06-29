@@ -98,7 +98,7 @@ func test_longsword_proficiency_bonus() -> void:
 	if res == null:
 		fail_test("longsword.tres failed to load")
 		return
-	assert_eq(res.proficiency_bonus, 1, "longsword proficiency_bonus must be 1")
+	assert_eq(res.proficiency_bonus, 2, "longsword proficiency_bonus must be 2 (spec-authoritative value, DEF-003 / FEAT-086)")
 
 
 # ── ArmorResource schema ──────────────────────────────────────────────────────
