@@ -340,3 +340,58 @@ func test_simulator_loads_weapon_from_resource_path() -> void:
 		has_hardcoded_die6,
 		"simulator.gd must not contain a hardcoded 'damage_die' literal of 6 — load it from longsword.tres (FEAT-075)"
 	)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Criterion FEAT-088: simulator.gd must load skeleton from skeleton.tres resource
+# (NFR-005 data-driven architecture — no inline hardcoded enemy dict)
+# ══════════════════════════════════════════════════════════════════════════════
+
+func test_simulator_loads_skeleton_from_resource() -> void:
+	## Reads simulator.gd source and confirms it invokes ResourceLoader.load()
+	## with a path containing 'skeleton.tres' — data-driven enemy (FEAT-088 / NFR-005).
+	var file := FileAccess.open("res://core/sim/simulator.gd", FileAccess.READ)
+	assert_not_null(file, "core/sim/simulator.gd must be readable")
+	if file == null:
+		return
+	var content: String = file.get_as_text()
+	file.close()
+
+	## The simulator must call ResourceLoader.load() with skeleton.tres path.
+	var has_skeleton_load: bool = false
+	for line in content.split("\n"):
+		if "ResourceLoader.load(" in line and "skeleton.tres" in line:
+			has_skeleton_load = true
+			break
+
+	assert_true(
+		has_skeleton_load,
+		"simulator.gd must invoke ResourceLoader.load() with a path containing 'skeleton.tres' — FEAT-088 / NFR-005"
+	)
+
+
+func test_simulator_has_no_inline_skeleton_dict_literal() -> void:
+	## Verifies that simulator.gd no longer contains the old hardcoded inline
+	## Skeleton dict literal (name.*Skeleton.*hp.*8 pattern absent) — FEAT-088.
+	## The grep 'name.*Skeleton.*hp.*8' must produce NO match in simulator.gd.
+	var file := FileAccess.open("res://core/sim/simulator.gd", FileAccess.READ)
+	assert_not_null(file, "core/sim/simulator.gd must be readable")
+	if file == null:
+		return
+	var content: String = file.get_as_text()
+	file.close()
+
+	## No single line should match the old inline pattern "Skeleton" with hp: 8.
+	var has_inline_pattern: bool = false
+	for line in content.split("\n"):
+		var stripped: String = line.strip_edges()
+		# The old inline dict had both "Skeleton" and "hp_current": 50 on adjacent lines
+		# but the grep test checks for 'name.*Skeleton.*hp.*8' on the same line.
+		if "Skeleton" in stripped and "hp" in stripped and "8" in stripped:
+			has_inline_pattern = true
+			break
+
+	assert_false(
+		has_inline_pattern,
+		"simulator.gd must not contain a single-line inline dict literal with 'Skeleton' and 'hp.*8' — FEAT-088"
+	)

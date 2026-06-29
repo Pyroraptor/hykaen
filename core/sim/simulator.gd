@@ -3,7 +3,7 @@
 ## Domain layer (ADR-001): pure GDScript class — no Node/Control/CanvasItem inheritance.
 ## Constructor accepts no parameters.  All configuration is passed to run().
 ##
-## Satisfies: FEAT-048, US-009, DEF-004, FEAT-075
+## Satisfies: FEAT-048, US-009, DEF-004, FEAT-075, FEAT-088
 ##
 ## run(n_battles, base_seed) drives n_battles independent Encounter instances,
 ## each seeded with (base_seed + i), and returns aggregate win/round/damage stats.
@@ -18,6 +18,10 @@
 ## produce a seed-averaged win rate in [0.40, 0.80] against d12+5 Titus.
 ## FEAT-087: Titus's armor corrected to chain_shirt (AC=15); Skeleton rebalanced
 ## (hp=36, ac=14) to maintain the [0.40, 0.80] invariant at the correct AC.
+## FEAT-088 (NFR-005 / ADR-003): Skeleton enemy is now loaded from
+## data/enemies/skeleton.tres via ResourceLoader — no inline hardcoded dict literal.
+## The skeleton resource provides name, str, dex, and weapon stats; hp_current and
+## ac remain balance-tuned simulation parameters not stored in the base resource.
 
 class_name Simulator
 
@@ -53,6 +57,17 @@ func run(n_battles: int, base_seed: int) -> Dictionary:
 	# FEAT-075: load weapon from titus.tres.starting_equipment[0] (longsword.tres)
 	# instead of hardcoding damage_die, proficiency_bonus, damage_modifier_attribute.
 	var weapon_res    = ResourceLoader.load(titus_char.starting_equipment[0])
+
+	# ── Load Skeleton resource once (FEAT-088 / ADR-003 / NFR-005) ────────────
+	# The EnemyResource provides name, str, dex, and weapon base stats.
+	# hp_current=50 and ac=14 remain balance-tuned simulation parameters (FEAT-087).
+	var skeleton_res  = ResourceLoader.load("res://data/enemies/skeleton.tres")
+
+	# Attribute name mapping: EnemyResource uses compact keys ('str', 'dex') while
+	# the combat system uses full attribute names matching combatant dict keys.
+	const SKELETON_ATTR_MAP: Dictionary = {"str": "strength", "dex": "dexterity"}
+	var raw_skel_attr: String = skeleton_res.weapon.get("attribute", "strength")
+	var skel_weapon_attr: String = SKELETON_ATTR_MAP.get(raw_skel_attr, raw_skel_attr)
 
 	# Compute Titus's derived stats via attributes.gd (ADR-012 formulas).
 	# RNGClass.new(0) is passed to satisfy the Attributes constructor;
@@ -90,26 +105,20 @@ func run(n_battles: int, base_seed: int) -> Dictionary:
 			}
 		}
 
-		# Skeleton stub — FEAT-087 balance recalibration for Titus with chain_shirt (AC=15).
-		# FEAT-087 corrects Titus's armor from scale_mail (AC=14) to chain_shirt (AC=15).
-		# The Skeleton is retuned to maintain a seed-averaged win rate in [0.40, 0.80]:
-		#   hp=50 (vs old 28) — Titus expected ~5 hits; 7 attacks of avg 10.35 = ~73 total
-		#                        needed to reliably kill it, making the outcome less certain.
-		#   ac=14 (vs old 13) — Titus hit rate 70% (crit 20%) vs old 75% (crit 25%).
-		# Design rationale: d12+5 Titus avg ~10.35/attack (7 attacks = ~72 expected) vs
-		# hp=50 Skeleton; Skeleton d8+2 avg ~6.5/hit vs Titus hp~18 (chain_shirt AC=15),
-		# producing ~60–70% seed-averaged win rate within the [0.40, 0.80] invariant.
+		# Skeleton combatant — FEAT-088: built from skeleton.tres resource (loaded above).
+		# The EnemyResource provides name, str, dex, and weapon base stats.
+		# hp_current=50 and ac=14 are balance-tuned simulation parameters (FEAT-087).
 		var skeleton: Dictionary = {
-			"name":       "Skeleton",
+			"name":       skeleton_res.name,
 			"hp_current": 50,
 			"ac":         14,
-			"strength":   2,
-			"dexterity":  1,
+			"strength":   skeleton_res.str,
+			"dexterity":  skeleton_res.dex,
 			"intuition":  1,
 			"weapon": {
-				"damage_modifier_attribute": "strength",
-				"proficiency_bonus":         1,
-				"damage_die":               8
+				"damage_modifier_attribute": skel_weapon_attr,
+				"proficiency_bonus":         skeleton_res.weapon.get("proficiency_bonus", 1),
+				"damage_die":               skeleton_res.weapon.get("die", 8)
 			}
 		}
 
