@@ -1,0 +1,9 @@
+[gd_resource type="Resource" script_class="EncounterResource" load_steps=2 format=3 uid="uid://prl0genc001a"]
+
+[ext_resource type="Script" uid="uid://encrsc1a2b3cd" path="res://data/encounters/encounter_resource.gd" id="1_encrsc"]
+
+[resource]
+script = ExtResource("1_encrsc")
+party_resource_paths = ["res://data/characters/titus.tres"]
+enemy_resource_paths = ["res://data/enemies/skeleton.tres"]
+seed = 42

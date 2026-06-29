@@ -6,5 +6,5 @@
 script = ExtResource("1_chsrt")
 armor_id = "chain_shirt"
 name = "Chain Shirt"
-ac_base = 3
+ac_base = 5
 category = "medium"

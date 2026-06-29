@@ -1,0 +1,11 @@
+[gd_resource type="Resource" script_class="EnemyResource" load_steps=2 format=3 uid="uid://skel1a2b3c4d5e"]
+
+[ext_resource type="Script" uid="uid://enmyres1a2b3c" path="res://data/enemies/enemy_resource.gd" id="1_enemres"]
+
+[resource]
+script = ExtResource("1_enemres")
+name = "Skeleton"
+hp = 8
+str = 2
+dex = 1
+weapon = {"attribute": "str", "die": 6, "proficiency_bonus": 1}
