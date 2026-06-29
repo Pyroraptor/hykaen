@@ -24,6 +24,7 @@ class_name Encounter
 
 const ResolutionClass    = preload("res://core/rules/resolution.gd")
 const ActionEconomyClass = preload("res://core/rules/action_economy.gd")
+const AIClass            = preload("res://core/combat/ai.gd")
 
 
 var _party: Array            ## Combatant dicts for the player party
@@ -36,6 +37,7 @@ var _round_count: int        ## Number of complete rounds elapsed
 var _round_history: Array    ## [{attacker, action, target, roll, damage_final, budget_remaining, round}, ...]
 var _round_events: Array     ## Observer event queue; reset each run_round() call (FEAT-025)
 var _resolution              ## Resolution instance (wraps the shared _rng)
+var _ai                      ## AI instance for enemy action selection (FEAT-089)
 var _initialized: bool       ## True once initialize() has been called
 
 
@@ -51,6 +53,7 @@ func _init(party: Array, enemies: Array, rng) -> void:
 	_enemies          = enemies
 	_rng              = rng
 	_resolution       = ResolutionClass.new(rng)
+	_ai               = AIClass.new()
 	_outcome          = ""
 	_round_count      = 0
 	_round_history    = []
@@ -145,28 +148,38 @@ func run_round() -> void:
 		var is_enemy: bool    = combatant.get("_is_enemy", false)
 		var target_pool: Array = _party if is_enemy else _enemies
 
-		# ── Action loop: strike until Spent or no living target ───────────────
+		# ── Action loop: act until Spent or no living target ─────────────────
 		while true:
 			# Stop the action loop if the outcome was decided in a prior strike
 			if _outcome != "":
 				break
 
-			# Pick first living target from the opposing pool
+			# Determine action and target — enemies delegate to AI (FEAT-089),
+			# party members use the hardcoded Strike action.
 			var target: Dictionary = {}
-			var found_target: bool = false
-			for t in target_pool:
-				if t.get("hp_current", 0) > 0:
-					target       = t
-					found_target = true
+			var action_name: String = ""
+
+			if is_enemy:
+				# Enemy action selection: delegate to AI module (FR-012)
+				var ai_decision: Dictionary = _ai.decide_action(combatant, target_pool)
+				action_name = ai_decision.get("action_type", "")
+				target      = ai_decision.get("target", {})
+				# AI returns empty action_type when no living target is found
+				if action_name == "" or target.is_empty():
 					break
+			else:
+				# Party: pick first living target, hardcoded Strike action
+				for t in target_pool:
+					if t.get("hp_current", 0) > 0:
+						target = t
+						break
+				if target.is_empty():
+					break
+				action_name = "Strike"
 
-			# No valid target on the opposing side — this combatant is done
-			if not found_target:
-				break
-
-			# Spend action for Strike — if Spent, abort without resolving
+			# Spend action — if Spent (success: false), abort without resolving
 			var spend_result: Dictionary = _action_economies[i].spend_action(
-				{"name": "Strike", "traits": []}
+				{"name": action_name, "traits": []}
 			)
 			if not spend_result["success"]:
 				break  # Combatant is Spent; no attack fired for this iteration
@@ -211,7 +224,7 @@ func run_round() -> void:
 			# Record the attack for logging / replay
 			_round_history.append({
 				"attacker":         combatant,
-				"action":           "Strike",
+				"action":           action_name,
 				"target":           target,
 				"roll":             result.get("roll_total", 0),
 				"damage_final":     result.get("damage_final", 0),
