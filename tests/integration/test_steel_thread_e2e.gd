@@ -962,3 +962,239 @@ func test_spec_gate_consistent_with_ci_smoke() -> void:
 		"#+APPROVAL: line must have non-whitespace content after the colon (FIX-001); got: '%s'"
 		% approval_line
 	)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-077 — Integration Smoke Tests: Full Steel Thread With Corrected
+#            Weapon Data and Character Schema (FIX-002 + FIX-003)
+#
+# These tests extend the steel-thread e2e suite with assertions that exercise
+# the complete corrected pipeline end-to-end under `godot --headless -- --gut-run-all`,
+# serving as the smoke test proving FIX-002 and FIX-003 operate correctly in
+# the real Godot execution environment (not only at unit-test isolation level).
+#
+# Corrected Skeleton profile (FIX-002 / FIX-003):
+#   hp=28 (was 8), ac=13 (was 12), weapon damage_die=8 (was 6), strength=2 (+2 modifier)
+# ══════════════════════════════════════════════════════════════════════════════
+
+## _corrected_skeleton_dict() — FIX-002/FIX-003 adjusted Skeleton stub.
+##
+## Adjusted stats (hp=28, d8+2, ac=13) reflect the corrected enemy profile:
+##   FIX-002 → hp=28 (was 8), ac=13 (was 12)
+##   FIX-003 → damage_die=8 (was 6)
+## Weapon "+2" comes from strength=2 applied as the damage modifier attribute.
+func _corrected_skeleton_dict() -> Dictionary:
+	return {
+		"name":       "Skeleton",
+		"hp_current": 28,
+		"ac":         13,
+		"strength":   2,
+		"dexterity":  1,
+		"intuition":  1,
+		"weapon": {
+			"damage_modifier_attribute": "strength",
+			"proficiency_bonus": 1,
+			"damage_die": 8
+		}
+	}
+
+
+## _make_corrected_encounter(seed_value) — builds a fresh Encounter using
+## Titus with d12 longsword vs the FIX-002/FIX-003 corrected Skeleton.
+## Fresh instances every call guarantees no shared state.
+func _make_corrected_encounter(seed_value: int) -> EncounterClass:
+	return EncounterClass.new(
+		[_build_titus_combatant()],
+		[_corrected_skeleton_dict()],
+		RNGClass.new(seed_value)
+	)
+
+
+# ── FEAT-077 Test 1 ───────────────────────────────────────────────────────────
+
+## test_longsword_damage_die_is_12
+##
+## Verifies via ResourceLoader in headless mode that longsword.tres.damage_die == 12.
+## This is the FEAT-077 integration assertion confirming the corrected weapon data
+## flows from the .tres file through ResourceLoader into the pipeline.
+##
+## Satisfies: FEAT-077 test criterion 1 (longsword.tres.damage_die == 12 verified
+## via ResourceLoader in headless mode).
+func test_longsword_damage_die_is_12() -> void:
+	if _longsword == null:
+		fail_test(
+			"longsword.tres failed to load — cannot verify damage_die (FEAT-077)"
+		)
+		return
+	assert_eq(
+		_longsword.damage_die, 12,
+		"longsword.tres.damage_die must be 12 (d12, verified via ResourceLoader in headless mode) — FEAT-077"
+	)
+
+
+# ── FEAT-077 Test 2 ───────────────────────────────────────────────────────────
+
+## test_corrected_pipeline_titus_weapon_die_not_six
+##
+## Constructs a Titus combatant from titus.tres + longsword.tres and asserts
+## the weapon die resolved through the resource chain is 12 — NOT 6.
+##
+## This closes the DEF-002 gap: the weapon dict used in the encounter pipeline
+## must use the corrected longsword.damage_die (12) rather than the old d6 value.
+##
+## Satisfies: FEAT-077 test criterion 2 (weapon die resolved through
+## titus.tres → longsword.tres chain equals 12).
+func test_corrected_pipeline_titus_weapon_die_not_six() -> void:
+	if _titus == null or _longsword == null:
+		fail_test(
+			"titus.tres or longsword.tres failed to load — cannot verify weapon die (FEAT-077)"
+		)
+		return
+	var titus_c: Dictionary = _build_titus_combatant()
+	var weapon_die: int = titus_c.get("weapon", {}).get("damage_die", -1)
+	assert_eq(
+		weapon_die, 12,
+		"Titus weapon die resolved through titus.tres → longsword.tres chain must be 12 — FEAT-077 DEF-002"
+	)
+	assert_ne(
+		weapon_die, 6,
+		"Titus weapon die must NOT be 6 — FIX-002 corrected the longsword from d6 to d12 (FEAT-077)"
+	)
+
+
+# ── FEAT-077 Test 3 ───────────────────────────────────────────────────────────
+
+## test_steel_thread_corrected_seed_99999_run1_terminates
+##
+## Runs the full encounter (Titus with d12 longsword vs adjusted Skeleton
+## hp=28, d8+2, ac=13) with seed 99999, asserts outcome is 'won' or 'lost'
+## and round_count >= 1, with no runtime errors.
+##
+## This validates FIX-002 and FIX-003 operating correctly in the real Godot
+## execution environment (not only at unit-test isolation level).
+##
+## Satisfies: FEAT-077 test criterion 3 (encounter outcome is 'won' or 'lost',
+## round_count >= 1, no runtime errors).
+func test_steel_thread_corrected_seed_99999_run1_terminates() -> void:
+	if _titus == null:
+		fail_test(
+			"titus.tres failed to load — corrected steel thread Run 1 (seed %d) cannot execute (FEAT-077)"
+			% STEEL_SEED
+		)
+		return
+	var enc = _make_corrected_encounter(STEEL_SEED)
+	enc.run()
+	var outcome: String = enc.get_outcome()
+	assert_true(
+		outcome == "won" or outcome == "lost",
+		"Corrected steel thread Run 1 (seed %d) must terminate with 'won' or 'lost'; got '%s' — FEAT-077"
+		% [STEEL_SEED, outcome]
+	)
+	assert_true(
+		enc.get_round_count() >= 1,
+		"Corrected steel thread Run 1 (seed %d) must complete at least 1 round; got %d — FEAT-077"
+		% [STEEL_SEED, enc.get_round_count()]
+	)
+
+
+# ── FEAT-077 Test 4 ───────────────────────────────────────────────────────────
+
+## test_steel_thread_corrected_seed_99999_run2_byte_identical_rolls
+##
+## Constructs and runs the identical corrected encounter (Titus + corrected Skeleton)
+## a second time with seed 99999 and asserts the d20 roll sequence is byte-for-byte
+## identical to run 1 (element-by-element Array equality).
+##
+## Proves the corrected pipeline is deterministic: same seed → same rolls.
+##
+## Satisfies: FEAT-077 test criterion 4 (Array of d20 rolls from run 2 equals
+## Array from run 1 element-by-element).
+func test_steel_thread_corrected_seed_99999_run2_byte_identical_rolls() -> void:
+	if _titus == null:
+		fail_test(
+			"titus.tres failed to load — cannot verify byte-identical rolls "
+			+ "(corrected pipeline, seed %d) — FEAT-077" % STEEL_SEED
+		)
+		return
+	var enc1 = _make_corrected_encounter(STEEL_SEED)
+	var enc2 = _make_corrected_encounter(STEEL_SEED)
+	enc1.run()
+	enc2.run()
+	var rolls_1: Array = []
+	var rolls_2: Array = []
+	for entry in enc1.get_round_history():
+		rolls_1.append(entry.get("roll", -1))
+	for entry in enc2.get_round_history():
+		rolls_2.append(entry.get("roll", -1))
+	assert_eq(
+		rolls_2, rolls_1,
+		"Corrected pipeline Run 2 roll sequence must be byte-identical to Run 1 (seed %d) — FEAT-077"
+		% STEEL_SEED
+	)
+
+
+# ── FEAT-077 Test 5 ───────────────────────────────────────────────────────────
+
+## test_steel_thread_corrected_seed_99999_run2_byte_identical_damage
+##
+## Asserts damage_final values in round_history for the corrected-pipeline Run 2
+## match Run 1 exactly (byte-for-byte identical, element-by-element Array equality).
+##
+## Proves the corrected pipeline is deterministic: same seed → same damage outcomes.
+##
+## Satisfies: FEAT-077 test criterion 5 (Array of damage_final values from
+## round_history in run 2 equals run 1 exactly).
+func test_steel_thread_corrected_seed_99999_run2_byte_identical_damage() -> void:
+	if _titus == null:
+		fail_test(
+			"titus.tres failed to load — cannot verify byte-identical damage "
+			+ "(corrected pipeline, seed %d) — FEAT-077" % STEEL_SEED
+		)
+		return
+	var enc1 = _make_corrected_encounter(STEEL_SEED)
+	var enc2 = _make_corrected_encounter(STEEL_SEED)
+	enc1.run()
+	enc2.run()
+	var damage_1: Array = []
+	var damage_2: Array = []
+	for entry in enc1.get_round_history():
+		damage_1.append(entry.get("damage_final", -1))
+	for entry in enc2.get_round_history():
+		damage_2.append(entry.get("damage_final", -1))
+	assert_eq(
+		damage_2, damage_1,
+		"Corrected pipeline Run 2 damage_final sequence must be byte-identical to Run 1 (seed %d) — FEAT-077"
+		% STEEL_SEED
+	)
+
+
+# ── FEAT-077 Test 6 ───────────────────────────────────────────────────────────
+
+## test_marigold_integration_fields
+##
+## Loads marigold.tres in integration context (headless ResourceLoader) and asserts:
+##   1. race == 'Elf'
+##   2. primary_offensive_attribute == 'dexterity'
+##
+## This validates the DEF-004 fix operates correctly in the real Godot execution
+## environment: marigold.tres must carry the correct race and offensive attribute
+## fields as loaded by ResourceLoader (not only in unit tests).
+##
+## Satisfies: FEAT-077 test criterion 6 (marigold.race == 'Elf' AND
+## marigold.primary_offensive_attribute == 'dexterity' in headless ResourceLoader context).
+func test_marigold_integration_fields() -> void:
+	var marigold = ResourceLoader.load("res://data/characters/marigold.tres")
+	assert_not_null(
+		marigold,
+		"ResourceLoader.load('res://data/characters/marigold.tres') must return non-null (FEAT-077)"
+	)
+	if marigold == null:
+		return
+	assert_eq(
+		marigold.race, "Elf",
+		"marigold.race must be 'Elf' in headless ResourceLoader context (FEAT-077 DEF-004)"
+	)
+	assert_eq(
+		marigold.primary_offensive_attribute, "dexterity",
+		"marigold.primary_offensive_attribute must be 'dexterity' in headless ResourceLoader context (FEAT-077 DEF-004)"
+	)
