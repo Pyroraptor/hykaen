@@ -17,11 +17,13 @@ extends GutTest
 ##   - Titus         (Human Fighter)
 ##   - Gram Marx     (Tiefling Wizard)          — quarterstaff + robes
 ##   - Marigold      (Elven Divine Warrior)     — shortsword + leather_armor
-##   - Dwarf Channeler (Dwarf Divine Channeler) — mace + chain_shirt
+##   - Patience Stoneshield (Dwarf Divine Channeler) — mace + chain_shirt
 
 const CharacterResource = preload("res://core/model/character_resource.gd")
 const WeaponResource    = preload("res://core/model/weapon_resource.gd")
 const ArmorResource     = preload("res://core/model/armor_resource.gd")
+const AttributesClass   = preload("res://core/rules/attributes.gd")
+const RNGClass          = preload("res://core/rules/rng.gd")
 
 
 # ── All four party members — batch load test ──────────────────────────────────
@@ -332,3 +334,75 @@ func test_non_titus_equipped_weapon_has_block_and_parry_fields() -> void:
 			"'%s' equipped weapon must have block_value field (FEAT-059 / FEAT-061)" % weapon_path)
 		assert_not_null(pb,
 			"'%s' equipped weapon must have parry_bonus field (FEAT-059 / FEAT-061)" % weapon_path)
+
+
+# ── FEAT-085: Patience Stoneshield name correction ────────────────────────────
+
+## Helper: fresh Attributes instance with seed 0.
+func _make_attrs_feat085() -> AttributesClass:
+	var rng = RNGClass.new(0)
+	return AttributesClass.new(rng)
+
+
+## Criterion: dwarf_channeler.tres name field is 'Patience Stoneshield' (FEAT-085 / DEF-004).
+## Confirms the placeholder name 'Dwarf Channeler' has been replaced by the
+## authored proper name from the spec vignette party table.
+func test_patience_stoneshield_name_field() -> void:
+	var character = ResourceLoader.load("res://data/characters/dwarf_channeler.tres")
+	assert_not_null(
+		character,
+		"ResourceLoader.load('res://data/characters/dwarf_channeler.tres') must return non-null (FEAT-085)"
+	)
+	if character == null:
+		return
+	assert_eq(
+		character.name, "Patience Stoneshield",
+		"dwarf_channeler.tres name must be 'Patience Stoneshield' (FEAT-085 DEF-004); got '%s'" % character.name
+	)
+
+
+## Criterion: dwarf_channeler.tres class_ref resource path ends with 'divine_channeler.tres' (FEAT-085).
+## Confirms the class reference is unchanged after the name-only correction.
+func test_patience_stoneshield_class_ref_resolves_to_divine_channeler() -> void:
+	var character = ResourceLoader.load("res://data/characters/dwarf_channeler.tres")
+	assert_not_null(character, "dwarf_channeler.tres must load non-null (FEAT-085)")
+	if character == null:
+		return
+	assert_not_null(
+		character.class_ref,
+		"dwarf_channeler.tres class_ref must not be null (FEAT-085)"
+	)
+	if character.class_ref == null:
+		return
+	assert_true(
+		character.class_ref.resource_path.ends_with("divine_channeler.tres"),
+		"dwarf_channeler.tres class_ref.resource_path must end with 'divine_channeler.tres' (FEAT-085); got '%s'" % character.class_ref.resource_path
+	)
+
+
+## Criterion: point_buy_validate(dwarf_channeler.attributes) returns {valid: true} (FEAT-085).
+## Confirms the attribute spread is unchanged and still legal after the name correction.
+func test_patience_stoneshield_point_buy_is_valid() -> void:
+	var character = ResourceLoader.load("res://data/characters/dwarf_channeler.tres")
+	assert_not_null(character, "dwarf_channeler.tres must load non-null (FEAT-085)")
+	if character == null:
+		return
+	var attrs = _make_attrs_feat085()
+	var result = attrs.point_buy_validate(character.attributes)
+	assert_true(
+		result["valid"],
+		"point_buy_validate(dwarf_channeler.attributes) must return {valid: true} (FEAT-085); attribute spread must be unchanged"
+	)
+
+
+## Criterion: dwarf_channeler.tres race is non-empty (FEAT-085).
+## Confirms the cosmetic race field is present and valid after the name correction.
+func test_patience_stoneshield_race_is_non_empty() -> void:
+	var character = ResourceLoader.load("res://data/characters/dwarf_channeler.tres")
+	assert_not_null(character, "dwarf_channeler.tres must load non-null (FEAT-085)")
+	if character == null:
+		return
+	assert_true(
+		character.race.length() > 0,
+		"dwarf_channeler.tres race must be non-empty (FEAT-085); got '%s'" % character.race
+	)
