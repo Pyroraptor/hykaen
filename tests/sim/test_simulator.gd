@@ -5,7 +5,8 @@ extends GutTest
 ##
 ## Test criteria covered:
 ##   1. simulator.run(10, 12345) returns a Dictionary with exactly the keys
-##      'win_rate', 'avg_rounds', 'total_damage_dealt'.
+##      'win_rate', 'avg_rounds', 'total_damage_dealt', 'total_battles',
+##      'confidence_interval' (FEAT-090 adds 'total_battles' and 'confidence_interval').
 ##   2. win_rate is a float in the closed interval [0.0, 1.0].
 ##   3. Two sequential calls simulator.run(10, 12345) return identical win_rate
 ##      values — determinism proven.
@@ -61,12 +62,17 @@ func test_run_result_has_total_damage_dealt_key() -> void:
 	)
 
 
-func test_run_result_has_exactly_three_keys() -> void:
+func test_run_result_has_exactly_five_keys() -> void:
+	## FEAT-090: result now has 5 keys — 'win_rate', 'avg_rounds', 'total_damage_dealt'
+	## (original 3) plus 'total_battles' and 'confidence_interval' (added by FEAT-090).
 	var result = _sim.run(10, 12345)
 	assert_eq(
-		result.keys().size(), 3,
-		"result Dictionary must have exactly 3 keys ('win_rate', 'avg_rounds', 'total_damage_dealt'); got: %s"
-		% str(result.keys())
+		result.keys().size(), 5,
+		(
+			"result Dictionary must have exactly 5 keys"
+			+ " ('win_rate', 'avg_rounds', 'total_damage_dealt', 'total_battles', 'confidence_interval');"
+			+ " got: %s"
+		) % str(result.keys())
 	)
 
 

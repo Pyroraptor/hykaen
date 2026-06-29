@@ -3,10 +3,16 @@
 ## Domain layer (ADR-001): pure GDScript class — no Node/Control/CanvasItem inheritance.
 ## Constructor accepts no parameters.  All configuration is passed to run().
 ##
-## Satisfies: FEAT-048, US-009, DEF-004, FEAT-075, FEAT-088
+## Satisfies: FEAT-048, US-009, DEF-004, FEAT-075, FEAT-088, FEAT-090
 ##
-## run(n_battles, base_seed) drives n_battles independent Encounter instances,
+## run(battle_count, base_seed) drives battle_count independent Encounter instances,
 ## each seeded with (base_seed + i), and returns aggregate win/round/damage stats.
+##
+## FEAT-090 (NFR-006): battle_count defaults to 1000 (was previously a required
+## argument with callers passing explicit counts).  The default of 1000 satisfies
+## NFR-006 (minimum sample size for a statistically meaningful balance gate:
+## 95% CI ≈ ±3.1pp at N=1000, vs. ±10.5pp at N=90).  Existing callers that
+## pass explicit positional arguments continue to work unchanged.
 ##
 ## RNG constraint (ADR-002): direct RNG calls are forbidden in this file.
 ## All randomness flows through the injected RNGClass instances
@@ -35,21 +41,28 @@ func _init() -> void:
 	pass
 
 
-## run(n_battles: int, base_seed: int) → Dictionary
+## run(battle_count: int = 1000, base_seed: int = 0) → Dictionary
 ##
-## Runs n_battles encounter simulations.  Battle i uses seed (base_seed + i)
-## so the entire simulation is fully deterministic from (n_battles, base_seed).
+## Runs battle_count encounter simulations.  Battle i uses seed (base_seed + i)
+## so the entire simulation is fully deterministic from (battle_count, base_seed).
+##
+## FEAT-090: battle_count defaults to 1000 to satisfy NFR-006 minimum sample size.
+## base_seed defaults to 0 so run() with no arguments is valid.
+## Existing callers that pass explicit positional arguments (e.g. run(30, 42))
+## are not affected — positional passing is unchanged.
 ##
 ## Party: one Titus combatant derived from titus.tres / fighter class / equipment.
 ## Enemy: one Skeleton stub dict matching the fixture in test_encounter_integration.gd.
 ##
 ## Returns:
 ##   {
-##     win_rate:           float  — fraction of battles the party won [0.0, 1.0]
-##     avg_rounds:         float  — mean number of rounds per battle
-##     total_damage_dealt: int    — sum of all damage_final values across all battles
+##     win_rate:             float  — fraction of battles the party won [0.0, 1.0]
+##     avg_rounds:           float  — mean number of rounds per battle
+##     total_damage_dealt:   int    — sum of all damage_final values across all battles
+##     total_battles:        int    — echo of battle_count; verifiable by tests (FEAT-090)
+##     confidence_interval:  float  — 95% CI margin of error on win_rate (FEAT-090)
 ##   }
-func run(n_battles: int, base_seed: int) -> Dictionary:
+func run(battle_count: int = 1000, base_seed: int = 0) -> Dictionary:
 	# ── Load Titus resources once ─────────────────────────────────────────────
 	var titus_char    = ResourceLoader.load("res://data/characters/titus.tres")
 	var fighter_class = titus_char.class_ref
@@ -83,7 +96,7 @@ func run(n_battles: int, base_seed: int) -> Dictionary:
 	var total_damage: int = 0
 
 	# ── Main simulation loop ──────────────────────────────────────────────────
-	for i in range(n_battles):
+	for i in range(battle_count):
 		# Fresh seeded RNG for each battle — guarantees determinism (ADR-002).
 		var battle_rng = RNGClass.new(base_seed + i)
 
@@ -134,12 +147,19 @@ func run(n_battles: int, base_seed: int) -> Dictionary:
 			total_damage += entry.get("damage_final", 0)
 
 	# ── Compute aggregate statistics ──────────────────────────────────────────
-	var n:        float = float(n_battles) if n_battles > 0 else 1.0
-	var win_rate: float = float(wins)         / n
+	var n:          float = float(battle_count) if battle_count > 0 else 1.0
+	var win_rate:   float = float(wins)         / n
 	var avg_rounds: float = float(total_rounds) / n
 
+	# 95% CI margin of error for a proportion (normal approximation):
+	#   CI = 1.96 * sqrt(p * (1 - p) / n)
+	# At n=1000 and p≈0.6: CI ≈ 0.031 (±3.1pp).  FEAT-090 / NFR-006.
+	var confidence_interval: float = 1.96 * sqrt(win_rate * (1.0 - win_rate) / n)
+
 	return {
-		"win_rate":           win_rate,
-		"avg_rounds":         avg_rounds,
-		"total_damage_dealt": total_damage
+		"win_rate":            win_rate,
+		"avg_rounds":          avg_rounds,
+		"total_damage_dealt":  total_damage,
+		"total_battles":       battle_count,
+		"confidence_interval": confidence_interval
 	}

@@ -233,13 +233,19 @@ jobs:
           retention-days: 30
 
   # ---------------------------------------------------------------
-  # Balance Simulation Gate (FEAT-048 / DEF-004)
+  # Balance Simulation Gate (FEAT-048 / DEF-004 / FEAT-090)
   # Runs the balance invariant tests in tests/sim/ and blocks merge
   # if the v0 win-rate is outside [0.40, 0.80].  Distinct from the
   # main 'test' job so its failure is clearly attributable.
+  #
+  # FEAT-090 (NFR-006): runs N=1000 battles (up from N=90) to achieve
+  # a statistically meaningful balance gate (95% CI ±3.1pp at N=1000
+  # vs. ±10.5pp at N=90).  SIM_BATTLES=1000 is passed as an explicit
+  # environment variable for documentation and override capability;
+  # simulator.gd also defaults to 1000 in its run() signature.
   # ---------------------------------------------------------------
   balance-simulation:
-    name: Balance Simulation Gate
+    name: Balance Simulation Gate (N=1000)
     runs-on: ubuntu-latest
 
     steps:
@@ -255,26 +261,41 @@ jobs:
           godot --version
 
       # ---------------------------------------------------------------
-      # Run balance simulation GUT tests.
-      # Propagates the Godot exit code through tee via pipefail so that
-      # any test failure exits non-zero and blocks merge.
+      # Run N=1000 balance simulation GUT tests (FEAT-090 / NFR-006).
+      # SIM_BATTLES=1000 is the explicit CI contract — matches the
+      # default in simulator.gd run(battle_count: int = 1000).
+      # test_balance_sim.gd:
+      #   - asserts total_battles == 1000
+      #   - asserts win_rate in [0.40, 0.80]
+      #   - asserts wall-clock elapsed < 300 seconds
+      #   - writes sim_results.json artifact to project root
+      # Exit 0 when all assertions pass; exit 1 blocks merge.
       # ---------------------------------------------------------------
-      - name: Run balance simulation tests
+      - name: Run balance simulation tests (N=1000, FEAT-090)
+        env:
+          SIM_BATTLES: "1000"
         run: |
           set -o pipefail
           godot --headless -- --gut-run-all tests/sim/ 2>&1 | tee balance_sim_output.log
 
       # ---------------------------------------------------------------
-      # Upload simulation output as CI artifact unconditionally
-      # (if: always() ensures upload even when the step above fails).
+      # Upload simulation output and sim_results.json as CI artifacts
+      # unconditionally (if: always() ensures upload even on failure).
+      #
+      # sim_results.json is produced by test_balance_sim.gd during the
+      # GUT run above.  It contains:
+      #   { total_battles: 1000, win_rate: float, avg_rounds: float,
+      #     confidence_interval: float }
+      # Artifact name includes run_number for traceability.
       # ---------------------------------------------------------------
       - name: Upload balance simulation results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: balance-sim-results
+          name: balance-sim-results-${{ github.run_number }}
           path: |
             balance_sim_output.log
+            sim_results.json
             *.log
           if-no-files-found: ignore
           retention-days: 30
