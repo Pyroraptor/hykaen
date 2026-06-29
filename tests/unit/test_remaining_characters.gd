@@ -1,13 +1,13 @@
 extends GutTest
 ## tests/unit/test_remaining_characters.gd
 ##
-## GUT test suite for FEAT-045: Three Remaining Party Member Character .tres Resources.
+## GUT test suite for FEAT-045 / FEAT-076: Three Remaining Party Member Character .tres Resources.
 ## Validates all test criteria for US-006 — Gram Marx, Marigold, and Dwarf Channeler.
 ##
 ## Gram Marx (Tiefling Wizard, INT-primary, 22 points):
 ##   STR=1(1) + CON=2(2) + DEX=2(2) + WIL=2(2) + INT=5(9) + Intuition=3(4) + SOC=2(2) = 22
 ##
-## Marigold (Elven Divine Warrior, WIL-primary, 25 points):
+## Marigold (Elf Divine Champion, DEX-primary, 25 points):
 ##   STR=3(4) + CON=3(4) + DEX=3(4) + WIL=4(6) + INT=1(1) + Intuition=3(4) + SOC=2(2) = 25
 ##
 ## Dwarf Channeler (Dwarf Divine Channeler, SOC/CON dual-primary, 23 points):
@@ -22,6 +22,7 @@ const RNGClass          = preload("res://core/rules/rng.gd")
 var _gram_marx = null
 var _marigold = null
 var _dwarf_channeler = null
+var _titus = null
 var _wizard_class = null
 var _divine_warrior_class = null
 var _divine_channeler_class = null
@@ -31,6 +32,7 @@ func before_all() -> void:
 	_gram_marx = ResourceLoader.load("res://data/characters/gram_marx.tres")
 	_marigold = ResourceLoader.load("res://data/characters/marigold.tres")
 	_dwarf_channeler = ResourceLoader.load("res://data/characters/dwarf_channeler.tres")
+	_titus = ResourceLoader.load("res://data/characters/titus.tres")
 	_wizard_class = ResourceLoader.load("res://data/classes/wizard.tres")
 	_divine_warrior_class = ResourceLoader.load("res://data/classes/divine_warrior.tres")
 	_divine_channeler_class = ResourceLoader.load("res://data/classes/divine_channeler.tres")
@@ -320,11 +322,11 @@ func test_marigold_name_is_Marigold() -> void:
 	assert_eq(_marigold.name, "Marigold", "marigold.name must be 'Marigold'")
 
 
-func test_marigold_race_is_Elven() -> void:
+func test_marigold_race_is_elf() -> void:
 	if _marigold == null:
 		fail_test("marigold.tres failed to load — cannot check race")
 		return
-	assert_eq(_marigold.race, "Elven", "marigold.race must be 'Elven'")
+	assert_eq(_marigold.race, "Elf", "marigold.race must be 'Elf' (FR-010)")
 
 
 # ── Class reference — divine_warrior.tres ────────────────────────────────────
@@ -746,3 +748,67 @@ func test_dwarf_channeler_talent_selections_is_array() -> void:
 		fail_test("dwarf_channeler.tres failed to load")
 		return
 	assert_not_null(_dwarf_channeler.talent_selections, "dwarf_channeler.talent_selections must not be null")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# FEAT-076 — primary_offensive_attribute field and Marigold race fix
+# ════════════════════════════════════════════════════════════════════════════
+
+## Test that CharacterResource.new() exposes the primary_offensive_attribute property.
+## This is a schema-level check: the field must exist with a default value.
+func test_character_resource_has_primary_offensive_attribute_field() -> void:
+	var cr = CharacterResource.new()
+	assert_true(
+		"primary_offensive_attribute" in cr,
+		"CharacterResource must have a primary_offensive_attribute property (FEAT-076)"
+	)
+
+
+## Marigold's race must be "Elf" per FR-010 (DEF-004: was incorrectly 'Elven').
+func test_marigold_race_is_elf_feat076() -> void:
+	if _marigold == null:
+		fail_test("marigold.tres failed to load — cannot check race")
+		return
+	assert_eq(
+		_marigold.race, "Elf",
+		"marigold.race must be 'Elf' per FR-010 (DEF-004 fix)"
+	)
+
+
+## Marigold's primary_offensive_attribute must be "dexterity" (Divine Champion build).
+func test_marigold_primary_offensive_attribute_is_dexterity() -> void:
+	if _marigold == null:
+		fail_test("marigold.tres failed to load — cannot check primary_offensive_attribute")
+		return
+	assert_eq(
+		_marigold.primary_offensive_attribute, "dexterity",
+		"marigold.primary_offensive_attribute must be 'dexterity' (FEAT-076)"
+	)
+
+
+## Titus (existing .tres, no primary_offensive_attribute set) must default to "".
+## This confirms backward compatibility: adding the field does not break existing files.
+func test_titus_primary_offensive_attribute_defaults_empty() -> void:
+	if _titus == null:
+		fail_test("titus.tres failed to load — cannot check primary_offensive_attribute")
+		return
+	assert_eq(
+		_titus.primary_offensive_attribute, "",
+		"titus.primary_offensive_attribute must default to '' when not set in .tres (FEAT-076 backward compat)"
+	)
+
+
+## gram_marx.tres must still load non-null after the schema change.
+func test_gram_marx_loads_without_error_feat076() -> void:
+	assert_not_null(
+		_gram_marx,
+		"gram_marx.tres must load non-null after primary_offensive_attribute schema addition (FEAT-076)"
+	)
+
+
+## dwarf_channeler.tres must still load non-null after the schema change.
+func test_dwarf_channeler_loads_without_error_feat076() -> void:
+	assert_not_null(
+		_dwarf_channeler,
+		"dwarf_channeler.tres must load non-null after primary_offensive_attribute schema addition (FEAT-076)"
+	)

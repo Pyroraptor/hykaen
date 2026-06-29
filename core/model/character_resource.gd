@@ -40,3 +40,10 @@ extends Resource
 
 ## Array of talent identifiers selected during character creation.
 @export var talent_selections: Array = []
+
+## The attribute that drives this character's primary offensive output.
+## Examples: "strength" (melee martial), "dexterity" (finesse/ranged),
+## "willpower" (divine caster), "intellect" (arcane caster).
+## Empty string ("") is the default for backward compatibility with
+## existing .tres files that do not declare this field (e.g. Titus v0).
+@export var primary_offensive_attribute: String = ""
