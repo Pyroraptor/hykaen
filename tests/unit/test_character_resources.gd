@@ -295,6 +295,49 @@ func test_chain_shirt_stats() -> void:
 	assert_eq(res.category, "medium", "chain_shirt category must be 'medium' (FEAT-061)")
 
 
+## FEAT-087: chain_shirt.ac_base must equal 5 (v0 spec armor table: Chain Shirt +5).
+func test_chain_shirt_ac_base_equals_spec_value() -> void:
+	var res = ResourceLoader.load("res://data/armor/chain_shirt.tres")
+	if res == null:
+		fail_test("chain_shirt.tres failed to load (FEAT-087)")
+		return
+	assert_eq(
+		res.ac_base, 5,
+		"chain_shirt.ac_base must be 5 — v0 spec armor table: Chain Shirt +5 (FEAT-087); got %d" % res.ac_base
+	)
+
+
+## FEAT-087: chain_shirt.tres first line must start with '[gd_resource' (ADR-003 text format).
+func test_chain_shirt_tres_is_text_format() -> void:
+	var file := FileAccess.open("res://data/armor/chain_shirt.tres", FileAccess.READ)
+	assert_not_null(file, "data/armor/chain_shirt.tres must be readable (FEAT-087)")
+	if file == null:
+		return
+	var first_line := file.get_line()
+	file.close()
+	assert_true(
+		first_line.begins_with("[gd_resource"),
+		"chain_shirt.tres first line must start with '[gd_resource' (ADR-003 / FEAT-087); got: '%s'" % first_line
+	)
+
+
+## FEAT-087: titus.tres starting_equipment must contain chain_shirt.tres (not scale_mail).
+func test_titus_starting_equipment_contains_chain_shirt() -> void:
+	var titus = ResourceLoader.load("res://data/characters/titus.tres")
+	assert_not_null(titus, "titus.tres must load non-null (FEAT-087)")
+	if titus == null:
+		return
+	var found: bool = false
+	for item in titus.starting_equipment:
+		if str(item).contains("chain_shirt.tres"):
+			found = true
+			break
+	assert_true(
+		found,
+		"titus.starting_equipment must contain a path with 'chain_shirt.tres' (FEAT-087)"
+	)
+
+
 # ── FEAT-061: Non-Titus characters each have a weapon with block_value/parry_bonus ──
 
 ## Criterion: each non-Titus character's first starting_equipment weapon has

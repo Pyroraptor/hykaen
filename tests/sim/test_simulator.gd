@@ -137,11 +137,11 @@ func test_two_sequential_calls_produce_identical_total_damage() -> void:
 # spec — the invariant must be seed-averaged to avoid false passes that arise
 # from a lucky single-seed sequence.
 #
-# Configuration (FEAT-075):
+# Configuration (FEAT-075 / FEAT-087):
 #   Seeds: [42, 12345, 99999]  — widely spaced to sample different RNG regions
 #   Battles per seed: 30       — 90 total encounters
-#   Titus: d12 longsword (loaded from longsword.tres), HP~18, AC~14
-#   Skeleton: hp=28, d8+2 weapon, ac=13
+#   Titus: d12 longsword (loaded from longsword.tres), HP~18, AC~15 (chain_shirt, FEAT-087)
+#   Skeleton: hp=50, d8+2 weapon, ac=14 (rebalanced for Titus AC=15 per FEAT-087)
 #
 # This test BLOCKS CI MERGE if the averaged win_rate is outside [0.40, 0.80].
 # ══════════════════════════════════════════════════════════════════════════════

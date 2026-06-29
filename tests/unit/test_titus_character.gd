@@ -172,7 +172,10 @@ func test_titus_compute_stamina_equals_10() -> void:
 	assert_eq(stamina, 10, "compute_stamina(titus.attributes, fighter) must be 10 (4 + 2 + 4)")
 
 
-## Criterion: compute_ac(armor_base=4, category='medium') → 14 (10 + 4 + 0, no DEX bonus)
+## Criterion: compute_ac with medium armor (no DEX bonus) — formula smoke test.
+## FEAT-087: Titus now wears chain_shirt (ac_base=5, AC=15). This test keeps
+## armor_base=4 to preserve the original formula smoke test for the compute_ac()
+## medium-armor path. For Titus's actual AC with chain_shirt, see test_titus_derived_stats.gd.
 func test_titus_compute_ac_medium_armor_equals_14() -> void:
 	if _titus == null:
 		fail_test("titus.tres failed to load — cannot compute AC")
@@ -243,18 +246,20 @@ func test_titus_starting_equipment_contains_longsword() -> void:
 	)
 
 
-func test_titus_starting_equipment_contains_scale_mail() -> void:
+## FEAT-087: Titus's armor corrected to chain_shirt (v0 spec armor table, AC=+5 medium).
+## scale_mail was incorrect; chain_shirt is the spec-mandated starting armor.
+func test_titus_starting_equipment_contains_chain_shirt() -> void:
 	if _titus == null:
 		fail_test("titus.tres failed to load — cannot check starting_equipment")
 		return
 	var found: bool = false
 	for item in _titus.starting_equipment:
-		if str(item).ends_with("scale_mail.tres"):
+		if str(item).ends_with("chain_shirt.tres"):
 			found = true
 			break
 	assert_true(
 		found,
-		"titus.starting_equipment must contain a path ending with 'scale_mail.tres'"
+		"titus.starting_equipment must contain a path ending with 'chain_shirt.tres' (FEAT-087)"
 	)
 
 
