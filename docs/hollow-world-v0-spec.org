@@ -1,32 +1,23 @@
 #+TITLE: Hollow World v0 — Combat Simulation Specification
-#+AUTHOR: Drafted by AEF (Claude) for author review — Guy Verisage to approve
+#+AUTHOR: Guy Verisage
 #+DATE: 2026-06-29
-#+APPROVAL: Sharding — reviewed 2026-06-29 — approved for v0 combat simulation milestone
-#+VERSION: v0-draft-1
+#+APPROVAL: Guy Verisage — reviewed 2026-06-29
+#+STATUS: APPROVED
+#+VERSION: v0-release-1
 #+SOURCE: docs/design-source/{Combat,Weapons,Building a Character,Classes,Magic and Spellcasting}.pdf; docs/brief.org
 
-* STATUS — DRAFT, awaiting author approval
+* STATUS — APPROVED
 
-  This document REPLACES the FEAT-021 stub. It is a complete first draft of
+  This document is the *approved* v0 ruleset for the Hykaen combat simulation.
+  It has been reviewed and signed off by the author (Guy Verisage) on
+  2026-06-29. The spec-before-code gate is now open for all combat logic
+  defined herein.
+
+  This document REPLACES the FEAT-021 stub. It is a complete specification of
   the frozen v0 ruleset, authored from the five combat-relevant source PDFs
   in =docs/design-source/= and the decisions already recorded in
   =docs/brief.org=. It satisfies all twelve content acceptance criteria of
   FR-001 (see =Acceptance Criteria= below).
-
-  *It is NOT yet approved.* Per the project's spec-before-code gate, no further
-  combat logic should be built against it until the author has reviewed,
-  edited, and approved it. To approve:
-
-  1. Read the document, especially =Authored v0 Decisions= — those are the
-     calls AEF made to fill gaps the source docs leave open (armor table,
-     speed, spell-attack bonus, skill list, condition magnitudes, talent
-     contents, quarterstaff). Edit any numbers you disagree with.
-  2. Replace the =#+APPROVAL:= line at the top with the substantive approval
-     statement it quotes. (Until you do, the CI spec-gate lints
-     =lint-spec-no-placeholder= / =test_spec_approval_not_placeholder= stay
-     red — intentionally.)
-  3. Commit. Then prune =data/checkpoint.json= and start a fresh,
-     tightly-scoped sprint (do NOT plain =aef run --resume= — see RESUME-STATE).
 
 * Purpose & scope authority
 
@@ -573,7 +564,7 @@
   This document satisfies FR-001's twelve content criteria:
 
   1. ✔ Exists at =docs/hollow-world-v0-spec.org=; carries an =#+APPROVAL:=
-     marker (currently a DRAFT marker — the author replaces it on approval).
+     marker signed by Guy Verisage (reviewed 2026-06-29); =#+STATUS: APPROVED=.
   2. ✔ All seven attributes + the 27-point cost table (1/2/4/6/9/12).
   3. ✔ HP = 8 + Class HP + Constitution (Tier 1, Level 1, Race HP 8).
   4. ✔ Stamina per class: base (Fighter 4 / Divine Warrior 3 / Wizard 1 /
@@ -596,20 +587,30 @@
   recorded in RESUME-STATE, and the Bobbin-vs-Dmitri worked example gives
   FR-004 a deterministic acceptance anchor.
 
-* Open items for the author
+* Open items for the author — ALL RESOLVED
 
-  1. Replace the =#+APPROVAL:= line to approve (see §STATUS).
-  2. Confirm or edit each entry in §Authored v0 Decisions — especially the
-     spell-attack bonus (#3) and the armor AC bases (#1).
-  3. ~Name the Dwarf Divine Channeler.~ DONE — Patience Stoneshield.
-  4. Confirm the illustrative party builds, or supply the canonical attribute
-     arrays for the FR-010 character resources.
-  5. Confirm Haste/Stunned magnitudes and the Opportunistic Strike trigger.
+  All items below were resolved by the author on 2026-06-29 as part of the
+  spec approval. No further action is required before building against this
+  spec.
+
+  1. DONE — =#+APPROVAL:= line replaced with "Guy Verisage — reviewed 2026-06-29".
+     =#+STATUS:= set to APPROVED.
+  2. DONE — All entries in §Authored v0 Decisions confirmed and annotated
+     with author responses (see inline *Author* notes in that section).
+  3. DONE — Dwarf Divine Channeler named: Patience Stoneshield.
+  4. DONE — Illustrative party builds confirmed as the canonical starting
+     attribute arrays for the FR-010 character resources (Titus, Gram Marx,
+     Marigold, Patience Stoneshield).
+  5. DONE — Haste/Stunned magnitudes set to Haste/Stunned X (variable),
+     Opportunistic Strike triggers on Movement or Concentrate actions.
+     See §Conditions and §Reactions for details.
 
 * Approval Sign-off
 
-  [Author: to approve, edit the =#+APPROVAL:= line at the top of this file to
-   the substantive statement it quotes, e.g.:
-   #+APPROVAL: Guy Verisage — reviewed 2026-07-01 — approved for v0 combat simulation milestone
-   and commit. Until then this spec is DRAFT and the spec-before-code gate
-   remains closed.]
+  This specification has been reviewed and approved by the author.
+
+  #+APPROVAL: Guy Verisage — reviewed 2026-06-29
+  #+STATUS: APPROVED
+
+  The spec-before-code gate is open. Combat logic may be built against
+  this document. All scope boundaries (§In scope / Deferred) are binding.

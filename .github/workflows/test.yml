@@ -73,14 +73,29 @@ jobs:
           echo "OK: no direct RNG usage in core/ (excluding rng.gd)"
 
       # ---------------------------------------------------------------
-      # Linter 4a: enforce spec approval gate (FEAT-021 / ADR-004)
-      # docs/hollow-world-v0-spec.org MUST contain a #+APPROVAL: line.
-      # Exit 1 blocks merge until the spec is hand-authored and signed.
+      # Linter 4a: enforce spec approval gate (FEAT-084 hardened from FEAT-021)
+      # docs/hollow-world-v0-spec.org MUST contain a #+APPROVAL: line signed
+      # by 'Guy Verisage' specifically. The AI handle 'Sharding' (or any other
+      # non-author signer) is rejected — only the human author is authoritative.
+      # Uses grep -E with escaped '+' (\+) so the literal #+APPROVAL: prefix
+      # is matched correctly in extended regex mode.
       # ---------------------------------------------------------------
       - name: lint-spec-approval-marker
         run: |
-          grep -q '#+APPROVAL:' docs/hollow-world-v0-spec.org \
-            || (echo 'GATE FAIL: hollow-world-v0-spec.org missing or unsigned' >&2 && exit 1)
+          grep -E '#\+APPROVAL:.*Guy Verisage' docs/hollow-world-v0-spec.org \
+            && exit 0 \
+            || { echo 'GATE FAIL: hollow-world-v0-spec.org missing or not signed by Guy Verisage' >&2; exit 1; }
+
+      # ---------------------------------------------------------------
+      # Linter 4a2: enforce #+STATUS: APPROVED gate (FEAT-084 / DEF-001)
+      # docs/hollow-world-v0-spec.org #+STATUS must read APPROVED — a DRAFT
+      # status or missing #+STATUS: line blocks merge until the author sets it.
+      # ---------------------------------------------------------------
+      - name: lint-spec-status-approved
+        run: |
+          grep '#+STATUS: APPROVED' docs/hollow-world-v0-spec.org \
+            && exit 0 \
+            || { echo 'GATE FAIL: hollow-world-v0-spec.org #+STATUS is not APPROVED (is DRAFT or missing)' >&2; exit 1; }
 
       # ---------------------------------------------------------------
       # Linter 4b: enforce genuine approval — no PLACEHOLDER (FEAT-039 / DEF-001)
