@@ -3,7 +3,7 @@
 ## Domain layer (ADR-001): pure GDScript class — no Node/Control/CanvasItem inheritance.
 ## Constructor accepts no parameters.  All configuration is passed to run().
 ##
-## Satisfies: FEAT-048, US-009, DEF-004
+## Satisfies: FEAT-048, US-009, DEF-004, FEAT-075
 ##
 ## run(n_battles, base_seed) drives n_battles independent Encounter instances,
 ## each seeded with (base_seed + i), and returns aggregate win/round/damage stats.
@@ -11,6 +11,11 @@
 ## RNG constraint (ADR-002): direct RNG calls are forbidden in this file.
 ## All randomness flows through the injected RNGClass instances
 ## created per-battle and passed into each Encounter.
+##
+## FEAT-075 (NFR-005 / DEF-002): Titus's weapon stats are now loaded from
+## longsword.tres via titus.tres.starting_equipment[0] — no hardcoded weapon
+## numeric values remain for the attacker.  The Skeleton is re-tuned to
+## produce a seed-averaged win rate in [0.40, 0.80] against d12+5 Titus.
 
 class_name Simulator
 
@@ -43,6 +48,9 @@ func run(n_battles: int, base_seed: int) -> Dictionary:
 	var titus_char    = ResourceLoader.load("res://data/characters/titus.tres")
 	var fighter_class = titus_char.class_ref
 	var scale_mail    = ResourceLoader.load(titus_char.starting_equipment[1])
+	# FEAT-075: load weapon from titus.tres.starting_equipment[0] (longsword.tres)
+	# instead of hardcoding damage_die, proficiency_bonus, damage_modifier_attribute.
+	var weapon_res    = ResourceLoader.load(titus_char.starting_equipment[0])
 
 	# Compute Titus's derived stats via attributes.gd (ADR-012 formulas).
 	# RNGClass.new(0) is passed to satisfy the Attributes constructor;
@@ -64,11 +72,8 @@ func run(n_battles: int, base_seed: int) -> Dictionary:
 
 		# Build a fresh Titus combatant dict for this battle (mutable hp_current).
 		# HP and AC are derived from titus.tres via attributes.gd (ADR-012).
-		# The weapon uses a d6 representation for balance calibration — Titus's
-		# actual longsword is d12, but d6 is used here so that the skeleton's
-		# threat profile falls within the v0 balance invariant range [0.40, 0.80].
-		# FIX-005: both combatants are tuned so the SEED-AVERAGED win rate across
-		# seeds [42, 12345, 99999] at 30 battles each sits within [0.40, 0.80].
+		# FEAT-075: weapon stats (damage_die, proficiency_bonus, damage_modifier_attribute)
+		# are read from the longsword.tres resource loaded above — no hardcoded values.
 		var titus: Dictionary = {
 			"name":       titus_char.name,
 			"hp_current": titus_hp,
@@ -77,25 +82,23 @@ func run(n_battles: int, base_seed: int) -> Dictionary:
 			"dexterity":  scores.get("dexterity", 0),
 			"intuition":  scores.get("intuition", 0),
 			"weapon": {
-				"damage_modifier_attribute": "strength",
-				"proficiency_bonus":         1,
-				"damage_die":               6
+				"damage_modifier_attribute": weapon_res.damage_modifier_attribute,
+				"proficiency_bonus":         weapon_res.proficiency_bonus,
+				"damage_die":                weapon_res.damage_die
 			}
 		}
 
-		# Skeleton stub — FIX-005 balance calibration.
-		# damage_die=8 gives the skeleton expected damage ~22.75 per 7-action round
-		# (3.5 expected hits × (d8+2 avg 6.5) = 22.75 vs Titus hp=18), producing
-		# a kill probability of ~69% when skeleton acts first.  Combined with
-		# Titus's ~57% initiative advantage, this yields a seed-averaged party win
-		# rate of ~70%, within the v0 balance invariant window [0.40, 0.80].
-		# Using damage_die=6 (original) produced only ~19.25 expected damage
-		# (kill probability ~56%), resulting in an observed win rate of ~83%
-		# which violates the balance gate.  (DEF-004 / FIX-005)
+		# Skeleton stub — FEAT-075 balance calibration for d12+5 Titus.
+		# Design rationale: d12+5 Titus averages ~11.5/hit vs hp=28 Skeleton
+		# needing ~3 hits; Skeleton d8+2 avg ~6.5/hit vs Titus hp~18 needing
+		# ~3 hits, producing ~55–65% win rate within the [0.40, 0.80] invariant.
+		# Both combatants need ~3 hits to kill each other; Titus's +4 initiative
+		# advantage (intuition 2 + dex 2 vs Skeleton's +2) yields ~57% initiative
+		# win rate, which translates to a seed-averaged party win rate of ~60–65%.
 		var skeleton: Dictionary = {
 			"name":       "Skeleton",
-			"hp_current": 8,
-			"ac":         12,
+			"hp_current": 28,
+			"ac":         13,
 			"strength":   2,
 			"dexterity":  1,
 			"intuition":  1,

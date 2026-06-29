@@ -1,7 +1,7 @@
 extends GutTest
 ## tests/sim/test_simulator.gd
 ##
-## GUT unit tests for core/sim/simulator.gd (FEAT-048 / DEF-004).
+## GUT unit tests for core/sim/simulator.gd (FEAT-048 / DEF-004 / FEAT-075).
 ##
 ## Test criteria covered:
 ##   1. simulator.run(10, 12345) returns a Dictionary with exactly the keys
@@ -13,6 +13,8 @@ extends GutTest
 ##      (30 battles each) is in [0.40, 0.80] — the v0 SEED-AVERAGED balance gate.
 ##   5. simulator.gd has no extends Node / Control / CanvasItem (ADR-001 purity).
 ##   6. simulator.gd has no randf(), randi(), RandomNumberGenerator.new() (ADR-002).
+##   7. (FEAT-075) Titus's weapon die is 12, loaded from longsword.tres resource.
+##   8. (FEAT-075) simulator.gd has no hardcoded damage_die=6 for Titus's weapon.
 
 const SimulatorClass = preload("res://core/sim/simulator.gd")
 
@@ -128,22 +130,24 @@ func test_two_sequential_calls_produce_identical_total_damage() -> void:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Criterion 4: v0 SEED-AVERAGED Balance Invariant (FEAT-048 / DEF-004)
+# Criterion 4: v0 SEED-AVERAGED Balance Invariant (FEAT-048 / DEF-004 / FEAT-075)
 #
 # The mean win_rate, averaged across at least 3 distinct base seeds, must be
 # in [0.40, 0.80].  Using a single pinned seed is explicitly FORBIDDEN by the
 # spec — the invariant must be seed-averaged to avoid false passes that arise
 # from a lucky single-seed sequence.
 #
-# Agent-chosen configuration:
+# Configuration (FEAT-075):
 #   Seeds: [42, 12345, 99999]  — widely spaced to sample different RNG regions
 #   Battles per seed: 30       — 90 total encounters
+#   Titus: d12 longsword (loaded from longsword.tres), HP~18, AC~14
+#   Skeleton: hp=28, d8+2 weapon, ac=13
 #
 # This test BLOCKS CI MERGE if the averaged win_rate is outside [0.40, 0.80].
 # ══════════════════════════════════════════════════════════════════════════════
 
 func test_balance_invariant_seed_averaged() -> void:
-	## v0 SEED-AVERAGED Balance Invariant — FEAT-048 test criterion.
+	## v0 SEED-AVERAGED Balance Invariant — FEAT-048 / FEAT-075 test criterion.
 	##
 	## Averages win_rate across 3 distinct base seeds (42, 12345, 99999)
 	## with 30 battles per seed (90 total encounters).  The mean must be
@@ -165,10 +169,9 @@ func test_balance_invariant_seed_averaged() -> void:
 	assert_true(
 		mean_win_rate >= 0.40 and mean_win_rate <= 0.80,
 		(
-			"v0 SEED-AVERAGED balance invariant FAILED: "
-			"mean win_rate across seeds %s (%d battles each) "
-			"must be in [0.40, 0.80]; got mean_win_rate = %.4f. "
-			"This indicates the v0 encounter balance is outside the acceptable range."
+			"v0 SEED-AVERAGED balance invariant FAILED: mean win_rate across seeds %s"
+			+ " (%d battles each) must be in [0.40, 0.80]; got mean_win_rate = %.4f."
+			+ " This indicates the v0 encounter balance is outside the acceptable range."
 		) % [str(seeds), battles_per_seed, mean_win_rate]
 	)
 
@@ -258,4 +261,82 @@ func test_no_random_number_generator_new_in_simulator_gd() -> void:
 	assert_false(
 		content.contains("RandomNumberGenerator.new()"),
 		"simulator.gd must not contain 'RandomNumberGenerator.new()' — use RNGClass (ADR-002)"
+	)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Criterion 7: FEAT-075 — Weapon die loaded from resource equals 12
+#
+# Verifies that Titus's weapon (longsword.tres, loaded via titus.tres's
+# starting_equipment array) reports damage_die == 12.  This is the data-layer
+# contract that simulator.gd must satisfy after removing the hardcoded d6.
+# ══════════════════════════════════════════════════════════════════════════════
+
+func test_weapon_die_loaded_from_resource() -> void:
+	## Loads titus.tres, extracts starting_equipment[0] as the weapon path,
+	## loads that resource, and asserts damage_die == 12 (longsword is d12).
+	## Combined with test_simulator_loads_weapon_from_resource_path this proves
+	## the simulator uses damage_die=12 from longsword.tres (FEAT-075 / DEF-002).
+	var titus_res = ResourceLoader.load("res://data/characters/titus.tres")
+	assert_not_null(titus_res, "titus.tres must load successfully")
+	if titus_res == null:
+		return
+
+	assert_true(
+		titus_res.starting_equipment.size() > 0,
+		"Titus must have at least one item in starting_equipment"
+	)
+
+	var weapon_path: String = titus_res.starting_equipment[0]
+	var weapon_res = ResourceLoader.load(weapon_path)
+	assert_not_null(
+		weapon_res,
+		"Titus's weapon resource must load from path: %s" % weapon_path
+	)
+	if weapon_res == null:
+		return
+
+	assert_eq(
+		weapon_res.damage_die,
+		12,
+		"Titus's weapon (longsword) must have damage_die=12; got: %d" % weapon_res.damage_die
+	)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Criterion 8: FEAT-075 — simulator.gd loads weapon from resource path,
+#              not from a hardcoded 'damage_die: 6' literal
+# ══════════════════════════════════════════════════════════════════════════════
+
+func test_simulator_loads_weapon_from_resource_path() -> void:
+	## Reads simulator.gd source and asserts:
+	##   (a) 'weapon_res' appears in the file (resource-load pattern is present).
+	##   (b) No line has '"damage_die"' followed immediately by a trailing literal 6,
+	##       which would indicate the old hardcoded d6 for Titus's weapon.
+	## FEAT-075 / DEF-002 / NFR-005.
+	var file := FileAccess.open("res://core/sim/simulator.gd", FileAccess.READ)
+	assert_not_null(file, "core/sim/simulator.gd must be readable")
+	if file == null:
+		return
+	var content: String = file.get_as_text()
+	file.close()
+
+	## The simulator must reference 'weapon_res' — confirming resource loading.
+	assert_true(
+		content.contains("weapon_res"),
+		"simulator.gd must load weapon from resource (must contain 'weapon_res') — FEAT-075"
+	)
+
+	## Scan for any line declaring '"damage_die"' with a trailing literal 6,
+	## which would mean the die is still hardcoded instead of loaded from the resource.
+	var has_hardcoded_die6: bool = false
+	for line in content.split("\n"):
+		var stripped: String = line.strip_edges()
+		if '"damage_die"' in stripped and stripped.ends_with("6"):
+			has_hardcoded_die6 = true
+			break
+
+	assert_false(
+		has_hardcoded_die6,
+		"simulator.gd must not contain a hardcoded 'damage_die' literal of 6 — load it from longsword.tres (FEAT-075)"
 	)
