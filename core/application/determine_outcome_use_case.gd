@@ -31,6 +31,8 @@
 class_name DetermineOutcomeUseCase
 extends RefCounted
 
+const RoundEventsClass = preload("res://core/rules/round_events.gd")
+
 
 ## classify(party, enemies) -> String
 ##
@@ -69,3 +71,16 @@ func _has_living(combatants: Array) -> bool:
 		if c.get("hp_current", 0) > 0:
 			return true
 	return false
+
+
+## build_event(round_number, outcome) -> RoundEvents.EncounterResultEvent
+## (FEAT-099/FIND-096)
+##
+## Constructs the typed terminal event for a decided round outcome
+## ('won'/'lost') from core/rules/round_events.gd — pure construction, no
+## side effects, no port/RNG dependency (this use case stays the SINGLE
+## classification authority described above; it does not own emission). The
+## caller (RunRoundUseCase) is responsible for emitting the returned event
+## via EventSinkPort at the appropriate point in the AC-4 cycle algorithm.
+func build_event(round_number: int, outcome: String) -> RoundEventsClass.EncounterResultEvent:
+	return RoundEventsClass.EncounterResultEvent.new(round_number, outcome)

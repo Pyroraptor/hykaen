@@ -45,7 +45,16 @@
 ## Dictionary). When omitted (null, the default), a plain AIClass.new() is
 ## constructed internally.
 ##
-## Satisfies: US-007, US-009, ADR-006, US-004, US-005, CR-001 AC-4, CR-001 AC-5, FEAT-098
+## FEAT-099 (FIND-096): _round_events now carries the TYPED value objects
+## declared in core/rules/round_events.gd (RoundEvents.AttackEvent /
+## CombatantDefeatedEvent / EncounterResultEvent) emitted by
+## ResolveActionUseCase/RunRoundUseCase through EventSinkPort — never a raw
+## Dictionary. _round_history's Dictionary shape is preserved UNCHANGED
+## (core/sim/simulator.gd remains unmodified per CR-001 scope) and each
+## entry additionally carries an "entry" key holding the typed
+## RoundEvents.RoundHistoryEntry value object built by ResolveActionUseCase.
+##
+## Satisfies: US-007, US-009, ADR-006, US-004, US-005, CR-001 AC-4, CR-001 AC-5, FEAT-098, FEAT-099
 
 class_name Encounter
 
@@ -100,7 +109,11 @@ class _TurnOrderAdapter:
 
 
 ## _EventSinkAdapter — implements EventSinkPort by appending directly to a
-## referenced Array (this Encounter's _round_events).
+## referenced Array (this Encounter's _round_events). FEAT-099/FIND-096: the
+## `event` parameter is intentionally untyped (no `: Dictionary` hint) — it
+## always receives one of the TYPED value objects declared in
+## core/rules/round_events.gd (RoundEvents.AttackEvent /
+## CombatantDefeatedEvent / EncounterResultEvent), never a raw Dictionary.
 class _EventSinkAdapter:
 	extends "res://core/application/event_sink_port.gd"
 
@@ -109,7 +122,7 @@ class _EventSinkAdapter:
 	func _init(events: Array) -> void:
 		_events = events
 
-	func emit(event: Dictionary) -> void:
+	func emit(event) -> void:
 		_events.append(event)
 
 
@@ -324,11 +337,21 @@ func get_round_count() -> int:
 ## get_round_history() → Array — attack records from all rounds.
 ## Each entry: {attacker: Dictionary, action: String, target: Dictionary,
 ##              roll: int, damage_final: int,
-##              budget_remaining: int, round: int, cycle_index: int}
+##              budget_remaining: int, round: int, cycle_index: int,
+##              entry: RoundEvents.RoundHistoryEntry}
 ## cycle_index (CR-001 AC-4) records which interleave cycle pass through
 ## _turn_order this entry occurred in — supports verifying that Strikes
 ## interleave (e.g. A,B,A,B,...) rather than one side acting fully before
 ## the other.
+##
+## FEAT-099/FIND-096: the "entry" key holds the TYPED
+## core/rules/round_events.gd RoundEvents.RoundHistoryEntry value object
+## (round_number, cycle_index, combatant_id, action_type, budget_remaining)
+## constructed by ResolveActionUseCase and carried through RoundHistoryPort.
+## The surrounding Dictionary's pre-existing keys are preserved UNCHANGED
+## (attacker/target full Combatant Dictionaries, roll, etc.) so that
+## pre-existing consumers — most notably core/sim/simulator.gd, which this
+## CR explicitly keeps UNMODIFIED — continue to work without alteration.
 func get_round_history() -> Array:
 	return _round_history
 
@@ -344,11 +367,15 @@ func get_action_economy(index: int):
 ## Returns the structured event list populated during the most recent run_round() call.
 ## The queue is cleared at the start of each run_round() so observers poll after each round.
 ##
-## Event types emitted:
-##   {type:'attack', round:int, attacker_name:String, target_name:String,
-##    roll:int, defense_type:String, defense_value:int, hit:bool, crit:bool, damage_final:int}
-##   {type:'combatant_defeated', round:int, name:String, defeated_by:String}
-##   {type:'encounter_result', round:int, outcome:String}
+## FEAT-099/FIND-096: every element is a TYPED value object from
+## core/rules/round_events.gd — never a raw Dictionary:
+##   RoundEvents.AttackEvent           — round, attacker_name, target_name,
+##                                        roll, defense_type, defense_value,
+##                                        hit, crit, damage_final
+##   RoundEvents.CombatantDefeatedEvent — round, name, defeated_by
+##   RoundEvents.EncounterResultEvent   — round, outcome
+## Each exposes its fields directly and a to_dict() method for callers that
+## want a Dictionary snapshot (e.g. logging/serialization).
 ##
 ## A future UI layer calls run_round() and consumes get_round_events() to drive
 ## animations without any coupling to domain internals (FR-012).

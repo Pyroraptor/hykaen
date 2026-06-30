@@ -27,8 +27,9 @@
 ##      ResolveActionUseCase Result (ALREADY_SPENT) causes the loop to skip
 ##      that combatant and CONTINUE rather than abort/crash.
 ##   4. After every resolved action, DetermineOutcomeUseCase is consulted;
-##      once 'won'/'lost' is decided, an 'encounter_result' event is emitted
-##      and the loop halts.
+##      once 'won'/'lost' is decided, a typed RoundEvents.EncounterResultEvent
+##      (FEAT-099/FIND-096, built via DetermineOutcomeUseCase.build_event())
+##      is emitted via EventSinkPort and the loop halts.
 ##   5. The round terminates when every living combatant is Spent OR the
 ##      outcome is decided. A defensive backstop: if a full cycle pass
 ##      resolves ZERO actions, the loop force-terminates with a safe 'DRAW'
@@ -115,7 +116,7 @@ func execute(round_number: int, party: Array, enemies: Array) -> Dictionary:
 		push_warning("run_round called with zero living combatants on both sides")
 		return {"round_number": round_number, "outcome": "DRAW", "history": [], "encounter_outcome": ""}
 	if upfront_outcome == "won" or upfront_outcome == "lost":
-		_event_sink_port.emit({"type": "encounter_result", "round": round_number, "outcome": upfront_outcome})
+		_event_sink_port.emit(_determine_outcome_use_case.build_event(round_number, upfront_outcome))
 		return {
 			"round_number":      round_number,
 			"outcome":           upfront_outcome,
@@ -193,11 +194,7 @@ func execute(round_number: int, party: Array, enemies: Array) -> Dictionary:
 			var outcome_check: String = _determine_outcome_use_case.classify(party, enemies)
 			if outcome_check == "won" or outcome_check == "lost":
 				decided_outcome = outcome_check
-				_event_sink_port.emit({
-					"type":    "encounter_result",
-					"round":   round_number,
-					"outcome": decided_outcome
-				})
+				_event_sink_port.emit(_determine_outcome_use_case.build_event(round_number, decided_outcome))
 				break
 
 		# ── Backstop (CWE-835/FIND-095): a full cycle pass that resolved

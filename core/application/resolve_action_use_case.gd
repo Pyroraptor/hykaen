@@ -25,10 +25,21 @@
 ##      rather than a global/ambient RNG (NFR-003 determinism).
 ##   3. Apply damage to target.hp_current.
 ##   4. Emit 'attack' (always) and 'combatant_defeated' (if the target's HP
-##      transitions to <= 0) events via EventSinkPort, in that order.
-##   5. Append one RoundHistoryEntry-shaped Dictionary (with the post-spend
-##      budget_remaining and the caller-supplied cycle_index) via
-##      RoundHistoryPort.
+##      transitions to <= 0) events via EventSinkPort, in that order — as
+##      TYPED value objects (FEAT-099/FIND-096): core/rules/round_events.gd's
+##      RoundEvents.AttackEvent / RoundEvents.CombatantDefeatedEvent, never a
+##      raw Dictionary. EventSinkPort.emit() therefore now accepts any
+##      Variant (see core/application/event_sink_port.gd).
+##   5. Append one entry via RoundHistoryPort carrying the post-spend
+##      budget_remaining and the caller-supplied cycle_index. The appended
+##      entry is a Dictionary preserving the historical
+##      attacker/action/target/roll/damage_final/budget_remaining/round/
+##      cycle_index keys (relied upon by core/sim/simulator.gd and other
+##      pre-existing consumers, which this CR explicitly keeps UNMODIFIED —
+##      see CR-001 design notes) PLUS a new "entry" key holding the typed
+##      RoundEvents.RoundHistoryEntry value object (FEAT-099/FIND-096),
+##      giving the observability surface its intended typed-event shape
+##      without breaking any existing Dictionary-shaped consumer.
 ##
 ## RNG consumption order (identical to the pre-extraction
 ## Resolution.resolve_weapon_attack(..., "ac") path this replaces, which was
@@ -50,6 +61,8 @@
 
 class_name ResolveActionUseCase
 extends RefCounted
+
+const RoundEventsClass = preload("res://core/rules/round_events.gd")
 
 var _random_number_port      ## RandomNumberPort — injected; never instantiated here (NFR-003)
 var _event_sink_port         ## EventSinkPort — injected
@@ -110,27 +123,33 @@ func resolve(
 	if damage > 0:
 		target["hp_current"] = target.get("hp_current", 0) - damage
 
-	_event_sink_port.emit({
-		"type":          "attack",
-		"round":         round_number,
-		"attacker_name": combatant.get("name", ""),
-		"target_name":   target.get("name", ""),
-		"roll":          strike_result.get("roll_total", 0),
-		"defense_type":  "ac",
-		"defense_value": strike_result.get("defense_value", 0),
-		"hit":           strike_result.get("hit", false),
-		"crit":          strike_result.get("crit", false),
-		"damage_final":  damage
-	})
+	var attack_event = RoundEventsClass.AttackEvent.new(
+		round_number,
+		combatant.get("name", ""),
+		target.get("name", ""),
+		strike_result.get("roll_total", 0),
+		"ac",
+		strike_result.get("defense_value", 0),
+		strike_result.get("hit", false),
+		strike_result.get("crit", false),
+		damage
+	)
+	_event_sink_port.emit(attack_event)
 
 	var target_defeated: bool = target.get("hp_current", 0) <= 0
 	if target_defeated:
-		_event_sink_port.emit({
-			"type":        "combatant_defeated",
-			"round":       round_number,
-			"name":        target.get("name", ""),
-			"defeated_by": combatant.get("name", "")
-		})
+		var defeated_event = RoundEventsClass.CombatantDefeatedEvent.new(
+			round_number, target.get("name", ""), combatant.get("name", "")
+		)
+		_event_sink_port.emit(defeated_event)
+
+	var history_entry = RoundEventsClass.RoundHistoryEntry.new(
+		round_number,
+		cycle_index,
+		combatant.get("name", ""),
+		action_name,
+		spend_result.get("remaining", -1)
+	)
 
 	_round_history_port.append({
 		"attacker":         combatant,
@@ -140,7 +159,8 @@ func resolve(
 		"damage_final":     damage,
 		"budget_remaining": spend_result.get("remaining", -1),
 		"round":            round_number,
-		"cycle_index":       cycle_index
+		"cycle_index":       cycle_index,
+		"entry":            history_entry
 	})
 
 	return {
