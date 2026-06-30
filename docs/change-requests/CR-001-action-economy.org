@@ -1,0 +1,96 @@
+#+TITLE: CR-001 — Action Economy: per-ROUND budget, not per-turn
+#+DATE: 2026-06-30
+#+AUTHOR: Guy Verisage
+#+TYPE: change-request
+#+STATUS: OPEN
+#+SPEC: docs/hollow-world-v0-spec.org (APPROVED v0-release-1) — § round economy
+#+SOURCE_OF_TRUTH: docs/design-source/Combat.pdf
+
+* Objective (the ONLY objective of this iteration)
+
+  Correct the combat action economy so the seven-action budget is spent
+  *per ROUND* (shared across a combatant's turns AND their reactions), not
+  refilled *per turn*. This is the single, complete scope of this change-request
+  iteration. See "Out of scope" — everything else is COMPLETE-BY-OMISSION and is
+  NOT a remediation target for V&V.
+
+* Defect
+
+  The approved v0 spec (=docs/hollow-world-v0-spec.org=, § round economy) is
+  explicit and even names this defect ("the misreading recorded in CR-001"):
+
+  - A combatant receives *seven actions at the START of each ROUND* — a
+    *per-round* budget, not a per-turn one.
+  - Within a round, combatants take turns in initiative order and the order
+    *cycles repeatedly*. On each turn a combatant takes *exactly one action*
+    (cost 1 from the round budget) plus an optional free Step.
+  - *Reactions* (Block/Parry/Dodge/Opportunistic Strike/Shield/Steel) spend one
+    action from the *same* 7-action round budget, taken out of turn.
+  - A combatant with *0 actions remaining is Spent*: no further turns, actions,
+    or reactions this round.
+  - The *round ends* when EVERY combatant is Spent; budgets then reset to 7.
+
+  The current code models this as a per-turn budget:
+
+  - =core/rules/action_economy.gd= — both =start_of_turn()= and =end_of_round()=
+    refill =_budget = MAX_BUDGET=. The =start_of_turn()= refill is the bug: it
+    hands a combatant a fresh 7 every turn and wipes any reaction spend.
+  - =core/combat/encounter.gd= — =run_round()= visits each combatant once and
+    lets them Strike up to 7 times back-to-back ("act until Spent"), then resets
+    everyone. This bakes the per-turn model into the round loop: the
+    highest-initiative combatant can fire all 7 Strikes before any opponent acts.
+
+* Required behaviour (acceptance criteria)
+
+  - AC-1: =start_of_turn()= clears only the per-TURN flag(s) (=_movement_used=);
+    it does NOT refill =_budget= and does NOT clear =_is_spent=. A combatant who
+    became Spent earlier in the round stays Spent until round end.
+  - AC-2: The 7-action budget resets to =MAX_BUDGET= only at the ROUND boundary
+    (=end_of_round()=, or an explicit =start_of_round()=). =_dazed= still persists
+    across rounds (cleared only via =set_dazed(false)=).
+  - AC-3: =spend_action()= and =spend_reaction()= both draw down the same
+    =_budget=; a reaction taken on another combatant's turn reduces the actions
+    available on the reacting combatant's own subsequent turns that round.
+  - AC-4: =encounter.gd run_round()= executes a round as repeated cycles through
+    =_turn_order= in initiative order, each living non-Spent combatant taking
+    *exactly one* action per cycle, until all living combatants are Spent or the
+    outcome is decided. Strikes INTERLEAVE in initiative order.
+  - AC-5: All existing behaviour is otherwise preserved: initiative tagging, AI
+    delegation for enemies, party Strike targeting, damage application,
+    =_round_events= emission (attack / combatant_defeated / encounter_result),
+    =_round_history= records including =budget_remaining=, and win/loss detection.
+  - AC-6: File/inline docs that say "per turn"/"per combatant turn" are corrected
+    to "per round" so documentation matches behaviour.
+
+* Verification (MUST run the Godot GUT suite — not just pytest)
+
+  Conformance is verified by the Godot GUT headless suite, which AEF must run as
+  its test gate for this iteration (see =aef-project.json= test_command):
+
+    : set -o pipefail; godot --headless -- --gut-run-all
+
+  The action-economy, encounter, and integration suites must pass:
+  =tests/unit/test_action_economy.gd=, =tests/integration/test_encounter_integration.gd=,
+  =tests/integration/test_steel_thread_remediation.gd=,
+  =tests/integration/test_steel_thread_e2e.gd=, =tests/sim/test_determinism.gd=.
+  Tests that encoded the OLD per-turn model must be rewritten to assert the
+  per-round spec behaviour (and called out as such), not weakened to pass.
+
+* Expected side effect — balance shifts (do NOT tune)
+
+  Because Strikes now interleave in initiative order instead of one side firing
+  all 7 first, the balance simulator win-rate WILL change. This is correct.
+  Do NOT edit =core/sim/simulator.gd=, character/.tres stats, or damage dice to
+  hit any target win-rate as part of this CR. If the N=1000 balance gate falls
+  outside [0.40, 0.80] after the fix, RECORD the new number and flag it for a
+  separate balance-tuning decision — it is out of scope here.
+
+* Out of scope (COMPLETE-BY-OMISSION — not gaps, not remediation targets)
+
+  - UI, scenes, or anything making the game launchable (that is Iteration B).
+  - Hex/grid movement implementation (Iteration B).
+  - Haste/Stunned modifying the per-round budget — note as a follow-up; not
+    required for this CR unless a Haste/Stunned test already exists and fails.
+  - The d6→d12 longsword balance re-add and any balance tuning.
+  - Any new feature, refactor, condition, spell, or subsystem not listed under
+    "Required behaviour" above.

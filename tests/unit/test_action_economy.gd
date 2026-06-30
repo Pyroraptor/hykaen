@@ -255,3 +255,133 @@ func test_spend_reaction_exhausting_sets_is_spent() -> void:
 	assert_true(result["success"], "7th spend (via reaction) must succeed")
 	assert_eq(result["remaining"], 0, "remaining must be 0")
 	assert_true(ae.is_spent(), "is_spent must be true after 7th deduction via reaction")
+
+
+# ── FEAT-001 (CR-001 AC-1): start_of_turn() limited to per-turn flag clearing ──
+#
+# AC-1: start_of_turn() clears ONLY the per-TURN flag(s) (_movement_used). It
+# must NOT refill _budget, must NOT clear _is_spent, and must NOT touch
+# _dazed. A combatant who became Spent earlier in the round stays Spent until
+# the round boundary (end_of_round() / start_of_round()).
+
+func test_start_of_turn_clears_movement_used() -> void:
+	var ae = ActionEconomyClass.new()
+	ae.use_step()
+	var blocked: Dictionary = ae.spend_action({"traits": ["Movement"]})
+	assert_false(
+		blocked["success"],
+		"sanity check: Movement must be blocked while movement_used is set"
+	)
+	ae.start_of_turn()
+	var result: Dictionary = ae.spend_action({"traits": ["Movement"]})
+	assert_true(
+		result["success"],
+		"start_of_turn() must clear movement_used (TurnFlags) so Movement can be taken again"
+	)
+
+
+func test_start_of_turn_does_not_modify_budget_remaining() -> void:
+	var ae = ActionEconomyClass.new()
+	ae.start_of_turn()
+	ae.spend_action({})
+	ae.spend_action({})
+	var budget_before: int = ae.get_remaining()
+	ae.start_of_turn()
+	assert_eq(
+		ae.get_remaining(),
+		budget_before,
+		"start_of_turn() must NOT modify budget_remaining (AC-1)"
+	)
+
+
+func test_start_of_turn_does_not_modify_is_spent() -> void:
+	var ae = ActionEconomyClass.new()
+	ae.start_of_turn()
+	for _i in range(7):
+		ae.spend_action({})
+	assert_true(ae.is_spent(), "sanity check: is_spent must be true after exhausting the budget")
+	ae.start_of_turn()
+	assert_true(
+		ae.is_spent(),
+		"start_of_turn() must NOT clear is_spent — a Spent combatant stays Spent until round end (AC-1)"
+	)
+	assert_eq(
+		ae.get_remaining(),
+		0,
+		"start_of_turn() must NOT refill budget_remaining for an already-Spent combatant (AC-1)"
+	)
+
+
+func test_start_of_turn_does_not_modify_is_dazed() -> void:
+	var dazed_ae = ActionEconomyClass.new()
+	dazed_ae.set_dazed(true)
+	dazed_ae.start_of_turn()
+	assert_true(
+		dazed_ae.combining_forbidden(),
+		"start_of_turn() must NOT clear _dazed when it was true"
+	)
+
+	var not_dazed_ae = ActionEconomyClass.new()
+	not_dazed_ae.set_dazed(false)
+	not_dazed_ae.start_of_turn()
+	assert_false(
+		not_dazed_ae.combining_forbidden(),
+		"start_of_turn() must NOT set _dazed when it was false"
+	)
+
+
+func test_start_of_turn_repeated_calls_within_round_preserve_budget_and_spent() -> void:
+	var ae = ActionEconomyClass.new()
+	ae.start_of_turn()
+	ae.spend_action({})
+	ae.spend_action({})
+	ae.spend_action({})
+	var budget_after_three_spends: int = ae.get_remaining()
+
+	# Simulate AC-4 interleaving: this combatant's turn comes around again
+	# within the SAME round (no intervening end_of_round()/start_of_round()).
+	ae.start_of_turn()
+	assert_eq(
+		ae.get_remaining(),
+		budget_after_three_spends,
+		"repeated start_of_turn() calls within the same round must not change budget_remaining"
+	)
+	assert_false(
+		ae.is_spent(),
+		"repeated start_of_turn() calls must not change is_spent while budget remains"
+	)
+
+	ae.start_of_turn()
+	ae.start_of_turn()
+	assert_eq(
+		ae.get_remaining(),
+		budget_after_three_spends,
+		"budget_remaining must remain stable across many repeated start_of_turn() calls in one round"
+	)
+
+
+func test_start_of_turn_null_combatant_guard_no_ops_and_logs_error() -> void:
+	var ae = ActionEconomyClass.new()
+	ae.start_of_turn()
+	ae.spend_action({})
+	var budget_before: int = ae.get_remaining()
+	ae.use_step()
+
+	# NOTE: GUT's push_error capture (assert_push_error) relies on
+	# OS.add_logger, which is Godot 4.4+ only and is a documented no-op on
+	# this project's Godot 4.3 engine (see addons/gut/error_tracker.gd).
+	# We therefore assert the no-op CONTRACT (no state mutated) rather than
+	# the push_error() call site itself, which start_of_turn()'s null guard
+	# still performs (see core/rules/action_economy.gd).
+	ae.start_of_turn(null)
+
+	assert_eq(
+		ae.get_remaining(),
+		budget_before,
+		"start_of_turn(null) must no-op and not modify budget_remaining"
+	)
+	var movement_result: Dictionary = ae.spend_action({"traits": ["Movement"]})
+	assert_false(
+		movement_result["success"],
+		"start_of_turn(null) must no-op — movement_used must remain set"
+	)

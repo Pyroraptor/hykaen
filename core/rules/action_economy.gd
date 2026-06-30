@@ -1,12 +1,17 @@
 ## core/rules/action_economy.gd — Seven-Action Round Economy State Machine
 ##
 ## Domain layer (ADR-001): no Node/Control inheritance — pure game logic only.
-## Manages the 7-action budget per combatant turn (ADR-006 / US-007).
+## Manages the 7-action budget per combatant ROUND (ADR-006 / US-007 / CR-001).
 ##
 ## State managed:
-##   _budget        — actions remaining this turn (0–7)
-##   _is_spent      — true once all 7 actions are consumed
-##   _movement_used — true once a Movement action or use_step() is used
+##   _budget        — actions remaining this ROUND (0–7); shared across all of
+##                    a combatant's turns AND reactions within the round
+##                    (CR-001 AC-1/AC-2/AC-3) — only reset at the round
+##                    boundary, NEVER by start_of_turn()
+##   _is_spent      — true once all 7 actions are consumed for the round;
+##                    persists across turns until the round boundary
+##   _movement_used — per-TURN flag: true once a Movement action or
+##                    use_step() is used this turn; cleared by start_of_turn()
 ##   _dazed         — persists across rounds; gates action combining
 ##
 ## Usage example:
@@ -29,11 +34,26 @@ var _dazed: bool = false
 
 # ── Turn lifecycle ─────────────────────────────────────────────────────────────
 
-## start_of_turn() — resets budget to 7, clears spent and movement flags.
-## Call once at the start of each combatant's turn.
-func start_of_turn() -> void:
-	_budget = MAX_BUDGET
-	_is_spent = false
+## start_of_turn(combatant) — clears ONLY per-TURN flags (TurnFlags:
+## _movement_used). Call once at the start of each combatant's turn.
+##
+## CR-001 AC-1: the 7-action budget is a per-ROUND resource, not a per-turn
+## one. start_of_turn() therefore must NOT refill _budget, must NOT clear
+## _is_spent, and must NOT touch _dazed — a combatant who became Spent
+## earlier in the round stays Spent until the round boundary
+## (end_of_round() / start_of_round()). Calling start_of_turn() repeatedly
+## across multiple turns within the same round (AC-4 interleaving) is a
+## no-op with respect to budget_remaining/is_spent.
+##
+## combatant — optional context parameter identifying the combatant whose
+## turn is starting. Defaults to this ActionEconomy instance (which already
+## represents a single combatant's economy). Passing null explicitly is
+## treated as a contract violation: push_error() and no-op (no flags
+## cleared).
+func start_of_turn(combatant = self) -> void:
+	if combatant == null:
+		push_error("start_of_turn called on null combatant")
+		return
 	_movement_used = false
 
 
