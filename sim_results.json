@@ -1,6 +1,6 @@
 {
-	"avg_rounds": 1.093,
-	"confidence_interval": 0.0276439222687375,
+	"avg_rounds": 1.081,
+	"confidence_interval": 0.0269449035181052,
 	"total_battles": 1000,
-	"win_rate": 0.726
+	"win_rate": 0.747
 }

@@ -18,7 +18,20 @@
 ## loops through all 7 actions per turn (striking until Spent or no target).
 ## If spend_action() returns {success: false}, the Strike is aborted.
 ##
-## Satisfies: US-007, US-009, ADR-006
+## FEAT-006 (CR-001 AC-4): run_round() now executes a round as repeated
+## CYCLES through _turn_order — each living, non-Spent combatant takes
+## EXACTLY ONE action per cycle pass (Strikes therefore INTERLEAVE in
+## initiative order, e.g. A,B,A,B,... for two combatants) instead of one
+## side firing all 7 Strikes before the other acts. Dead/Spent combatants
+## are skipped within a cycle WITHOUT consuming a cycle slot. The round
+## terminates when every living combatant is Spent or the outcome is
+## decided. start_of_round() is called once per combatant at the top of
+## the round (NOT start_of_turn() — the per-round budget is granted via
+## start_of_round(), per ADR-001/CR-001 AC-2); start_of_turn() is called
+## once per combatant per cycle pass to clear per-TURN flags only (it is a
+## documented no-op w.r.t. budget_remaining/is_spent — see action_economy.gd).
+##
+## Satisfies: US-007, US-009, ADR-006, US-004, CR-001 AC-4
 
 class_name Encounter
 
@@ -106,57 +119,95 @@ func initialize() -> void:
 
 # ── Round execution ────────────────────────────────────────────────────────────
 
-## run_round() — executes one complete combat round.
+## run_round() — executes one complete combat round as interleaved cycles
+## through _turn_order (CR-001 AC-4 / FEAT-006).
 ##
-## For each living combatant in _turn_order (in initiative order):
-##   1. Calls start_of_turn() on their ActionEconomy (resets budget to 7).
-##   2. Enters an action loop — each iteration:
-##      a. Picks the first living combatant on the opposing side as target.
-##         If no living target found, breaks the action loop.
-##      b. Calls spend_action({name:'Strike', traits:[]}) on the ActionEconomy.
-##         If {success: false} (Spent), breaks the action loop — no attack fired.
-##      c. Resolves a weapon attack via Resolution (using "ac" as the defense type).
-##      d. Applies damage_final to the target's hp_current.
-##      e. Appends an attack record (including budget_remaining and round) to _round_history.
-##      f. Checks win/loss:
-##           all enemies hp <= 0 → _outcome = 'won'; break.
-##           all party hp <= 0   → _outcome = 'lost'; break.
-##   3. Continues action loop until Spent, no target, or combat ends.
+## Algorithm:
+##   0. Guard: if _turn_order is empty/invalid, push_warning() and return a
+##      RoundResult with outcome 'DRAW' without mutating combat state — no
+##      crash on malformed/empty encounter setup.
+##   1. Calls start_of_round() once on every combatant's ActionEconomy
+##      (grants the fresh per-round budget; CR-001 AC-2).
+##   2. Repeatedly cycles through _turn_order:
+##      For each pass ("cycle") over _turn_order, every living, non-Spent
+##      combatant takes EXACTLY ONE action:
+##        a. Dead combatants are skipped — they do NOT consume a cycle slot.
+##        b. Spent combatants (is_spent()==true) are skipped — they do NOT
+##           consume a cycle slot.
+##        c. start_of_turn() is called (clears per-TURN flags only; a
+##           documented no-op w.r.t. budget/is_spent — see action_economy.gd).
+##        d. Action + target selection: enemies delegate to AI (FEAT-089);
+##           party members use the hardcoded Strike action against the
+##           first living opposing combatant. No living target → the
+##           combatant is skipped for this cycle (defensive guard; in
+##           practice this implies the outcome was already decided).
+##        e. spend_action() is called. A failed Result (ok:false /
+##           success:false, e.g. ALREADY_SPENT) causes this combatant's
+##           action to be skipped for the cycle — the loop CONTINUES rather
+##           than aborting (CR-001 error handling contract).
+##        f. On a successful spend, resolves the weapon attack, applies
+##           damage, emits 'attack' / 'combatant_defeated' events, and
+##           appends a _round_history entry (with budget_remaining and the
+##           cycle_index it occurred in).
+##        g. Checks win/loss after every resolved attack; once decided, an
+##           'encounter_result' event is emitted and the round loop halts.
+##   3. The round terminates when every living combatant is Spent OR the
+##      outcome has been decided — never an unbounded loop, since each
+##      successful spend strictly decreases the spending combatant's budget.
+##   4. Calls end_of_round() on every ActionEconomy and increments _round_count.
 ##
-## After iterating all combatants (or breaking early):
-##   Calls end_of_round() on every ActionEconomy and increments _round_count.
-func run_round() -> void:
+## Returns a RoundResult Dictionary: {round_number: int, outcome: String,
+## history: Array} — outcome is 'DRAW' only for the empty/invalid turn-order
+## guard case; otherwise it mirrors get_outcome() ('won' / 'lost' / '' while
+## undecided). history contains only THIS round's _round_history entries.
+func run_round() -> Dictionary:
 	var this_round: int = _round_count + 1
 
 	# Clear the per-round observer queue — fresh log for each round (FEAT-025)
 	_round_events = []
 
-	for i in range(_turn_order.size()):
-		# Stop processing turns if the outcome has already been decided
-		if _outcome != "":
-			break
+	# ── Guard: empty/invalid turn order — never throw, return a DRAW (FEAT-006) ──
+	if _turn_order.is_empty():
+		push_warning("run_round called with empty/invalid turn order")
+		_round_count += 1
+		return {
+			"round_number": this_round,
+			"outcome":      "DRAW",
+			"history":      []
+		}
 
-		var combatant: Dictionary = _turn_order[i]
+	# ── Step 1: grant the fresh per-round budget to every combatant (AC-2) ──────
+	for ae in _action_economies:
+		ae.start_of_round()
 
-		# Dead combatants skip their turn
-		if combatant.get("hp_current", 0) <= 0:
-			continue
-
-		_action_economies[i].start_of_turn()
-
-		# Select opposing target pool using the faction tag set in initialize()
-		var is_enemy: bool    = combatant.get("_is_enemy", false)
-		var target_pool: Array = _party if is_enemy else _enemies
-
-		# ── Action loop: act until Spent or no living target ─────────────────
-		while true:
-			# Stop the action loop if the outcome was decided in a prior strike
+	# ── Step 2: cycle through _turn_order until Spent-out or outcome decided ────
+	var cycle_index: int = 0
+	while _outcome == "" and _round_has_living_unspent_combatant():
+		for i in range(_turn_order.size()):
 			if _outcome != "":
 				break
 
+			var combatant: Dictionary = _turn_order[i]
+
+			# Dead combatants are skipped — no cycle slot consumed (AC-4)
+			if combatant.get("hp_current", 0) <= 0:
+				continue
+
+			# Spent combatants are skipped — no cycle slot consumed (AC-4)
+			if _action_economies[i].is_spent():
+				continue
+
+			# Per-TURN flag reset only — documented no-op on budget/is_spent
+			# when called repeatedly within the same round (AC-1/AC-4).
+			_action_economies[i].start_of_turn()
+
+			# Select opposing target pool using the faction tag set in initialize()
+			var is_enemy: bool     = combatant.get("_is_enemy", false)
+			var target_pool: Array = _party if is_enemy else _enemies
+
 			# Determine action and target — enemies delegate to AI (FEAT-089),
 			# party members use the hardcoded Strike action.
-			var target: Dictionary = {}
+			var target: Dictionary  = {}
 			var action_name: String = ""
 
 			if is_enemy:
@@ -164,25 +215,30 @@ func run_round() -> void:
 				var ai_decision: Dictionary = _ai.decide_action(combatant, target_pool)
 				action_name = ai_decision.get("action_type", "")
 				target      = ai_decision.get("target", {})
-				# AI returns empty action_type when no living target is found
-				if action_name == "" or target.is_empty():
-					break
 			else:
 				# Party: pick first living target, hardcoded Strike action
 				for t in target_pool:
 					if t.get("hp_current", 0) > 0:
 						target = t
 						break
-				if target.is_empty():
-					break
-				action_name = "Strike"
+				if not target.is_empty():
+					action_name = "Strike"
 
-			# Spend action — if Spent (success: false), abort without resolving
+			# No living target found — skip this combatant for the cycle
+			# (defensive guard; normally unreachable since a fully-dead
+			# opposing side already decided the outcome above).
+			if action_name == "" or target.is_empty():
+				continue
+
+			# Spend action — a failed Result (e.g. ALREADY_SPENT, a contract
+			# violation since is_spent() was already checked above) causes
+			# this combatant's action to be skipped; the cycle CONTINUES
+			# rather than aborting/crashing (CR-001 error handling contract).
 			var spend_result: Dictionary = _action_economies[i].spend_action(
 				{"name": action_name, "traits": []}
 			)
 			if not spend_result["success"]:
-				break  # Combatant is Spent; no attack fired for this iteration
+				continue
 
 			# Resolve weapon attack against the target's AC
 			var weapon: Dictionary = combatant.get("weapon", {})
@@ -221,7 +277,8 @@ func run_round() -> void:
 					"defeated_by": combatant.get("name", "")
 				})
 
-			# Record the attack for logging / replay
+			# Record the attack for logging / replay — cycle_index records
+			# which AC-4 interleave pass this entry occurred in.
 			_round_history.append({
 				"attacker":         combatant,
 				"action":           action_name,
@@ -229,7 +286,8 @@ func run_round() -> void:
 				"roll":             result.get("roll_total", 0),
 				"damage_final":     result.get("damage_final", 0),
 				"budget_remaining": spend_result.get("remaining", -1),
-				"round":            this_round
+				"round":            this_round,
+				"cycle_index":      cycle_index
 			})
 
 			# Check win/loss after each attack (ADR-006)
@@ -265,11 +323,38 @@ func run_round() -> void:
 				})
 				break
 
+		cycle_index += 1
+
 	# End of round — reset every combatant's ActionEconomy
 	for ae in _action_economies:
 		ae.end_of_round()
 
 	_round_count += 1
+
+	var this_round_history: Array = []
+	for entry in _round_history:
+		if entry.get("round", -1) == this_round:
+			this_round_history.append(entry)
+
+	return {
+		"round_number": this_round,
+		"outcome":      _outcome,
+		"history":      this_round_history
+	}
+
+
+## _round_has_living_unspent_combatant() → bool — true if at least one living
+## combatant in _turn_order has not yet reached is_spent()==true. Used by the
+## AC-4 cycle loop to determine when to stop cycling (every living combatant
+## Spent) without relying on a fixed iteration count.
+func _round_has_living_unspent_combatant() -> bool:
+	for i in range(_turn_order.size()):
+		var combatant: Dictionary = _turn_order[i]
+		if combatant.get("hp_current", 0) <= 0:
+			continue
+		if not _action_economies[i].is_spent():
+			return true
+	return false
 
 
 # ── Main loop ──────────────────────────────────────────────────────────────────
@@ -306,7 +391,11 @@ func get_round_count() -> int:
 ## get_round_history() → Array — attack records from all rounds.
 ## Each entry: {attacker: Dictionary, action: String, target: Dictionary,
 ##              roll: int, damage_final: int,
-##              budget_remaining: int, round: int}
+##              budget_remaining: int, round: int, cycle_index: int}
+## cycle_index (FEAT-006 / CR-001 AC-4) records which interleave cycle pass
+## through _turn_order this entry occurred in — supports verifying that
+## Strikes interleave (e.g. A,B,A,B,...) rather than one side acting fully
+## before the other.
 func get_round_history() -> Array:
 	return _round_history
 
