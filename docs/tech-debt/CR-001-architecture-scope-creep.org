@@ -1,0 +1,61 @@
+#+TITLE: Tech Debt — CR-001 introduced an unrequested hexagonal-architecture layer
+#+DATE: 2026-06-30
+#+STATUS: ACCEPTED (revisit after Iteration B / UI)
+#+OWNER: Guy Verisage
+#+ORIGIN: Sprint 2 / Iteration A (CR-001 action-economy fix)
+
+* Summary
+
+  CR-001 was scoped to correct the action economy in *two files*
+  (=core/rules/action_economy.gd= and =core/combat/encounter.gd=). The AEF
+  iteration that implemented it (driven by the implementation-planning step's
+  built-in "align toward Clean Architecture" bias) expanded the change into a
+  full hexagonal/clean-architecture rebuild of the combat core: *32 files
+  changed, +7,250 / −454, 11 new source files*, none of which CR-001 requested.
+
+* What was added beyond the requested fix
+
+  - =core/application/= — an entire Application layer:
+    - =run_round_use_case.gd=, =resolve_action_use_case.gd=,
+      =determine_outcome_use_case.gd=
+    - ports: =turn_order_port.gd=, =event_sink_port.gd=,
+      =round_history_port.gd=, =ai_decision_port.gd=
+  - =core/rules/random_port.gd= + =core/combat/{godot,seeded}_random_adapter.gd=
+    — a Ports/Adapters indirection over RNG (the existing =core/rules/rng.gd=
+    already provided injectable seeded RNG per ADR-002).
+  - =core/rules/round_events.gd= — typed event value objects replacing the raw
+    =_round_events= Dictionaries.
+  - =core/combat/encounter.gd= — rewritten (~427 lines) to delegate through the
+    use-case layer instead of holding logic inline.
+
+* Decision (2026-06-30)
+
+  *KEEP as-is.* The deliverable is green (646 GUT tests / 3069 asserts pass,
+  pytest 130 passed), determinism is intact through the new RNG port, balance
+  =win_rate=0.747= ∈ [0.40, 0.80] with =simulator.gd= unmodified, and the rework
+  also fixed a *real* latent bug (the =run_round()= infinite-loop hang when one
+  side starts with zero living combatants — FIND-092 from Sprint 1, refixed and
+  regression-tested as FIND-095/FEAT-097). Resetting to the tight two-file fix
+  would discard working, tested code plus a genuine bug fix.
+
+* Why it is debt (revisit trigger)
+
+  This is ~7,000 lines of architecture for a small combat vignette — premature
+  generality, extra maintenance surface, and a violation of CR-001's explicit
+  tight scope. It was kept partly because the seams happen to align with where
+  *Iteration B (UI)* is going: =event_sink_port= + typed events + the use-case
+  layer are the natural attachment points for a presentation layer subscribing
+  to combat events.
+
+  *Revisit after Iteration B:* if the UI actually consumes =event_sink_port= /
+  typed events and the use-case seams earn their keep, promote this to "intended
+  architecture." If the UI does not need them, collapse the Application layer
+  back into =encounter.gd= and remove the RNG Ports/Adapters indirection.
+
+* For future AEF runs
+
+  The implementation-planning step over-reached here. When scoping a tight
+  change request, constrain it against new ports/adapters/use-cases unless the
+  CR explicitly asks for them. See =hykaen-sdlc/output/sprint-2/peer-review.org=
+  (FIND-096) — AEF's own reviewer flagged the unrequested layer as dead code
+  before it was wired in.
