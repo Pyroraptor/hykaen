@@ -22,7 +22,7 @@
 
 class_name ActionEconomy
 
-## Maximum action budget per turn (ADR-006).
+## Maximum action budget per round (ADR-006).
 const MAX_BUDGET: int = 7
 
 
