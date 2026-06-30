@@ -33,6 +33,14 @@ extends GutTest
 const EncounterClass     = preload("res://core/combat/encounter.gd")
 const RNGClass           = preload("res://core/rules/rng.gd")
 const ActionEconomyClass = preload("res://core/rules/action_economy.gd")
+const RoundEventsClass   = preload("res://core/rules/round_events.gd")
+
+## NOTE (FEAT-100 regression fix / FIND-096): FEAT-099 switched
+## get_round_events() to carry TYPED RefCounted value objects (see
+## core/rules/round_events.gd) instead of raw Dictionaries. Event
+## introspection below therefore uses `is RoundEventsClass.XEvent` + direct
+## field access rather than Dictionary-style `.get(key, default)` (Object.get()
+## has no 2-arg/default overload and errors at runtime when called with one).
 
 
 # ── Shared fixture helpers ─────────────────────────────────────────────────────
@@ -395,7 +403,7 @@ func test_round_events_contains_attack_entry_per_resolved_strike_in_order() -> v
 	var history: Array = result.get("history", [])
 	var events: Array  = enc.get_round_events()
 
-	var attack_events: Array = events.filter(func(e): return e.get("type", "") == "attack")
+	var attack_events: Array = events.filter(func(e): return e is RoundEventsClass.AttackEvent)
 
 	assert_eq(
 		attack_events.size(), history.size(),
@@ -407,17 +415,17 @@ func test_round_events_contains_attack_entry_per_resolved_strike_in_order() -> v
 	# the Nth round_history entry, in the exact order resolved (AC-4).
 	for i in range(history.size()):
 		var hist_entry: Dictionary = history[i]
-		var ev: Dictionary         = attack_events[i]
+		var ev = attack_events[i]
 		assert_eq(
-			ev.get("attacker_name", ""), hist_entry.get("attacker", {}).get("name", ""),
+			ev.attacker_name, hist_entry.get("attacker", {}).get("name", ""),
 			"attack event %d attacker_name must match round_history entry %d's attacker, in resolved order" % [i, i]
 		)
 		assert_eq(
-			ev.get("target_name", ""), hist_entry.get("target", {}).get("name", ""),
+			ev.target_name, hist_entry.get("target", {}).get("name", ""),
 			"attack event %d target_name must match round_history entry %d's target, in resolved order" % [i, i]
 		)
 		assert_eq(
-			ev.get("damage_final", -1), hist_entry.get("damage_final", -2),
+			ev.damage_final, hist_entry.get("damage_final", -2),
 			"attack event %d damage_final must match round_history entry %d's damage_final" % [i, i]
 		)
 
@@ -441,7 +449,7 @@ func test_round_events_exactly_one_combatant_defeated_entry_per_dead_combatant()
 	var result: Dictionary = enc.run_round()
 	var events: Array = enc.get_round_events()
 
-	var defeated_events: Array = events.filter(func(e): return e.get("type", "") == "combatant_defeated")
+	var defeated_events: Array = events.filter(func(e): return e is RoundEventsClass.CombatantDefeatedEvent)
 
 	assert_eq(
 		defeated_events.size(), 2,
@@ -450,7 +458,7 @@ func test_round_events_exactly_one_combatant_defeated_entry_per_dead_combatant()
 
 	var defeated_names: Array = []
 	for ev in defeated_events:
-		defeated_names.append(ev.get("name", ""))
+		defeated_names.append(ev.name)
 	defeated_names.sort()
 	assert_eq(
 		defeated_names, ["Fragile1", "Fragile2"],
@@ -476,7 +484,7 @@ func test_round_events_exactly_one_terminal_encounter_result_entry() -> void:
 	enc.run_round()
 	var events: Array = enc.get_round_events()
 
-	var result_events: Array = events.filter(func(e): return e.get("type", "") == "encounter_result")
+	var result_events: Array = events.filter(func(e): return e is RoundEventsClass.EncounterResultEvent)
 	assert_eq(
 		result_events.size(), 1,
 		"Exactly one terminal encounter_result event must be emitted for a round whose outcome is decided"
@@ -484,9 +492,9 @@ func test_round_events_exactly_one_terminal_encounter_result_entry() -> void:
 	if result_events.size() != 1:
 		return
 
-	assert_eq(result_events[0].get("outcome", ""), "won", "encounter_result event must carry the decided outcome")
-	assert_eq(
-		events[events.size() - 1].get("type", ""), "encounter_result",
+	assert_eq(result_events[0].outcome, "won", "encounter_result event must carry the decided outcome")
+	assert_true(
+		events[events.size() - 1] is RoundEventsClass.EncounterResultEvent,
 		"encounter_result must be the terminal (last) event in the per-round queue"
 	)
 
@@ -499,7 +507,7 @@ func test_round_events_exactly_one_terminal_encounter_result_entry() -> void:
 	enc_undecided.initialize()
 	enc_undecided.run_round()
 	var undecided_events: Array = enc_undecided.get_round_events()
-	var undecided_result_events: Array = undecided_events.filter(func(e): return e.get("type", "") == "encounter_result")
+	var undecided_result_events: Array = undecided_events.filter(func(e): return e is RoundEventsClass.EncounterResultEvent)
 	assert_eq(
 		undecided_result_events.size(), 0,
 		"A round that Spent-out without deciding the outcome must emit zero encounter_result events"

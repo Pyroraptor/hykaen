@@ -31,6 +31,14 @@ const ResolveActionUseCaseClass    = preload("res://core/application/resolve_act
 const DetermineOutcomeUseCaseClass = preload("res://core/application/determine_outcome_use_case.gd")
 const ActionEconomyClass           = preload("res://core/rules/action_economy.gd")
 const SeededRandomAdapterClass     = preload("res://core/combat/seeded_random_adapter.gd")
+const RoundEventsClass             = preload("res://core/rules/round_events.gd")
+
+## NOTE (FEAT-100 regression fix / FIND-096): FEAT-099 switched
+## EventSinkPort.emit() to receive TYPED RefCounted value objects instead of
+## raw Dictionaries (see core/rules/round_events.gd). FakeEventSinkPort.emit()
+## below therefore must NOT type-hint its parameter as Dictionary, and event
+## introspection uses `is RoundEventsClass.XEvent` + direct field access
+## rather than Dictionary-style `.get(key, default)`.
 
 
 # ── Fake/double port implementations (FEAT-098 isolation doubles) ──────────────
@@ -57,7 +65,7 @@ class FakeEventSinkPort:
 
 	var events: Array = []
 
-	func emit(event: Dictionary) -> void:
+	func emit(event) -> void:
 		events.append(event)
 
 
@@ -273,11 +281,11 @@ func test_round_terminates_on_decided_outcome_before_all_spent() -> void:
 	assert_eq(result.get("encounter_outcome", ""), "won", "encounter_outcome must also report 'won'")
 
 	var events: Array = rig["event_sink"].events
-	var result_events: Array = events.filter(func(e): return e.get("type", "") == "encounter_result")
+	var result_events: Array = events.filter(func(e): return e is RoundEventsClass.EncounterResultEvent)
 	assert_eq(result_events.size(), 1, "Exactly one terminal encounter_result event must be emitted")
 	if not result_events.is_empty():
-		assert_eq(result_events[0].get("outcome", ""), "won", "encounter_result payload must match the decided outcome")
-	assert_eq(events[events.size() - 1].get("type", ""), "encounter_result", "encounter_result must be the LAST event emitted")
+		assert_eq(result_events[0].outcome, "won", "encounter_result payload must match the decided outcome")
+	assert_true(events[events.size() - 1] is RoundEventsClass.EncounterResultEvent, "encounter_result must be the LAST event emitted")
 
 	# Lethal must not have resolved all 7 actions — the round halted early.
 	var history: Array = result.get("history", [])

@@ -26,6 +26,19 @@ extends GutTest
 
 const ResolveActionUseCaseClass = preload("res://core/application/resolve_action_use_case.gd")
 const ActionEconomyClass        = preload("res://core/rules/action_economy.gd")
+const RoundEventsClass          = preload("res://core/rules/round_events.gd")
+
+## NOTE (FEAT-100 regression fix / FIND-096): FEAT-099 switched
+## EventSinkPort.emit() to receive TYPED RefCounted value objects
+## (RoundEvents.AttackEvent / CombatantDefeatedEvent / EncounterResultEvent)
+## instead of raw Dictionaries — see core/rules/round_events.gd and
+## core/application/event_sink_port.gd. This suite's doubles/assertions are
+## updated accordingly: FakeEventSinkPort.emit() must NOT type-hint its
+## parameter as Dictionary (a typed value object is not a Dictionary and the
+## static type check would reject it at runtime), and event introspection
+## below uses `is RoundEventsClass.XEvent` + direct field access rather than
+## Dictionary-style `.get(key, default)` (Object.get() has no 2-arg/default
+## overload and errors at runtime when called with one).
 
 
 ## ScriptedRandomNumberPort — returns a pre-scripted sequence of int values,
@@ -53,7 +66,7 @@ class FakeEventSinkPort:
 
 	var events: Array = []
 
-	func emit(event: Dictionary) -> void:
+	func emit(event) -> void:
 		events.append(event)
 
 
@@ -176,9 +189,9 @@ func test_crit_doubles_damage_dice_and_attribute_modifier() -> void:
 	assert_eq(target.get("hp_current", -1), 35, "target.hp_current must be reduced to 35 (50 - 15)")
 	assert_eq(rig["rng_port"].calls[1], {"die": 6, "count": 2}, "A crit must roll 2 damage dice, not 1")
 
-	var attack_events: Array = rig["event_sink"].events.filter(func(e): return e.get("type", "") == "attack")
+	var attack_events: Array = rig["event_sink"].events.filter(func(e): return e is RoundEventsClass.AttackEvent)
 	assert_eq(attack_events.size(), 1, "Exactly one attack event must be emitted")
-	assert_true(attack_events[0].get("crit", false), "attack event must report crit:true")
+	assert_true(attack_events[0].crit, "attack event must report crit:true")
 
 
 func test_miss_applies_zero_damage_and_consumes_no_damage_roll() -> void:
@@ -196,8 +209,8 @@ func test_miss_applies_zero_damage_and_consumes_no_damage_roll() -> void:
 	assert_eq(target.get("hp_current", -1), 50, "target.hp_current must be untouched on a miss")
 	assert_eq(rig["rng_port"].calls.size(), 1, "A miss must consume only the attack roll, never a damage roll")
 
-	var attack_events: Array = rig["event_sink"].events.filter(func(e): return e.get("type", "") == "attack")
-	assert_false(attack_events[0].get("hit", true), "attack event must report hit:false")
+	var attack_events: Array = rig["event_sink"].events.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	assert_false(attack_events[0].hit, "attack event must report hit:false")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -217,14 +230,14 @@ func test_attack_event_emitted_with_correct_fields() -> void:
 
 	var events: Array = rig["event_sink"].events
 	assert_eq(events.size(), 1, "Only an 'attack' event is expected (target survives)")
-	var ev: Dictionary = events[0]
-	assert_eq(ev.get("type", ""), "attack")
-	assert_eq(ev.get("round", -1), 3, "event round must match the round_number argument")
-	assert_eq(ev.get("attacker_name", ""), "Attacker")
-	assert_eq(ev.get("target_name", ""), "Target")
-	assert_eq(ev.get("defense_type", ""), "ac")
-	assert_eq(ev.get("defense_value", -1), 10)
-	assert_eq(ev.get("damage_final", -1), 7)
+	var ev = events[0]
+	assert_true(ev is RoundEventsClass.AttackEvent, "emitted event must be a typed RoundEvents.AttackEvent")
+	assert_eq(ev.round, 3, "event round must match the round_number argument")
+	assert_eq(ev.attacker_name, "Attacker")
+	assert_eq(ev.target_name, "Target")
+	assert_eq(ev.defense_type, "ac")
+	assert_eq(ev.defense_value, 10)
+	assert_eq(ev.damage_final, 7)
 
 
 func test_combatant_defeated_event_emitted_when_hp_drops_to_zero_or_below() -> void:
@@ -243,10 +256,10 @@ func test_combatant_defeated_event_emitted_when_hp_drops_to_zero_or_below() -> v
 
 	var events: Array = rig["event_sink"].events
 	assert_eq(events.size(), 2, "Both 'attack' and 'combatant_defeated' events must be emitted")
-	assert_eq(events[0].get("type", ""), "attack", "'attack' must be emitted before 'combatant_defeated'")
-	assert_eq(events[1].get("type", ""), "combatant_defeated")
-	assert_eq(events[1].get("name", ""), "Target")
-	assert_eq(events[1].get("defeated_by", ""), "Attacker")
+	assert_true(events[0] is RoundEventsClass.AttackEvent, "'attack' must be emitted before 'combatant_defeated'")
+	assert_true(events[1] is RoundEventsClass.CombatantDefeatedEvent, "second emitted event must be a typed RoundEvents.CombatantDefeatedEvent")
+	assert_eq(events[1].name, "Target")
+	assert_eq(events[1].defeated_by, "Attacker")
 
 
 func test_no_combatant_defeated_event_when_target_survives() -> void:
@@ -259,7 +272,7 @@ func test_no_combatant_defeated_event_when_target_survives() -> void:
 
 	rig["use_case"].resolve(attacker, ae, target, "Strike", 1, 0)
 
-	var defeated_events: Array = rig["event_sink"].events.filter(func(e): return e.get("type", "") == "combatant_defeated")
+	var defeated_events: Array = rig["event_sink"].events.filter(func(e): return e is RoundEventsClass.CombatantDefeatedEvent)
 	assert_eq(defeated_events.size(), 0, "No combatant_defeated event may be emitted when the target survives")
 
 

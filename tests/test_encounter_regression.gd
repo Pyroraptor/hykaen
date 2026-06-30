@@ -29,6 +29,13 @@ const EncounterClass     = preload("res://core/combat/encounter.gd")
 const RNGClass            = preload("res://core/rules/rng.gd")
 const ResolutionClass     = preload("res://core/rules/resolution.gd")
 const AIClass             = preload("res://core/combat/ai.gd")
+const RoundEventsClass    = preload("res://core/rules/round_events.gd")
+
+## NOTE (FEAT-100 regression fix / FIND-096): FEAT-099 switched
+## get_round_events() to carry TYPED RefCounted value objects (see
+## core/rules/round_events.gd) instead of raw Dictionaries. Event
+## introspection below therefore uses `is RoundEventsClass.XEvent` + direct
+## field access rather than Dictionary-style `.get(key, default)`.
 
 
 ## CountingAI — AIDecisionPort test double (FEAT-008). Wraps the production
@@ -420,12 +427,12 @@ func test_encounter_result_event_payload_matches_run_round_outcome_on_win() -> v
 	var result: Dictionary = enc.run_round()
 	var events: Array = enc.get_round_events()
 
-	var result_events: Array = events.filter(func(e): return e.get("type", "") == "encounter_result")
+	var result_events: Array = events.filter(func(e): return e is RoundEventsClass.EncounterResultEvent)
 	assert_eq(result_events.size(), 1, "Exactly one terminal encounter_result event must be emitted for a decided round")
 	if result_events.is_empty():
 		return
 	assert_eq(
-		result_events[0].get("outcome", ""), result.get("outcome", ""),
+		result_events[0].outcome, result.get("outcome", ""),
 		"encounter_result event payload outcome must exactly match the outcome returned by run_round()"
 	)
 
@@ -439,12 +446,12 @@ func test_encounter_result_event_payload_matches_run_round_outcome_on_loss() -> 
 	var result: Dictionary = enc.run_round()
 	var events: Array = enc.get_round_events()
 
-	var result_events: Array = events.filter(func(e): return e.get("type", "") == "encounter_result")
+	var result_events: Array = events.filter(func(e): return e is RoundEventsClass.EncounterResultEvent)
 	assert_eq(result_events.size(), 1, "Exactly one terminal encounter_result event must be emitted for a decided round")
 	if result_events.is_empty():
 		return
 	assert_eq(
-		result_events[0].get("outcome", ""), result.get("outcome", ""),
+		result_events[0].outcome, result.get("outcome", ""),
 		"encounter_result event payload outcome must exactly match the outcome returned by run_round()"
 	)
 
@@ -462,12 +469,12 @@ func test_encounter_result_event_payload_matches_run_round_outcome_when_no_livin
 	var result: Dictionary = enc.run_round()
 	var events: Array = enc.get_round_events()
 
-	var result_events: Array = events.filter(func(e): return e.get("type", "") == "encounter_result")
+	var result_events: Array = events.filter(func(e): return e is RoundEventsClass.EncounterResultEvent)
 	assert_eq(result_events.size(), 1, "Exactly one terminal encounter_result event must be emitted when the up-front guard decides a 'won' outcome")
 	if result_events.is_empty():
 		return
 	assert_eq(
-		result_events[0].get("outcome", ""), result.get("outcome", ""),
+		result_events[0].outcome, result.get("outcome", ""),
 		"encounter_result event payload outcome must exactly match the outcome returned by run_round() for the no-living-enemies guard path"
 	)
 	assert_eq(result.get("outcome", ""), "won", "Sanity: a living party with zero enemies must resolve 'won'")
@@ -481,12 +488,12 @@ func test_encounter_result_event_payload_matches_run_round_outcome_when_no_livin
 	var result: Dictionary = enc.run_round()
 	var events: Array = enc.get_round_events()
 
-	var result_events: Array = events.filter(func(e): return e.get("type", "") == "encounter_result")
+	var result_events: Array = events.filter(func(e): return e is RoundEventsClass.EncounterResultEvent)
 	assert_eq(result_events.size(), 1, "Exactly one terminal encounter_result event must be emitted when the up-front guard decides a 'lost' outcome")
 	if result_events.is_empty():
 		return
 	assert_eq(
-		result_events[0].get("outcome", ""), result.get("outcome", ""),
+		result_events[0].outcome, result.get("outcome", ""),
 		"encounter_result event payload outcome must exactly match the outcome returned by run_round() for the no-living-party guard path"
 	)
 	assert_eq(result.get("outcome", ""), "lost", "Sanity: a living enemy with zero party members must resolve 'lost'")
@@ -512,7 +519,7 @@ func test_encounter_result_event_absent_when_round_undecided() -> void:
 	var result: Dictionary = enc.run_round()
 	var events: Array = enc.get_round_events()
 
-	var result_events: Array = events.filter(func(e): return e.get("type", "") == "encounter_result")
+	var result_events: Array = events.filter(func(e): return e is RoundEventsClass.EncounterResultEvent)
 	assert_eq(
 		result_events.size(), 0,
 		"No encounter_result event may be emitted when run_round() returns an undecided ('') outcome"
