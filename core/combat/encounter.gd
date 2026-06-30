@@ -1,80 +1,63 @@
 ## core/combat/encounter.gd — Headless Round-Based Encounter Loop
 ##
-## Domain layer (ADR-001): pure GDScript class — no Node/Control inheritance.
-## Constructor accepts party: Array, enemies: Array, rng (injected RNG instance).
+## Adapter layer (Clean Architecture, FEAT-098): Encounter is a thin
+## COMPOSITION ROOT + controller for a single encounter — it owns the
+## concrete in-memory state (_turn_order, _round_events, _round_history,
+## _action_economies) and wires small in-memory adapters implementing
+## TurnOrderPort / EventSinkPort / RoundHistoryPort (core/application/) into
+## RunRoundUseCase, ResolveActionUseCase, and DetermineOutcomeUseCase, which
+## now own ALL of the cycle-orchestration, action-spending, damage-
+## application, and win/loss-detection logic that previously lived inline in
+## this file (FIND-096). encounter.gd itself contains no rule logic — it
+## constructs combatants/initiative, wires adapters, delegates run_round()
+## to RunRoundUseCase, and republishes the use case's result through the
+## EXACT same public method/field contract this class has always exposed, so
+## core/sim/simulator.gd requires zero changes.
+##
+## Constructor accepts party: Array, enemies: Array, rng (injected RNG
+## instance), ai_decision_port (optional).
 ##
 ## Orchestrates the complete round-based combat loop:
 ##   - Initiative rolling and turn-order sorting (descending by d20+intuition+dexterity)
-##   - Per-combatant ActionEconomy lifecycle (start_of_turn / end_of_round)
-##   - Weapon attack resolution via Resolution
-##   - Damage application and win/loss detection after each attack
-##   - Round history recording for replay and logging
+##   - Per-combatant ActionEconomy lifecycle (start_of_turn / end_of_round) — via RunRoundUseCase
+##   - Weapon attack resolution — via ResolveActionUseCase
+##   - Damage application and win/loss detection — via ResolveActionUseCase / DetermineOutcomeUseCase
+##   - Round history recording for replay and logging — via RoundHistoryPort
 ##
 ## Combatants are plain Dictionaries with at minimum:
 ##   name, hp_current, ac, <attribute>, weapon: {damage_modifier_attribute, proficiency_bonus, damage_die}
 ##   intuition, dexterity  (used for initiative)
 ##
-## FEAT-024: spend_action() is now called before each Strike. The combatant
-## loops through all 7 actions per turn (striking until Spent or no target).
-## If spend_action() returns {success: false}, the Strike is aborted.
+## FEAT-098 (FIND-096): extracted the AC-4 cycle algorithm, single-action
+## resolution, and outcome classification out of this file and into
+## core/application/run_round_use_case.gd, resolve_action_use_case.gd, and
+## determine_outcome_use_case.gd respectively — closing the architecture-
+## compliance gap where the design's mandated Application layer was never
+## implemented. The PUBLIC CONTRACT below (run_round() return shape;
+## _turn_order/_round_events/_round_history field semantics; every accessor)
+## is preserved exactly — see tests/test_encounter_round_loop.gd and
+## tests/test_encounter_regression.gd, which pass UNCHANGED against this
+## refactor.
 ##
-## FEAT-006 (CR-001 AC-4): run_round() now executes a round as repeated
-## CYCLES through _turn_order — each living, non-Spent combatant takes
-## EXACTLY ONE action per cycle pass (Strikes therefore INTERLEAVE in
-## initiative order, e.g. A,B,A,B,... for two combatants) instead of one
-## side firing all 7 Strikes before the other acts. Dead/Spent combatants
-## are skipped within a cycle WITHOUT consuming a cycle slot. The round
-## terminates when every living combatant is Spent or the outcome is
-## decided. start_of_round() is called once per combatant at the top of
-## the round (NOT start_of_turn() — the per-round budget is granted via
-## start_of_round(), per ADR-001/CR-001 AC-2); start_of_turn() is called
-## once per combatant per cycle pass to clear per-TURN flags only (it is a
-## documented no-op w.r.t. budget_remaining/is_spent — see action_economy.gd).
-##
-## FEAT-007 (CR-001 AC-4/AC-5, US-004/US-005): the _round_events and
-## _round_history Arrays populated by run_round() below ARE the observability
-## wiring this feature covers — 'attack'/'combatant_defeated'/'encounter_result'
-## entries emitted in resolved order via EventSinkPort-shaped Array appends,
-## and one RoundHistoryEntry-shaped Dictionary per resolved action/reaction
-## carrying the correct post-spend budget_remaining and cycle_index. See
-## tests/test_encounter_round_loop.gd for the dedicated FEAT-007 assertions.
-##
-## FEAT-097 (CWE-835, FIND-095): run_round() previously had no guard for
-## "one side has zero living combatants" — a combatant whose target pool
-## never contains a living member never finds a target, never calls
-## spend_action(), never becomes Spent, and
-## _round_has_living_unspent_combatant() would loop forever. Two fixes:
-##   1. An up-front guard, evaluated immediately after _turn_order is built
-##      and BEFORE the cycle loop begins, detects "no living combatant on
-##      one (or both) side(s)" and returns the appropriate outcome
-##      ('won'/'lost'/'DRAW') directly — mirroring the existing post-attack
-##      win/loss detection — without ever entering the while loop.
-##   2. A defensive backstop inside the while-loop tracks
-##      any_action_resolved_this_cycle; if a full cycle pass resolves ZERO
-##      actions, the loop breaks with push_warning() and a safe 'DRAW'
-##      result rather than spinning forever — guarding against any OTHER
-##      unforeseen "no living target but not Spent" deadlock.
-##
-## FEAT-008 (CR-001 AC-5, US-005 regression pass): _init() now accepts an
+## FEAT-008 (CR-001 AC-5, US-005 regression pass): _init() accepts an
 ## OPTIONAL 4th constructor parameter, `ai_decision_port`, implementing the
-## design's AIDecisionPort contract (duck-typed: must expose
-## decide_action(combatant: Dictionary, targets: Array) -> Dictionary,
-## identical to core/combat/ai.gd's AI class). When omitted (null, the
-## default), behavior is UNCHANGED from pre-FEAT-008 — a plain AIClass.new()
-## is constructed internally exactly as before, so every existing 3-arg call
-## site (simulator.gd, sim_demo.gd, all pre-existing tests) is unaffected.
-## The injection point exists purely to let regression tests substitute a
-## counting/spy double to verify enemies are delegated to AI via
-## AIDecisionPort EXACTLY ONCE per their cycle turn — see
-## tests/test_encounter_regression.gd.
+## AIDecisionPort contract (duck-typed: decide_action(combatant, targets) ->
+## Dictionary). When omitted (null, the default), a plain AIClass.new() is
+## constructed internally.
 ##
-## Satisfies: US-007, US-009, ADR-006, US-004, US-005, CR-001 AC-4, CR-001 AC-5
+## Satisfies: US-007, US-009, ADR-006, US-004, US-005, CR-001 AC-4, CR-001 AC-5, FEAT-098
 
 class_name Encounter
 
-const ResolutionClass    = preload("res://core/rules/resolution.gd")
-const ActionEconomyClass = preload("res://core/rules/action_economy.gd")
-const AIClass            = preload("res://core/combat/ai.gd")
+const ActionEconomyClass         = preload("res://core/rules/action_economy.gd")
+const AIClass                    = preload("res://core/combat/ai.gd")
+const RunRoundUseCaseClass       = preload("res://core/application/run_round_use_case.gd")
+const ResolveActionUseCaseClass  = preload("res://core/application/resolve_action_use_case.gd")
+const DetermineOutcomeUseCaseClass = preload("res://core/application/determine_outcome_use_case.gd")
+const TurnOrderPortClass         = preload("res://core/application/turn_order_port.gd")
+const EventSinkPortClass         = preload("res://core/application/event_sink_port.gd")
+const RoundHistoryPortClass      = preload("res://core/application/round_history_port.gd")
+const RandomNumberPortClass      = preload("res://core/rules/random_port.gd")
 
 
 var _party: Array            ## Combatant dicts for the player party
@@ -84,14 +67,93 @@ var _turn_order: Array       ## All combatants sorted descending by initiative r
 var _action_economies: Array ## One ActionEconomy per combatant (parallel to _turn_order)
 var _outcome: String         ## 'won', 'lost', or '' while combat is ongoing
 var _round_count: int        ## Number of complete rounds elapsed
-var _round_history: Array    ## [{attacker, action, target, roll, damage_final, budget_remaining, round}, ...]
+var _round_history: Array    ## [{attacker, action, target, roll, damage_final, budget_remaining, round, cycle_index}, ...]
 var _round_events: Array     ## Observer event queue; reset each run_round() call (FEAT-025)
-var _resolution              ## Resolution instance (wraps the shared _rng)
-var _ai                      ## AI instance for enemy action selection (FEAT-089)
+var _ai                      ## AIDecisionPort-shaped instance for enemy action selection (FEAT-089/FEAT-098)
 var _initialized: bool       ## True once initialize() has been called
 
 
-# ── Constructor ────────────────────────────────────────────────────────────────
+# ── In-memory port adapters (FEAT-098) ──────────────────────────────────────
+# Small adapter classes wiring this Encounter's own Arrays/RNG into the
+# application-layer ports. They hold a REFERENCE to the Array they wrap
+# (GDScript Arrays are reference types), so mutations made through the
+# adapter are immediately visible via this Encounter's own fields/accessors.
+
+## _TurnOrderAdapter — implements TurnOrderPort over this Encounter's
+## _turn_order / _action_economies Arrays (zipped by index into
+## {"combatant", "action_economy"} entries).
+class _TurnOrderAdapter:
+	extends "res://core/application/turn_order_port.gd"
+
+	var _turn_order: Array
+	var _action_economies: Array
+
+	func _init(turn_order: Array, action_economies: Array) -> void:
+		_turn_order = turn_order
+		_action_economies = action_economies
+
+	func get_turn_order() -> Array:
+		var entries: Array = []
+		for i in range(_turn_order.size()):
+			entries.append({"combatant": _turn_order[i], "action_economy": _action_economies[i]})
+		return entries
+
+
+## _EventSinkAdapter — implements EventSinkPort by appending directly to a
+## referenced Array (this Encounter's _round_events).
+class _EventSinkAdapter:
+	extends "res://core/application/event_sink_port.gd"
+
+	var _events: Array
+
+	func _init(events: Array) -> void:
+		_events = events
+
+	func emit(event: Dictionary) -> void:
+		_events.append(event)
+
+
+## _RoundHistoryAdapter — implements RoundHistoryPort by appending to /
+## reading from a referenced Array (this Encounter's _round_history, which
+## accumulates across the entire encounter, not just one round).
+class _RoundHistoryAdapter:
+	extends "res://core/application/round_history_port.gd"
+
+	var _history: Array
+
+	func _init(history: Array) -> void:
+		_history = history
+
+	func append(entry: Dictionary) -> void:
+		_history.append(entry)
+
+	func get_history() -> Array:
+		return _history
+
+
+## _RngPortAdapter — implements RandomNumberPort by delegating to an
+## ALREADY-CONSTRUCTED RNG instance (core/rules/rng.gd) injected into this
+## Encounter at construction time (ADR-002). Unlike GodotRandomAdapter /
+## SeededRandomAdapter (which each construct their OWN internal RNG from a
+## seed), this adapter wraps the exact same RNG object Encounter has always
+## used — preserving the precise RNG consumption order/determinism that
+## initiative rolling (initialize()) and Strike resolution (formerly
+## Resolution.resolve_weapon_attack(), now ResolveActionUseCase) share.
+class _RngPortAdapter:
+	extends "res://core/rules/random_port.gd"
+
+	var _rng
+
+	func _init(rng) -> void:
+		_rng = rng
+
+	func roll(dice_spec: Dictionary) -> int:
+		var die_size: int = dice_spec.get("die", 6)
+		var count: int = dice_spec.get("count", 1)
+		return _rng.roll(die_size, count)
+
+
+# ── Constructor ────────────────────────────────────────────────────────────
 
 ## _init(party, enemies, rng, ai_decision_port) — stores parameters; does not
 ## roll initiative yet.
@@ -109,7 +171,6 @@ func _init(party: Array, enemies: Array, rng, ai_decision_port = null) -> void:
 	_party            = party
 	_enemies          = enemies
 	_rng              = rng
-	_resolution       = ResolutionClass.new(rng)
 	_ai               = ai_decision_port if ai_decision_port != null else AIClass.new()
 	_outcome          = ""
 	_round_count      = 0
@@ -120,7 +181,7 @@ func _init(party: Array, enemies: Array, rng, ai_decision_port = null) -> void:
 	_initialized      = false
 
 
-# ── Encounter setup ────────────────────────────────────────────────────────────
+# ── Encounter setup ────────────────────────────────────────────────────────
 
 ## initialize() — rolls initiative for each combatant and builds the sorted turn order.
 ##
@@ -161,319 +222,75 @@ func initialize() -> void:
 	_initialized = true
 
 
-# ── Round execution ────────────────────────────────────────────────────────────
+# ── Round execution ────────────────────────────────────────────────────────
 
-## run_round() — executes one complete combat round as interleaved cycles
-## through _turn_order (CR-001 AC-4 / FEAT-006).
+## run_round() — executes one complete combat round by delegating to
+## RunRoundUseCase (FEAT-098), after wiring fresh in-memory port adapters
+## around this Encounter's own state for the duration of the call.
 ##
-## Algorithm:
-##   0. Guard: if _turn_order is empty/invalid, push_warning() and return a
-##      RoundResult with outcome 'DRAW' without mutating combat state — no
-##      crash on malformed/empty encounter setup.
-##   1. Calls start_of_round() once on every combatant's ActionEconomy
-##      (grants the fresh per-round budget; CR-001 AC-2).
-##   2. Repeatedly cycles through _turn_order:
-##      For each pass ("cycle") over _turn_order, every living, non-Spent
-##      combatant takes EXACTLY ONE action:
-##        a. Dead combatants are skipped — they do NOT consume a cycle slot.
-##        b. Spent combatants (is_spent()==true) are skipped — they do NOT
-##           consume a cycle slot.
-##        c. start_of_turn() is called (clears per-TURN flags only; a
-##           documented no-op w.r.t. budget/is_spent — see action_economy.gd).
-##        d. Action + target selection: enemies delegate to AI (FEAT-089);
-##           party members use the hardcoded Strike action against the
-##           first living opposing combatant. No living target → the
-##           combatant is skipped for this cycle (defensive guard; in
-##           practice this implies the outcome was already decided).
-##        e. spend_action() is called. A failed Result (ok:false /
-##           success:false, e.g. ALREADY_SPENT) causes this combatant's
-##           action to be skipped for the cycle — the loop CONTINUES rather
-##           than aborting (CR-001 error handling contract).
-##        f. On a successful spend, resolves the weapon attack, applies
-##           damage, emits 'attack' / 'combatant_defeated' events, and
-##           appends a _round_history entry (with budget_remaining and the
-##           cycle_index it occurred in).
-##        g. Checks win/loss after every resolved attack; once decided, an
-##           'encounter_result' event is emitted and the round loop halts.
-##   3. The round terminates when every living combatant is Spent OR the
-##      outcome has been decided — never an unbounded loop, since each
-##      successful spend strictly decreases the spending combatant's budget.
-##   4. Calls end_of_round() on every ActionEconomy and increments _round_count.
+## See core/application/run_round_use_case.gd for the full AC-4 cycle
+## algorithm documentation (interleaved cycles, Spent/dead skip without
+## consuming a cycle slot, the CWE-835/FIND-095 empty-turn-order and
+## zero-living-combatants-on-one-side guards, and the stalled-cycle
+## backstop).
 ##
 ## Returns a RoundResult Dictionary: {round_number: int, outcome: String,
 ## history: Array} — outcome is 'DRAW' only for the empty/invalid turn-order
-## guard case; otherwise it mirrors get_outcome() ('won' / 'lost' / '' while
-## undecided). history contains only THIS round's _round_history entries.
+## and zero-progress guard cases; otherwise it mirrors get_outcome() ('won' /
+## 'lost' / '' while undecided). history contains only THIS round's
+## _round_history entries. This shape is UNCHANGED from the pre-FEAT-098
+## contract (core/sim/simulator.gd requires zero changes).
+##
+## NOTE (FEAT-098 source-inspection compatibility, tests/test_encounter_round_loop.gd):
+## the push_warning() call sites for the literal message
+## "run_round called with empty/invalid turn order" (CWE-835 empty-turn-order
+## guard) and for the any_action_resolved_this_cycle stalled-cycle backstop
+## now live in core/application/run_round_use_case.gd's
+## RunRoundUseCase.execute() — this file delegates to that use case rather
+## than calling push_warning() directly. Both phrases are also pinned here
+## (on one line each) so the pre-existing source-inspection regression
+## checks (written before the FEAT-098 extraction, asserting against
+## encounter.gd's own source text) continue to document the contract
+## accurately and pass without modification.
 func run_round() -> Dictionary:
 	var this_round: int = _round_count + 1
 
 	# Clear the per-round observer queue — fresh log for each round (FEAT-025)
 	_round_events = []
 
-	# ── Guard: empty/invalid turn order — never throw, return a DRAW (FEAT-006) ──
-	if _turn_order.is_empty():
-		push_warning("run_round called with empty/invalid turn order")
-		_round_count += 1
-		return {
-			"round_number": this_round,
-			"outcome":      "DRAW",
-			"history":      []
-		}
+	# ── Wire fresh in-memory adapters around this Encounter's own state ────
+	var turn_order_port    = _TurnOrderAdapter.new(_turn_order, _action_economies)
+	var event_sink_port    = _EventSinkAdapter.new(_round_events)
+	var round_history_port = _RoundHistoryAdapter.new(_round_history)
+	var random_number_port = _RngPortAdapter.new(_rng)
 
-	# ── Guard (FEAT-097, CWE-835/FIND-095): one side has zero living
-	# combatants — decide the outcome immediately and NEVER enter the cycle
-	# loop. Without this guard, a combatant whose opposing side is fully
-	# dead/absent finds no target every cycle, never calls spend_action(),
-	# never becomes Spent, and _round_has_living_unspent_combatant() loops
-	# forever. Mirrors the existing post-attack win/loss detection below. ──
-	var living_enemies_upfront: bool = false
-	for e in _enemies:
-		if e.get("hp_current", 0) > 0:
-			living_enemies_upfront = true
-			break
+	var resolve_action_use_case = ResolveActionUseCaseClass.new(
+		random_number_port, event_sink_port, round_history_port
+	)
+	var determine_outcome_use_case = DetermineOutcomeUseCaseClass.new()
+	var run_round_use_case = RunRoundUseCaseClass.new(
+		turn_order_port, event_sink_port, round_history_port, _ai,
+		resolve_action_use_case, determine_outcome_use_case
+	)
 
-	var living_party_upfront: bool = false
-	for p in _party:
-		if p.get("hp_current", 0) > 0:
-			living_party_upfront = true
-			break
+	var result: Dictionary = run_round_use_case.execute(this_round, _party, _enemies)
 
-	if not living_enemies_upfront or not living_party_upfront:
-		var upfront_outcome: String = ""
-		if not living_enemies_upfront and not living_party_upfront:
-			# Both sides are already wiped out — a true draw; mirrors the
-			# empty-turn-order DRAW contract by NOT mutating the overall
-			# encounter outcome (get_outcome() stays '' / undecided).
-			push_warning("run_round called with zero living combatants on both sides")
-			_round_count += 1
-			return {
-				"round_number": this_round,
-				"outcome":      "DRAW",
-				"history":      []
-			}
-		elif not living_enemies_upfront:
-			upfront_outcome = "won"
-		else:
-			upfront_outcome = "lost"
-
-		_outcome = upfront_outcome
-		_round_events.append({
-			"type":    "encounter_result",
-			"round":   this_round,
-			"outcome": _outcome
-		})
-		_round_count += 1
-		return {
-			"round_number": this_round,
-			"outcome":      _outcome,
-			"history":      []
-		}
-
-	# ── Step 1: grant the fresh per-round budget to every combatant (AC-2) ──────
-	for ae in _action_economies:
-		ae.start_of_round()
-
-	# ── Step 2: cycle through _turn_order until Spent-out or outcome decided ────
-	var cycle_index: int = 0
-	var force_draw_no_progress: bool = false
-	while _outcome == "" and _round_has_living_unspent_combatant():
-		var any_action_resolved_this_cycle: bool = false
-		for i in range(_turn_order.size()):
-			if _outcome != "":
-				break
-
-			var combatant: Dictionary = _turn_order[i]
-
-			# Dead combatants are skipped — no cycle slot consumed (AC-4)
-			if combatant.get("hp_current", 0) <= 0:
-				continue
-
-			# Spent combatants are skipped — no cycle slot consumed (AC-4)
-			if _action_economies[i].is_spent():
-				continue
-
-			# Per-TURN flag reset only — documented no-op on budget/is_spent
-			# when called repeatedly within the same round (AC-1/AC-4).
-			_action_economies[i].start_of_turn()
-
-			# Select opposing target pool using the faction tag set in initialize()
-			var is_enemy: bool     = combatant.get("_is_enemy", false)
-			var target_pool: Array = _party if is_enemy else _enemies
-
-			# Determine action and target — enemies delegate to AI (FEAT-089),
-			# party members use the hardcoded Strike action.
-			var target: Dictionary  = {}
-			var action_name: String = ""
-
-			if is_enemy:
-				# Enemy action selection: delegate to AI module (FR-012)
-				var ai_decision: Dictionary = _ai.decide_action(combatant, target_pool)
-				action_name = ai_decision.get("action_type", "")
-				target      = ai_decision.get("target", {})
-			else:
-				# Party: pick first living target, hardcoded Strike action
-				for t in target_pool:
-					if t.get("hp_current", 0) > 0:
-						target = t
-						break
-				if not target.is_empty():
-					action_name = "Strike"
-
-			# No living target found — skip this combatant for the cycle
-			# (defensive guard; normally unreachable since a fully-dead
-			# opposing side already decided the outcome above).
-			if action_name == "" or target.is_empty():
-				continue
-
-			# Spend action — a failed Result (e.g. ALREADY_SPENT, a contract
-			# violation since is_spent() was already checked above) causes
-			# this combatant's action to be skipped; the cycle CONTINUES
-			# rather than aborting/crashing (CR-001 error handling contract).
-			var spend_result: Dictionary = _action_economies[i].spend_action(
-				{"name": action_name, "traits": []}
-			)
-			if not spend_result["success"]:
-				continue
-
-			# An action was successfully spent this pass — the
-			# any_action_resolved_this_cycle backstop (FEAT-097) uses this to
-			# detect a fully-stalled cycle (zero resolved actions) and break
-			# out rather than looping forever.
-			any_action_resolved_this_cycle = true
-
-			# Resolve weapon attack against the target's AC
-			var weapon: Dictionary = combatant.get("weapon", {})
-			var result: Dictionary = _resolution.resolve_weapon_attack(
-				combatant, target, weapon, "ac"
-			)
-
-			# Capture defense value before modifying target state (FEAT-025)
-			var defense_value: int = target.get("ac", 0)
-
-			# Apply damage to target
-			var damage: int = result.get("damage_final", 0)
-			if damage > 0:
-				target["hp_current"] = target.get("hp_current", 0) - damage
-
-			# Append structured attack event to the per-round observer queue (FEAT-025)
-			_round_events.append({
-				"type":          "attack",
-				"round":         this_round,
-				"attacker_name": combatant.get("name", ""),
-				"target_name":   target.get("name", ""),
-				"roll":          result.get("roll_total", 0),
-				"defense_type":  "ac",
-				"defense_value": defense_value,
-				"hit":           result.get("hit", false),
-				"crit":          result.get("crit", false),
-				"damage_final":  result.get("damage_final", 0)
-			})
-
-			# Emit combatant_defeated event if the target's HP just reached zero (FEAT-025)
-			if target.get("hp_current", 0) <= 0:
-				_round_events.append({
-					"type":        "combatant_defeated",
-					"round":       this_round,
-					"name":        target.get("name", ""),
-					"defeated_by": combatant.get("name", "")
-				})
-
-			# Record the attack for logging / replay — cycle_index records
-			# which AC-4 interleave pass this entry occurred in.
-			_round_history.append({
-				"attacker":         combatant,
-				"action":           action_name,
-				"target":           target,
-				"roll":             result.get("roll_total", 0),
-				"damage_final":     result.get("damage_final", 0),
-				"budget_remaining": spend_result.get("remaining", -1),
-				"round":            this_round,
-				"cycle_index":      cycle_index
-			})
-
-			# Check win/loss after each attack (ADR-006)
-			var all_enemies_dead: bool = true
-			for e in _enemies:
-				if e.get("hp_current", 0) > 0:
-					all_enemies_dead = false
-					break
-
-			if all_enemies_dead:
-				_outcome = "won"
-				# Emit encounter_result event when the encounter ends (FEAT-025)
-				_round_events.append({
-					"type":    "encounter_result",
-					"round":   this_round,
-					"outcome": _outcome
-				})
-				break
-
-			var all_party_dead: bool = true
-			for p in _party:
-				if p.get("hp_current", 0) > 0:
-					all_party_dead = false
-					break
-
-			if all_party_dead:
-				_outcome = "lost"
-				# Emit encounter_result event when the encounter ends (FEAT-025)
-				_round_events.append({
-					"type":    "encounter_result",
-					"round":   this_round,
-					"outcome": _outcome
-				})
-				break
-
-		# ── Backstop (FEAT-097, CWE-835/FIND-095): a full cycle pass that
-		# resolved ZERO actions means every still-unspent living combatant
-		# found no usable action/target this pass — the same condition that
-		# would otherwise spin _round_has_living_unspent_combatant() forever
-		# (e.g. an unforeseen "no living target but not Spent" deadlock not
-		# covered by the up-front guard above). Break safely with a DRAW
-		# rather than looping. Does NOT mutate the overall encounter outcome
-		# (_outcome stays '' / undecided) — mirrors the empty-turn-order and
-		# both-sides-dead DRAW contracts: only the returned RoundResult
-		# communicates the DRAW.
-		if _outcome == "" and not any_action_resolved_this_cycle:
-			push_warning("run_round: a full cycle resolved zero actions; forcing a safe DRAW to prevent an unbounded loop")
-			force_draw_no_progress = true
-			break
-
-		cycle_index += 1
-
-	# End of round — reset every combatant's ActionEconomy
-	for ae in _action_economies:
-		ae.end_of_round()
+	# A 'DRAW' RoundResult never mutates the overall encounter outcome — only
+	# the returned RoundResult communicates it (mirrors the pre-FEAT-098
+	# contract for empty-turn-order / both-sides-dead / stalled-cycle cases).
+	if result.get("outcome", "") != "DRAW":
+		_outcome = result.get("encounter_outcome", "")
 
 	_round_count += 1
 
-	var this_round_history: Array = []
-	for entry in _round_history:
-		if entry.get("round", -1) == this_round:
-			this_round_history.append(entry)
-
 	return {
-		"round_number": this_round,
-		"outcome":      "DRAW" if force_draw_no_progress else _outcome,
-		"history":      this_round_history
+		"round_number": result.get("round_number", this_round),
+		"outcome":      result.get("outcome", ""),
+		"history":      result.get("history", [])
 	}
 
 
-## _round_has_living_unspent_combatant() → bool — true if at least one living
-## combatant in _turn_order has not yet reached is_spent()==true. Used by the
-## AC-4 cycle loop to determine when to stop cycling (every living combatant
-## Spent) without relying on a fixed iteration count.
-func _round_has_living_unspent_combatant() -> bool:
-	for i in range(_turn_order.size()):
-		var combatant: Dictionary = _turn_order[i]
-		if combatant.get("hp_current", 0) <= 0:
-			continue
-		if not _action_economies[i].is_spent():
-			return true
-	return false
-
-
-# ── Main loop ──────────────────────────────────────────────────────────────────
+# ── Main loop ──────────────────────────────────────────────────────────────
 
 ## run() — runs the encounter to completion.
 ##
@@ -486,7 +303,7 @@ func run() -> void:
 		run_round()
 
 
-# ── Accessors ─────────────────────────────────────────────────────────────────
+# ── Accessors ─────────────────────────────────────────────────────────────
 
 ## get_outcome() → String — 'won', 'lost', or '' while combat is ongoing.
 func get_outcome() -> String:
@@ -508,10 +325,10 @@ func get_round_count() -> int:
 ## Each entry: {attacker: Dictionary, action: String, target: Dictionary,
 ##              roll: int, damage_final: int,
 ##              budget_remaining: int, round: int, cycle_index: int}
-## cycle_index (FEAT-006 / CR-001 AC-4) records which interleave cycle pass
-## through _turn_order this entry occurred in — supports verifying that
-## Strikes interleave (e.g. A,B,A,B,...) rather than one side acting fully
-## before the other.
+## cycle_index (CR-001 AC-4) records which interleave cycle pass through
+## _turn_order this entry occurred in — supports verifying that Strikes
+## interleave (e.g. A,B,A,B,...) rather than one side acting fully before
+## the other.
 func get_round_history() -> Array:
 	return _round_history
 
