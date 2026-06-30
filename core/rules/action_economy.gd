@@ -57,9 +57,39 @@ func start_of_turn(combatant = self) -> void:
 	_movement_used = false
 
 
-## end_of_round() — resets budget and clears turn flags.
-## _dazed persists — it is cleared only via set_dazed(false).
-func end_of_round() -> void:
+## start_of_round(combatant) / end_of_round(combatant) — the SOLE operations
+## permitted to reset the per-ROUND budget (CR-001 AC-2 / ADR-001).
+##
+## Effect: budget_remaining = MAX_BUDGET; is_spent = false; movement_used is
+## also cleared (a new round implies a new turn's worth of per-turn flags).
+## MUST NOT touch _dazed — _dazed persists across rounds and is changed only
+## via the explicit set_dazed() call.
+##
+## combatant — optional context parameter identifying the combatant whose
+## round boundary this is. Defaults to this ActionEconomy instance. Passing
+## null explicitly is treated as a contract violation: push_error() and
+## no-op (no state mutated), matching start_of_turn()'s null-guard contract.
+func start_of_round(combatant = self) -> void:
+	if combatant == null:
+		push_error("start_of_round called on null combatant")
+		return
+	_reset_round_state()
+
+
+## end_of_round(combatant) — see start_of_round() above; identical contract.
+## Both are the sole operations permitted to set budget_remaining =
+## MAX_BUDGET and clear is_spent at a round boundary.
+func end_of_round(combatant = self) -> void:
+	if combatant == null:
+		push_error("end_of_round called on null combatant")
+		return
+	_reset_round_state()
+
+
+## _reset_round_state() — internal helper shared by start_of_round() and
+## end_of_round() so the round-boundary reset logic exists in exactly one
+## place. NEVER touches _dazed.
+func _reset_round_state() -> void:
 	_budget = MAX_BUDGET
 	_is_spent = false
 	_movement_used = false

@@ -360,6 +360,164 @@ func test_start_of_turn_repeated_calls_within_round_preserve_budget_and_spent() 
 	)
 
 
+# ── FEAT-002 (CR-001 AC-2 / ADR-001): start_of_round()/end_of_round() are the
+# SOLE operations permitted to reset budget_remaining/is_spent at the round
+# boundary. Neither may ever touch is_dazed — is_dazed only changes via the
+# explicit set_dazed() call.
+
+func test_start_of_round_sets_budget_to_max_and_clears_is_spent() -> void:
+	var ae = ActionEconomyClass.new()
+	ae.start_of_turn()
+	for _i in range(7):
+		ae.spend_action({})
+	assert_true(ae.is_spent(), "sanity check: is_spent must be true before start_of_round()")
+	ae.start_of_round()
+	assert_eq(ae.get_remaining(), 7, "start_of_round() must set budget_remaining to MAX_BUDGET")
+	assert_false(ae.is_spent(), "start_of_round() must clear is_spent to false")
+
+
+func test_end_of_round_sets_budget_to_max_and_clears_is_spent() -> void:
+	var ae = ActionEconomyClass.new()
+	ae.start_of_turn()
+	for _i in range(7):
+		ae.spend_action({})
+	assert_true(ae.is_spent(), "sanity check: is_spent must be true before end_of_round()")
+	ae.end_of_round()
+	assert_eq(ae.get_remaining(), 7, "end_of_round() must set budget_remaining to MAX_BUDGET")
+	assert_false(ae.is_spent(), "end_of_round() must clear is_spent to false")
+
+
+func test_start_of_round_does_not_modify_is_dazed() -> void:
+	var dazed_ae = ActionEconomyClass.new()
+	dazed_ae.set_dazed(true)
+	dazed_ae.start_of_round()
+	assert_true(
+		dazed_ae.combining_forbidden(),
+		"start_of_round() must NOT clear _dazed when it was true"
+	)
+
+	var not_dazed_ae = ActionEconomyClass.new()
+	not_dazed_ae.set_dazed(false)
+	not_dazed_ae.start_of_round()
+	assert_false(
+		not_dazed_ae.combining_forbidden(),
+		"start_of_round() must NOT set _dazed when it was false"
+	)
+
+
+func test_end_of_round_does_not_modify_is_dazed() -> void:
+	var dazed_ae = ActionEconomyClass.new()
+	dazed_ae.set_dazed(true)
+	dazed_ae.end_of_round()
+	assert_true(
+		dazed_ae.combining_forbidden(),
+		"end_of_round() must NOT clear _dazed when it was true"
+	)
+
+	var not_dazed_ae = ActionEconomyClass.new()
+	not_dazed_ae.set_dazed(false)
+	not_dazed_ae.end_of_round()
+	assert_false(
+		not_dazed_ae.combining_forbidden(),
+		"end_of_round() must NOT set _dazed when it was false"
+	)
+
+
+func test_is_dazed_only_changes_via_set_dazed() -> void:
+	var ae = ActionEconomyClass.new()
+	ae.set_dazed(true)
+	# A whole round's worth of lifecycle calls must never flip _dazed.
+	ae.start_of_round()
+	ae.start_of_turn()
+	ae.spend_action({})
+	ae.spend_reaction()
+	ae.end_of_round()
+	assert_true(
+		ae.combining_forbidden(),
+		"is_dazed must remain true across a full round lifecycle until set_dazed(false) is called"
+	)
+	ae.set_dazed(false)
+	assert_false(
+		ae.combining_forbidden(),
+		"is_dazed must only change via explicit set_dazed(false)"
+	)
+
+
+func test_budget_persists_across_turns_then_resets_once_at_round_boundary() -> void:
+	var ae = ActionEconomyClass.new()
+	ae.start_of_turn()
+	ae.spend_action({})
+	ae.spend_action({})
+	var budget_after_two_spends: int = ae.get_remaining()
+
+	# AC-4 interleaving: this combatant's turn comes around again within the
+	# SAME round — budget must persist unchanged across repeated
+	# start_of_turn() calls.
+	ae.start_of_turn()
+	assert_eq(
+		ae.get_remaining(),
+		budget_after_two_spends,
+		"budget_remaining must persist unchanged across start_of_turn() within the round"
+	)
+	ae.spend_action({})
+	ae.start_of_turn()
+	ae.start_of_turn()
+	assert_eq(
+		ae.get_remaining(),
+		budget_after_two_spends - 1,
+		"budget_remaining must persist (minus further spends) across repeated start_of_turn() calls"
+	)
+
+	# Round boundary — resets exactly once back to MAX_BUDGET.
+	ae.start_of_round()
+	assert_eq(
+		ae.get_remaining(),
+		ActionEconomyClass.MAX_BUDGET,
+		"start_of_round() must reset budget_remaining to MAX_BUDGET exactly once at the round boundary"
+	)
+	assert_false(ae.is_spent(), "start_of_round() must clear is_spent at the round boundary")
+
+
+func test_start_of_round_null_combatant_guard_no_ops() -> void:
+	var ae = ActionEconomyClass.new()
+	ae.start_of_turn()
+	for _i in range(7):
+		ae.spend_action({})
+	assert_true(ae.is_spent(), "sanity check: is_spent must be true before null-guard call")
+
+	ae.start_of_round(null)
+
+	assert_eq(
+		ae.get_remaining(),
+		0,
+		"start_of_round(null) must no-op and not modify budget_remaining"
+	)
+	assert_true(
+		ae.is_spent(),
+		"start_of_round(null) must no-op and not clear is_spent"
+	)
+
+
+func test_end_of_round_null_combatant_guard_no_ops() -> void:
+	var ae = ActionEconomyClass.new()
+	ae.start_of_turn()
+	for _i in range(7):
+		ae.spend_action({})
+	assert_true(ae.is_spent(), "sanity check: is_spent must be true before null-guard call")
+
+	ae.end_of_round(null)
+
+	assert_eq(
+		ae.get_remaining(),
+		0,
+		"end_of_round(null) must no-op and not modify budget_remaining"
+	)
+	assert_true(
+		ae.is_spent(),
+		"end_of_round(null) must no-op and not clear is_spent"
+	)
+
+
 func test_start_of_turn_null_combatant_guard_no_ops_and_logs_error() -> void:
 	var ae = ActionEconomyClass.new()
 	ae.start_of_turn()
