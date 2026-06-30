@@ -5,7 +5,13 @@ extends GutTest
 ## State Machine.  Validates all test criteria for FEAT-007 / US-007.
 ##
 ## All test criteria verified here:
-##   1. start_of_turn() → get_remaining()==7, is_spent()==false
+##   1. (CR-001 corrected) A fresh round established via start_of_round() →
+##      get_remaining()==7, is_spent()==false; start_of_turn() alone must NOT
+##      produce this state once budget has been spent within the round (the
+##      original FEAT-007 criterion asserted start_of_turn() itself performed
+##      this refill — that assumption was the per-turn budget-refill bug
+##      CR-001 corrects; see test_fresh_round_has_budget_7_and_not_spent_via_start_of_round_not_start_of_turn()
+##      below)
 ##   2. 7 successive spend_action({}) — 7th returns {success:true, remaining:0}
 ##      and is_spent()==true
 ##   3. spend_action({}) after is_spent==true → {success:false, error:'Spent'}
@@ -22,19 +28,60 @@ const ActionEconomyClass = preload("res://core/rules/action_economy.gd")
 
 # ── Helper ─────────────────────────────────────────────────────────────────────
 
-## Build a fresh ActionEconomy and call start_of_turn().
+## Build a fresh ActionEconomy and call start_of_turn() to clear per-turn
+## flags (TurnFlags) only. NOTE (CR-001 AC-1): budget_remaining==7 and
+## is_spent()==false hold here because ActionEconomy.new() constructs that
+## way, NOT because start_of_turn() refills anything — start_of_turn() must
+## never be relied upon as a budget-refill point. See
+## test_fresh_round_has_budget_7_and_not_spent_via_start_of_round_not_start_of_turn()
+## for the explicit assertion of that contract.
 func _make_ae() -> ActionEconomyClass:
 	var ae = ActionEconomyClass.new()
 	ae.start_of_turn()
 	return ae
 
 
-# ── Criterion 1: start_of_turn() sets budget=7 and is_spent=false ─────────────
+# ── Criterion 1 (CR-001 corrected): the per-ROUND budget is established by
+# start_of_round() — never by start_of_turn(). The original FEAT-007 version
+# of this test (pre-CR-001) asserted that start_of_turn() alone produced
+# get_remaining()==7 / is_spent()==false, which encoded the old per-TURN
+# budget-refill model that CR-001 (AC-1/AC-2) explicitly overturned: the
+# 7-action budget is a per-ROUND resource shared across all of a combatant's
+# turns within that round, and only start_of_round()/end_of_round() may
+# reset it. This test is REWRITTEN (not deleted/weakened) to assert the
+# corrected contract: (a) start_of_round() — not start_of_turn() — is what
+# establishes budget=7/is_spent=false for a round, and (b) once budget has
+# been spent within a round, start_of_turn() leaves it untouched.
 
-func test_start_of_turn_sets_budget_7_and_not_spent() -> void:
-	var ae = _make_ae()
-	assert_eq(ae.get_remaining(), 7, "budget must be 7 after start_of_turn()")
-	assert_false(ae.is_spent(), "is_spent() must be false after start_of_turn()")
+func test_fresh_round_has_budget_7_and_not_spent_via_start_of_round_not_start_of_turn() -> void:
+	var ae = ActionEconomyClass.new()
+	ae.start_of_round()
+	assert_eq(
+		ae.get_remaining(), 7,
+		"CR-001 AC-2: start_of_round() (not start_of_turn()) establishes budget_remaining=MAX_BUDGET for the round"
+	)
+	assert_false(
+		ae.is_spent(),
+		"CR-001 AC-2: start_of_round() (not start_of_turn()) clears is_spent for the round"
+	)
+
+	# Spend the entire per-ROUND budget, then prove start_of_turn() within
+	# the SAME round does NOT refill it — the corrected replacement for the
+	# old (incorrect) assumption that every start_of_turn() call implied a
+	# fresh budget.
+	for _i in range(7):
+		ae.spend_action({})
+	assert_true(ae.is_spent(), "sanity check: budget must be exhausted mid-round before the start_of_turn() probe")
+
+	ae.start_of_turn()
+	assert_eq(
+		ae.get_remaining(), 0,
+		"CR-001 AC-1: start_of_turn() must NOT refill budget_remaining — refill happens only at the round boundary (start_of_round()/end_of_round())"
+	)
+	assert_true(
+		ae.is_spent(),
+		"CR-001 AC-1: start_of_turn() must NOT clear is_spent — a Spent combatant stays Spent until the round boundary"
+	)
 
 
 # ── Criterion 2: 7 spend_action calls exhaust budget ──────────────────────────
