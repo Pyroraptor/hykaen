@@ -39,6 +39,19 @@
 ## carrying the correct post-spend budget_remaining and cycle_index. See
 ## tests/test_encounter_round_loop.gd for the dedicated FEAT-007 assertions.
 ##
+## FEAT-008 (CR-001 AC-5, US-005 regression pass): _init() now accepts an
+## OPTIONAL 4th constructor parameter, `ai_decision_port`, implementing the
+## design's AIDecisionPort contract (duck-typed: must expose
+## decide_action(combatant: Dictionary, targets: Array) -> Dictionary,
+## identical to core/combat/ai.gd's AI class). When omitted (null, the
+## default), behavior is UNCHANGED from pre-FEAT-008 — a plain AIClass.new()
+## is constructed internally exactly as before, so every existing 3-arg call
+## site (simulator.gd, sim_demo.gd, all pre-existing tests) is unaffected.
+## The injection point exists purely to let regression tests substitute a
+## counting/spy double to verify enemies are delegated to AI via
+## AIDecisionPort EXACTLY ONCE per their cycle turn — see
+## tests/test_encounter_regression.gd.
+##
 ## Satisfies: US-007, US-009, ADR-006, US-004, US-005, CR-001 AC-4, CR-001 AC-5
 
 class_name Encounter
@@ -64,17 +77,24 @@ var _initialized: bool       ## True once initialize() has been called
 
 # ── Constructor ────────────────────────────────────────────────────────────────
 
-## _init(party, enemies, rng) — stores parameters; does not roll initiative yet.
+## _init(party, enemies, rng, ai_decision_port) — stores parameters; does not
+## roll initiative yet.
 ##
-## party   — Array of combatant Dictionaries representing the player party.
-## enemies — Array of combatant Dictionaries representing enemies.
-## rng     — An RNG instance (core/rules/rng.gd) injected from outside (ADR-002).
-func _init(party: Array, enemies: Array, rng) -> void:
+## party            — Array of combatant Dictionaries representing the player party.
+## enemies          — Array of combatant Dictionaries representing enemies.
+## rng              — An RNG instance (core/rules/rng.gd) injected from outside (ADR-002).
+## ai_decision_port — OPTIONAL (FEAT-008); an AIDecisionPort-shaped object
+##                     (duck-typed: decide_action(combatant, targets) -> Dictionary).
+##                     Defaults to null, in which case a plain AIClass.new() is
+##                     constructed internally — IDENTICAL to pre-FEAT-008
+##                     behavior. Pass a double here only to observe/intercept
+##                     AI delegation (e.g. regression tests).
+func _init(party: Array, enemies: Array, rng, ai_decision_port = null) -> void:
 	_party            = party
 	_enemies          = enemies
 	_rng              = rng
 	_resolution       = ResolutionClass.new(rng)
-	_ai               = AIClass.new()
+	_ai               = ai_decision_port if ai_decision_port != null else AIClass.new()
 	_outcome          = ""
 	_round_count      = 0
 	_round_history    = []
