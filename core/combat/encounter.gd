@@ -31,7 +31,15 @@
 ## once per combatant per cycle pass to clear per-TURN flags only (it is a
 ## documented no-op w.r.t. budget_remaining/is_spent — see action_economy.gd).
 ##
-## Satisfies: US-007, US-009, ADR-006, US-004, CR-001 AC-4
+## FEAT-007 (CR-001 AC-4/AC-5, US-004/US-005): the _round_events and
+## _round_history Arrays populated by run_round() below ARE the observability
+## wiring this feature covers — 'attack'/'combatant_defeated'/'encounter_result'
+## entries emitted in resolved order via EventSinkPort-shaped Array appends,
+## and one RoundHistoryEntry-shaped Dictionary per resolved action/reaction
+## carrying the correct post-spend budget_remaining and cycle_index. See
+## tests/test_encounter_round_loop.gd for the dedicated FEAT-007 assertions.
+##
+## Satisfies: US-007, US-009, ADR-006, US-004, US-005, CR-001 AC-4, CR-001 AC-5
 
 class_name Encounter
 

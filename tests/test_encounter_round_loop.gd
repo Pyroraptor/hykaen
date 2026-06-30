@@ -373,3 +373,191 @@ func test_encounter_gd_logs_push_warning_for_empty_turn_order() -> void:
 		content.contains("push_warning") and content.contains("empty/invalid turn order"),
 		"encounter.gd must call push_warning() describing the empty/invalid turn order case (FEAT-006)"
 	)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-007 (US-004 / US-005, AC-4 / AC-5): observability wiring — _round_events
+# (attack / combatant_defeated / encounter_result, correct order) and
+# _round_history (one entry per resolved action/reaction, correct post-spend
+# budget_remaining and cycle_index) must be populated by run_round() itself,
+# not merely inferable from side effects.
+# ══════════════════════════════════════════════════════════════════════════════
+
+## Criterion: _round_events contains an 'attack' entry for every resolved
+## Strike, in the order resolved — i.e. the 'attack' subsequence of
+## get_round_events() lines up 1:1, in order, with get_round_history().
+func test_round_events_contains_attack_entry_per_resolved_strike_in_order() -> void:
+	var enc = EncounterClass.new(
+		[_durable_combatant("Alpha")], [_durable_combatant("Bravo")], RNGClass.new(42)
+	)
+	enc.initialize()
+	var result: Dictionary = enc.run_round()
+	var history: Array = result.get("history", [])
+	var events: Array  = enc.get_round_events()
+
+	var attack_events: Array = events.filter(func(e): return e.get("type", "") == "attack")
+
+	assert_eq(
+		attack_events.size(), history.size(),
+		"There must be exactly one 'attack' event per resolved action/reaction recorded in history"
+	)
+	assert_eq(attack_events.size(), 14, "Sanity: two durable equal-budget combatants resolve 14 Strikes")
+
+	# Order: the Nth 'attack' event must describe the same attacker/target as
+	# the Nth round_history entry, in the exact order resolved (AC-4).
+	for i in range(history.size()):
+		var hist_entry: Dictionary = history[i]
+		var ev: Dictionary         = attack_events[i]
+		assert_eq(
+			ev.get("attacker_name", ""), hist_entry.get("attacker", {}).get("name", ""),
+			"attack event %d attacker_name must match round_history entry %d's attacker, in resolved order" % [i, i]
+		)
+		assert_eq(
+			ev.get("target_name", ""), hist_entry.get("target", {}).get("name", ""),
+			"attack event %d target_name must match round_history entry %d's target, in resolved order" % [i, i]
+		)
+		assert_eq(
+			ev.get("damage_final", -1), hist_entry.get("damage_final", -2),
+			"attack event %d damage_final must match round_history entry %d's damage_final" % [i, i]
+		)
+
+
+## Criterion: _round_events contains exactly one 'combatant_defeated' entry
+## per combatant whose HP transitions to <= 0 — never zero, never duplicated,
+## even when multiple combatants die within the same round.
+func test_round_events_exactly_one_combatant_defeated_entry_per_dead_combatant() -> void:
+	var fragile_1: Dictionary = _fragile_combatant("Fragile1")
+	var fragile_2: Dictionary = _fragile_combatant("Fragile2")
+	var durable_party: Dictionary = _durable_combatant("DurableParty")
+
+	# DurableParty (str=3, prof=2) attacking ac=1 targets always hits and
+	# always deals lethal (>=1) damage to hp=1 targets — deterministic kills,
+	# independent of RNG seed/roll value (see resolve_weapon_attack: roll_total
+	# = raw(>=1) + 3 + 2 >= 6 > ac=1).
+	var enc = EncounterClass.new(
+		[durable_party], [fragile_1, fragile_2], RNGClass.new(99)
+	)
+	enc.initialize()
+	var result: Dictionary = enc.run_round()
+	var events: Array = enc.get_round_events()
+
+	var defeated_events: Array = events.filter(func(e): return e.get("type", "") == "combatant_defeated")
+
+	assert_eq(
+		defeated_events.size(), 2,
+		"Exactly one combatant_defeated event must be emitted per combatant that died (Fragile1 and Fragile2), no duplicates"
+	)
+
+	var defeated_names: Array = []
+	for ev in defeated_events:
+		defeated_names.append(ev.get("name", ""))
+	defeated_names.sort()
+	assert_eq(
+		defeated_names, ["Fragile1", "Fragile2"],
+		"combatant_defeated events must name each distinct dead combatant exactly once"
+	)
+
+	# Both enemies dead → the encounter outcome must be decided 'won'.
+	assert_eq(result.get("outcome", ""), "won", "DurableParty defeating both enemies must decide the encounter 'won'")
+
+
+## Criterion: _round_events contains exactly one terminal 'encounter_result'
+## entry per round, and it is the LAST event in the queue (emitted only once
+## the outcome is actually decided).
+func test_round_events_exactly_one_terminal_encounter_result_entry() -> void:
+	var fragile_1: Dictionary = _fragile_combatant("Fragile1")
+	var fragile_2: Dictionary = _fragile_combatant("Fragile2")
+	var durable_party: Dictionary = _durable_combatant("DurableParty")
+
+	var enc = EncounterClass.new(
+		[durable_party], [fragile_1, fragile_2], RNGClass.new(99)
+	)
+	enc.initialize()
+	enc.run_round()
+	var events: Array = enc.get_round_events()
+
+	var result_events: Array = events.filter(func(e): return e.get("type", "") == "encounter_result")
+	assert_eq(
+		result_events.size(), 1,
+		"Exactly one terminal encounter_result event must be emitted for a round whose outcome is decided"
+	)
+	if result_events.size() != 1:
+		return
+
+	assert_eq(result_events[0].get("outcome", ""), "won", "encounter_result event must carry the decided outcome")
+	assert_eq(
+		events[events.size() - 1].get("type", ""), "encounter_result",
+		"encounter_result must be the terminal (last) event in the per-round queue"
+	)
+
+	# A round that does NOT decide an outcome (both sides durable, Spent-out
+	# termination) must emit ZERO encounter_result events — 'terminal' means
+	# emitted only when the outcome is actually decided, never speculatively.
+	var enc_undecided = EncounterClass.new(
+		[_durable_combatant("X")], [_durable_combatant("Y")], RNGClass.new(123)
+	)
+	enc_undecided.initialize()
+	enc_undecided.run_round()
+	var undecided_events: Array = enc_undecided.get_round_events()
+	var undecided_result_events: Array = undecided_events.filter(func(e): return e.get("type", "") == "encounter_result")
+	assert_eq(
+		undecided_result_events.size(), 0,
+		"A round that Spent-out without deciding the outcome must emit zero encounter_result events"
+	)
+
+
+## Criterion: _round_history contains one entry per resolved action/reaction
+## with budget_remaining equal to the correct post-spend value (cross-checked
+## against the ActionEconomy contract directly, not just inferred from count).
+func test_round_history_budget_remaining_matches_post_spend_sequence() -> void:
+	var enc = EncounterClass.new(
+		[_durable_combatant("Alpha")], [_durable_combatant("Bravo")], RNGClass.new(7)
+	)
+	enc.initialize()
+	var result: Dictionary = enc.run_round()
+	var history: Array = result.get("history", [])
+
+	var alpha_entries: Array = history.filter(func(e): return e.get("attacker", {}).get("name", "") == "Alpha")
+	var bravo_entries: Array = history.filter(func(e): return e.get("attacker", {}).get("name", "") == "Bravo")
+
+	# Each combatant spends its MAX_BUDGET=7 one at a time; budget_remaining
+	# must strictly count down 6,5,4,3,2,1,0 across that combatant's own
+	# resolved actions, in resolved order — the precise post-spend sequence.
+	var expected: Array = [6, 5, 4, 3, 2, 1, 0]
+	for i in range(alpha_entries.size()):
+		assert_eq(
+			alpha_entries[i].get("budget_remaining", -1), expected[i],
+			"Alpha's action %d must show post-spend budget_remaining == %d" % [i, expected[i]]
+		)
+	for i in range(bravo_entries.size()):
+		assert_eq(
+			bravo_entries[i].get("budget_remaining", -1), expected[i],
+			"Bravo's action %d must show post-spend budget_remaining == %d" % [i, expected[i]]
+		)
+
+
+## Criterion: _round_history entries' cycle_index values reflect the actual
+## interleave cycle in which the action occurred — verified directly against
+## the position of each entry's resolved order (entry N for a given combatant
+## occurred in cycle N, since each combatant takes exactly one action/cycle).
+func test_round_history_cycle_index_matches_actual_interleave_cycle() -> void:
+	var enc = EncounterClass.new(
+		[_durable_combatant("Alpha")], [_durable_combatant("Bravo")], RNGClass.new(7)
+	)
+	enc.initialize()
+	var result: Dictionary = enc.run_round()
+	var history: Array = result.get("history", [])
+
+	var alpha_entries: Array = history.filter(func(e): return e.get("attacker", {}).get("name", "") == "Alpha")
+	var bravo_entries: Array = history.filter(func(e): return e.get("attacker", {}).get("name", "") == "Bravo")
+
+	for i in range(alpha_entries.size()):
+		assert_eq(
+			alpha_entries[i].get("cycle_index", -1), i,
+			"Alpha's action %d must record cycle_index == %d (its Nth action occurs in interleave cycle N)" % [i, i]
+		)
+	for i in range(bravo_entries.size()):
+		assert_eq(
+			bravo_entries[i].get("cycle_index", -1), i,
+			"Bravo's action %d must record cycle_index == %d (its Nth action occurs in interleave cycle N)" % [i, i]
+		)
