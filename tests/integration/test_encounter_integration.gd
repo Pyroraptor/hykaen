@@ -15,8 +15,15 @@ extends GutTest
 ##   name='Skeleton', hp_current=8, ac=12, strength=2, dexterity=1, intuition=1
 ##   weapon: {damage_die:6, proficiency_bonus:1, damage_modifier_attribute:'strength'}
 
-const EncounterClass = preload("res://core/combat/encounter.gd")
-const RNGClass        = preload("res://core/rules/rng.gd")
+const EncounterClass    = preload("res://core/combat/encounter.gd")
+const RNGClass          = preload("res://core/rules/rng.gd")
+## CR-001/FEAT-099 (FIND-096, peer-review BLOCKER fix): get_round_events()
+## now yields TYPED RoundEvents.* value objects (AttackEvent /
+## CombatantDefeatedEvent / EncounterResultEvent) — never raw Dictionaries.
+## This preload is required so the FEAT-025 event-queue tests below can
+## type-check with `is RoundEventsClass.<Type>` and read fields directly
+## instead of the stale Dictionary-style `ev.get('type', '')`.
+const RoundEventsClass  = preload("res://core/rules/round_events.gd")
 
 
 # ── Shared fixture helpers ─────────────────────────────────────────────────────
@@ -583,7 +590,14 @@ func test_round_events_not_empty_after_run_round() -> void:
 	)
 
 
-## Criterion FEAT-025-2: At least one event in get_round_events() has type == 'attack'.
+## Criterion FEAT-025-2: At least one event in get_round_events() is a typed
+## RoundEvents.AttackEvent instance.
+##
+## CR-001/FEAT-099 (peer-review BLOCKER fix): get_round_events() elements are
+## TYPED RoundEvents.* value objects, not Dictionaries — the pre-FEAT-099
+## Dictionary discriminator `ev.get('type', '') == 'attack'` no longer applies
+## (RefCounted has no Dictionary-style get(key, default)); the event's class
+## itself (`is RoundEventsClass.AttackEvent`) now carries the 'type' meaning.
 func test_attack_event_present_after_run_round() -> void:
 	var enc = EncounterClass.new(
 		[_titus_durable()], [_skeleton_durable()], RNGClass.new(42)
@@ -593,18 +607,28 @@ func test_attack_event_present_after_run_round() -> void:
 	var events: Array = enc.get_round_events()
 	var has_attack: bool = false
 	for ev in events:
-		if ev.get("type", "") == "attack":
+		if ev is RoundEventsClass.AttackEvent:
 			has_attack = true
 			break
 	assert_true(
 		has_attack,
-		"get_round_events() must contain at least one event with type == 'attack'"
+		"get_round_events() must contain at least one RoundEvents.AttackEvent instance"
 	)
 
 
-## Criterion FEAT-025-3: The attack event dict contains exactly the required keys.
-## Required keys: type, round, attacker_name, target_name, roll,
-##                defense_type, defense_value, hit, crit, damage_final
+## Criterion FEAT-025-3: The attack event exposes exactly the required fields.
+## Required fields (pre-FEAT-099 Dictionary keys minus the 'type' discriminator,
+## which is now expressed by the value object's class — see CR-001 note below):
+##   round, attacker_name, target_name, roll,
+##   defense_type, defense_value, hit, crit, damage_final
+##
+## CR-001/FEAT-099 (peer-review BLOCKER fix): get_round_events() elements are
+## TYPED RoundEvents.AttackEvent value objects, not Dictionaries. Field
+## presence is checked with the `in` operator (object property check) and
+## direct attribute access, and the "exactly these keys, no extras" guarantee
+## is verified via AttackEvent.to_dict() (a value object method declared
+## alongside the typed fields in core/rules/round_events.gd) rather than
+## Dictionary.has()/.keys().
 func test_attack_event_has_all_required_fields() -> void:
 	var enc = EncounterClass.new(
 		[_titus_durable()], [_skeleton_durable()], RNGClass.new(42)
@@ -612,37 +636,43 @@ func test_attack_event_has_all_required_fields() -> void:
 	enc.initialize()
 	enc.run_round()
 
-	# Find first attack event
-	var attack_ev: Dictionary = {}
+	# Find first attack event — type-check via `is`, not a Dictionary 'type' key.
+	var attack_ev = null
 	for ev in enc.get_round_events():
-		if ev.get("type", "") == "attack":
+		if ev is RoundEventsClass.AttackEvent:
 			attack_ev = ev
 			break
 
-	if attack_ev.is_empty():
-		fail_test("No 'attack' event found in get_round_events() — cannot check fields")
+	if attack_ev == null:
+		fail_test("No RoundEvents.AttackEvent found in get_round_events() — cannot check fields")
 		return
 
-	var required_keys: Array = [
-		"type", "round", "attacker_name", "target_name",
+	var required_fields: Array = [
+		"round", "attacker_name", "target_name",
 		"roll", "defense_type", "defense_value", "hit", "crit", "damage_final"
 	]
-	for key in required_keys:
+	for field in required_fields:
 		assert_true(
-			attack_ev.has(key),
-			"Attack event must contain key '%s'; got keys: %s" % [key, str(attack_ev.keys())]
+			field in attack_ev,
+			"AttackEvent must expose field '%s'" % field
 		)
-	# Verify exactly these keys (no extras)
+	# Verify exactly these fields (no extras) via the typed to_dict() snapshot.
+	var snapshot: Dictionary = attack_ev.to_dict()
 	assert_eq(
-		attack_ev.keys().size(), required_keys.size(),
-		"Attack event must have exactly %d keys; got %d: %s"
-		% [required_keys.size(), attack_ev.keys().size(), str(attack_ev.keys())]
+		snapshot.keys().size(), required_fields.size(),
+		"AttackEvent.to_dict() must have exactly %d keys; got %d: %s"
+		% [required_fields.size(), snapshot.keys().size(), str(snapshot.keys())]
 	)
 
 
 ## Criterion FEAT-025-4: When the encounter terminates (outcome != ''),
-## get_round_events() contains an event with type == 'encounter_result'
-## and outcome in ['won', 'lost'].
+## get_round_events() contains a RoundEvents.EncounterResultEvent instance
+## whose outcome is in ['won', 'lost'].
+##
+## CR-001/FEAT-099 (peer-review BLOCKER fix): type-check via
+## `is RoundEventsClass.EncounterResultEvent` instead of the stale
+## `ev.get('type', '') == 'encounter_result'` Dictionary lookup, and read
+## .outcome as a direct field rather than via .get('outcome', '').
 func test_outcome_event_present_when_encounter_ends() -> void:
 	# Use standard combatants — let the encounter run to completion
 	var enc = _make_encounter(99999)
@@ -650,25 +680,32 @@ func test_outcome_event_present_when_encounter_ends() -> void:
 
 	# After run(), the last round's events should include the encounter_result
 	var events: Array = enc.get_round_events()
-	var result_ev: Dictionary = {}
+	var result_ev = null
 	for ev in events:
-		if ev.get("type", "") == "encounter_result":
+		if ev is RoundEventsClass.EncounterResultEvent:
 			result_ev = ev
 			break
 
-	assert_false(
-		result_ev.is_empty(),
-		"get_round_events() must contain an 'encounter_result' event when the encounter ends"
+	assert_not_null(
+		result_ev,
+		"get_round_events() must contain a RoundEvents.EncounterResultEvent when the encounter ends"
 	)
-	var outcome: String = result_ev.get("outcome", "")
+	if result_ev == null:
+		return
+	var outcome: String = result_ev.outcome
 	assert_true(
 		outcome == "won" or outcome == "lost",
-		"encounter_result event's outcome must be 'won' or 'lost'; got '%s'" % outcome
+		"EncounterResultEvent.outcome must be 'won' or 'lost'; got '%s'" % outcome
 	)
 
 
 ## Criterion FEAT-025-5: When a combatant's hp_current drops to 0 or below,
-## a {type: 'combatant_defeated'} event is present in that round's events.
+## a RoundEvents.CombatantDefeatedEvent instance is present in that round's events.
+##
+## CR-001/FEAT-099 (peer-review BLOCKER fix): type-check via
+## `is RoundEventsClass.CombatantDefeatedEvent` instead of the stale
+## `ev.get('type', '') == 'combatant_defeated'` Dictionary lookup, and read
+## .name as a direct field rather than via .get('name', '').
 func test_defeated_event_emitted_when_combatant_reaches_zero_hp() -> void:
 	# Skeleton has hp=1 and ac=1 → Titus always hits and always kills in one blow.
 	var titus: Dictionary = _titus_dict()
@@ -693,25 +730,32 @@ func test_defeated_event_emitted_when_combatant_reaches_zero_hp() -> void:
 
 	# The round in which the skeleton dies must contain a combatant_defeated event
 	var events: Array = enc.get_round_events()
-	var defeated_ev: Dictionary = {}
+	var defeated_ev = null
 	for ev in events:
-		if ev.get("type", "") == "combatant_defeated":
+		if ev is RoundEventsClass.CombatantDefeatedEvent:
 			defeated_ev = ev
 			break
 
-	assert_false(
-		defeated_ev.is_empty(),
-		"get_round_events() must contain a 'combatant_defeated' event when a combatant's HP reaches 0"
+	assert_not_null(
+		defeated_ev,
+		"get_round_events() must contain a RoundEvents.CombatantDefeatedEvent when a combatant's HP reaches 0"
 	)
+	if defeated_ev == null:
+		return
 	assert_eq(
-		defeated_ev.get("name", ""),
+		defeated_ev.name,
 		"Skeleton",
-		"combatant_defeated event must name the defeated combatant"
+		"CombatantDefeatedEvent must name the defeated combatant"
 	)
 
 
 ## Criterion FEAT-025-6: run two rounds; after round 2 get_round_events() contains
 ## only round-2 events: event[0].round == 2 and no events have round == 1.
+##
+## CR-001/FEAT-099 (peer-review BLOCKER fix): events are typed RoundEvents.*
+## value objects — AttackEvent, CombatantDefeatedEvent, and EncounterResultEvent
+## all declare a `round` field directly, so `.round` is read as a plain
+## attribute instead of via the stale Dictionary `.get('round', 0)`.
 func test_round_events_cleared_at_start_of_each_round() -> void:
 	# Use durable combatants (hp=2000) so neither dies in round 1
 	var enc = EncounterClass.new(
@@ -730,7 +774,7 @@ func test_round_events_cleared_at_start_of_each_round() -> void:
 	# No event should be from round 1
 	var has_round1: bool = false
 	for ev in events:
-		if ev.get("round", 0) == 1:
+		if ev.round == 1:
 			has_round1 = true
 			break
 	assert_false(
@@ -740,13 +784,20 @@ func test_round_events_cleared_at_start_of_each_round() -> void:
 
 	# First event must be from round 2
 	assert_eq(
-		events[0].get("round", -1), 2,
+		events[0].round, 2,
 		"First event in get_round_events() after round 2 must have round == 2"
 	)
 
 
 ## Criterion FEAT-025-7: Two independent encounters with seed 99999 produce
 ## identical get_round_events() after equivalent run_round() calls (determinism).
+##
+## CR-001/FEAT-099 (peer-review BLOCKER fix): events are typed RoundEvents.*
+## value objects, so they can no longer be assigned to `Dictionary`-typed
+## locals nor compared with `assert_eq(ev_a, ev_b, ...)` (distinct instances
+## are never == even with identical field values). Each pair is instead
+## compared by concrete type (get_script()) and by field-value snapshot
+## (to_dict()) — equally strict, not weakened, just adapted to the typed shape.
 func test_round_events_deterministic_same_seed() -> void:
 	var enc_a = EncounterClass.new(
 		[_titus_durable()], [_skeleton_durable()], RNGClass.new(99999)
@@ -770,11 +821,15 @@ func test_round_events_deterministic_same_seed() -> void:
 
 	# Compare event by event for byte-identical content
 	for idx in range(events_a.size()):
-		var ev_a: Dictionary = events_a[idx]
-		var ev_b: Dictionary = events_b[idx]
+		var ev_a = events_a[idx]
+		var ev_b = events_b[idx]
 		assert_eq(
-			ev_a, ev_b,
-			"Event at index %d must be identical between both encounters (seed 99999)" % idx
+			ev_a.get_script(), ev_b.get_script(),
+			"Event at index %d must be the same RoundEvents.* type between both encounters (seed 99999)" % idx
+		)
+		assert_eq(
+			ev_a.to_dict(), ev_b.to_dict(),
+			"Event at index %d must be identical (by field values) between both encounters (seed 99999)" % idx
 		)
 
 
