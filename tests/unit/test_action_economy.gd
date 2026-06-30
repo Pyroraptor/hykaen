@@ -518,6 +518,133 @@ func test_end_of_round_null_combatant_guard_no_ops() -> void:
 	)
 
 
+# ── FEAT-003 (CR-001 AC-3): spend_action()/spend_reaction() share the same
+# ActionBudget.budget_remaining counter regardless of action/reaction mix or
+# turn ownership, and expose a Result-style {ok, reason:'ALREADY_SPENT'}
+# contract for the already-Spent case, plus {ok:true, budget_remaining:<n>}
+# on success.
+
+func test_spend_action_success_returns_ok_true_and_budget_remaining() -> void:
+	var ae = _make_ae()
+	var result: Dictionary = ae.spend_action({})
+	assert_true(result.get("ok"), "spend_action() success must set ok:true")
+	assert_eq(
+		result.get("budget_remaining"),
+		6,
+		"spend_action() success must report budget_remaining:6 after first spend"
+	)
+
+
+func test_spend_reaction_success_returns_ok_true_and_budget_remaining() -> void:
+	var ae = _make_ae()
+	var result: Dictionary = ae.spend_reaction()
+	assert_true(result.get("ok"), "spend_reaction() success must set ok:true")
+	assert_eq(
+		result.get("budget_remaining"),
+		6,
+		"spend_reaction() success must report budget_remaining:6 after first spend"
+	)
+
+
+func test_spend_action_already_spent_returns_ok_false_reason_already_spent() -> void:
+	var ae = _make_ae()
+	for _i in range(7):
+		ae.spend_action({})
+	assert_true(ae.is_spent(), "sanity check: combatant must be Spent before over-spend")
+	var result: Dictionary = ae.spend_action({})
+	assert_false(result.get("ok"), "spend_action() on Spent combatant must set ok:false")
+	assert_eq(
+		result.get("reason"),
+		"ALREADY_SPENT",
+		"spend_action() on Spent combatant must set reason:'ALREADY_SPENT'"
+	)
+
+
+func test_spend_reaction_already_spent_returns_ok_false_reason_already_spent() -> void:
+	var ae = _make_ae()
+	for _i in range(7):
+		ae.spend_action({})
+	assert_true(ae.is_spent(), "sanity check: combatant must be Spent before over-spend")
+	var result: Dictionary = ae.spend_reaction()
+	assert_false(result.get("ok"), "spend_reaction() on Spent combatant must set ok:false")
+	assert_eq(
+		result.get("reason"),
+		"ALREADY_SPENT",
+		"spend_reaction() on Spent combatant must set reason:'ALREADY_SPENT'"
+	)
+
+
+func test_already_spent_combatant_does_not_decrement_further_via_action_or_reaction() -> void:
+	var ae = _make_ae()
+	for _i in range(7):
+		ae.spend_action({})
+	assert_eq(ae.get_remaining(), 0, "sanity check: budget must be 0 before over-spend attempts")
+
+	ae.spend_action({})
+	assert_eq(ae.get_remaining(), 0, "over-spend via spend_action() must not decrement below 0")
+
+	ae.spend_reaction()
+	assert_eq(ae.get_remaining(), 0, "over-spend via spend_reaction() must not decrement below 0")
+
+	assert_true(ae.is_spent(), "is_spent must remain true after over-spend attempts")
+
+
+func test_spend_action_and_spend_reaction_share_same_budget_counter() -> void:
+	var ae = _make_ae()
+	ae.spend_action({})
+	ae.spend_reaction()
+	ae.spend_action({})
+	assert_eq(
+		ae.get_remaining(),
+		4,
+		"spend_action()/spend_reaction() must decrement the SAME budget_remaining counter"
+	)
+
+
+func test_budget_reaching_zero_via_mixed_action_reaction_calls_sets_is_spent() -> void:
+	var ae = _make_ae()
+	# Mix of 4 actions and 3 reactions = 7 total spends, in interleaved order.
+	ae.spend_action({})
+	ae.spend_reaction()
+	ae.spend_action({})
+	ae.spend_reaction()
+	ae.spend_action({})
+	ae.spend_reaction()
+	assert_false(ae.is_spent(), "is_spent must be false with budget_remaining==1")
+	var result: Dictionary = ae.spend_action({})
+	assert_true(result.get("ok"), "final mixed spend must succeed")
+	assert_eq(result.get("budget_remaining"), 0, "budget_remaining must be 0 after 7 mixed spends")
+	assert_true(ae.is_spent(), "is_spent must be true regardless of action/reaction mix at 0")
+
+
+func test_reaction_spent_out_of_turn_reduces_budget_on_own_subsequent_turn() -> void:
+	# Simulates AC-3: a reaction spent on the opponent's turn (out-of-turn)
+	# must measurably reduce the budget available when this combatant's own
+	# turn comes around later in the SAME round.
+	var ae = ActionEconomyClass.new()
+	ae.start_of_round()
+
+	# Opponent's turn happens elsewhere; this combatant reacts out-of-turn.
+	var reaction_result: Dictionary = ae.spend_reaction()
+	assert_true(reaction_result.get("ok"), "out-of-turn reaction must succeed")
+	assert_eq(ae.get_remaining(), 6, "out-of-turn reaction must decrement shared budget to 6")
+
+	# Now it's this combatant's own turn within the same round.
+	ae.start_of_turn()
+	assert_eq(
+		ae.get_remaining(),
+		6,
+		"budget spent via out-of-turn reaction must persist into the combatant's own turn"
+	)
+	var action_result: Dictionary = ae.spend_action({})
+	assert_true(action_result.get("ok"), "own-turn action must succeed")
+	assert_eq(
+		action_result.get("budget_remaining"),
+		5,
+		"own-turn action must spend from the SAME pool already reduced by the out-of-turn reaction"
+	)
+
+
 func test_start_of_turn_null_combatant_guard_no_ops_and_logs_error() -> void:
 	var ae = ActionEconomyClass.new()
 	ae.start_of_turn()

@@ -99,22 +99,36 @@ func _reset_round_state() -> void:
 
 ## spend_action(action_metadata: Dictionary) → Dictionary
 ##
-## Spends one action from the budget.
+## Spends one action from the SAME per-ROUND budget_remaining pool that
+## spend_reaction() draws from (CR-001 AC-3 / FEAT-003) — actions and
+## reactions are unified against a single ActionBudget regardless of mix
+## or turn ownership.
 ## action_metadata may include: {"traits": Array[String]}
 ##   "Movement" trait: only one movement action permitted per turn.
 ##
-## Returns:
-##   {success: true,  remaining: int}           — action spent successfully
-##   {success: false, error: "Spent",
-##    remaining: 0}                             — budget already exhausted
-##   {success: false, error: "Movement already used"} — movement already used
+## Returns a Result-style Dictionary carrying BOTH the legacy
+## success/error/remaining keys (preserved for existing callers) and the
+## ADR-002 ok/reason/budget_remaining keys (FEAT-003):
+##   {success: true,  remaining: int,
+##    ok: true, budget_remaining: int}          — action spent successfully
+##   {success: false, error: "Spent", remaining: 0,
+##    ok: false, reason: "ALREADY_SPENT",
+##    budget_remaining: 0}                      — budget already exhausted;
+##                                                 no further decrement occurs
+##   {success: false, error: "Movement already used",
+##    ok: false, reason: "MOVEMENT_ALREADY_USED"} — movement already used
 func spend_action(action_metadata: Dictionary) -> Dictionary:
 	if _is_spent:
-		return {"success": false, "error": "Spent", "remaining": 0}
+		return _already_spent_result()
 
 	var traits: Array = action_metadata.get("traits", [])
 	if traits.has("Movement") and _movement_used:
-		return {"success": false, "error": "Movement already used"}
+		return {
+			"success": false,
+			"error": "Movement already used",
+			"ok": false,
+			"reason": "MOVEMENT_ALREADY_USED",
+		}
 
 	_budget -= 1
 
@@ -125,28 +139,58 @@ func spend_action(action_metadata: Dictionary) -> Dictionary:
 	if _budget <= 0:
 		_is_spent = true
 
-	return {"success": true, "remaining": _budget}
+	return _spend_success_result()
 
 
 ## spend_reaction() → Dictionary
 ##
-## Spends one action (reaction) from the budget.
-## Identical deduction logic to spend_action (no Movement gate).
-## Sets _is_spent when budget reaches 0.
+## Spends one action (reaction) from the IDENTICAL budget_remaining pool
+## used by spend_action() (CR-001 AC-3 / FEAT-003) — callable out-of-turn
+## (e.g. on an opponent's turn), with the deduction persisting into this
+## combatant's own subsequent turn within the same round. No Movement gate.
+## Sets _is_spent when budget reaches 0, regardless of action/reaction mix.
 ##
-## Returns:
-##   {success: true,  remaining: int}
-##   {success: false, error: "Spent", remaining: 0}
+## Returns the same Result-style Dictionary shape as spend_action():
+##   {success: true,  remaining: int, ok: true, budget_remaining: int}
+##   {success: false, error: "Spent", remaining: 0,
+##    ok: false, reason: "ALREADY_SPENT", budget_remaining: 0}
 func spend_reaction() -> Dictionary:
 	if _is_spent:
-		return {"success": false, "error": "Spent", "remaining": 0}
+		return _already_spent_result()
 
 	_budget -= 1
 
 	if _budget <= 0:
 		_is_spent = true
 
-	return {"success": true, "remaining": _budget}
+	return _spend_success_result()
+
+
+## _already_spent_result() — shared Result-style failure payload for
+## spend_action()/spend_reaction() when called on an already-Spent
+## combatant. Returns without throwing and without decrementing _budget
+## any further (FEAT-003).
+func _already_spent_result() -> Dictionary:
+	return {
+		"success": false,
+		"error": "Spent",
+		"remaining": 0,
+		"ok": false,
+		"reason": "ALREADY_SPENT",
+		"budget_remaining": 0,
+	}
+
+
+## _spend_success_result() — shared Result-style success payload for
+## spend_action()/spend_reaction(), reporting the post-spend value of the
+## single shared budget_remaining counter (FEAT-003).
+func _spend_success_result() -> Dictionary:
+	return {
+		"success": true,
+		"remaining": _budget,
+		"ok": true,
+		"budget_remaining": _budget,
+	}
 
 
 ## use_step() — marks movement as used this turn (free action; no budget cost).
