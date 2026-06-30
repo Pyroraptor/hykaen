@@ -449,6 +449,63 @@ func test_encounter_result_event_payload_matches_run_round_outcome_on_loss() -> 
 	)
 
 
+## FEAT-097 (CWE-835 / FIND-095) regression: zero-living-combatants-on-one-side
+## no longer hangs run_round(), and the terminal encounter_result event
+## payload still matches run_round()'s returned outcome exactly for these
+## new up-front-guard-decided paths — the same contract already proven for
+## the post-attack win/loss paths above.
+func test_encounter_result_event_payload_matches_run_round_outcome_when_no_living_enemies_upfront() -> void:
+	var living_party_member: Dictionary = _durable_combatant("Titus")
+
+	var enc = EncounterClass.new([living_party_member], [], RNGClass.new(1))
+	enc.initialize()
+	var result: Dictionary = enc.run_round()
+	var events: Array = enc.get_round_events()
+
+	var result_events: Array = events.filter(func(e): return e.get("type", "") == "encounter_result")
+	assert_eq(result_events.size(), 1, "Exactly one terminal encounter_result event must be emitted when the up-front guard decides a 'won' outcome")
+	if result_events.is_empty():
+		return
+	assert_eq(
+		result_events[0].get("outcome", ""), result.get("outcome", ""),
+		"encounter_result event payload outcome must exactly match the outcome returned by run_round() for the no-living-enemies guard path"
+	)
+	assert_eq(result.get("outcome", ""), "won", "Sanity: a living party with zero enemies must resolve 'won'")
+
+
+func test_encounter_result_event_payload_matches_run_round_outcome_when_no_living_party_upfront() -> void:
+	var living_enemy: Dictionary = _durable_combatant("Skeleton")
+
+	var enc = EncounterClass.new([], [living_enemy], RNGClass.new(1))
+	enc.initialize()
+	var result: Dictionary = enc.run_round()
+	var events: Array = enc.get_round_events()
+
+	var result_events: Array = events.filter(func(e): return e.get("type", "") == "encounter_result")
+	assert_eq(result_events.size(), 1, "Exactly one terminal encounter_result event must be emitted when the up-front guard decides a 'lost' outcome")
+	if result_events.is_empty():
+		return
+	assert_eq(
+		result_events[0].get("outcome", ""), result.get("outcome", ""),
+		"encounter_result event payload outcome must exactly match the outcome returned by run_round() for the no-living-party guard path"
+	)
+	assert_eq(result.get("outcome", ""), "lost", "Sanity: a living enemy with zero party members must resolve 'lost'")
+
+
+## Direct CWE-835 regression: this scenario hung the test runner indefinitely
+## before FEAT-097 (a party member whose target pool is permanently empty
+## never calls spend_action(), never becomes Spent, and
+## _round_has_living_unspent_combatant() looped forever). Its mere completion
+## — within GUT's normal per-test time budget — is the primary proof; the
+## assertion pins the now-correct, no-hang outcome.
+func test_run_round_with_empty_enemy_array_does_not_hang_and_resolves_won() -> void:
+	var living_party_member: Dictionary = _durable_combatant("Titus")
+	var enc = EncounterClass.new([living_party_member], [], RNGClass.new(2024))
+	enc.initialize()
+	var result: Dictionary = enc.run_round()
+	assert_eq(result.get("outcome", ""), "won", "A living party member with no enemies must resolve 'won' without hanging (CWE-835 / FIND-095)")
+
+
 func test_encounter_result_event_absent_when_round_undecided() -> void:
 	var enc = EncounterClass.new([_durable_combatant("X")], [_durable_combatant("Y")], RNGClass.new(123))
 	enc.initialize()

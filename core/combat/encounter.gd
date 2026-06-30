@@ -39,6 +39,22 @@
 ## carrying the correct post-spend budget_remaining and cycle_index. See
 ## tests/test_encounter_round_loop.gd for the dedicated FEAT-007 assertions.
 ##
+## FEAT-097 (CWE-835, FIND-095): run_round() previously had no guard for
+## "one side has zero living combatants" — a combatant whose target pool
+## never contains a living member never finds a target, never calls
+## spend_action(), never becomes Spent, and
+## _round_has_living_unspent_combatant() would loop forever. Two fixes:
+##   1. An up-front guard, evaluated immediately after _turn_order is built
+##      and BEFORE the cycle loop begins, detects "no living combatant on
+##      one (or both) side(s)" and returns the appropriate outcome
+##      ('won'/'lost'/'DRAW') directly — mirroring the existing post-attack
+##      win/loss detection — without ever entering the while loop.
+##   2. A defensive backstop inside the while-loop tracks
+##      any_action_resolved_this_cycle; if a full cycle pass resolves ZERO
+##      actions, the loop breaks with push_warning() and a safe 'DRAW'
+##      result rather than spinning forever — guarding against any OTHER
+##      unforeseen "no living target but not Spent" deadlock.
+##
 ## FEAT-008 (CR-001 AC-5, US-005 regression pass): _init() now accepts an
 ## OPTIONAL 4th constructor parameter, `ai_decision_port`, implementing the
 ## design's AIDecisionPort contract (duck-typed: must expose
@@ -204,13 +220,64 @@ func run_round() -> Dictionary:
 			"history":      []
 		}
 
+	# ── Guard (FEAT-097, CWE-835/FIND-095): one side has zero living
+	# combatants — decide the outcome immediately and NEVER enter the cycle
+	# loop. Without this guard, a combatant whose opposing side is fully
+	# dead/absent finds no target every cycle, never calls spend_action(),
+	# never becomes Spent, and _round_has_living_unspent_combatant() loops
+	# forever. Mirrors the existing post-attack win/loss detection below. ──
+	var living_enemies_upfront: bool = false
+	for e in _enemies:
+		if e.get("hp_current", 0) > 0:
+			living_enemies_upfront = true
+			break
+
+	var living_party_upfront: bool = false
+	for p in _party:
+		if p.get("hp_current", 0) > 0:
+			living_party_upfront = true
+			break
+
+	if not living_enemies_upfront or not living_party_upfront:
+		var upfront_outcome: String = ""
+		if not living_enemies_upfront and not living_party_upfront:
+			# Both sides are already wiped out — a true draw; mirrors the
+			# empty-turn-order DRAW contract by NOT mutating the overall
+			# encounter outcome (get_outcome() stays '' / undecided).
+			push_warning("run_round called with zero living combatants on both sides")
+			_round_count += 1
+			return {
+				"round_number": this_round,
+				"outcome":      "DRAW",
+				"history":      []
+			}
+		elif not living_enemies_upfront:
+			upfront_outcome = "won"
+		else:
+			upfront_outcome = "lost"
+
+		_outcome = upfront_outcome
+		_round_events.append({
+			"type":    "encounter_result",
+			"round":   this_round,
+			"outcome": _outcome
+		})
+		_round_count += 1
+		return {
+			"round_number": this_round,
+			"outcome":      _outcome,
+			"history":      []
+		}
+
 	# ── Step 1: grant the fresh per-round budget to every combatant (AC-2) ──────
 	for ae in _action_economies:
 		ae.start_of_round()
 
 	# ── Step 2: cycle through _turn_order until Spent-out or outcome decided ────
 	var cycle_index: int = 0
+	var force_draw_no_progress: bool = false
 	while _outcome == "" and _round_has_living_unspent_combatant():
+		var any_action_resolved_this_cycle: bool = false
 		for i in range(_turn_order.size()):
 			if _outcome != "":
 				break
@@ -267,6 +334,12 @@ func run_round() -> Dictionary:
 			)
 			if not spend_result["success"]:
 				continue
+
+			# An action was successfully spent this pass — the
+			# any_action_resolved_this_cycle backstop (FEAT-097) uses this to
+			# detect a fully-stalled cycle (zero resolved actions) and break
+			# out rather than looping forever.
+			any_action_resolved_this_cycle = true
 
 			# Resolve weapon attack against the target's AC
 			var weapon: Dictionary = combatant.get("weapon", {})
@@ -351,6 +424,21 @@ func run_round() -> Dictionary:
 				})
 				break
 
+		# ── Backstop (FEAT-097, CWE-835/FIND-095): a full cycle pass that
+		# resolved ZERO actions means every still-unspent living combatant
+		# found no usable action/target this pass — the same condition that
+		# would otherwise spin _round_has_living_unspent_combatant() forever
+		# (e.g. an unforeseen "no living target but not Spent" deadlock not
+		# covered by the up-front guard above). Break safely with a DRAW
+		# rather than looping. Does NOT mutate the overall encounter outcome
+		# (_outcome stays '' / undecided) — mirrors the empty-turn-order and
+		# both-sides-dead DRAW contracts: only the returned RoundResult
+		# communicates the DRAW.
+		if _outcome == "" and not any_action_resolved_this_cycle:
+			push_warning("run_round: a full cycle resolved zero actions; forcing a safe DRAW to prevent an unbounded loop")
+			force_draw_no_progress = true
+			break
+
 		cycle_index += 1
 
 	# End of round — reset every combatant's ActionEconomy
@@ -366,7 +454,7 @@ func run_round() -> Dictionary:
 
 	return {
 		"round_number": this_round,
-		"outcome":      _outcome,
+		"outcome":      "DRAW" if force_draw_no_progress else _outcome,
 		"history":      this_round_history
 	}
 

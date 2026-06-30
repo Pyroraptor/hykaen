@@ -536,6 +536,171 @@ func test_round_history_budget_remaining_matches_post_spend_sequence() -> void:
 		)
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-097 (CWE-835, FIND-095): run_round() must never hang when one side has
+# zero living combatants. An up-front guard, evaluated immediately after
+# _turn_order is built and BEFORE the cycle loop begins, must detect this
+# case and return the appropriate outcome ('won'/'lost'/'DRAW') without ever
+# entering the while loop — mirroring the existing post-attack win/loss
+# detection. A defensive any_action_resolved_this_cycle backstop inside the
+# loop guards against any OTHER unforeseen stall (e.g. a target that never
+# resolves an action for reasons other than "opposing side fully dead").
+#
+# Every test in this section completing at all (rather than hanging the test
+# runner) is itself part of the proof; the assertions further pin the exact
+# outcome contract.
+# ══════════════════════════════════════════════════════════════════════════════
+
+## BrokenAI — AIDecisionPort test double (FEAT-097). Always returns an empty/
+## invalid decision, so the enemy it controls never finds a usable
+## action_name/target and therefore never calls spend_action() — used to
+## force a stalled cycle (a full pass that resolves zero actions) WITHOUT
+## relying on the "one side has zero living combatants" up-front guard: both
+## sides have a living combatant throughout this scenario, so only the
+## any_action_resolved_this_cycle backstop can terminate it.
+class BrokenAI:
+	extends "res://core/combat/ai.gd"
+
+	func decide_action(_combatant: Dictionary, _targets: Array) -> Dictionary:
+		return {}
+
+
+func test_run_round_no_living_enemies_returns_won_without_hanging() -> void:
+	var living_party_member: Dictionary = _durable_combatant("Alpha")
+	var enc = EncounterClass.new([living_party_member], [], RNGClass.new(1))
+	enc.initialize()
+
+	# Must not hang — reaching the assertions below already proves the
+	# up-front guard fired instead of entering the cycle loop.
+	var result: Dictionary = enc.run_round()
+
+	assert_eq(
+		result.get("outcome", ""), "won",
+		"A round with a living party and zero enemies must return outcome 'won' immediately"
+	)
+	assert_eq(enc.get_outcome(), "won", "get_outcome() must also report 'won' once decided by the up-front guard")
+	assert_eq(
+		result.get("history", null), [],
+		"The up-front guard must decide the outcome WITHOUT entering the cycle loop — no actions resolved, empty history"
+	)
+
+
+func test_run_round_all_enemies_already_dead_returns_won_without_hanging() -> void:
+	var living_party_member: Dictionary = _durable_combatant("Alpha")
+	var dead_enemy: Dictionary = {
+		"name": "Corpse", "hp_current": 0, "ac": 10, "intuition": 0, "dexterity": 0,
+		"weapon": {"damage_modifier_attribute": "strength", "proficiency_bonus": 0, "damage_die": 4}
+	}
+	var enc = EncounterClass.new([living_party_member], [dead_enemy], RNGClass.new(1))
+	enc.initialize()
+
+	# _turn_order is non-empty here (it contains the dead enemy) — this
+	# exercises the "non-empty but fully-dead turn_order" guard path
+	# specifically, not the empty-turn-order guard.
+	var result: Dictionary = enc.run_round()
+
+	assert_eq(
+		result.get("outcome", ""), "won",
+		"A round whose only enemy is already dead must return outcome 'won' immediately, even with a non-empty turn_order"
+	)
+	assert_eq(enc.get_outcome(), "won", "get_outcome() must also report 'won' once decided by the up-front guard")
+
+
+func test_run_round_no_living_party_returns_lost_without_hanging() -> void:
+	var living_enemy: Dictionary = _durable_combatant("Bravo")
+	var enc = EncounterClass.new([], [living_enemy], RNGClass.new(1))
+	enc.initialize()
+
+	var result: Dictionary = enc.run_round()
+
+	assert_eq(
+		result.get("outcome", ""), "lost",
+		"A round with a living enemy and zero party members must return outcome 'lost' immediately"
+	)
+	assert_eq(enc.get_outcome(), "lost", "get_outcome() must also report 'lost' once decided by the up-front guard")
+	assert_eq(
+		result.get("history", null), [],
+		"The up-front guard must decide the outcome WITHOUT entering the cycle loop — no actions resolved, empty history"
+	)
+
+
+func test_run_round_both_sides_fully_dead_returns_draw_without_hanging() -> void:
+	var dead_party: Dictionary = {
+		"name": "DeadParty", "hp_current": 0, "ac": 10, "intuition": 0, "dexterity": 0,
+		"weapon": {"damage_modifier_attribute": "strength", "proficiency_bonus": 0, "damage_die": 4}
+	}
+	var dead_enemy: Dictionary = {
+		"name": "DeadEnemy", "hp_current": 0, "ac": 10, "intuition": 0, "dexterity": 0,
+		"weapon": {"damage_modifier_attribute": "strength", "proficiency_bonus": 0, "damage_die": 4}
+	}
+	var enc = EncounterClass.new([dead_party], [dead_enemy], RNGClass.new(1))
+	enc.initialize()
+
+	var result: Dictionary = enc.run_round()
+
+	assert_eq(
+		result.get("outcome", ""), "DRAW",
+		"A round where BOTH sides have zero living combatants must return outcome 'DRAW' immediately, not a false win/loss"
+	)
+	assert_eq(
+		enc.get_outcome(), "",
+		"get_outcome() (the overall encounter outcome) must remain undecided for a both-sides-dead DRAW round, mirroring the empty-turn-order DRAW contract"
+	)
+
+
+func test_run_round_stalled_cycle_backstop_terminates_with_draw_and_warning() -> void:
+	var broken_ai := BrokenAI.new()
+	var party_member: Dictionary = _durable_combatant("Alpha")
+	var enemy: Dictionary = _durable_combatant("Bravo")
+
+	var enc = EncounterClass.new([party_member], [enemy], RNGClass.new(42), broken_ai)
+	enc.initialize()
+
+	# Both sides have a living combatant the entire time — the up-front guard
+	# does NOT fire here. Only the any_action_resolved_this_cycle backstop
+	# can prevent this from hanging forever (Bravo's AIDecisionPort never
+	# returns a usable decision, so Bravo never reaches is_spent()).
+	var result: Dictionary = enc.run_round()
+
+	assert_eq(
+		result.get("outcome", ""), "DRAW",
+		"A round where one combatant's action selection never resolves must terminate via the any_action_resolved_this_cycle backstop with outcome 'DRAW'"
+	)
+
+	# Alpha (unaffected by the broken AI) still resolves its own full 7
+	# actions against the living Bravo before the stall is detected and the
+	# backstop fires on a cycle where NEITHER combatant resolves an action
+	# (Alpha now Spent, Bravo still stalled).
+	var history: Array = result.get("history", [])
+	var alpha_entries: Array = history.filter(func(e): return e.get("attacker", {}).get("name", "") == "Alpha")
+	assert_eq(
+		alpha_entries.size(), 7,
+		"Alpha must still resolve its own 7 actions normally before the backstop fires on Bravo's permanent stall"
+	)
+	var bravo_entries: Array = history.filter(func(e): return e.get("attacker", {}).get("name", "") == "Bravo")
+	assert_eq(bravo_entries.size(), 0, "Bravo (broken AI) must never resolve a single action")
+
+
+## Source-inspection check standing in for push_warning() capture (see header
+## note on Godot 4.3's no-op OS.add_logger()) — pins that the backstop
+## mechanism and its warning call site actually exist in encounter.gd.
+func test_encounter_gd_logs_push_warning_for_stalled_cycle_backstop() -> void:
+	var file := FileAccess.open("res://core/combat/encounter.gd", FileAccess.READ)
+	assert_not_null(file, "core/combat/encounter.gd must be readable")
+	if file == null:
+		return
+	var content: String = file.get_as_text()
+	file.close()
+	assert_true(
+		content.contains("any_action_resolved_this_cycle"),
+		"encounter.gd must track any_action_resolved_this_cycle to back-stop a stalled cycle (FEAT-097)"
+	)
+	assert_true(
+		content.contains("push_warning"),
+		"encounter.gd must call push_warning() when the stalled-cycle backstop fires (FEAT-097)"
+	)
+
+
 ## Criterion: _round_history entries' cycle_index values reflect the actual
 ## interleave cycle in which the action occurred — verified directly against
 ## the position of each entry's resolved order (entry N for a given combatant
