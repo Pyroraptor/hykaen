@@ -29,6 +29,16 @@ const ResolutionClass   = preload("res://core/rules/resolution.gd")
 const CharacterResource = preload("res://core/model/character_resource.gd")
 const ClassResource     = preload("res://core/model/class_resource.gd")
 const WeaponResource    = preload("res://core/model/weapon_resource.gd")
+## FEAT-103: RoundEvents value objects (core/rules/round_events.gd, FEAT-099/
+## FIND-096) — get_round_events() carries TYPED instances of these classes,
+## never raw Dictionaries. Introspection must use `is RoundEventsClass.<Type>`
+## + direct field access (the pattern already established for the typed
+## events surface), NOT Dictionary-style `.get()`/`.has()` calls — calling
+## Dictionary methods on a typed RefCounted value object is a runtime
+## SCRIPT ERROR ("Invalid call to function 'get' ... Expected 1 arguments"),
+## not a GDScript compile error, so it must be caught by actually exercising
+## the assertion rather than by static inspection alone.
+const RoundEventsClass  = preload("res://core/rules/round_events.gd")
 
 ## Pinned seed for all steel-thread determinism tests.
 const STEEL_SEED: int = 99999
@@ -608,11 +618,19 @@ func test_action_budget_consumed_after_strike() -> void:
 ## encounter's run_round() execution path (FIX-005).
 ##
 ## After a single run_round() call, get_round_events() must contain at least
-## one event with type == 'attack' that has all four required fields populated:
-##   roll        — int: the attack roll total (d20 + modifier + proficiency)
-##   hit         — bool: whether the attack hit the target
-##   crit        — bool: whether the attack was a critical hit
-##   damage_final — int: the final damage value after active defense resolution
+## one TYPED RoundEvents.AttackEvent instance (FEAT-099/FIND-096 — never a
+## raw Dictionary with a 'type' key) with all four required fields populated:
+##   roll          — int:  the attack roll total (d20 + modifier + proficiency)
+##   hit           — bool: whether the attack hit the target
+##   crit          — bool: whether the attack was a critical hit
+##   damage_final  — int:  the final damage value after active defense resolution
+##
+## FEAT-103: rewritten to use `is RoundEventsClass.AttackEvent` type-checks and
+## direct field access instead of Dictionary-style `.get("type", "")` /
+## `.has(key)` calls. The previous Dictionary-style access crashed at runtime
+## with "Invalid call to function 'get' in base 'RefCounted (AttackEvent)'.
+## Expected 1 arguments." the moment get_round_events() started returning
+## typed value objects (FEAT-099) — this rewrite is the fix.
 func test_round_events_populated_with_attack_events() -> void:
 	if _titus == null:
 		fail_test("titus.tres failed to load — cannot verify round events (FEAT-028 FIX-005)")
@@ -628,28 +646,29 @@ func test_round_events_populated_with_attack_events() -> void:
 		"get_round_events() must be non-empty after run_round() (FEAT-028 FIX-005)"
 	)
 
-	# Locate the first attack event in the round queue
-	var attack_ev: Dictionary = {}
+	# Locate the first typed AttackEvent in the round queue (FEAT-103: typed
+	# `is` check — never `ev.get("type", "")`, which crashes on a RefCounted
+	# value object).
+	var attack_ev = null
 	for ev in events:
-		if ev.get("type", "") == "attack":
+		if ev is RoundEventsClass.AttackEvent:
 			attack_ev = ev
 			break
 
-	assert_false(
-		attack_ev.is_empty(),
-		"get_round_events() must contain at least one event with type == 'attack' (FEAT-028 FIX-005)"
+	assert_not_null(
+		attack_ev,
+		"get_round_events() must contain at least one typed RoundEvents.AttackEvent instance (FEAT-028 FIX-005, FEAT-103)"
 	)
 
-	if attack_ev.is_empty():
+	if attack_ev == null:
 		return
 
-	# Verify all four required attack event fields are present
-	for key in ["roll", "hit", "crit", "damage_final"]:
-		assert_true(
-			attack_ev.has(key),
-			"Attack event must contain required field '%s' — "
-			+ "FEAT-028 FIX-005; present keys: %s" % [key, str(attack_ev.keys())]
-		)
+	# Verify all four required attack event fields are populated via direct
+	# field access on the typed value object (FEAT-103 — never `.has(key)`).
+	assert_true(attack_ev.roll is int, "AttackEvent.roll must be an int (FEAT-028 FIX-005, FEAT-103)")
+	assert_true(attack_ev.hit is bool, "AttackEvent.hit must be a bool (FEAT-028 FIX-005, FEAT-103)")
+	assert_true(attack_ev.crit is bool, "AttackEvent.crit must be a bool (FEAT-028 FIX-005, FEAT-103)")
+	assert_true(attack_ev.damage_final is int, "AttackEvent.damage_final must be an int (FEAT-028 FIX-005, FEAT-103)")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1434,4 +1453,354 @@ func test_feat091_prologue_encounter_round_count_at_least_1() -> void:
 		enc.get_round_count() >= 1,
 		("Prologue encounter (seed %d, FEAT-091) must complete at least 1 round; "
 			+ "got %d") % [STEEL_SEED, enc.get_round_count()]
+	)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-103 — Repaired typed round-event access; full steel-thread coverage
+# from run_round() entry to outcome/_round_events/_round_history exit
+# (FR-004/FR-005, AC-4/AC-5, ADR-003).
+#
+# These tests exercise the REAL core/combat/encounter.gd entry point
+# (run_round() / run()) with NO mocked domain layer — only plain combatant
+# Dictionary fixtures and a real injected RNG, exactly like every other
+# fixture in this file. They use the typed `is RoundEventsClass.<Type>` +
+# direct field access pattern (never Dictionary-style `.get()`/`.has()` on a
+# typed value object) established earlier in this file for
+# test_round_events_populated_with_attack_events.
+#
+# Covers:
+#   - Interleaved A,B,A,B,... Strike order across multiple combatants
+#     (ADR-003 — Strikes interleave across the turn order rather than one
+#     side acting completely before the other).
+#   - _round_history entries carrying correct POST-SPEND budget_remaining
+#     values across a full multi-round encounter.
+#   - encounter_result (RoundEvents.EncounterResultEvent) emitted EXACTLY
+#     ONCE per encounter, with its outcome matching the final win/loss
+#     decided by get_outcome().
+# ══════════════════════════════════════════════════════════════════════════════
+
+## _feat103_durable_combatant(name) — a combatant that cannot die within a
+## single round (hp=2000). Isolates AC-4/ADR-003 interleaving behavior from
+## win/loss early-termination — every combatant exhausts its full MAX_BUDGET
+## (7) of Strikes every round, every round, with nobody ever being defeated.
+func _feat103_durable_combatant(p_name: String) -> Dictionary:
+	return {
+		"name":       p_name,
+		"hp_current": 2000,
+		"ac":         10,
+		"strength":   3,
+		"dexterity":  2,
+		"intuition":  2,
+		"weapon": {
+			"damage_modifier_attribute": "strength",
+			"proficiency_bonus": 2,
+			"damage_die": 6
+		}
+	}
+
+
+## _feat103_moderate_combatant(name) — survives several rounds of incoming
+## Strikes before dying, so a full encounter genuinely spans MULTIPLE rounds
+## (exercising the round-boundary budget reset across the whole encounter,
+## not just round 1).
+func _feat103_moderate_combatant(p_name: String) -> Dictionary:
+	return {
+		"name":       p_name,
+		"hp_current": 60,
+		"ac":         11,
+		"strength":   3,
+		"dexterity":  2,
+		"intuition":  2,
+		"weapon": {
+			"damage_modifier_attribute": "strength",
+			"proficiency_bonus": 2,
+			"damage_die": 6
+		}
+	}
+
+
+## _feat103_make_2v2_encounter(seed_value) — builds a fresh 2-vs-2 Encounter
+## of moderate-durability combatants, seeded deterministically. Used to drive
+## a genuine multi-round encounter end-to-end through the real run_round()/
+## run() entry points (no mocked domain layer).
+func _feat103_make_2v2_encounter(seed_value: int) -> EncounterClass:
+	return EncounterClass.new(
+		[_feat103_moderate_combatant("Hero1"), _feat103_moderate_combatant("Hero2")],
+		[_feat103_moderate_combatant("Orc1"), _feat103_moderate_combatant("Orc2")],
+		RNGClass.new(seed_value)
+	)
+
+
+## Safety cap on the number of run_round() calls per encounter loop — guards
+## the TEST process against an unexpected non-terminating scenario. Genuine
+## v0 encounters with MAX_BUDGET=7 per side terminate in single digits of
+## rounds; this is a generous upper bound.
+const FEAT103_MAX_ROUNDS_GUARD: int = 50
+
+
+# ── Criterion: A,B,A,B,... Strike interleaving (ADR-003) ────────────────────
+
+## test_feat103_strikes_interleave_a_b_a_b_between_two_combatants
+##
+## A single round between two equal-budget durable combatants — driven
+## through the real Encounter.run_round() entry point — must interleave
+## Strikes in strict A,B,A,B,... order rather than one combatant exhausting
+## its full action budget before the other ever acts (ADR-003).
+##
+## Uses the typed `is RoundEventsClass.AttackEvent` pattern (FEAT-103 fix)
+## to introspect get_round_events().
+func test_feat103_strikes_interleave_a_b_a_b_between_two_combatants() -> void:
+	var enc = EncounterClass.new(
+		[_feat103_durable_combatant("Alpha")], [_feat103_durable_combatant("Bravo")], RNGClass.new(42)
+	)
+	enc.initialize()
+	enc.run_round()
+
+	var events: Array = enc.get_round_events()
+	var attack_events: Array = events.filter(func(e): return e is RoundEventsClass.AttackEvent)
+
+	# Both combatants share MAX_BUDGET=7 and neither dies (durable) — each
+	# takes exactly 7 actions this round, 14 total interleaved AttackEvents.
+	assert_eq(
+		attack_events.size(), 14,
+		"Two durable equal-budget combatants must emit 14 typed AttackEvent instances via the real run_round() entry point (ADR-003)"
+	)
+	if attack_events.size() != 14:
+		return
+
+	for ev in attack_events:
+		assert_true(
+			ev is RoundEventsClass.AttackEvent,
+			"Every 'attack' round event must be a typed RoundEvents.AttackEvent instance (FEAT-103)"
+		)
+
+	# Strict alternation: consecutive AttackEvents must never share an attacker.
+	for i in range(attack_events.size() - 1):
+		assert_ne(
+			attack_events[i].attacker_name, attack_events[i + 1].attacker_name,
+			"Consecutive typed AttackEvent instances %d and %d must have different attacker_name (A,B,A,B,... interleaving, ADR-003)" % [i, i + 1]
+		)
+
+	# The full A,B,A,B,... pattern, explicitly.
+	var attacker_sequence: Array = []
+	for ev in attack_events:
+		attacker_sequence.append(ev.attacker_name)
+	var first_attacker: String = attacker_sequence[0]
+	var second_attacker: String = attacker_sequence[1]
+	assert_ne(first_attacker, second_attacker, "Sanity: the two combatants must be distinct")
+	for i in range(attack_events.size()):
+		var expected: String = first_attacker if i % 2 == 0 else second_attacker
+		assert_eq(
+			attacker_sequence[i], expected,
+			"AttackEvent %d must continue the strict A,B,A,B,... interleave pattern (ADR-003)" % i
+		)
+
+
+## test_feat103_strikes_interleave_across_four_combatants_in_turn_order
+##
+## Generalizes the A,B,A,B,... interleave to MULTIPLE (four) combatants — a
+## real 2v2 encounter driven through run_round() — proving Strikes cycle
+## through the FULL turn order every pass rather than resolving one side
+## (or one combatant) completely before the next (ADR-003/AC-4).
+func test_feat103_strikes_interleave_across_four_combatants_in_turn_order() -> void:
+	var enc = EncounterClass.new(
+		[_feat103_durable_combatant("Hero1"), _feat103_durable_combatant("Hero2")],
+		[_feat103_durable_combatant("Orc1"), _feat103_durable_combatant("Orc2")],
+		RNGClass.new(777)
+	)
+	enc.initialize()
+	enc.run_round()
+
+	# The turn order is fixed (by initiative) once initialize() runs — read it
+	# back from the real entry point's own accessor, no mocking/duplication
+	# of the sort logic under test.
+	var expected_cycle: Array = []
+	for combatant in enc.get_turn_order():
+		expected_cycle.append(combatant.get("name", ""))
+	assert_eq(expected_cycle.size(), 4, "2v2 turn order must contain all four combatants")
+
+	var events: Array = enc.get_round_events()
+	var attack_events: Array = events.filter(func(e): return e is RoundEventsClass.AttackEvent)
+
+	# All four combatants are durable and share MAX_BUDGET=7 — 7 full cycles
+	# of 4 Strikes each = 28 interleaved AttackEvents.
+	assert_eq(
+		attack_events.size(), 28,
+		"Four durable equal-budget combatants must emit 28 typed AttackEvent instances (7 cycles x 4) via run_round()"
+	)
+	if attack_events.size() != 28:
+		return
+
+	# Every cycle of 4 consecutive AttackEvents must reproduce the SAME
+	# turn-order sequence — proving the cycle algorithm interleaves across
+	# ALL combatants each pass (ADR-003) rather than draining one
+	# combatant's budget before moving to the next.
+	for cycle in range(7):
+		for slot in range(4):
+			var idx: int = cycle * 4 + slot
+			assert_eq(
+				attack_events[idx].attacker_name, expected_cycle[slot],
+				"Cycle %d slot %d must be attacker '%s' (turn-order interleave, ADR-003); got '%s'"
+				% [cycle, slot, expected_cycle[slot], attack_events[idx].attacker_name]
+			)
+
+
+# ── Criterion: _round_history post-spend budget_remaining correctness ───────
+
+## test_feat103_round_history_budget_remaining_correct_across_full_encounter
+##
+## Drives a genuine multi-round 2v2 encounter to completion via repeated
+## run_round() calls on the real entry point (no mocked domain layer), then
+## asserts that EVERY get_round_history() entry's budget_remaining is the
+## correct POST-SPEND value (spend_action() decrements from MAX_BUDGET=7),
+## that the countdown is strictly monotonic per combatant per round
+## (6, 5, 4, ... one action per resolved entry — AC-3's shared per-round
+## budget pool), and that the budget resets to a fresh 6 at every round
+## boundary (AC-2) — not just the first round (FR-005/AC-5).
+func test_feat103_round_history_budget_remaining_correct_across_full_encounter() -> void:
+	var enc = _feat103_make_2v2_encounter(4242)
+	enc.initialize()
+
+	var rounds_run: int = 0
+	while enc.get_outcome() == "" and rounds_run < FEAT103_MAX_ROUNDS_GUARD:
+		enc.run_round()
+		rounds_run += 1
+
+	assert_true(rounds_run < FEAT103_MAX_ROUNDS_GUARD, "Full 2v2 encounter must terminate within the safety guard")
+	assert_true(
+		rounds_run >= 2,
+		"Steel-thread fixture (seed 4242, 60hp/ac11 2v2) must span >= 2 rounds so round-boundary "
+		+ "reset assertions below are not vacuous; got %d round(s)" % rounds_run
+	)
+
+	var all_history: Array = enc.get_round_history()
+	assert_true(all_history.size() > 0, "Full encounter must record at least one round_history entry")
+
+	# Group resolved entries by (combatant name, round_number), preserving
+	# resolution order, using the typed RoundEvents.RoundHistoryEntry
+	# ("entry" key) field values directly — never Dictionary `.get()` calls
+	# against the typed object.
+	var by_combatant_round: Dictionary = {}  # name -> { round_number -> Array[budget_remaining] }
+	for hist_entry in all_history:
+		assert_true(
+			hist_entry.has("entry"),
+			"Every round_history Dictionary entry must carry an 'entry' key holding the typed RoundHistoryEntry (FEAT-103)"
+		)
+		var typed_entry = hist_entry["entry"]
+		assert_true(
+			typed_entry is RoundEventsClass.RoundHistoryEntry,
+			"The 'entry' key must hold a typed RoundEvents.RoundHistoryEntry instance (FEAT-103)"
+		)
+		# The typed object's fields must agree with the surrounding
+		# Dictionary's pre-existing keys (both views of the same resolved
+		# action) — including the budget_remaining value under test.
+		assert_eq(
+			typed_entry.budget_remaining, hist_entry.get("budget_remaining", -999),
+			"typed entry.budget_remaining must match the surrounding Dictionary's 'budget_remaining' key"
+		)
+
+		var name: String = typed_entry.combatant_id
+		var round_number: int = typed_entry.round_number
+		if not by_combatant_round.has(name):
+			by_combatant_round[name] = {}
+		if not by_combatant_round[name].has(round_number):
+			by_combatant_round[name][round_number] = []
+		by_combatant_round[name][round_number].append(typed_entry.budget_remaining)
+
+	var any_combatant_spans_multiple_rounds: bool = false
+	for name in by_combatant_round.keys():
+		var rounds_for_name: Dictionary = by_combatant_round[name]
+		if rounds_for_name.keys().size() >= 2:
+			any_combatant_spans_multiple_rounds = true
+
+		var round_numbers: Array = rounds_for_name.keys()
+		round_numbers.sort()
+
+		for round_number in round_numbers:
+			var budgets: Array = rounds_for_name[round_number]
+
+			# Within a single round, a combatant's budget_remaining must
+			# strictly count down 6,5,4,...  — one action per resolved
+			# entry, decremented from the fresh MAX_BUDGET=7 (post-spend
+			# value), per the shared per-round budget pool (AC-3).
+			for i in range(budgets.size()):
+				var expected_budget: int = 6 - i
+				assert_eq(
+					budgets[i], expected_budget,
+					"%s's round_history entry %d in round %d must show POST-SPEND budget_remaining == %d; got %d"
+					% [name, i, round_number, expected_budget, budgets[i]]
+				)
+
+			# Round-boundary reset: the FIRST entry a combatant records in
+			# ANY round must again start the countdown at 6 (7 - 1) —
+			# proving the budget reset at the round boundary
+			# (start_of_round()/end_of_round()), not a continuation of a
+			# prior round's leftover budget (AC-2).
+			assert_eq(
+				budgets[0], 6,
+				"%s's FIRST round_history entry in round %d must show budget_remaining == 6 (fresh per-round budget); got %d"
+				% [name, round_number, budgets[0]]
+			)
+
+	# Cross-round proof: at least one combatant must have acted in 2+
+	# distinct rounds — otherwise the round-boundary-reset assertion above
+	# would be vacuously checking only round 1.
+	assert_true(
+		any_combatant_spans_multiple_rounds,
+		"At least one combatant must have recorded round_history entries across >= 2 distinct rounds, "
+		+ "so the round-boundary reset assertion (AC-2) is exercised more than once"
+	)
+
+
+# ── Criterion: encounter_result emitted exactly once; outcome correct ───────
+
+## test_feat103_encounter_result_emitted_exactly_once_with_correct_outcome
+##
+## Drives a full encounter to completion via the real run_round() entry
+## point (no mocked domain layer), accumulating get_round_events() across
+## EVERY round (the queue is cleared at the start of each run_round() call —
+## FEAT-025), and asserts:
+##   1. Exactly ONE typed RoundEvents.EncounterResultEvent is emitted across
+##      the ENTIRE encounter (never zero, never more than one).
+##   2. Its `.outcome` field is 'won' or 'lost' (a real win/loss decision,
+##      never the empty/undecided string).
+##   3. Its `.outcome` exactly matches the final get_outcome() the encounter
+##      settles on — the typed terminal event and the encounter's own
+##      accessor must never disagree.
+func test_feat103_encounter_result_emitted_exactly_once_with_correct_outcome() -> void:
+	var enc = _feat103_make_2v2_encounter(4242)
+	enc.initialize()
+
+	var all_events: Array = []
+	var rounds_run: int = 0
+	while enc.get_outcome() == "" and rounds_run < FEAT103_MAX_ROUNDS_GUARD:
+		enc.run_round()
+		all_events.append_array(enc.get_round_events())
+		rounds_run += 1
+
+	assert_true(rounds_run < FEAT103_MAX_ROUNDS_GUARD, "Full 2v2 encounter must terminate within the safety guard")
+
+	var result_events: Array = all_events.filter(func(e): return e is RoundEventsClass.EncounterResultEvent)
+	assert_eq(
+		result_events.size(), 1,
+		"Exactly one typed RoundEvents.EncounterResultEvent must be emitted across the full encounter; got %d"
+		% result_events.size()
+	)
+	if result_events.size() != 1:
+		return
+
+	var final_outcome: String = enc.get_outcome()
+	assert_true(
+		final_outcome == "won" or final_outcome == "lost",
+		"encounter.get_outcome() must settle on 'won' or 'lost'; got '%s'" % final_outcome
+	)
+	assert_true(
+		result_events[0].outcome == "won" or result_events[0].outcome == "lost",
+		"The typed EncounterResultEvent's outcome must be a real win/loss decision; got '%s'" % result_events[0].outcome
+	)
+	assert_eq(
+		result_events[0].outcome, final_outcome,
+		"The typed EncounterResultEvent's outcome ('%s') must match encounter.get_outcome() ('%s')"
+		% [result_events[0].outcome, final_outcome]
 	)
