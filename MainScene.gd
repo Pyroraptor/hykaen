@@ -39,6 +39,14 @@ extends Node
 ##      receives every round event via on_round_event() the SAME way the
 ##      ConsoleEventSinkAdapter above does — StatusPanelView never reaches
 ##      into Encounter/ActionEconomy itself (read-only projection, ADR-003).
+##   7. InitiativeView (presentation/initiative_view.gd, instanced as this
+##      node's "InitiativeView" child in MainScene.tscn, FEAT-009 / US-007)
+##      is handed an initial name/initiative_order SNAPSHOT via
+##      load_combatants() (built from the SAME encounter.get_turn_order()
+##      result already used to seed StatusPanelView's action-budget/spent
+##      fields in step 6), then receives every round event via
+##      on_round_event() the SAME way StatusPanelView does — InitiativeView
+##      never reaches into Encounter itself (read-only projection, ADR-003).
 ##
 ## No new ports or use cases are introduced here (ADR-002 / CR-001 guardrail)
 ## — this file only constructs adapters around the pre-existing ports/use
@@ -113,6 +121,14 @@ var encounter
 ## headless) sees each combatant's status.
 @onready var status_panel_view = $StatusPanelView
 
+## initiative_view — the InitiativeView (presentation/initiative_view.gd)
+## instanced in MainScene.tscn (FEAT-009 / US-007). Populated with the
+## domain-determined turn order (name + initiative_order) for every
+## combatant loaded from the prologue encounter, then updated per round
+## event as the booted encounter runs, so a person running the project (not
+## headless) sees the initiative order and the active combatant.
+@onready var initiative_view = $InitiativeView
+
 ## outcome / round_count / event_count — exposed for verification (manual
 ## smoke test and automated GUT coverage) that the prologue encounter
 ## actually ran to a terminal state.
@@ -157,6 +173,11 @@ func _ready() -> void:
 			_build_status_view_models(hex_combatants, party, enemies, encounter)
 		)
 
+	if initiative_view != null:
+		initiative_view.load_combatants(
+			_build_initiative_view_models(hex_combatants, party, enemies, encounter)
+		)
+
 	var rounds_run: int = 0
 	while encounter.get_outcome() == "" and rounds_run < MAX_ROUNDS_GUARD:
 		encounter.run_round()
@@ -164,6 +185,8 @@ func _ready() -> void:
 			event_sink.emit(event)
 			if status_panel_view != null:
 				status_panel_view.on_round_event(event)
+			if initiative_view != null:
+				initiative_view.on_round_event(event)
 		rounds_run += 1
 
 	outcome = encounter.get_outcome()
@@ -296,5 +319,39 @@ func _build_status_view_models(hex_combatants: Array, party: Array, enemies: Arr
 			"action_budget_remaining":  action_economy.get_remaining() if action_economy != null else 0,
 			"spent":                    action_economy.is_spent() if action_economy != null else false,
 			"conditions":               [],
+		})
+	return view_models
+
+
+## _build_initiative_view_models(hex_combatants, party, enemies, encounter_instance) -> Array
+##
+## Builds the read-only view-model list handed to
+## presentation/initiative_view.gd's load_combatants() (FEAT-009 / US-007):
+## one Dictionary per combatant with keys combatant_id/name/initiative_order.
+## combatant_id is resolved via the SAME name-keyed join already used by
+## _build_status_view_models() above (hex_combatants[i] corresponds
+## index-for-index to `party` then `enemies`) -- InitiativeView never reaches
+## back into Encounter itself to obtain this data.
+##
+## encounter_instance.get_turn_order() (core/combat/encounter.gd) is already
+## the domain-determined turn order -- sorted descending by each
+## combatant's "_initiative_roll" (d20 + intuition + dexterity, per ADR-006)
+## -- so that per-combatant roll is passed through unchanged as
+## initiative_order; InitiativeView performs its own descending sort at load
+## time, so the exact order handed in here is not itself load-bearing.
+func _build_initiative_view_models(hex_combatants: Array, party: Array, enemies: Array, encounter_instance) -> Array:
+	var combatant_id_by_name: Dictionary = {}
+	var all_combatants: Array = party + enemies
+	for i in range(all_combatants.size()):
+		var combatant_id: String = hex_combatants[i].combatant_id if i < hex_combatants.size() else ""
+		combatant_id_by_name[all_combatants[i].get("name", "")] = combatant_id
+
+	var view_models: Array = []
+	for combatant in encounter_instance.get_turn_order():
+		var name: String = combatant.get("name", "")
+		view_models.append({
+			"combatant_id":     combatant_id_by_name.get(name, ""),
+			"name":             name,
+			"initiative_order": combatant.get("_initiative_roll", 0),
 		})
 	return view_models
