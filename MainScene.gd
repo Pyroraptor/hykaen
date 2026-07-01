@@ -32,6 +32,13 @@ extends Node
 ##      hex-positioned Combatant list from step 1 via load_combatants(), so a
 ##      person running the project (not headless) sees the flat-top hex
 ##      battlefield with all combatants placed on load (US-005).
+##   6. StatusPanelView (presentation/status_panel_view.gd, instanced as this
+##      node's "StatusPanelView" child in MainScene.tscn, FEAT-008 / US-006)
+##      is handed an initial name/HP/Stamina/action-budget/Spent/conditions
+##      SNAPSHOT via load_combatants() before the first round runs, then
+##      receives every round event via on_round_event() the SAME way the
+##      ConsoleEventSinkAdapter above does — StatusPanelView never reaches
+##      into Encounter/ActionEconomy itself (read-only projection, ADR-003).
 ##
 ## No new ports or use cases are introduced here (ADR-002 / CR-001 guardrail)
 ## — this file only constructs adapters around the pre-existing ports/use
@@ -98,6 +105,14 @@ var encounter
 ## all combatants at boot.
 @onready var hex_grid_view = $HexGridView
 
+## status_panel_view — the StatusPanelView (presentation/status_panel_view.gd)
+## instanced in MainScene.tscn (FEAT-008 / US-006). Populated with a
+## name/HP/Stamina/action-budget/Spent/conditions snapshot for every
+## combatant loaded from the prologue encounter, then updated per round
+## event as the booted encounter runs, so a person running the project (not
+## headless) sees each combatant's status.
+@onready var status_panel_view = $StatusPanelView
+
 ## outcome / round_count / event_count — exposed for verification (manual
 ## smoke test and automated GUT coverage) that the prologue encounter
 ## actually ran to a terminal state.
@@ -137,11 +152,18 @@ func _ready() -> void:
 	encounter = EncounterClass.new(party, enemies, rng)
 	encounter.initialize()
 
+	if status_panel_view != null:
+		status_panel_view.load_combatants(
+			_build_status_view_models(hex_combatants, party, enemies, encounter)
+		)
+
 	var rounds_run: int = 0
 	while encounter.get_outcome() == "" and rounds_run < MAX_ROUNDS_GUARD:
 		encounter.run_round()
 		for event in encounter.get_round_events():
 			event_sink.emit(event)
+			if status_panel_view != null:
+				status_panel_view.on_round_event(event)
 		rounds_run += 1
 
 	outcome = encounter.get_outcome()
@@ -177,10 +199,13 @@ func _build_party_combatant(character_path: String, hex_coord) -> Dictionary:
 	var attrs := AttributesClass.new(RNGClass.new(0))
 	var hp: int = attrs.compute_hp(character.attributes, class_data)
 	var ac: int = attrs.compute_ac(character.attributes, armor_res.ac_base, armor_res.category)
+	var stamina: int = attrs.compute_stamina(character.attributes, class_data)
 
 	var combatant: Dictionary = {
 		"name":       character.name,
 		"hp_current": hp,
+		"hp_max":     hp,
+		"stamina":    stamina,
 		"ac":         ac,
 		"strength":   character.attributes.get("strength",  0),
 		"dexterity":  character.attributes.get("dexterity", 0),
@@ -211,6 +236,8 @@ func _build_enemy_combatant(enemy_path: String, hex_coord) -> Dictionary:
 	var combatant: Dictionary = {
 		"name":       enemy.name,
 		"hp_current": enemy.hp,
+		"hp_max":     enemy.hp,
+		"stamina":    0,
 		"ac":         DEFAULT_ENEMY_AC,
 		"strength":   enemy.str,
 		"dexterity":  enemy.dex,
@@ -224,3 +251,50 @@ func _build_enemy_combatant(enemy_path: String, hex_coord) -> Dictionary:
 	if hex_coord != null:
 		combatant["hex_coord"] = hex_coord
 	return combatant
+
+
+## _build_status_view_models(hex_combatants, party, enemies, encounter) -> Array
+##
+## Builds the read-only view-model list handed to
+## presentation/status_panel_view.gd's load_combatants() (FEAT-008 / US-006):
+## one Dictionary per combatant with keys combatant_id/name/hp_current/
+## hp_max/stamina_current/stamina_max/action_budget_remaining/spent/
+## conditions. hex_combatants[i] (the domain Combatant built in step 1,
+## carrying combatant_id) corresponds index-for-index to `party` then
+## `enemies` (the SAME correspondence already relied on above for hex_coord
+## assignment) -- combatant identity is joined by that shared index, never by
+## reaching back into Encounter/ActionEconomy from StatusPanelView itself.
+##
+## action_budget_remaining/spent are read once, immediately after
+## encounter.initialize(), from each combatant's freshly-constructed
+## ActionEconomy (core/rules/action_economy.gd) -- resolved by name via
+## encounter.get_turn_order()/get_action_economy(), since initiative sorting
+## reorders combatants relative to `party`/`enemies`. conditions defaults to
+## an empty Array -- no per-combatant Condition list exists in the domain
+## model yet (a later iteration-B feature), so the panel simply shows none
+## until that data exists.
+func _build_status_view_models(hex_combatants: Array, party: Array, enemies: Array, encounter_instance) -> Array:
+	var action_economy_by_name: Dictionary = {}
+	var turn_order: Array = encounter_instance.get_turn_order()
+	for i in range(turn_order.size()):
+		action_economy_by_name[turn_order[i].get("name", "")] = encounter_instance.get_action_economy(i)
+
+	var all_combatants: Array = party + enemies
+	var view_models: Array = []
+	for i in range(all_combatants.size()):
+		var combatant: Dictionary = all_combatants[i]
+		var combatant_id: String = hex_combatants[i].combatant_id if i < hex_combatants.size() else ""
+		var action_economy = action_economy_by_name.get(combatant.get("name", ""), null)
+
+		view_models.append({
+			"combatant_id":             combatant_id,
+			"name":                     combatant.get("name", ""),
+			"hp_current":               combatant.get("hp_current", 0),
+			"hp_max":                   combatant.get("hp_max", combatant.get("hp_current", 0)),
+			"stamina_current":          combatant.get("stamina", 0),
+			"stamina_max":              combatant.get("stamina", 0),
+			"action_budget_remaining":  action_economy.get_remaining() if action_economy != null else 0,
+			"spent":                    action_economy.is_spent() if action_economy != null else false,
+			"conditions":               [],
+		})
+	return view_models

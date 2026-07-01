@@ -1,0 +1,17 @@
+[gd_scene load_steps=2 format=3 uid="uid://hykaen_statuspanelview"]
+
+[ext_resource type="Script" path="res://presentation/status_panel_view.gd" id="1_statuspanel"]
+
+[node name="StatusPanelView" type="Control"]
+layout_mode = 3
+anchors_preset = 0
+offset_left = 8.0
+offset_top = 8.0
+offset_right = 260.0
+offset_bottom = 400.0
+script = ExtResource("1_statuspanel")
+
+[node name="RowsContainer" type="VBoxContainer" parent="."]
+layout_mode = 2
+offset_right = 252.0
+offset_bottom = 392.0
