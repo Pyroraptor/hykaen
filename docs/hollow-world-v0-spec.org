@@ -1,9 +1,10 @@
 #+TITLE: Hollow World v0 — Combat Simulation Specification
 #+AUTHOR: Guy Verisage
 #+DATE: 2026-06-29
-#+APPROVAL: Guy Verisage — reviewed 2026-06-29
+#+APPROVAL: Guy Verisage — reviewed 2026-06-29 (v0-release-1); movement amendment approved 2026-07-01 (v0-release-2)
 #+STATUS: APPROVED
-#+VERSION: v0-release-1
+#+VERSION: v0-release-2
+#+AMENDMENT: 2026-07-01 (v0-release-2) movement geometry changed square grid → hex grid (flat-top), facing omitted, flanking = positional Off-Guard — APPROVED; see *Amendment log — movement*
 #+SOURCE: docs/design-source/{Combat,Weapons,Building a Character,Classes,Magic and Spellcasting}.pdf; docs/brief.org
 
 * STATUS — APPROVED
@@ -18,6 +19,57 @@
   in =docs/design-source/= and the decisions already recorded in
   =docs/brief.org=. It satisfies all twelve content acceptance criteria of
   FR-001 (see =Acceptance Criteria= below).
+
+* Amendment log — movement (square → hex)  [APPROVED 2026-07-01 — Guy Verisage]
+
+  *Status: APPROVED 2026-07-01 by Guy Verisage.* This movement amendment is now
+  gate-passing v0 scope and is the authoritative target for Sprint 2 / Iteration B
+  movement work (folded into =#+VERSION: v0-release-2=).
+
+  *Change:* v0 movement is redefined from a *square grid* to a *hex grid*. The
+  distances are unchanged — only the grid geometry changes. This was requested to
+  make positioning read more naturally and remove diagonal-distance ambiguity.
+
+  *v0 hex geometry (authoritative for movement):*
+  - *1 hex = 5 ft.* All numeric distances in this spec are unchanged: a value of
+    "5 ft" equals exactly *1 hex*.
+  - *Speed = 20 ft = 4 hexes.* A *Stride* moves up to Speed (up to 4 hexes). The
+    free *Step* moves *1 hex*. (Unchanged magnitudes from the square version.)
+  - *Adjacency = the 6 neighboring hexes.* "Adjacent" everywhere in this spec
+    (melee reach, Opportunistic Strike provocation, Interpose, flanking/position)
+    means *sharing a hex edge* — one of the 6 surrounding hexes.
+  - *Distance = hex distance* (number of hexes along the shortest path). There is
+    *no diagonal cost* — every step to a neighboring hex costs 5 ft / 1 hex
+    uniformly, which is the main reason for moving off the square grid.
+  - *Melee reach 5 ft* = any adjacent hex. Weapon range entries of "5 ft" in the
+    §Weapons table are unchanged and mean "1 hex / adjacent".
+  - The seven-action round economy, the free-Step-forbids-Movement-action rule,
+    and all reaction triggers are *unchanged*; only the word "square" becomes
+    "hex" and adjacency becomes 6-neighbor.
+
+  *Coordinate convention:* *flat-top* hexes, axial/cube coordinates. The
+  orientation is fixed for consistency only; it does not affect any rule.
+
+  *No facing/orientation (author decision 2026-07-01).* Combatants do NOT face a
+  direction — facing is deliberately omitted to keep this tabletop adaptation
+  tractable (facing is fiddly to track). There are no rear/flank arcs. Position
+  alone drives flanking, via the rule below.
+
+  *Flanking = positional Off-Guard (author decision 2026-07-01).* When you make
+  an attack against an enemy while an ally of yours occupies the hex *directly
+  opposite yours across that enemy's hex* — i.e. you and the ally are both in
+  hexes adjacent to the enemy and those two hexes form a straight line through
+  the enemy's hex (of a hex's 6 neighbors there are exactly *3 directly-opposite
+  pairs*) — that enemy is *Off-Guard* while so positioned. Off-Guard is v0's
+  single abstraction for a distracted/surrounded target (see §Conditions:
+  attacks against an Off-Guard target gain +2). No facing and no rear-arc
+  bookkeeping: only the directly-opposite-hex position matters, and the
+  condition applies only while that position is maintained.
+
+  *Balance note:* v0 applies flanking Off-Guard *blanket* — a flanked target is
+  Off-Guard to *all* attackers, matching the "distracted/surrounded" framing.
+  This may be tightened later to *flankers-only* (only the two flanking attackers
+  gain the benefit) if balance testing shows blanket flanking is too strong.
 
 * Purpose & scope authority
 
@@ -135,8 +187,9 @@
   - *Initiative* — =d20 + Intuition + Dexterity=, rolled once at combat start;
     sets turn order for the whole combat. (Confirmed by the Bobbin/Dmitri
     worked example.)
-  - *Speed* — *20 ft = 4 squares*. One square = 5 ft. A Step moves 1 square; a Stride moves up
-    to Speed.
+  - *Speed* — *20 ft = 4 hexes*. One hex = 5 ft. A Step moves 1 hex; a Stride moves up
+    to Speed. (Hex grid per the 2026-06-30 *Amendment log — movement*; adjacency
+    = the 6 neighboring hexes, distance = hex distance, no diagonal cost.)
   - *Skills Known* — =Class Skills base + Intellect= (the count of skills the
     character is trained in; see §Skills).
 
@@ -231,7 +284,7 @@
     whole combat.
   - Within a round, combatants take *turns* in initiative order, and the order
     *cycles repeatedly*. On each of their turns a combatant may do two things:
-    1. optionally take a free *Step* (move 5 ft / 1 square, triggers no
+    1. optionally take a free *Step* (move 5 ft / 1 hex, triggers no
        reactions), and
     2. take *exactly one action*, which costs 1 from their 7-action round
        budget.
@@ -281,7 +334,7 @@
     of the round.
   - *Take Cover* — 1 action. Gain a defensive benefit from cover (v0: +2 to AC
     and Reflex while you remain in cover; authored flat value, tunable).
-  - *Step* — *free, Special*. Traits: Movement. Move 5 ft (1 square),
+  - *Step* — *free, Special*. Traits: Movement. Move 5 ft (1 hex),
     triggering no reactions. Taking the free Step forbids your action this turn
     from having the Movement trait.
 
@@ -297,7 +350,7 @@
   - *Dodge* — Trigger: you are *targeted* by an attack vs Armor Class or
     Reflex and are not Immobilized. Make a *Mobility check*; use its result in
     place of your AC/Reflex against that attack, then Step. If there is no open
-    square to Step into, the Mobility check automatically fails to protect you.
+    hex to Step into, the Mobility check automatically fails to protect you.
   - *Opportunistic Strike* — Trigger: an enemy provokes (v0: an adjacent enemy
     uses a Movement- or Concentrate-trait action — i.e. Strides or casts most spells — out of your reach without
     Stepping). Make one Strike against it. (v0 trigger is authored; flag if you
@@ -373,7 +426,7 @@
   | Condition   | Effect                                                                          |
   |-------------+---------------------------------------------------------------------------------|
   | Spent       | 0 actions remaining; cannot take actions or reactions this round. (A state, derived from the action budget, tracked here for query symmetry.)               |
-  | Off-Guard   | Attacks against you gain a +2 bonus. |
+  | Off-Guard   | Attacks against you gain a +2 bonus. Inflicted by Dazed, Stunned, and by *flanking* (an enemy with your attacker and an ally on directly-opposite adjacent hexes — see *Amendment log — movement*). |
   | Dazed       | Cannot Combine any actions. Off-Guard to all attacks.                           |
   | Immobilized | Speed 0; cannot take Movement-trait actions; cannot use the Dodge reaction.      |
   | Haste X     | Round action budget *+X*.            |
@@ -459,7 +512,7 @@
     - Guardian T1 *Bulwark*: when you Block, add +1 to your weapon's Block
       value.
     - Guardian T2 *Interpose*: you may Block an attack that targets an ally in
-      an adjacent square (still costs your reaction/action).
+      an adjacent hex (still costs your reaction/action).
     - Weapon Training T1 *Weapon Focus*: +1 damage with one chosen weapon type.
   - *Wizard* — trees incl. Combat Magic, Metamagic, Ritual Casting.
     - Combat Magic T1 *Evoker's Precision*: +1 to spell attack rolls vs Reflex.
@@ -539,7 +592,7 @@
 
   1. *Armor table* (§Armor) — authored AC bases and Light/Medium/Heavy
      categories; Dex-to-AC only in Light/None. First-pass, untested balance. *Author* - Edited values in the Armor section appropriately.
-  2. *Speed* — 30 ft / 6 squares; 1 square = 5 ft. (Matches brief suggestion.) *Author* - Edited to 20 ft / 4 squares; 1 square = 5 ft. Helps limit crazy movement from using all 7 actions to move.
+  2. *Speed* — 30 ft / 6 squares; 1 square = 5 ft. (Matches brief suggestion.) *Author* - Edited to 20 ft / 4 squares; 1 square = 5 ft. Helps limit crazy movement from using all 7 actions to move. *Amendment 2026-07-01 (APPROVED, v0-release-2)* - grid changed square→hex: Speed = 20 ft = *4 hexes*, 1 hex = 5 ft; see *Amendment log — movement*.
   3. *Spell-attack bonus* — *+0* in v0: spell attack = d20 + spellcasting
      attribute, with no separate proficiency term (the source's sample spells
      add the casting attribute only to damage, and give no spell-proficiency
@@ -572,8 +625,8 @@
   5. ✔ All four defense formulas (AC light/no-armor Dex rule; Reflex; Fort;
      Will).
   6. ✔ Armor table with AC base + Light/Medium/Heavy category.
-  7. ✔ Speed default (20 ft / 4 squares; author-tuned down from the 30 ft
-     suggestion).
+  7. ✔ Speed default (20 ft / 4 hexes; author-tuned down from the 30 ft
+     suggestion; grid square→hex per 2026-07-01 amendment, v0-release-2).
   8. ✔ Spell-attack bonus decided (+0, data-driven, documented).
   9. ✔ v0 skill list incl. Mobility (Dodge) and Determination (Steel).
   10. ✔ Full action set (Strike, Stride, Cast a spell, Interact, Guard, Take
