@@ -1,0 +1,17 @@
+[gd_scene load_steps=2 format=3 uid="uid://hykaen_eventlogview"]
+
+[ext_resource type="Script" path="res://presentation/event_log_view.gd" id="1_eventlogview"]
+
+[node name="EventLogView" type="Control"]
+layout_mode = 3
+anchors_preset = 0
+offset_left = 8.0
+offset_top = 408.0
+offset_right = 1032.0
+offset_bottom = 720.0
+script = ExtResource("1_eventlogview")
+
+[node name="RowsContainer" type="VBoxContainer" parent="."]
+layout_mode = 2
+offset_right = 1024.0
+offset_bottom = 312.0

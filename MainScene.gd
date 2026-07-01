@@ -47,6 +47,14 @@ extends Node
 ##      fields in step 6), then receives every round event via
 ##      on_round_event() the SAME way StatusPanelView does — InitiativeView
 ##      never reaches into Encounter itself (read-only projection, ADR-003).
+##   8. EventLogView (presentation/event_log_view.gd, instanced as this
+##      node's "EventLogView" child in MainScene.tscn, FEAT-010 / US-008) has
+##      no snapshot step (it is append-only, starting empty) and receives
+##      every round event via on_round_event() the SAME way StatusPanelView
+##      and InitiativeView do — EventLogView never reaches into
+##      Encounter/ActionEconomy itself (read-only projection, ADR-003),
+##      giving the player a chronologically ordered, human-readable combat
+##      log for the whole encounter.
 ##
 ## No new ports or use cases are introduced here (ADR-002 / CR-001 guardrail)
 ## — this file only constructs adapters around the pre-existing ports/use
@@ -129,6 +137,13 @@ var encounter
 ## headless) sees the initiative order and the active combatant.
 @onready var initiative_view = $InitiativeView
 
+## event_log_view — the EventLogView (presentation/event_log_view.gd)
+## instanced in MainScene.tscn (FEAT-010 / US-008). Append-only — starts
+## empty and receives every round event as the booted encounter runs, so a
+## person running the project (not headless) sees a chronologically ordered,
+## human-readable combat log for the whole encounter.
+@onready var event_log_view = $EventLogView
+
 ## outcome / round_count / event_count — exposed for verification (manual
 ## smoke test and automated GUT coverage) that the prologue encounter
 ## actually ran to a terminal state.
@@ -187,6 +202,8 @@ func _ready() -> void:
 				status_panel_view.on_round_event(event)
 			if initiative_view != null:
 				initiative_view.on_round_event(event)
+			if event_log_view != null:
+				event_log_view.on_round_event(event)
 		rounds_run += 1
 
 	outcome = encounter.get_outcome()
