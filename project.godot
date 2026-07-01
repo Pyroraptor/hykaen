@@ -11,7 +11,7 @@ config/name="Hykaen"
 config/description="A turn-based narrative CRPG set in the world of Hykaen."
 config/version="0.1.0"
 config/features=PackedStringArray("4.3", "GDScript")
-run/main_scene="res://game/main.tscn"
+run/main_scene="res://MainScene.tscn"
 config/icon="res://icon.svg"
 
 [autoload]

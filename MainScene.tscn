@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://hykaen_mainscene"]
+
+[ext_resource type="Script" path="res://MainScene.gd" id="1_mainscene"]
+
+[node name="MainScene" type="Node"]
+script = ExtResource("1_mainscene")
