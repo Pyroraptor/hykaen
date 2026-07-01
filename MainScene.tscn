@@ -1,10 +1,11 @@
-[gd_scene load_steps=6 format=3 uid="uid://hykaen_mainscene"]
+[gd_scene load_steps=7 format=3 uid="uid://hykaen_mainscene"]
 
 [ext_resource type="Script" path="res://MainScene.gd" id="1_mainscene"]
 [ext_resource type="PackedScene" path="res://presentation/hex_grid_view.tscn" id="2_hexgrid"]
 [ext_resource type="PackedScene" path="res://presentation/status_panel_view.tscn" id="3_statuspanel"]
 [ext_resource type="PackedScene" path="res://presentation/initiative_view.tscn" id="4_initiativeview"]
 [ext_resource type="PackedScene" path="res://presentation/event_log_view.tscn" id="5_eventlogview"]
+[ext_resource type="PackedScene" path="res://presentation/strike_action_control.tscn" id="6_strikeactioncontrol"]
 
 [node name="MainScene" type="Node"]
 script = ExtResource("1_mainscene")
@@ -16,3 +17,5 @@ script = ExtResource("1_mainscene")
 [node name="InitiativeView" parent="." instance=ExtResource("4_initiativeview")]
 
 [node name="EventLogView" parent="." instance=ExtResource("5_eventlogview")]
+
+[node name="StrikeActionControl" parent="." instance=ExtResource("6_strikeactioncontrol")]
