@@ -1,0 +1,111 @@
+#+TITLE: Iteration B — Basic UI, Launchable Game, and Hex Movement
+#+DATE: 2026-07-01
+#+AUTHOR: Guy Verisage
+#+TYPE: iteration-scope
+#+STATUS: OPEN
+#+SPEC: docs/hollow-world-v0-spec.org (APPROVED v0-release-2) — § Amendment log — movement (hex)
+#+BUILDS_ON: Sprint 2 / Iteration A (CR-001) — the per-round combat core + core/application ports
+
+* Objective
+
+  Make the game *launchable* with a *basic playable combat UI* on a *flat-top hex
+  grid*, and add *hex positioning + movement + positional flanking* to the combat
+  domain, per the approved v0-release-2 spec. Target: a person can run the Godot
+  project (not headless), see the prologue encounter on a hex battlefield, and
+  play a combat to a win/loss outcome by moving and attacking.
+
+* Reuse, do NOT rebuild (hard constraint)
+
+  Iteration A already delivered a hexagonal combat core. Iteration B *attaches to
+  it*; it must not re-architect it.
+  - The UI is a *presentation adapter* on the EXISTING =core/application/
+    event_sink_port.gd= + the typed =core/rules/round_events.gd= events. Subscribe
+    to those to render; do not invent a parallel event system.
+  - Reuse EXISTING =run_round_use_case=, =resolve_action_use_case=,
+    =determine_outcome_use_case=, =action_economy=, =resolution=, =rng=/=random_port=,
+    =ai.gd=. Do not fork or duplicate them.
+  - Do NOT add new architectural layers, ports, adapters, use cases, frameworks,
+    or DI machinery beyond (a) the presentation/UI layer and (b) the minimal
+    domain additions for hex positioning listed below. (See
+    =docs/tech-debt/CR-001-architecture-scope-creep.org= — that over-build is why
+    this constraint exists.)
+
+* In scope
+
+** 1. Launchable entry point
+   - A main Godot scene set as =project.godot= run/main_scene that boots into a
+     playable prologue encounter (reuse =data/encounters/prologue_encounter.tres=
+     and the existing party). Running the project in the Godot editor / =godot=
+     (windowed, not =--headless=) starts a playable combat.
+
+** 2. Basic combat UI (presentation adapter, thin)
+   - Render the flat-top hex battlefield with combatants placed on hexes.
+   - Per-combatant readout: name, HP, Stamina, *action budget remaining*, Spent
+     state, and active conditions (Off-Guard/Dazed/etc.).
+   - Initiative / turn-order display; clear indicator of whose turn it is.
+   - Event log fed by the typed round events (AttackEvent, CombatantDefeatedEvent,
+     EncounterResultEvent) via =event_sink_port=.
+   - Player input for the active combatant's *one action per turn* + free Step:
+     Strike (choose an in-reach target), Stride / Step (choose a destination hex),
+     Guard, and end-turn/pass. Enemy turns are driven by the existing =ai.gd=.
+   - Win/Loss result screen.
+
+** 3. Hex positioning & movement (domain extension — pure, testable)
+   Per spec v0-release-2 § Amendment log — movement (flat-top hexes):
+   - Add *hex coordinates* (axial/cube, flat-top) to combatant state.
+   - *Step* = 1 hex (free, no reaction); *Stride* = up to Speed (=4 hexes),
+     spending an action per the existing action economy + Movement-trait rules.
+   - *Melee reach* = adjacency (6 neighbors); a Strike requires the target within
+     reach (ranged weapons use their listed range in hexes; 1 hex = 5 ft).
+   - Hex-distance and adjacency utilities (no diagonal cost).
+   - *Flanking → Off-Guard*: when a target has your attacker and an ally on
+     *directly-opposite adjacent hexes*, it is Off-Guard (blanket, +2 to attacks
+     against it) while so positioned; integrate into attack resolution. (v0 is
+     blanket; a flankers-only tightening is a documented future balance lever, NOT
+     this iteration.)
+   - All positioning/reach/flanking logic lives in the domain layer (ADR-001, no
+     Node/Control in =core/=) and is GUT-tested. The UI only reads/derives from it.
+
+* Out of scope (deferred — complete-by-omission, not gaps for V&V)
+
+  - Animation, tweening, particles, audio/music, screen-shake, camera polish.
+  - Main menu, settings, pause, save/load, character creation / party-select UI.
+  - Multiple encounters, campaign/map flow, level transitions.
+  - Difficult terrain, elevation, cover geometry, line-of-sight blocking (Take
+    Cover stays the existing flat abstraction).
+  - Full reaction-automation UI (Opportunistic Strike on provoked movement,
+    Block/Parry/Dodge/Steel prompts) beyond what the existing reaction model
+    already supports headlessly — treat interactive reaction prompts as STRETCH.
+  - Spellcasting UI beyond a minimal "Cast" action if time permits — STRETCH.
+  - Networking / multiplayer / mod support.
+  - Any refactor of the combat core, action economy, RNG, or balance simulator.
+
+* Priorities (if capacity is exceeded, cut from the bottom)
+
+  - *P0 (must):* launchable main scene; render combat state (combatants, HP,
+    budget, turn order, event log); Strike + end-turn; win/loss screen. A playable
+    minimal loop.
+  - *P1 (should):* hex movement (Step/Stride) + reach gating + flanking Off-Guard.
+  - *P2 (could / stretch):* Guard & Take Cover UI, interactive reaction prompts,
+    minimal spell "Cast" UI.
+
+* Verification
+
+  - *Launchability:* extend the existing entry-point smoke test to headlessly boot
+    the main scene without error (scene loads, autoloads resolve, first frame
+    processes). Interactive UI cannot be fully headless-tested — the *domain*
+    positioning/reach/flanking logic carries the automated coverage.
+  - *GUT gate green* (the wired =test_command= = pytest + =godot --gut-run-all=):
+    new unit tests for hex distance/adjacency, Step/Stride within budget, reach
+    gating, and flanking→Off-Guard.
+  - *Determinism preserved:* adding positions must not break the seed-reproducible
+    encounter/determinism tests; if the simulator gains positions, keep it
+    deterministic and the N=1000 balance run passing (do not tune balance).
+  - *No regressions:* all existing GUT tests remain green.
+
+* Guardrails recap (V&V + implementation, read this)
+
+  Conformance is measured against THIS document + the v0-release-2 spec. Building
+  new architecture, re-plumbing the core, or adding out-of-scope features is a
+  *scope violation*, not a gap. Keep the UI thin, the domain testable, and reuse
+  Iteration A's ports.
