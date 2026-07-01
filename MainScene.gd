@@ -27,6 +27,11 @@ extends Node
 ##      party (reused from titus.tres via prologue_encounter.tres, per
 ##      US-004) against the prologue enemy to a terminal outcome, republishing
 ##      every round event through the event-sink adapter above.
+##   5. HexGridView (presentation/hex_grid_view.gd, instanced as this node's
+##      "HexGridView" child in MainScene.tscn) is handed the SAME
+##      hex-positioned Combatant list from step 1 via load_combatants(), so a
+##      person running the project (not headless) sees the flat-top hex
+##      battlefield with all combatants placed on load (US-005).
 ##
 ## No new ports or use cases are introduced here (ADR-002 / CR-001 guardrail)
 ## — this file only constructs adapters around the pre-existing ports/use
@@ -86,6 +91,13 @@ var event_sink
 ## booted prologue fight.
 var encounter
 
+## hex_grid_view — the HexGridView (presentation/hex_grid_view.gd) instanced
+## in MainScene.tscn (FEAT-007 / US-005). Populated with one
+## CombatantTokenView per combatant loaded from the prologue encounter so a
+## person running the project (not headless) sees the hex battlefield with
+## all combatants at boot.
+@onready var hex_grid_view = $HexGridView
+
 ## outcome / round_count / event_count — exposed for verification (manual
 ## smoke test and automated GUT coverage) that the prologue encounter
 ## actually ran to a terminal state.
@@ -97,6 +109,9 @@ var event_count: int = 0
 func _ready() -> void:
 	encounter_repository = ResourceEncounterRepositoryClass.new()
 	var hex_combatants: Array = encounter_repository.load_combatants(PROLOGUE_ENCOUNTER_PATH)
+
+	if hex_grid_view != null:
+		hex_grid_view.load_combatants(hex_combatants)
 
 	var encounter_resource = ResourceLoader.load(PROLOGUE_ENCOUNTER_PATH)
 	if encounter_resource == null:

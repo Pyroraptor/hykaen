@@ -1,6 +1,9 @@
-[gd_scene load_steps=2 format=3 uid="uid://hykaen_mainscene"]
+[gd_scene load_steps=3 format=3 uid="uid://hykaen_mainscene"]
 
 [ext_resource type="Script" path="res://MainScene.gd" id="1_mainscene"]
+[ext_resource type="PackedScene" path="res://presentation/hex_grid_view.tscn" id="2_hexgrid"]
 
 [node name="MainScene" type="Node"]
 script = ExtResource("1_mainscene")
+
+[node name="HexGridView" parent="." instance=ExtResource("2_hexgrid")]
