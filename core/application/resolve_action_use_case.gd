@@ -63,6 +63,19 @@ class_name ResolveActionUseCase
 extends RefCounted
 
 const RoundEventsClass = preload("res://core/rules/round_events.gd")
+const HexMathClass     = preload("res://core/geometry/hex_math.gd")
+
+## Action names that are melee attacks and therefore subject to the
+## hex_neighbors-based reach precondition (FEAT-003 / US-003). Only "Strike"
+## exists as a melee action in the current ruleset; declared as a Set-like
+## Array constant so future melee action names can be added in one place.
+const _MELEE_ACTION_NAMES: Array = ["Strike"]
+
+## Typed error code returned in ActionResult.error when a melee action is
+## attempted against a target that is not one of the actor's 6 flat-top
+## axial neighbors (core/geometry/hex_math.gd HexMath.hex_neighbors()). See
+## api_contracts (resolve_action_use_case.execute precondition, US-003).
+const ERR_TARGET_NOT_ADJACENT: String = "ERR_TARGET_NOT_ADJACENT"
 
 var _random_number_port      ## RandomNumberPort — injected; never instantiated here (NFR-003)
 var _event_sink_port         ## EventSinkPort — injected
@@ -84,9 +97,13 @@ func _init(random_number_port, event_sink_port, round_history_port) -> void:
 ##         cycle_index) -> Dictionary
 ##
 ## combatant       — the acting combatant Dictionary (name, weapon, ...).
+##                    MAY carry a "hex_coord" key (a core/geometry/hex_coord.gd
+##                    HexCoord instance) — see the reach precondition below.
 ## action_economy  — the combatant's ActionEconomy instance for this round
 ##                    (CR-001 AC-1/AC-2/AC-3 shared budget owner).
 ## target          — the target combatant Dictionary (name, ac, hp_current).
+##                    MAY carry a "hex_coord" key — see the reach precondition
+##                    below.
 ## action_name     — String describing the action spent (e.g. "Strike");
 ##                    passed through to ActionEconomy.spend_action() metadata
 ##                    and recorded verbatim in the RoundHistoryEntry.
@@ -95,15 +112,31 @@ func _init(random_number_port, event_sink_port, round_history_port) -> void:
 ## cycle_index     — the AC-4 interleave cycle pass this action occurred in
 ##                    (0-based), stamped on the RoundHistoryEntry.
 ##
+## Reach precondition (FEAT-003 / US-003, api_contracts
+## resolve_action_use_case.execute): when action_name is a melee action (
+## "Strike") AND both combatant and target carry "hex_coord" data, the
+## target must be one of combatant.hex_coord's 6 flat-top axial neighbors
+## (core/geometry/hex_math.gd HexMath.hex_neighbors()) or the action is
+## rejected BEFORE any action-budget spend — see ERR_TARGET_NOT_ADJACENT
+## below. When either side lacks hex_coord data (pre-existing callers that
+## do not yet populate it), this precondition is a no-op — preserving the
+## pre-FEAT-003 contract exactly.
+##
 ## Returns a Dictionary:
-##   {resolved: false}
+##   {resolved: false, ok: false, error: ERR_TARGET_NOT_ADJACENT}
+##     — melee Strike rejected: target is not adjacent to combatant. No
+##       action-budget spend, no damage applied, no events emitted, no
+##       history recorded.
+##   {resolved: false, ok: false}
 ##     — ActionEconomy.spend_action() failed (ALREADY_SPENT contract
 ##       violation); no damage applied, no events emitted, no history
 ##       recorded. The caller must skip this combatant for the cycle.
-##   {resolved: true, target_defeated: bool, damage_final: int}
+##   {resolved: true, ok: true, event: RoundEvents.AttackEvent,
+##    target_defeated: bool, damage_final: int}
 ##     — the action was spent and the Strike resolved (hit or miss);
 ##       target_defeated is true iff target.hp_current transitioned to <= 0
-##       as a result of this resolution.
+##       as a result of this resolution. "event" carries the same
+##       AttackEvent instance emitted via EventSinkPort.
 func resolve(
 	combatant: Dictionary,
 	action_economy,
@@ -112,9 +145,13 @@ func resolve(
 	round_number: int,
 	cycle_index: int
 ) -> Dictionary:
+	if _is_melee_action(action_name) and _requires_reach_check(combatant, target):
+		if not _is_adjacent(combatant, target):
+			return {"resolved": false, "ok": false, "error": ERR_TARGET_NOT_ADJACENT}
+
 	var spend_result: Dictionary = action_economy.spend_action({"name": action_name, "traits": []})
 	if not spend_result.get("success", false):
-		return {"resolved": false}
+		return {"resolved": false, "ok": false}
 
 	var weapon: Dictionary = combatant.get("weapon", {})
 	var strike_result: Dictionary = _resolve_strike(combatant, target, weapon)
@@ -165,9 +202,40 @@ func resolve(
 
 	return {
 		"resolved":        true,
+		"ok":              true,
+		"event":           attack_event,
 		"target_defeated": target_defeated,
 		"damage_final":    damage
 	}
+
+
+## _is_melee_action(action_name) -> bool — true when action_name names a
+## melee action subject to the reach precondition (FEAT-003 / US-003).
+func _is_melee_action(action_name: String) -> bool:
+	return _MELEE_ACTION_NAMES.has(action_name)
+
+
+## _requires_reach_check(combatant, target) -> bool — the reach precondition
+## only applies when BOTH Dictionaries carry positional "hex_coord" data
+## (a core/geometry/hex_coord.gd HexCoord instance). Pre-existing callers
+## (e.g. core/combat/encounter.gd) do not yet populate hex_coord on their
+## combatant Dictionaries; for those, this use case remains a no-op on reach
+## — preserving the pre-FEAT-003 contract exactly (backward compatibility).
+func _requires_reach_check(combatant: Dictionary, target: Dictionary) -> bool:
+	return combatant.get("hex_coord", null) != null and target.get("hex_coord", null) != null
+
+
+## _is_adjacent(combatant, target) -> bool — true iff target.hex_coord is one
+## of the 6 flat-top axial neighbors of combatant.hex_coord
+## (core/geometry/hex_math.gd HexMath.hex_neighbors(), US-002/US-003). No
+## diagonal-cost concept exists on a hex grid — all 6 neighbors are equally
+## valid melee-reach hexes.
+func _is_adjacent(combatant: Dictionary, target: Dictionary) -> bool:
+	var neighbors: Array = HexMathClass.hex_neighbors(combatant["hex_coord"])
+	for neighbor in neighbors:
+		if neighbor.equals(target["hex_coord"]):
+			return true
+	return false
 
 
 ## _resolve_strike(attacker, target, weapon) -> Dictionary — internal helper:
