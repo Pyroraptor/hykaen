@@ -1,5 +1,5 @@
 ## core/application/run_round_use_case.gd — RunRoundUseCase
-## (FEAT-098 / US-003/US-004/US-005, CR-001 AC-4)
+## (FEAT-098 / US-003/US-004/US-005, CR-001 AC-4; FEAT-110 / US-010, ADR-007)
 ##
 ## Application layer (Clean Architecture): implements the AC-4 interleaved
 ## cycle algorithm extracted out of core/combat/encounter.gd's run_round().
@@ -7,6 +7,21 @@
 ## injected ports (TurnOrderPort, EventSinkPort, RoundHistoryPort,
 ## AIDecisionPort) and the sibling use cases ResolveActionUseCase /
 ## DetermineOutcomeUseCase, never on a concrete adapter/infrastructure class.
+##
+## FEAT-110 / ADR-007 amendment: the AC-4 cycle state that used to live
+## entirely as local variables inside execute()'s while-loop is now a
+## first-class RoundSession (core/application/round_session.gd), obtained
+## via begin_round(). execute() is re-expressed on top of
+## begin_round()+RoundSession.run_autonomous_to_completion()+finish() —
+## behavior-preserving relative to the pre-FEAT-110 inline implementation
+## (see tests/test_run_round_use_case.gd, unchanged and still green). The
+## SAME RoundSession also exposes the interactive stepwise API
+## (current_actor/advance_ai_turn/end_current_turn/is_round_over) that
+## Presentation (presentation/turn_controller.gd, presentation/
+## end_turn_control.gd) drives one turn at a time (US-010/US-011) — the
+## interleaved-cycle algorithm therefore exists in exactly ONE place
+## (RoundSession), not duplicated between the batch sim and the interactive
+## path.
 ##
 ## Algorithm (carries forward the FIX-001-corrected cycle algorithm,
 ## byte-for-byte behavior-preserving relative to the pre-extraction
@@ -51,6 +66,8 @@
 
 class_name RunRoundUseCase
 extends RefCounted
+
+const RoundSessionClass = preload("res://core/application/round_session.gd")
 
 var _turn_order_port             ## TurnOrderPort — injected
 var _event_sink_port             ## EventSinkPort — injected
@@ -124,120 +141,39 @@ func execute(round_number: int, party: Array, enemies: Array) -> Dictionary:
 			"encounter_outcome": upfront_outcome
 		}
 
-	# ── Step 1: grant the fresh per-round budget to every combatant (AC-2) ─
+	# ── FEAT-110/ADR-007: the cycle algorithm now lives entirely on
+	# RoundSession — begin_round() grants the fresh per-round budget (AC-2)
+	# and snapshots turn order, run_autonomous_to_completion() replays the
+	# AC-4 interleaved cycle (auto-selecting a target for every combatant,
+	# matching this method's pre-FEAT-110 inline behavior byte-for-byte),
+	# and finish() produces the identical RoundResult tail (end_of_round()
+	# on every combatant + the round-scoped history slice). ────────────────
+	var session: RoundSessionClass = begin_round(round_number, party, enemies)
+	session.run_autonomous_to_completion()
+	return session.finish()
+
+
+## begin_round(round_number, party, enemies) -> RoundSession [FEAT-110 / ADR-007]
+##
+## Grants each combatant's start-of-round ActionEconomy budget (AC-2) and
+## snapshots the turn order via TurnOrderPort, returning a RoundSession
+## positioned at the first living, un-Spent combatant. Runs NO turns itself
+## — the caller (execute()'s autonomous batch loop, or Presentation's
+## turn_controller.gd for the interactive path) drives the returned session.
+func begin_round(round_number: int, party: Array, enemies: Array) -> RoundSessionClass:
+	var entries: Array = _turn_order_port.get_turn_order()
+
 	for entry in entries:
 		entry["action_economy"].start_of_round()
 
-	# ── Step 2: cycle through entries until Spent-out or outcome decided ───
-	var decided_outcome: String = ""
-	var cycle_index: int = 0
-	var force_draw_no_progress: bool = false
-
-	while decided_outcome == "" and _has_living_unspent(entries):
-		var any_action_resolved_this_cycle: bool = false
-
-		for entry in entries:
-			if decided_outcome != "":
-				break
-
-			var combatant: Dictionary = entry["combatant"]
-			var action_economy = entry["action_economy"]
-
-			# Dead combatants are skipped — no cycle slot consumed (AC-4)
-			if combatant.get("hp_current", 0) <= 0:
-				continue
-
-			# Spent combatants are skipped — no cycle slot consumed (AC-4)
-			if action_economy.is_spent():
-				continue
-
-			# Per-TURN flag reset only — documented no-op on budget/is_spent
-			# when called repeatedly within the same round (AC-1/AC-4).
-			action_economy.start_of_turn()
-
-			var is_enemy: bool = combatant.get("_is_enemy", false)
-			var target_pool: Array = party if is_enemy else enemies
-
-			var target: Dictionary = {}
-			var action_name: String = ""
-
-			if is_enemy:
-				var ai_decision: Dictionary = _ai_decision_port.decide_action(combatant, target_pool)
-				action_name = ai_decision.get("action_type", "")
-				target      = ai_decision.get("target", {})
-			else:
-				for t in target_pool:
-					if t.get("hp_current", 0) > 0:
-						target = t
-						break
-				if not target.is_empty():
-					action_name = "Strike"
-
-			# No living target found — skip this combatant for the cycle
-			# (defensive guard; normally unreachable since a fully-dead
-			# opposing side already decided the outcome above).
-			if action_name == "" or target.is_empty():
-				continue
-
-			var resolve_result: Dictionary = _resolve_action_use_case.resolve(
-				combatant, action_economy, target, action_name, round_number, cycle_index
-			)
-
-			# A failed spend (ALREADY_SPENT — a contract violation since
-			# is_spent() was already checked above) skips this combatant;
-			# the cycle CONTINUES rather than aborting/crashing.
-			if not resolve_result.get("resolved", false):
-				continue
-
-			any_action_resolved_this_cycle = true
-
-			var outcome_check: String = _determine_outcome_use_case.classify(party, enemies)
-			if outcome_check == "won" or outcome_check == "lost":
-				decided_outcome = outcome_check
-				_event_sink_port.emit(_determine_outcome_use_case.build_event(round_number, decided_outcome))
-				break
-
-		# ── Backstop (CWE-835/FIND-095): a full cycle pass that resolved
-		# ZERO actions means every still-unspent living combatant found no
-		# usable action/target this pass — break safely with a DRAW rather
-		# than looping forever. Does NOT mutate the overall encounter
-		# outcome. ───────────────────────────────────────────────────────
-		if decided_outcome == "" and not any_action_resolved_this_cycle:
-			push_warning("run_round: a full cycle resolved zero actions; forcing a safe DRAW to prevent an unbounded loop")
-			force_draw_no_progress = true
-			break
-
-		cycle_index += 1
-
-	# ── End of round — reset every combatant's ActionEconomy ───────────────
-	for entry in entries:
-		entry["action_economy"].end_of_round()
-
-	var this_round_history: Array = []
-	for hist_entry in _round_history_port.get_history():
-		if hist_entry.get("round", -1) == round_number:
-			this_round_history.append(hist_entry)
-
-	var result_outcome: String = "DRAW" if force_draw_no_progress else decided_outcome
-	var encounter_outcome: String = "" if force_draw_no_progress else decided_outcome
-
-	return {
-		"round_number":      round_number,
-		"outcome":           result_outcome,
-		"history":           this_round_history,
-		"encounter_outcome": encounter_outcome
-	}
-
-
-## _has_living_unspent(entries) -> bool — true if at least one living
-## combatant in `entries` has not yet reached is_spent()==true. Used to
-## determine when to stop cycling (every living combatant Spent) without
-## relying on a fixed iteration count.
-func _has_living_unspent(entries: Array) -> bool:
-	for entry in entries:
-		var combatant: Dictionary = entry["combatant"]
-		if combatant.get("hp_current", 0) <= 0:
-			continue
-		if not entry["action_economy"].is_spent():
-			return true
-	return false
+	return RoundSessionClass.new(
+		entries,
+		party,
+		enemies,
+		round_number,
+		_resolve_action_use_case,
+		_determine_outcome_use_case,
+		_ai_decision_port,
+		_event_sink_port,
+		_round_history_port
+	)

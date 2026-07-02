@@ -14,13 +14,14 @@ Verifies:
      US-003) — as well as the full project-wide GUT suite for regression
      safety.
   3. `tests/.gutconfig.json` is valid JSON and is configured to collect
-     exactly the domain suites under tests/unit/core (test_hex_coord.gd,
-     test_hex_math.gd, test_combatant_hex_init.gd,
-     test_resolve_action_reach.gd), with should_exit true so the exit
-     code is forwarded correctly in CI/headless runs.
+     exactly the domain/application suites under tests/unit/core
+     (test_hex_coord.gd, test_hex_math.gd, test_combatant_hex_init.gd,
+     test_resolve_action_reach.gd, test_round_session.gd [FEAT-110]), with
+     should_exit true so the exit code is forwarded correctly in CI/headless
+     runs.
   4. Actually running `godot --headless -- -gconfig=res://tests/.gutconfig.json
      --gut-run-all` (skipped if no `godot` binary is on PATH) passes and
-     reports all four consolidated domain test files.
+     reports all five consolidated domain test files.
   5. Running the full `test_command` script end-to-end (skipped if no
      `godot` binary is on PATH) exits 0.
 
@@ -162,6 +163,17 @@ class TestConsolidatedGutConfig:
 # consolidated suite via GUT's own CLI entry point (-s addons/gut/gut_cmdln.gd
 # -gconfig=...), which DOES honor -gconfig, so this stage is a genuinely
 # scoped/fast gate rather than a duplicate of stage 4.
+#
+# FEAT-110 note: tests/unit/core/application/test_round_session.gd (US-010's
+# RoundSession stepwise-API unit suite) was deliberately added alongside the
+# pre-existing test_resolve_action_reach.gd in this same directory -- both
+# unit-test Application-layer collaborators (ResolveActionUseCase /
+# RunRoundUseCase) that happen to live under tests/unit/core/ by established
+# project convention. The consolidated domain suite therefore now legitimately
+# collects 5 scripts, not 4; the assertions below were updated accordingly so
+# this guard still catches the ORIGINAL regression it targets (a silent
+# fallback to running the whole ~46-script project suite) without falsely
+# flagging the expected, intentional growth from 4 to 5 scripts.
 
 def _extract_domain_suite_command(test_command_text: str) -> str:
     for line in test_command_text.splitlines():
@@ -194,7 +206,7 @@ class TestConsolidatedDomainSuiteReallyPasses:
             f"Consolidated GUT domain suite must exit 0. Output:\n{output}"
         )
 
-    def test_all_four_domain_suites_reported(self, repo_root, test_command_text):
+    def test_all_domain_suites_reported(self, repo_root, test_command_text):
         result = self._run(repo_root, test_command_text)
         output = result.stdout + result.stderr
         for expected in (
@@ -202,6 +214,7 @@ class TestConsolidatedDomainSuiteReallyPasses:
             "test_hex_math",
             "test_combatant_hex_init",
             "test_resolve_action_reach",
+            "test_round_session",
         ):
             assert expected in output, (
                 f"Consolidated GUT run output must mention {expected}.gd"
@@ -211,19 +224,20 @@ class TestConsolidatedDomainSuiteReallyPasses:
         self, repo_root, test_command_text
     ):
         """US-014's consolidated domain suite must actually be SCOPED to the
-        4 domain test scripts, not silently fall back to running the whole
-        project's ~46 GUT scripts. This guards against the -gconfig-ignored
-        regression described above."""
+        domain/application test scripts under tests/unit/core (5, as of
+        FEAT-110 -- see the module-level note above), not silently fall back
+        to running the whole project's ~46 GUT scripts. This guards against
+        the -gconfig-ignored regression described above."""
         result = self._run(repo_root, test_command_text)
         output = result.stdout + result.stderr
         match = re.search(r"Scripts\s+(\d+)", output)
         assert match, f"Could not find a 'Scripts  N' summary line. Output:\n{output}"
         scripts_run = int(match.group(1))
-        assert scripts_run == 4, (
-            "The consolidated domain GUT suite stage must run exactly the 4 "
-            f"domain test scripts, but ran {scripts_run}. This means "
-            "test_command's stage 3 is not actually scoped via "
-            f"tests/.gutconfig.json.\nOutput:\n{output}"
+        assert scripts_run == 5, (
+            "The consolidated domain GUT suite stage must run exactly the 5 "
+            f"domain/application test scripts under tests/unit/core, but ran "
+            f"{scripts_run}. This means test_command's stage 3 is not "
+            f"actually scoped via tests/.gutconfig.json.\nOutput:\n{output}"
         )
         # An unrelated, non-domain test (present in the full project suite)
         # must NOT be collected by this stage.

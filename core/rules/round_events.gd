@@ -7,7 +7,7 @@
 ## observability surface (AC-4 round interleaving, AC-5 budget audit
 ## trail) typed instead of free-form Dictionaries.
 ##
-## Declares four value objects, all nested under the RoundEvents
+## Declares five value objects, all nested under the RoundEvents
 ## namespace class so a single preload exposes the whole group:
 ##
 ##   RoundEvents.AttackEvent
@@ -29,7 +29,18 @@
 ##     — one entry per resolved action/reaction (US-005); cycle_index
 ##       records which AC-4 interleave cycle the entry occurred in.
 ##
-## All four classes expose their fields directly (for property-style
+##   RoundEvents.TurnAdvancedEvent (FEAT-110 / US-010, ADR-007)
+##     round, active_combatant_name, active_combatant_id
+##     — emitted by core/application/round_session.gd's RoundSession every
+##       time the turn cursor moves to a new living, un-Spent combatant
+##       (end_current_turn() / advance_ai_turn()), so InitiativeView's
+##       active-combatant highlight can advance through the SAME
+##       EventSinkPort pipeline every other round event already uses
+##       (ADR-003). active_combatant_id may be "" when the underlying
+##       combatant Dictionary carries no stable combatant_id at this layer
+##       (InitiativeView falls back to resolving by active_combatant_name).
+##
+## All five classes expose their fields directly (for property-style
 ## inspection/equality in tests) AND a to_dict() method (for Dictionary-
 ## style assertions and easy serialization/logging).
 ##
@@ -168,4 +179,28 @@ class RoundHistoryEntry:
 			"combatant_id":     combatant_id,
 			"action_type":      action_type,
 			"budget_remaining": budget_remaining,
+		}
+
+
+## TurnAdvancedEvent — value object emitted when the active-turn cursor moves
+## to a new living, un-Spent combatant (FEAT-110 / US-010, ADR-007). See
+## file-level doc above for the active_combatant_id fallback contract.
+class TurnAdvancedEvent:
+	extends RefCounted
+
+	var round: int
+	var active_combatant_name: String
+	var active_combatant_id: String
+
+	func _init(p_round: int = 0, p_active_combatant_name: String = "", p_active_combatant_id: String = "") -> void:
+		round                 = p_round
+		active_combatant_name = p_active_combatant_name
+		active_combatant_id   = p_active_combatant_id
+
+	## to_dict() → Dictionary — snapshot of all fields, for assertions/logging.
+	func to_dict() -> Dictionary:
+		return {
+			"round":                  round,
+			"active_combatant_name":  active_combatant_name,
+			"active_combatant_id":    active_combatant_id,
 		}
