@@ -114,6 +114,7 @@ const DetermineOutcomeUseCaseClass     = preload("res://core/application/determi
 const RunRoundUseCaseClass             = preload("res://core/application/run_round_use_case.gd")
 const AIClass                          = preload("res://core/combat/ai.gd")
 const StrikeInputControllerClass       = preload("res://scenes/battlefield/StrikeInputController.gd")
+const EndTurnControllerClass           = preload("res://scenes/battlefield/EndTurnController.gd")
 
 ## The steel-thread's entry_point: the one encounter this composition root boots into.
 const PROLOGUE_ENCOUNTER_PATH: String = "res://data/encounters/prologue_encounter.tres"
@@ -337,6 +338,19 @@ var outcome: String = ""
 ## Strike this control forwards.
 var strike_input_controller = StrikeInputControllerClass.new()
 
+## end_turn_controller — the EndTurnController (scenes/battlefield/
+## EndTurnController.gd) instantiated directly (FEAT-008 / US-008 -- no
+## companion .tscn, mirroring strike_input_controller's own
+## code-only-instantiation convention above). Configured once with the live
+## round_session (round_session's identity is stable for the single round
+## this composition root drives, ADR-007), it is the round-advancement path
+## a player-facing "pass"/"end turn" affordance forwards to. Its turn_ended
+## signal is wired to the SAME _on_end_turn_control_turn_ended handler
+## $EndTurnControl already uses (below), so either input path re-invokes
+## TurnController.set_session() to auto-drive any consecutive Enemy turn(s)
+## before yielding back to the player (US-011) -- no duplicated wiring.
+var end_turn_controller = EndTurnControllerClass.new()
+
 ## turn_controller — the TurnController (presentation/turn_controller.gd)
 ## instanced in MainScene.tscn (FEAT-110/111, US-010/US-011). Handed the
 ## live round_session by this composition root (FEAT-123).
@@ -438,6 +452,13 @@ func _ready() -> void:
 
 	round_session = run_round_use_case.begin_round(ROUND_NUMBER, _party, _enemies)
 
+	# ── FEAT-008 / US-008: bind the new EndTurnController to the SAME live
+	# round_session -- the round-advancement path a "pass"/"end turn" input
+	# forwards to (ADR-007: reuses run_round_use_case's RoundSession, no
+	# duplicate turn-sequencing path). ──────────────────────────────────────
+	end_turn_controller.configure(round_session)
+	end_turn_controller.turn_ended.connect(_on_end_turn_control_turn_ended)
+
 	if result_screen_view != null:
 		result_screen_view.configure(strike_action_control, end_turn_control)
 
@@ -537,16 +558,17 @@ func _on_round_over() -> void:
 	strike_input_controller.configure({}, null, null, [])
 
 
-## _on_end_turn_control_turn_ended(_result) -> void — $EndTurnControl's own
-## press() forwards directly to RoundSession.end_current_turn() (US-010) and
-## emits this signal with that call's result. This composition root reacts
-## by re-invoking TurnController.set_session() with the SAME RoundSession
-## (documented safe to call repeatedly) so any consecutive Enemy turn(s) the
-## cursor now sits on are auto-driven via RoundSession.advance_ai_turn()
-## before yielding back to the player (US-011) — the single, non-duplicated
-## entry point for "player pressed End Turn -> AI turns resolve" (FEAT-123 /
-## FIND-120), without introducing any new public API on either control
-## (ADR-002/CR-001 guardrail).
+## _on_end_turn_control_turn_ended(_result) -> void — either $EndTurnControl's
+## own press() OR end_turn_controller's press() (FEAT-008 / US-008 — both
+## forward directly to the SAME RoundSession.end_current_turn(), US-010) emit
+## this signal (connected to both, above) with that call's result. This
+## composition root reacts by re-invoking TurnController.set_session() with
+## the SAME RoundSession (documented safe to call repeatedly) so any
+## consecutive Enemy turn(s) the cursor now sits on are auto-driven via
+## RoundSession.advance_ai_turn() before yielding back to the player
+## (US-011) — the single, non-duplicated entry point for "player passes ->
+## AI turns resolve" (FEAT-123 / FIND-120), without introducing any new
+## public API on either control (ADR-002/CR-001 guardrail).
 func _on_end_turn_control_turn_ended(_result: Dictionary) -> void:
 	if turn_controller == null or round_session == null:
 		return

@@ -252,3 +252,24 @@ func get_combatant_count() -> int:
 func on_round_event(event) -> void:
 	for readout in _readouts.values():
 		readout.on_round_event(event)
+
+
+## _turn_order_widget — this widget's nested TurnOrderWidget child
+## (scenes/battlefield/TurnOrderWidget.gd, FEAT-006), instanced as
+## "TurnOrderWidget" in HexBattlefield.tscn. Resolved defensively
+## (get_node_or_null) so a HexBattlefield instantiated without that scene
+## structure (e.g. a bare .new(), never used in practice by this codebase's
+## own tests/composition root, both of which always go through
+## HexBattlefield.tscn) never errors -- it simply has no turn-order widget to
+## expose.
+@onready var _turn_order_widget = get_node_or_null("TurnOrderWidget")
+
+
+## get_turn_order_widget() → TurnOrderWidget or null — exposes this widget's
+## nested TurnOrderWidget child (FEAT-008) so a caller (e.g. the composition
+## root, MainScene.gd) can obtain it through HexBattlefield's own API instead
+## of a hardcoded `$HexBattlefield/TurnOrderWidget` node-path lookup --
+## reusing this widget's already-instanced child rather than requiring a
+## second, independently-resolved reference to the same node.
+func get_turn_order_widget():
+	return _turn_order_widget
