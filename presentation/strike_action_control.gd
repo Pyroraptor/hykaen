@@ -33,6 +33,20 @@
 ## rules -- it only (a) filters using the domain adjacency function for UX
 ## and (b) forwards the player's choice to the existing use case. No new
 ## port or use case is introduced (ADR-002 / CR-001 guardrail).
+##
+## FEAT-137 / DEF-004 (US-010): lock()/is_locked() add a persistent, sticky
+## post-resolution guard -- once presentation/result_screen_view.gd observes
+## an EncounterResultEvent it calls lock() here, after which select_target()
+## and is_target_selectable() always report rejected/false and every
+## selectable-target button is cleared, regardless of any later configure()
+## call. This mirrors scenes/battlefield/StrikeInputController.gd's
+## lock()/is_locked() contract exactly and is deliberately independent of (and
+## stickier than) the one-time configure({}, null, null, [])-clear technique
+## this file used to rely on -- that technique re-enabled input the moment
+## anything called configure() again (e.g. a stray reconfigure() from a
+## leftover TurnController signal) after the encounter had already concluded.
+## There is no unlock() -- this steel thread never continues a round past
+## resolution.
 
 class_name StrikeActionControl
 extends Control
@@ -42,6 +56,11 @@ const HexMathClass = preload("res://core/geometry/hex_math.gd")
 ## Action name this control always spends -- the one melee action that
 ## exists in the current ruleset (US-009's "Strike" steel-thread action).
 const ACTION_NAME: String = "Strike"
+
+## FEAT-137 / DEF-004: local/defensive rejection code returned by
+## select_target() once lock() has been called -- mirrors
+## scenes/battlefield/StrikeInputController.gd's identically-named contract.
+const ERR_ENCOUNTER_ALREADY_RESOLVED: String = "ENCOUNTER_ALREADY_RESOLVED"
 
 ## strike_resolved(result) -- emitted after select_target() invokes
 ## resolve_action_use_case.resolve(), carrying that call's full result
@@ -73,7 +92,29 @@ var _selectable_targets: Array = []
 ## target_id (String) -> Button, one per currently selectable target.
 var _buttons: Dictionary = {}
 
+## FEAT-137 / DEF-004: true once lock() has been called -- sticky across any
+## later configure() call (see file-level doc). select_target()/
+## is_target_selectable() always report rejected/false while true.
+var _locked: bool = false
+
 @onready var _targets_container: VBoxContainer = $TargetsContainer
+
+
+## lock() -> void -- permanently locks this control (FEAT-137 / DEF-004):
+## every subsequent select_target() call is rejected with
+## ERR_ENCOUNTER_ALREADY_RESOLVED, is_target_selectable() always reports
+## false, and every rendered selectable-target button is cleared -- all
+## regardless of any later configure() call. Intended to be called exactly
+## once, by presentation/result_screen_view.gd, the moment an
+## EncounterResultEvent is observed. There is no unlock().
+func lock() -> void:
+	_locked = true
+	_rebuild_targets([])
+
+
+## is_locked() -> bool -- true once lock() has been called.
+func is_locked() -> bool:
+	return _locked
 
 
 ## configure(actor, action_economy, resolve_action_use_case,
@@ -105,7 +146,10 @@ func configure(
 	_resolve_action_use_case = resolve_action_use_case
 	_round_number = round_number
 	_cycle_index = cycle_index
-	_rebuild_targets(candidate_targets)
+	# FEAT-137 / DEF-004: once lock() has been called, no later configure()
+	# call may repopulate selectable targets/buttons -- the lock is sticky
+	# across a stray reconfigure() (see file-level doc).
+	_rebuild_targets([] if _locked else candidate_targets)
 
 
 ## get_selectable_target_ids() -> Array[String] -- the target_id (see
@@ -122,6 +166,8 @@ func get_selectable_target_ids() -> Array:
 ## is_target_selectable(target_id) -> bool -- true iff target_id names one
 ## of the currently in-reach targets.
 func is_target_selectable(target_id: String) -> bool:
+	if _locked:
+		return false
 	return _find_selectable_target(target_id) != null
 
 
@@ -143,7 +189,15 @@ func get_button_count() -> int:
 ## button -- this is rejected HERE, before ever reaching the use case: no
 ## action-budget spend, no event emission, no use-case call at all.
 ## Returns {"ok": false, "resolved": false, "error": "ERR_TARGET_NOT_SELECTABLE"}.
+##
+## FEAT-137 / DEF-004: once lock() has been called, select_target() is
+## rejected HERE FIRST, before any other check, returning {"ok": false,
+## "resolved": false, "error": ERR_ENCOUNTER_ALREADY_RESOLVED} -- sticky
+## regardless of any later configure() call.
 func select_target(target_id: String) -> Dictionary:
+	if _locked:
+		return {"ok": false, "resolved": false, "error": ERR_ENCOUNTER_ALREADY_RESOLVED}
+
 	var target = _find_selectable_target(target_id)
 	if target == null:
 		return {"ok": false, "resolved": false, "error": "ERR_TARGET_NOT_SELECTABLE"}

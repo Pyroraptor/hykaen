@@ -24,19 +24,25 @@
 ## matching every other Presentation projection's "unfamiliar event shape is a
 ## silent no-op" convention).
 ##
-## Disabling combat input controls (US-012) reuses each control's EXISTING
-## public API — no new method is added to either control (ADR-002/CR-001: no
-## duplicate/parallel disable surface):
-##   StrikeActionControl (presentation/strike_action_control.gd) —
-##     configure({}, null, null, []) clears the acting combatant/candidate
-##     targets, which rebuilds zero selectable-target buttons — the SAME
-##     technique presentation/turn_controller.gd already uses to disable it
-##     between turns (US-011).
-##   EndTurnControl (presentation/end_turn_control.gd) — configure(null)
-##     clears the injected RoundSession; is_enabled() derives false whenever
-##     no RoundSession is configured (its pre-existing, documented contract).
-## Both controls are OPTIONAL (configure() accepts either/both as null) so
-## this view can be unit-tested in isolation from either control.
+## Disabling combat input controls (US-012, hardened by FEAT-137 / DEF-004)
+## reuses each control's EXISTING lock() API — no new method is added to
+## either control (ADR-002/CR-001: no duplicate/parallel disable surface):
+##   StrikeActionControl (presentation/strike_action_control.gd) — lock()
+##     clears every selectable-target button (the same visible effect the
+##     prior one-time configure({}, null, null, [])-clear had) AND
+##     permanently rejects select_target()/is_target_selectable() from that
+##     point on.
+##   EndTurnControl (presentation/end_turn_control.gd) — lock() permanently
+##     rejects press() and reports is_enabled() == false from that point on.
+## Unlike the prior one-time configure()-clear technique, lock() is a
+## PERSISTENT, sticky guard: it survives any later configure() call on
+## either control (e.g. a stray reconfigure() from a leftover
+## TurnController signal) after the encounter has already concluded --
+## defense in depth, mirroring the error_handling design note's
+## "ENCOUNTER_ALREADY_RESOLVED is a defensive domain-level guard behind
+## [the UI guard], in case the UI guard is bypassed". Both controls are
+## OPTIONAL (configure() accepts either/both as null) so this view can be
+## unit-tested in isolation from either control.
 ##
 ## ResultScreenView MUST NOT call into either of the two Application-layer
 ## use cases that mutate combat state (the action-resolution use case or the
@@ -166,14 +172,16 @@ func _text_for_outcome(outcome: String) -> String:
 			return ""
 
 
-## _disable_combat_controls() -> void — disables the injected
-## StrikeActionControl/EndTurnControl via their EXISTING public APIs (see
+## _disable_combat_controls() -> void — permanently locks the injected
+## StrikeActionControl/EndTurnControl via their EXISTING lock() APIs (see
 ## file-level doc — no new method added to either control, ADR-002/CR-001).
+## FEAT-137 / DEF-004: lock() is persistent/sticky, unlike the one-time
+## configure()-clear this method used to perform.
 func _disable_combat_controls() -> void:
 	if _strike_action_control != null:
-		_strike_action_control.configure({}, null, null, [])
+		_strike_action_control.lock()
 	if _end_turn_control != null:
-		_end_turn_control.configure(null)
+		_end_turn_control.lock()
 
 
 ## _event_has(event, key) → bool — true iff `event` (a Dictionary or an
