@@ -20,10 +20,13 @@ extends GutTest
 ## exposing controls to real input, this file fails.
 ##
 ## Design note -- why the enemy's hp_current is bumped mid-test (not a mock,
-## not a test double): the shipped prologue_encounter.tres's seed (42) is
-## fully deterministic, and Titus's real weapon/attribute stats one-shot-kill
-## the Skeleton (8 HP) on the very first Strike -- so a completely unmodified
-## playthrough concludes before the enemy AI ever gets a turn. To exercise
+## not a test double): Titus's real weapon/attribute stats are strong enough
+## to one-shot-kill the Skeleton (8 HP) on a single landed Strike -- so an
+## unmodified playthrough is likely to conclude before the enemy AI ever gets
+## a turn, whatever seed a given boot resolves to (FEAT-002 / US-002: a real,
+## non-override MainScene launch resolves a fresh random play seed every
+## boot, so this test no longer assumes the fixture's old fixed seed=42). To
+## reliably exercise
 ## (and prove) the enemy-AI-turn leg of the SAME real pipeline within one
 ## continuous playthrough, this test raises the live enemy combatant
 ## Dictionary's hp_current up front -- the exact same reference-type
@@ -57,6 +60,16 @@ const _MAX_TURN_EXCHANGES: int = 30
 ## exact PackedScene project.godot's run/main_scene launches), attaching the
 ## REAL MainScene.gd composition root. No mock/double is substituted
 ## anywhere in this node tree.
+##
+## FEAT-002 / US-002: some scenarios below (e.g. the "zero pre-existing
+## events" fixture assumption) depend on the prologue fixture's known-good
+## playthrough, where Titus (the party member) acts first -- true only for
+## the fixture's original seed=42 initiative roll. A real (non-override)
+## MainScene launch now resolves a fresh, randomized play seed every boot
+## (which could just as validly seat the Skeleton first), so every boot here
+## pins that known-good seed explicitly via the in-process `seed_override`
+## composition-root contract instead of relying on MainScene's randomized
+## default.
 func _boot_main_scene():
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(
@@ -64,6 +77,7 @@ func _boot_main_scene():
 		"MainScene.tscn (the real project.godot run/main_scene target) must load as a PackedScene"
 	)
 	var instance = packed.instantiate()
+	instance.seed_override = 42
 	add_child_autofree(instance)
 	return instance
 

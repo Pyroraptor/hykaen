@@ -13,9 +13,18 @@ extends Node
 ##      loads data/encounters/prologue_encounter.tres and builds the domain
 ##      hex-positioned Combatant list (US-001) — the repository adapter.
 ##   2. GodotRandomAdapter (core/combat/godot_random_adapter.gd) is
-##      constructed, seeded from the encounter resource's seed field for
-##      determinism (NFR-002/006) — the RandomPort adapter for the
-##      interactive ResolveActionUseCase pipeline below (step 9).
+##      constructed from `resolved_seed` (FEAT-002 / US-002) — the RandomPort
+##      adapter for the interactive ResolveActionUseCase pipeline below
+##      (step 9). `resolved_seed` is `seed_override` (an in-process
+##      injectable property GUT tests may set BEFORE add_child()/_ready()
+##      completes composition, e.g. to pin the prologue fixture's seed=42
+##      for the double-boot determinism regression) when non-null, otherwise
+##      a fresh Time.get_ticks_usec()-derived value so real (non-test)
+##      launches never replay the same fixed playthrough (FR-001/NFR-002).
+##      data/encounters/prologue_encounter.tres' `seed` field (42) remains
+##      the deterministic fixture used by core/sim/simulator.gd and other
+##      tests that construct their own RNG directly — it is intentionally
+##      no longer read here.
 ##   3. ConsoleEventSinkAdapter (defined below) implements EventSinkPort by
 ##      mirroring every round event to stdout AND forwarding it to every
 ##      subscribed Presentation projection (StatusPanelView/InitiativeView/
@@ -182,6 +191,27 @@ class InMemoryRoundHistoryAdapter:
 		return _entries
 
 
+## seed_override — in-process injectable seed policy (FEAT-002 / US-002).
+## null | int. Composition-root contract: GUT tests (or any other caller)
+## may set this on a freshly-instantiated-but-not-yet-added-to-the-tree
+## MainScene BEFORE add_child() triggers _ready() to pin `resolved_seed`
+## to a known value (e.g. 42, matching the prologue fixture, for
+## determinism regressions such as tests/integration/
+## test_steel_thread_prologue_encounter.gd's double-boot diff). Left null
+## (the default) for a real, non-test launch so `resolved_seed` is instead
+## derived randomly — see `resolved_seed` below.
+var seed_override = null
+
+## resolved_seed — the actual int seed this boot's RNGClass/GodotRandomAdapter
+## were constructed with (FEAT-002 / US-002), computed once in _ready() as:
+##   seed_override if seed_override != null else a fresh Time.get_ticks_usec()
+##   -derived value
+## Exposed (rather than left a private local) so tests can assert a real,
+## non-override launch never resolves to data/encounters/prologue_encounter
+## .tres' hardcoded fixture seed (42), and that two independent non-override
+## launches resolve to different values (FR-001/NFR-002).
+var resolved_seed: int = -1
+
 ## encounter_repository — the repository adapter instantiated at the
 ## composition root (ADR-006).
 var encounter_repository
@@ -297,7 +327,15 @@ func _ready() -> void:
 		push_error("MainScene: failed to load " + PROLOGUE_ENCOUNTER_PATH)
 		return
 
-	random_port = GodotRandomAdapterClass.new(encounter_resource.seed)
+	# ── FEAT-002 / US-002: separate the real-play seed from the fixture seed
+	# baked into prologue_encounter.tres (42). An explicit `seed_override`
+	# (set in-process before this node was added to the tree) always wins,
+	# for determinism tests/reproducible runs; otherwise a fresh
+	# Time.get_ticks_usec()-derived value is resolved so real launches are
+	# never pinned to the fixture's replayable playthrough. ────────────────
+	resolved_seed = seed_override if seed_override != null else int(Time.get_ticks_usec())
+
+	random_port = GodotRandomAdapterClass.new(resolved_seed)
 	event_sink = ConsoleEventSinkAdapter.new()
 
 	_party = []
@@ -314,7 +352,7 @@ func _ready() -> void:
 		var enemy_id: String = hex_combatants[idx].combatant_id if idx < hex_combatants.size() else ""
 		_enemies.append(_build_enemy_combatant(encounter_resource.enemy_resource_paths[j], enemy_hex, enemy_id))
 
-	var rng := RNGClass.new(encounter_resource.seed)
+	var rng := RNGClass.new(resolved_seed)
 	encounter = EncounterClass.new(_party, _enemies, rng)
 	encounter.initialize()
 

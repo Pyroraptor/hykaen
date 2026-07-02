@@ -31,10 +31,20 @@ const RunRoundUseCaseClass = preload("res://core/application/run_round_use_case.
 const RoundEventsClass     = preload("res://core/rules/round_events.gd")
 
 
+## FEAT-002 / US-002: this whole file's scenarios assume the prologue
+## fixture's known-good playthrough (Titus, the party member, acts first;
+## no round event is logged before a test's own simulated Strike/End Turn) --
+## an assumption that only holds for the prologue fixture's original seed=42
+## initiative roll. A real (non-override) MainScene launch now resolves a
+## fresh, randomized play seed every boot (which could just as validly seat
+## the Skeleton first), so every boot in this file pins that known-good seed
+## explicitly via the in-process `seed_override` composition-root contract
+## instead of relying on MainScene's randomized default.
 func _boot_main_scene():
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
+	instance.seed_override = 42
 	add_child_autofree(instance)
 	return instance
 

@@ -15,8 +15,10 @@ extends GutTest
 ##   (A) Headless PRODUCTION BOOT: asserts the hex battlefield/status panel/
 ##       initiative order are populated correctly from the real
 ##       prologue_encounter.tres data, and re-confirms determinism
-##       (NFR-002/006) by booting the SAME seeded encounter twice and diffing
-##       the ordered event sequence.
+##       (NFR-002/006) by booting the SAME seeded encounter twice (pinned via
+##       MainScene's `seed_override` in-process contract, FEAT-002 / US-002 --
+##       a real, non-override launch resolves a fresh randomized play seed
+##       every boot instead) and diffing the ordered event sequence.
 ##
 ##   (B) The INTERACTIVE Presentation pipeline (StrikeActionControl /
 ##       TurnController / EndTurnControl / ResultScreenView, US-009 through
@@ -31,10 +33,10 @@ extends GutTest
 ##       _ready() (composition root, corrected by FIX-001) is the ONLY place
 ##       Application ports are wired to Infrastructure adapters; this file
 ##       only drives the resulting real Presentation nodes and observes the
-##       real, production GodotRandomAdapter-seeded outcome (seed=42, per
-##       prologue_encounter.tres -- deterministic across runs, NFR-002/006,
-##       even though this file makes no assumption about which specific
-##       Strikes hit/miss/crit).
+##       real, production GodotRandomAdapter-seeded outcome (a real,
+##       non-override boot -- FEAT-002 / US-002 -- so no assumption is made
+##       here, nor anywhere in Part (B), about which specific Strikes
+##       hit/miss/crit, or about a fixed seed=42 playthrough).
 ##
 ## No production code is modified for this feature (ADR-002/CR-001
 ## guardrail; FEAT-124's files_to_modify is this test file only) -- every
@@ -80,6 +82,24 @@ func _boot_main_scene():
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
+	add_child_autofree(instance)
+	return instance
+
+
+## _boot_main_scene_with_seed(seed_value) -- identical to _boot_main_scene()
+## above, but pins MainScene's `seed_override` (FEAT-002 / US-002 in-process
+## composition-root contract) BEFORE add_child() triggers _ready(), so the
+## resulting boot is reproducible. Since FEAT-002, a real (non-override)
+## MainScene launch resolves a fresh, randomized play seed every time (by
+## design -- see MainScene.gd's `resolved_seed`), so the determinism
+## regression below (booting the SAME seeded encounter twice and diffing the
+## event log byte-for-byte, NFR-002/006) must pin an explicit seed rather
+## than relying on the prologue fixture's default.
+func _boot_main_scene_with_seed(seed_value: int):
+	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
+	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
+	var instance = packed.instantiate()
+	instance.seed_override = seed_value
 	add_child_autofree(instance)
 	return instance
 
@@ -147,9 +167,13 @@ func test_mainscene_boot_populates_hex_battlefield_status_panel_and_initiative()
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_determinism_two_independent_mainscene_boots_produce_identical_event_sequence() -> void:
-	var instance_1 = _boot_main_scene()
+	# FEAT-002 / US-002: real (non-override) launches now resolve a fresh,
+	# randomized play seed every boot, so this determinism regression pins
+	# `seed_override` explicitly (matching the prologue fixture's original
+	# seed=42) rather than relying on MainScene's default.
+	var instance_1 = _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
-	var instance_2 = _boot_main_scene()
+	var instance_2 = _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	# FEAT-123 / FIND-120: MainScene no longer auto-resolves the encounter on
@@ -184,7 +208,14 @@ func test_determinism_two_independent_mainscene_boots_produce_identical_event_se
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_player_strike_through_real_pipeline_observable_in_event_log_and_status_panel() -> void:
-	var instance = _boot_main_scene()
+	# FEAT-002 / US-002: this scenario's fixture assumptions (Titus acts
+	# first, zero events logged before any Strike) depend on the specific
+	# initiative roll order the prologue fixture's original seed=42
+	# produces -- a real (non-override) launch now resolves a fresh random
+	# play seed every boot (which could just as validly seat the Skeleton
+	# first), so this test pins that known-good seed explicitly rather than
+	# relying on MainScene's randomized default.
+	var instance = _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	assert_false(
@@ -259,7 +290,12 @@ func test_player_strike_through_real_pipeline_observable_in_event_log_and_status
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_enemy_ai_turn_auto_drives_through_identical_pipeline_after_end_turn() -> void:
-	var instance = _boot_main_scene()
+	# FEAT-002 / US-002: pinned for the same reason as the test above -- this
+	# scenario's fixture assumption ("the first actor must be Titus") only
+	# holds for the prologue fixture's original seed=42 initiative roll; a
+	# real (non-override) launch now resolves a fresh random play seed every
+	# boot.
+	var instance = _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	assert_is(instance.turn_controller, TurnControllerClass, "MainScene must wire the real $TurnController (presentation/turn_controller.gd)")

@@ -83,6 +83,29 @@ func test_godot_adapter_auto_seeds_when_no_seed_given() -> void:
 	assert_true(value >= 1 and value <= 6, "auto-seeded GodotRandomAdapter.roll(d6) must still be in [1,6], got %d" % value)
 
 
+## FEAT-002 / US-002: two GodotRandomAdapter instances constructed with a
+## null seed_value (the production, "real play" path MainScene now uses --
+## see MainScene.gd's `resolved_seed`) must each derive their own
+## Time.get_ticks_usec()-based seed rather than sharing any fixed value, so
+## two separate real launches never replay the identical combat sequence.
+func test_godot_adapter_null_seed_produces_non_repeating_sequences_across_instances() -> void:
+	var a = GodotRandomAdapterClass.new()
+	var b = GodotRandomAdapterClass.new()
+
+	var seq_a: Array = []
+	var seq_b: Array = []
+	for _i in range(10):
+		seq_a.append(a.roll({"die": 20, "count": 1}))
+		seq_b.append(b.roll({"die": 20, "count": 1}))
+
+	assert_ne(
+		seq_a, seq_b,
+		"two GodotRandomAdapter instances each constructed with a null seed_value must "
+		+ "(overwhelmingly likely, given each derives its seed from Time.get_ticks_usec() "
+		+ "at construction time) diverge across a 10-roll d20 sequence (FEAT-002 / US-002)"
+	)
+
+
 # ── Criterion 3: interchangeable substitution via RandomNumberPort ───────────
 
 func test_both_adapters_are_randomnumberport_instances() -> void:

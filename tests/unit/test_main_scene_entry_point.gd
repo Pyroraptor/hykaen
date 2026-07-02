@@ -236,3 +236,62 @@ func test_main_scene_instantiated_encounter_is_encounter_instance() -> void:
 		instance.encounter, EncounterClass,
 		"MainScene.encounter must be the reused Encounter composition root (ADR-006)"
 	)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# FEAT-002 / US-002: real (non-override) launches must resolve a random play
+# seed, never the hardcoded prologue_encounter.tres fixture seed (42) --
+# while an explicit in-process `seed_override` (the composition-root contract
+# GUT tests use to pin determinism regressions, e.g. tests/integration/
+# test_steel_thread_prologue_encounter.gd) must still be honored exactly.
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_main_scene_instantiated_without_override_does_not_use_fixture_seed_42() -> void:
+	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
+	assert_not_null(packed, "MainScene.tscn must load for instantiation")
+	if packed == null:
+		return
+
+	var instance = packed.instantiate()
+	add_child_autofree(instance)
+
+	assert_ne(
+		instance.resolved_seed, 42,
+		"MainScene must NOT resolve to data/encounters/prologue_encounter.tres' hardcoded "
+		+ "fixture seed (42) on a real (non-override) launch (FEAT-002 / US-002)"
+	)
+
+
+func test_main_scene_two_boots_without_override_resolve_different_seeds() -> void:
+	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
+	assert_not_null(packed, "MainScene.tscn must load for instantiation")
+	if packed == null:
+		return
+
+	var instance_1 = packed.instantiate()
+	add_child_autofree(instance_1)
+	var instance_2 = packed.instantiate()
+	add_child_autofree(instance_2)
+
+	assert_ne(
+		instance_1.resolved_seed, instance_2.resolved_seed,
+		"two independent real (non-override) MainScene launches must resolve to different "
+		+ "play seeds (FEAT-002 / US-002 / FR-001)"
+	)
+
+
+func test_main_scene_honors_explicit_seed_override() -> void:
+	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
+	assert_not_null(packed, "MainScene.tscn must load for instantiation")
+	if packed == null:
+		return
+
+	var instance = packed.instantiate()
+	instance.seed_override = 42
+	add_child_autofree(instance)
+
+	assert_eq(
+		instance.resolved_seed, 42,
+		"MainScene must honor an explicit in-process seed_override set before add_child() "
+		+ "triggers _ready() (FEAT-002 / US-002 composition-root contract)"
+	)
