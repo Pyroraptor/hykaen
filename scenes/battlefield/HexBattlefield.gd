@@ -254,6 +254,39 @@ func on_round_event(event) -> void:
 		readout.on_round_event(event)
 
 
+## move_token(combatant_id, new_hex_coord) → void — FEAT-138 / DEF-006:
+## repositions the already-instantiated CombatantReadout for `combatant_id`
+## to `new_hex_coord`'s mapped screen position (axial_to_pixel()), mirroring
+## presentation/hex_grid_view.gd's move_token() (the SAME method name/
+## signature -- so both renderers offer an identical, duck-typed contract
+## and a caller such as presentation/movement_input_controller.gd, which
+## only ever calls `<collaborator>.move_token(actor_id, destination_hex)` on
+## whichever renderer it was configured with, can resync EITHER renderer, or
+## both, after a Step or a Stride, without HexBattlefield needing its own
+## bespoke resync API).
+##
+## Also refreshes `_hex_by_id`/`_hex_coord_by_id` so get_hex_position()/
+## get_hex_coord() immediately reflect the new position too -- otherwise
+## those two accessors would keep returning the STALE hex seeded by
+## load_combatants() forever, which is exactly DEF-006's defect (HexBattlefield
+## never repositioned its combatants after a Step/Stride, so it could disagree
+## with presentation/hex_grid_view.gd about a combatant's current hex).
+##
+## A no-op when no readout is on record for `combatant_id` (e.g.
+## load_combatants() was never called, or the id is unknown) -- this widget
+## never crashes on a stale/unknown id, matching HexGridView's move_token()
+## contract exactly.
+func move_token(combatant_id: String, new_hex_coord) -> void:
+	var readout = _readouts.get(combatant_id, null)
+	if readout == null:
+		return
+
+	_hex_by_id[combatant_id] = {"q": new_hex_coord.q, "r": new_hex_coord.r}
+	_hex_coord_by_id[combatant_id] = new_hex_coord
+	readout.position = axial_to_pixel(new_hex_coord)
+	queue_redraw()
+
+
 ## _turn_order_widget — this widget's nested TurnOrderWidget child
 ## (scenes/battlefield/TurnOrderWidget.gd, FEAT-006), instanced as
 ## "TurnOrderWidget" in HexBattlefield.tscn. Resolved defensively
