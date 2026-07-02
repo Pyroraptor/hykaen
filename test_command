@@ -51,7 +51,7 @@ echo "=== [2/4] pytest suite ==="
 python -m pytest -q --tb=short
 
 echo "=== [3/4] GUT consolidated domain suite (tests/.gutconfig.json) ==="
-echo "    -> test_hex_coord.gd, test_hex_math.gd, test_combatant_hex_init.gd, test_resolve_action_reach.gd"
+echo "    -> test_hex_coord.gd, test_hex_math.gd, test_combatant_hex_init.gd, test_resolve_action_reach.gd, test_round_session.gd, test_round_session_ai_turn.gd"
 godot --headless -s addons/gut/gut_cmdln.gd -gconfig=res://tests/.gutconfig.json -gexit
 
 echo "=== [4/4] GUT full project suite (root .gutconfig.json, regression gate) ==="

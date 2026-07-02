@@ -11,6 +11,20 @@
 ##   - On a player current_actor(), TurnController enables EndTurnControl
 ##     (US-010) so the human can act (via StrikeActionControl, unchanged)
 ##     and/or end their turn.
+##   - While it is auto-driving (i.e. any Enemy turn is being resolved),
+##     TurnController disables player input (US-011: "the player watches the
+##     enemy AI take its automated turn" — no player action must be able to
+##     interleave with an in-flight AI turn). EndTurnControl already
+##     re-derives its own enabled state from the RoundSession on every
+##     configure() call (FEAT-110); the injected StrikeActionControl has no
+##     such derivable state of its own (it needs live actor/target data this
+##     node does not own), so TurnController disables it the same way its
+##     own configure() API already expresses "no selectable targets" — by
+##     clearing it via configure() with an empty candidate list (ADR-002: no
+##     new StrikeActionControl API is introduced for this). Re-enabling
+##     StrikeActionControl with the next player's real targets remains the
+##     composition root's responsibility (via active_actor_changed), exactly
+##     as before this feature.
 ##
 ## TurnController never mutates domain state directly, never constructs a
 ## RoundSession itself, and never reaches into Infrastructure — it is handed
@@ -42,18 +56,28 @@ var _round_session = null
 ## driver keeps configured with the current RoundSession.
 var _end_turn_control = null
 
+## The injected StrikeActionControl (presentation/strike_action_control.gd)
+## this driver disables (US-011) whenever it is auto-driving an Enemy turn.
+## Optional — a caller that never passes one (e.g. existing FEAT-110 tests)
+## sees no behavior change.
+var _strike_action_control = null
 
-## set_session(round_session, end_turn_control) -> void — injects the
-## current round's RoundSession and the EndTurnControl this driver manages.
-## Immediately drives any leading Enemy turns and refreshes
-## end_turn_control's enabled state for whatever actor the round now sits
-## on. Safe to call again for a new round (e.g. once RunRoundUseCase.
+
+## set_session(round_session, end_turn_control, strike_action_control) ->
+## void — injects the current round's RoundSession, the EndTurnControl this
+## driver manages, and (optionally, US-011) the StrikeActionControl this
+## driver disables while auto-driving Enemy turns. Immediately drives any
+## leading Enemy turns and refreshes end_turn_control's enabled state (and
+## strike_action_control's disabled state) for whatever actor the round now
+## sits on. Safe to call again for a new round (e.g. once RunRoundUseCase.
 ## begin_round() is called again), with no leaked state from the prior
 ## RoundSession.
-func set_session(round_session, end_turn_control = null) -> void:
+func set_session(round_session, end_turn_control = null, strike_action_control = null) -> void:
 	_round_session = round_session
 	if end_turn_control != null:
 		_end_turn_control = end_turn_control
+	if strike_action_control != null:
+		_strike_action_control = strike_action_control
 	_drive()
 
 
@@ -76,9 +100,20 @@ func on_end_turn_pressed() -> Dictionary:
 ## RoundSession.advance_ai_turn() until either a player's turn comes up or
 ## the round is over, then refreshes end_turn_control's enabled state and
 ## broadcasts the settled actor.
+##
+## strike_action_control (US-011) is disabled BEFORE the auto-drive loop
+## runs — clearing any stale/leaked configuration from a prior turn — so no
+## player Strike input can ever interleave with an Enemy turn this call is
+## about to auto-resolve. It is intentionally left disabled once the loop
+## settles (even on a player actor): re-enabling it with that player's real,
+## live targets is the composition root's job (unchanged by this feature),
+## exactly as StrikeActionControl.configure() has always been invoked
+## per-turn rather than owned by this node.
 func _drive() -> void:
 	if _round_session == null:
 		return
+
+	_disable_strike_action_control()
 
 	var guard: int = 0
 	while not _round_session.is_round_over() and guard < _MAX_AI_TURNS_PER_DRIVE:
@@ -95,3 +130,14 @@ func _drive() -> void:
 		round_over.emit()
 	else:
 		active_actor_changed.emit(_round_session.current_actor())
+
+
+## _disable_strike_action_control() -> void — clears the injected
+## StrikeActionControl (no acting combatant, no selectable targets), which
+## reuses StrikeActionControl's existing configure() contract to express
+## "disabled" (zero rendered buttons) rather than introducing a new
+## enable/disable API on that control (ADR-002 / CR-001 guardrail: no
+## duplicate/parallel control-state surface).
+func _disable_strike_action_control() -> void:
+	if _strike_action_control != null:
+		_strike_action_control.configure({}, null, null, [])
