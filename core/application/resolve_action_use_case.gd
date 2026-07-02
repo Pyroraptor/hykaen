@@ -77,6 +77,32 @@ const _MELEE_ACTION_NAMES: Array = ["Strike"]
 ## api_contracts (resolve_action_use_case.execute precondition, US-003).
 const ERR_TARGET_NOT_ADJACENT: String = "ERR_TARGET_NOT_ADJACENT"
 
+## Typed error code returned in ActionResult.error when
+## ActionEconomy.spend_action() fails because the acting combatant has no
+## action budget remaining this round (the ALREADY_SPENT Result contract —
+## core/rules/action_economy.gd). FEAT-125/FIND-121: previously this case
+## returned a bare {"resolved": false, "ok": false} Dictionary with no typed
+## error key; api_contracts documents ERR_NO_ACTION_REMAINING for this case
+## and StrikeActionControl/RoundSession only ever branch on ok/resolved, so
+## adding this key is backward compatible with both callers.
+const ERR_NO_ACTION_REMAINING: String = "ERR_NO_ACTION_REMAINING"
+
+## Typed error code returned in ActionResult.error when `target` does not
+## exist (an empty Dictionary — the same "not found" sentinel already used
+## by core/application/round_session.gd's `target.is_empty()` checks) or is
+## already defeated (hp_current <= 0). FEAT-125/FIND-121. Checked BEFORE the
+## melee reach precondition and BEFORE any action-budget spend, so a Strike
+## against an invalid target never burns the actor's turn.
+const ERR_TARGET_INVALID: String = "ERR_TARGET_INVALID"
+
+## Typed error code returned in ActionResult.error when `active_combatant_id`
+## is supplied and does not match the acting `combatant`'s identifier
+## (FEAT-125/FIND-121). This is an OPT-IN precondition: pre-existing callers
+## (StrikeActionControl, RoundSession) never pass `active_combatant_id`, so
+## for them this check remains a no-op — preserving their contract exactly,
+## per FIND-121's guardrail.
+const ERR_NOT_ACTIVE_COMBATANT: String = "ERR_NOT_ACTIVE_COMBATANT"
+
 var _random_number_port      ## RandomNumberPort — injected; never instantiated here (NFR-003)
 var _event_sink_port         ## EventSinkPort — injected
 var _round_history_port      ## RoundHistoryPort — injected
@@ -111,6 +137,22 @@ func _init(random_number_port, event_sink_port, round_history_port) -> void:
 ##                    emitted events/history entries.
 ## cycle_index     — the AC-4 interleave cycle pass this action occurred in
 ##                    (0-based), stamped on the RoundHistoryEntry.
+## active_combatant_id — OPTIONAL (FEAT-125/FIND-121). When non-empty, the
+##                    acting `combatant`'s identifier (its "combatant_id" key,
+##                    falling back to "name" — the same convention
+##                    presentation/strike_action_control.gd's _target_id()
+##                    uses) must match this value or the action is rejected
+##                    with ERR_NOT_ACTIVE_COMBATANT. Defaults to "" (no
+##                    check) so pre-existing callers (StrikeActionControl,
+##                    RoundSession) that never pass this argument are
+##                    completely unaffected.
+##
+## Preconditions are checked in this order, each with NO side effects on
+## failure (no action-budget spend, no damage, no events, no history):
+##   1. active-combatant check (only when active_combatant_id is non-empty)
+##   2. target-validity check (target exists and is not already defeated)
+##   3. melee reach check (FEAT-003/US-003, unchanged)
+##   4. ActionEconomy.spend_action()
 ##
 ## Reach precondition (FEAT-003 / US-003, api_contracts
 ## resolve_action_use_case.execute): when action_name is a melee action (
@@ -123,11 +165,19 @@ func _init(random_number_port, event_sink_port, round_history_port) -> void:
 ## pre-FEAT-003 contract exactly.
 ##
 ## Returns a Dictionary:
+##   {resolved: false, ok: false, error: ERR_NOT_ACTIVE_COMBATANT}
+##     — active_combatant_id was supplied and does not match combatant's
+##       identifier. No action-budget spend, no damage applied, no events
+##       emitted, no history recorded.
+##   {resolved: false, ok: false, error: ERR_TARGET_INVALID}
+##     — target does not exist (empty Dictionary) or is already defeated
+##       (hp_current <= 0). No action-budget spend, no damage applied, no
+##       events emitted, no history recorded.
 ##   {resolved: false, ok: false, error: ERR_TARGET_NOT_ADJACENT}
 ##     — melee Strike rejected: target is not adjacent to combatant. No
 ##       action-budget spend, no damage applied, no events emitted, no
 ##       history recorded.
-##   {resolved: false, ok: false}
+##   {resolved: false, ok: false, error: ERR_NO_ACTION_REMAINING}
 ##     — ActionEconomy.spend_action() failed (ALREADY_SPENT contract
 ##       violation); no damage applied, no events emitted, no history
 ##       recorded. The caller must skip this combatant for the cycle.
@@ -143,15 +193,22 @@ func resolve(
 	target: Dictionary,
 	action_name: String,
 	round_number: int,
-	cycle_index: int
+	cycle_index: int,
+	active_combatant_id: String = ""
 ) -> Dictionary:
+	if active_combatant_id != "" and _combatant_identifier(combatant) != active_combatant_id:
+		return {"resolved": false, "ok": false, "error": ERR_NOT_ACTIVE_COMBATANT}
+
+	if _is_target_invalid(target):
+		return {"resolved": false, "ok": false, "error": ERR_TARGET_INVALID}
+
 	if _is_melee_action(action_name) and _requires_reach_check(combatant, target):
 		if not _is_adjacent(combatant, target):
 			return {"resolved": false, "ok": false, "error": ERR_TARGET_NOT_ADJACENT}
 
 	var spend_result: Dictionary = action_economy.spend_action({"name": action_name, "traits": []})
 	if not spend_result.get("success", false):
-		return {"resolved": false, "ok": false}
+		return {"resolved": false, "ok": false, "error": ERR_NO_ACTION_REMAINING}
 
 	var weapon: Dictionary = combatant.get("weapon", {})
 	var strike_result: Dictionary = _resolve_strike(combatant, target, weapon)
@@ -213,6 +270,25 @@ func resolve(
 ## melee action subject to the reach precondition (FEAT-003 / US-003).
 func _is_melee_action(action_name: String) -> bool:
 	return _MELEE_ACTION_NAMES.has(action_name)
+
+
+## _is_target_invalid(target) -> bool — true when `target` does not exist
+## (an empty Dictionary — the same "not found" sentinel RoundSession already
+## checks via `target.is_empty()`) or is already defeated
+## (hp_current <= 0). FEAT-125/FIND-121.
+func _is_target_invalid(target: Dictionary) -> bool:
+	if target.is_empty():
+		return true
+	return target.get("hp_current", 0) <= 0
+
+
+## _combatant_identifier(combatant) -> String — the same "combatant_id",
+## falling back to "name" convention used by
+## presentation/strike_action_control.gd's _target_id(), so
+## active_combatant_id comparisons (FEAT-125/FIND-121) use one consistent
+## identity rule across Presentation and Application.
+func _combatant_identifier(combatant: Dictionary) -> String:
+	return combatant.get("combatant_id", combatant.get("name", ""))
 
 
 ## _requires_reach_check(combatant, target) -> bool — the reach precondition

@@ -126,6 +126,11 @@ func test_already_spent_action_economy_returns_unresolved_with_no_side_effects()
 	var result: Dictionary = rig["use_case"].resolve(attacker, ae, target, "Strike", 1, 0)
 
 	assert_false(result.get("resolved", true), "resolve() on an already-Spent ActionEconomy must report resolved:false")
+	assert_false(result.get("ok", true), "resolve() on an already-Spent ActionEconomy must report ok:false")
+	assert_eq(
+		result.get("error", ""), "ERR_NO_ACTION_REMAINING",
+		"FEAT-125/FIND-121: ALREADY_SPENT must surface the typed ERR_NO_ACTION_REMAINING error code"
+	)
 	assert_eq(rig["event_sink"].events.size(), 0, "No events may be emitted when the spend fails")
 	assert_eq(rig["history"].entries.size(), 0, "No history entry may be recorded when the spend fails")
 	assert_eq(target.get("hp_current", -1), 50, "Target HP must be untouched when the spend fails")
@@ -303,3 +308,104 @@ func test_round_history_entry_records_post_spend_budget_and_cycle_index() -> voi
 	assert_eq(entry.get("target", {}).get("name", ""), "Target")
 	assert_eq(entry.get("damage_final", -1), 7)
 	assert_eq(entry.get("roll", -1), 17, "history entry roll must equal the computed roll_total")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-125 (FIND-121): typed error codes for the remaining failure paths —
+# ERR_NO_ACTION_REMAINING (covered above), ERR_TARGET_INVALID,
+# ERR_NOT_ACTIVE_COMBATANT. ERR_TARGET_NOT_ADJACENT is covered separately by
+# tests/unit/core/application/test_resolve_action_reach.gd (US-003) and is
+# unchanged by this feature.
+# ══════════════════════════════════════════════════════════════════════════════
+
+func test_target_does_not_exist_returns_err_target_invalid_with_no_side_effects() -> void:
+	var ae = ActionEconomyClass.new()
+	ae.start_of_round()
+
+	var rig: Dictionary = _make_use_case([12, 4])
+	var attacker: Dictionary = _attacker()
+	var missing_target: Dictionary = {}  # "does not exist" sentinel
+
+	var result: Dictionary = rig["use_case"].resolve(attacker, ae, missing_target, "Strike", 1, 0)
+
+	assert_false(result.get("ok", true), "Strike against a nonexistent target must report ok:false")
+	assert_false(result.get("resolved", true), "Strike against a nonexistent target must report resolved:false")
+	assert_eq(result.get("error", ""), "ERR_TARGET_INVALID")
+	assert_eq(rig["event_sink"].events.size(), 0, "No events may be emitted for an invalid target")
+	assert_eq(rig["history"].entries.size(), 0, "No history entry may be recorded for an invalid target")
+	assert_eq(ae.get_remaining(), ActionEconomyClass.MAX_BUDGET, "The actor's action budget must remain UNSPENT")
+
+
+func test_target_already_defeated_returns_err_target_invalid_with_no_side_effects() -> void:
+	var ae = ActionEconomyClass.new()
+	ae.start_of_round()
+
+	var rig: Dictionary = _make_use_case([12, 4])
+	var attacker: Dictionary = _attacker()
+	var defeated_target: Dictionary = _target(0, 10)  # hp_current <= 0 -> already defeated
+
+	var result: Dictionary = rig["use_case"].resolve(attacker, ae, defeated_target, "Strike", 1, 0)
+
+	assert_false(result.get("ok", true), "Strike against an already-defeated target must report ok:false")
+	assert_false(result.get("resolved", true), "Strike against an already-defeated target must report resolved:false")
+	assert_eq(result.get("error", ""), "ERR_TARGET_INVALID")
+	assert_eq(rig["event_sink"].events.size(), 0, "No events may be emitted for an already-defeated target")
+	assert_eq(rig["history"].entries.size(), 0, "No history entry may be recorded for an already-defeated target")
+	assert_eq(ae.get_remaining(), ActionEconomyClass.MAX_BUDGET, "The actor's action budget must remain UNSPENT")
+
+
+func test_non_active_combatant_returns_err_not_active_combatant_with_no_side_effects() -> void:
+	var ae = ActionEconomyClass.new()
+	ae.start_of_round()
+
+	var rig: Dictionary = _make_use_case([12, 4])
+	var attacker: Dictionary = _attacker()
+	var target: Dictionary = _target(50, 10)
+
+	# The current turn's actor is "someone_else" -- attacker ("Attacker") is
+	# not the active combatant.
+	var result: Dictionary = rig["use_case"].resolve(
+		attacker, ae, target, "Strike", 1, 0, "someone_else"
+	)
+
+	assert_false(result.get("ok", true), "resolve() for a non-active combatant must report ok:false")
+	assert_false(result.get("resolved", true), "resolve() for a non-active combatant must report resolved:false")
+	assert_eq(result.get("error", ""), "ERR_NOT_ACTIVE_COMBATANT")
+	assert_eq(rig["event_sink"].events.size(), 0, "No events may be emitted for a non-active combatant")
+	assert_eq(rig["history"].entries.size(), 0, "No history entry may be recorded for a non-active combatant")
+	assert_eq(target.get("hp_current", -1), 50, "Target HP must be untouched")
+	assert_eq(ae.get_remaining(), ActionEconomyClass.MAX_BUDGET, "The actor's action budget must remain UNSPENT")
+
+
+func test_active_combatant_id_matching_combatant_id_key_resolves_normally() -> void:
+	var ae = ActionEconomyClass.new()
+	ae.start_of_round()
+
+	var rig: Dictionary = _make_use_case([12, 4])
+	var attacker: Dictionary = _attacker()
+	attacker["combatant_id"] = "attacker_1"
+	var target: Dictionary = _target(50, 10)
+
+	var result: Dictionary = rig["use_case"].resolve(
+		attacker, ae, target, "Strike", 1, 0, "attacker_1"
+	)
+
+	assert_true(result.get("ok", false), "Strike must resolve when active_combatant_id matches combatant_id")
+	assert_true(result.get("resolved", false))
+
+
+func test_active_combatant_id_omitted_is_backward_compatible_no_op() -> void:
+	var ae = ActionEconomyClass.new()
+	ae.start_of_round()
+
+	var rig: Dictionary = _make_use_case([12, 4])
+	var attacker: Dictionary = _attacker()
+	var target: Dictionary = _target(50, 10)
+
+	# StrikeActionControl/RoundSession never pass active_combatant_id -- the
+	# 6-positional-argument call shape (FEAT-098/FEAT-003, unchanged) must
+	# keep resolving exactly as before FEAT-125.
+	var result: Dictionary = rig["use_case"].resolve(attacker, ae, target, "Strike", 1, 0)
+
+	assert_true(result.get("ok", false), "Omitting active_combatant_id must remain a no-op (backward compatible)")
+	assert_true(result.get("resolved", false))
