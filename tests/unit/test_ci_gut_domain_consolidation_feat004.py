@@ -30,6 +30,7 @@ filesystem/JSON checks so they run in any environment with pytest installed.
 
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -147,30 +148,54 @@ class TestConsolidatedGutConfig:
 
 
 # ── Actually run the consolidated domain GUT suite (real Godot binary) ──────
+#
+# The command exercised here is extracted directly out of test_command's own
+# text (rather than hand-duplicated) so this test can never silently drift
+# out of sync with what test_command actually runs. This matters because the
+# project's HeadlessRunner autoload (tests/runner/headless_runner.gd), which
+# intercepts a bare `--gut-run-all` flag, hardcodes loading
+# res://.gutconfig.json (the FULL project suite) and ignores any -gconfig=
+# argument passed alongside it -- so a stage-3 invocation of the form
+# `godot -- -gconfig=res://tests/.gutconfig.json --gut-run-all` would
+# silently run the full ~46-script project suite instead of the intended
+# 4-script consolidated domain suite. test_command must therefore invoke the
+# consolidated suite via GUT's own CLI entry point (-s addons/gut/gut_cmdln.gd
+# -gconfig=...), which DOES honor -gconfig, so this stage is a genuinely
+# scoped/fast gate rather than a duplicate of stage 4.
+
+def _extract_domain_suite_command(test_command_text: str) -> str:
+    for line in test_command_text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("godot") and "tests/.gutconfig.json" in stripped:
+            return stripped
+    raise AssertionError(
+        "Could not find a godot invocation referencing tests/.gutconfig.json "
+        "inside test_command"
+    )
+
 
 @pytest.mark.skipif(not GODOT_AVAILABLE, reason="godot binary not on PATH")
 class TestConsolidatedDomainSuiteReallyPasses:
-    def _run(self, repo_root) -> subprocess.CompletedProcess:
+    def _run(self, repo_root, test_command_text) -> subprocess.CompletedProcess:
+        cmd = _extract_domain_suite_command(test_command_text)
         return subprocess.run(
-            [
-                "godot", "--headless", "--path", str(repo_root),
-                "--", "-gconfig=res://tests/.gutconfig.json", "--gut-run-all",
-            ],
+            cmd,
+            shell=True,
             cwd=str(repo_root),
             capture_output=True,
             text=True,
             timeout=180,
         )
 
-    def test_consolidated_domain_suite_passes(self, repo_root):
-        result = self._run(repo_root)
+    def test_consolidated_domain_suite_passes(self, repo_root, test_command_text):
+        result = self._run(repo_root, test_command_text)
         output = result.stdout + result.stderr
         assert result.returncode == 0, (
             f"Consolidated GUT domain suite must exit 0. Output:\n{output}"
         )
 
-    def test_all_four_domain_suites_reported(self, repo_root):
-        result = self._run(repo_root)
+    def test_all_four_domain_suites_reported(self, repo_root, test_command_text):
+        result = self._run(repo_root, test_command_text)
         output = result.stdout + result.stderr
         for expected in (
             "test_hex_coord",
@@ -181,6 +206,31 @@ class TestConsolidatedDomainSuiteReallyPasses:
             assert expected in output, (
                 f"Consolidated GUT run output must mention {expected}.gd"
             )
+
+    def test_consolidated_suite_is_scoped_not_full_project(
+        self, repo_root, test_command_text
+    ):
+        """US-014's consolidated domain suite must actually be SCOPED to the
+        4 domain test scripts, not silently fall back to running the whole
+        project's ~46 GUT scripts. This guards against the -gconfig-ignored
+        regression described above."""
+        result = self._run(repo_root, test_command_text)
+        output = result.stdout + result.stderr
+        match = re.search(r"Scripts\s+(\d+)", output)
+        assert match, f"Could not find a 'Scripts  N' summary line. Output:\n{output}"
+        scripts_run = int(match.group(1))
+        assert scripts_run == 4, (
+            "The consolidated domain GUT suite stage must run exactly the 4 "
+            f"domain test scripts, but ran {scripts_run}. This means "
+            "test_command's stage 3 is not actually scoped via "
+            f"tests/.gutconfig.json.\nOutput:\n{output}"
+        )
+        # An unrelated, non-domain test (present in the full project suite)
+        # must NOT be collected by this stage.
+        assert "test_longsword" not in output, (
+            "Consolidated domain suite stage must not pull in unrelated "
+            f"project-wide tests.\nOutput:\n{output}"
+        )
 
 
 # ── Full test_command end-to-end (real Godot + pytest) ──────────────────────

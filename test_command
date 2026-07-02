@@ -23,7 +23,16 @@
 #      Combatant hex-coordinate init (test_combatant_hex_init.gd), and
 #      melee reach gating (test_resolve_action_reach.gd). This is the
 #      single green gate for the new hex/reach domain logic (US-001,
-#      US-002, US-003) that must pass before any UI work begins.
+#      US-002, US-003) that must pass before any UI work begins. Run via
+#      GUT's real CLI entry point (addons/gut/gut_cmdln.gd, -gconfig=)
+#      rather than the -- --gut-run-all/HeadlessRunner path: the project's
+#      HeadlessRunner autoload (tests/runner/headless_runner.gd) hardcodes
+#      loading res://.gutconfig.json for a bare --gut-run-all flag and
+#      ignores any -gconfig= passed alongside it, which would silently
+#      widen this stage to the full project suite instead of the intended
+#      4-script consolidated domain suite. Invoking gut_cmdln.gd directly
+#      (as stage 1 already does) honors -gconfig= and keeps this stage a
+#      genuinely scoped, fast gate.
 #   4. The FULL project-wide GUT suite (root .gutconfig.json) via
 #      --gut-run-all, as a whole-project regression gate.
 #
@@ -43,7 +52,7 @@ python -m pytest -q --tb=short
 
 echo "=== [3/4] GUT consolidated domain suite (tests/.gutconfig.json) ==="
 echo "    -> test_hex_coord.gd, test_hex_math.gd, test_combatant_hex_init.gd, test_resolve_action_reach.gd"
-godot --headless -- -gconfig=res://tests/.gutconfig.json --gut-run-all
+godot --headless -s addons/gut/gut_cmdln.gd -gconfig=res://tests/.gutconfig.json -gexit
 
 echo "=== [4/4] GUT full project suite (root .gutconfig.json, regression gate) ==="
 godot --headless -- --gut-run-all
