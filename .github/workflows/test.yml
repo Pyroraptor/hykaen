@@ -206,22 +206,34 @@ jobs:
           echo "OK: MainScene.gd is syntactically and structurally valid in headless mode (DEF-003)"
 
       # ---------------------------------------------------------------
-      # Run GUT headless test suite (FEAT-039: DEF-002 output capture)
-      # Output is captured to gut_output.log via tee so the artifact-
-      # upload step always finds a non-empty log file (pass or fail).
-      # set -o pipefail ensures godot's exit code propagates through tee.
-      # FEAT-010 DETERMINISM PROOF: test_steel_thread_e2e.gd runs
+      # Run the project's canonical test suite (FEAT-136 / DEF-002 / DEF-003)
+      # Invokes scripts/test_command.sh directly -- the single canonical
+      # CI entry point declared by ci/pipeline.yml's
+      # `test_command: scripts/test_command.sh` -- instead of a
+      # hand-duplicated inline step list, so pytest and the full headless
+      # GUT suite (`godot --headless -- --gut-run-all`) both genuinely
+      # execute in live CI, exactly as they do when a developer runs
+      # scripts/test_command.sh (or the delegating root test_command)
+      # locally.
+      #
+      # FEAT-010 DETERMINISM PROOF: test_steel_thread_e2e.gd (run as part
+      # of the full GUT suite inside scripts/test_command.sh) runs
       # Encounter twice with seed 99999 and asserts byte-identical
-      # roll + damage_final sequences — proving RNG reproducibility.
+      # roll + damage_final sequences -- proving RNG reproducibility.
+      #
+      # Output is captured to gut_output.log via tee (FEAT-039: DEF-002
+      # output capture) so the artifact-upload step below always finds a
+      # non-empty log file, pass or fail. `set -o pipefail` ensures
+      # scripts/test_command.sh's exit code -- not tee's -- propagates.
       # Exit 0 gates merge (branch protection rule).
       # ---------------------------------------------------------------
-      - name: Run GUT tests (includes FEAT-010 steel thread determinism proof)
+      - name: Run test suite (scripts/test_command.sh)
         run: |
+          echo "--- Running scripts/test_command.sh: pytest + godot --headless -- --gut-run-all (FEAT-136) ---"
           echo "--- DETERMINISM PROOF: FEAT-010 steel thread exercises Encounter with seed 99999 ---"
-          echo "--- Expected output: 'STEEL THREAD VALIDATED: seed 99999, outcome <won|lost>, rounds <N>' ---"
           set -o pipefail
-          godot --headless -- --gut-run-all 2>&1 | tee gut_output.log
-          echo "--- GUT suite completed successfully (exit 0) ---"
+          bash scripts/test_command.sh 2>&1 | tee gut_output.log
+          echo "--- scripts/test_command.sh completed successfully (exit 0) ---"
 
       # ---------------------------------------------------------------
       # Upload GUT output as CI artifact (always, pass or fail)

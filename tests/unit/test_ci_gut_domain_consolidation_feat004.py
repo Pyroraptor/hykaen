@@ -6,13 +6,15 @@ Pytest suite for FEAT-004: GUT domain-suite consolidation and CI wiring
 
 Verifies:
   1. A `test_command` script exists at the repo root, is executable, and
-     wires together `pytest` and `godot --gut-run-all` (headless) as the
-     project's single automated test gate.
-  2. `test_command` explicitly runs the consolidated domain suite via
-     `tests/.gutconfig.json` — the single green gate for the new hex
-     distance/adjacency + melee reach gating domain logic (US-001/US-002/
-     US-003) — as well as the full project-wide GUT suite for regression
-     safety.
+     (as of FEAT-136 / DEF-002 / DEF-003) delegates to scripts/test_command.sh
+     — the single canonical script — which wires together `pytest` and
+     `godot --gut-run-all` (headless) as the project's single automated
+     test gate.
+  2. The canonical script (scripts/test_command.sh) explicitly runs the
+     consolidated domain suite via `tests/.gutconfig.json` — the single
+     green gate for the new hex distance/adjacency + melee reach gating
+     domain logic (US-001/US-002/US-003) — as well as the full
+     project-wide GUT suite for regression safety.
   3. `tests/.gutconfig.json` is valid JSON and is configured to collect
      exactly the domain/application suites under tests/unit/core
      (test_hex_coord.gd, test_hex_math.gd, test_combatant_hex_init.gd,
@@ -27,6 +29,19 @@ Verifies:
      reports all nine consolidated domain test files.
   5. Running the full `test_command` script end-to-end (skipped if no
      `godot` binary is on PATH) exits 0.
+
+FEAT-136 / DEF-002 / DEF-003 UPDATE: `test_command` (this feature's script)
+and `scripts/test_command.sh` (FEAT-133's script) previously hand-duplicated
+divergent stage lists — the exact defect this reconciliation feature fixes.
+scripts/test_command.sh is now THE single canonical script (matching
+ci/pipeline.yml's declared test_command); `test_command` at the repo root
+is a thin delegating wrapper around it with no stage list of its own. The
+stage-content assertions below therefore check scripts/test_command.sh
+(via the `canonical_script_text` fixture) rather than `test_command`
+directly — `test_command`'s own assertions (TestTestCommandFileExists,
+TestTestCommandWiring) now confirm existence/executability/delegation
+instead. See tests/unit/test_ci_quality_gate_wiring_feat133.py for the
+FEAT-133/FEAT-136 canonical-script test suite.
 
 All assertions that don't require a running Godot binary are pure-Python
 filesystem/JSON checks so they run in any environment with pytest installed.
@@ -63,6 +78,21 @@ def test_command_text(test_command_path) -> str:
 
 
 @pytest.fixture(scope="module")
+def canonical_script_path(repo_root) -> Path:
+    """FEAT-136 / DEF-002 / DEF-003: scripts/test_command.sh is now THE
+    single canonical script; the root `test_command` delegates to it."""
+    return repo_root / "scripts" / "test_command.sh"
+
+
+@pytest.fixture(scope="module")
+def canonical_script_text(canonical_script_path) -> str:
+    assert canonical_script_path.is_file(), (
+        "scripts/test_command.sh (the canonical script) must exist"
+    )
+    return canonical_script_path.read_text()
+
+
+@pytest.fixture(scope="module")
 def tests_gutconfig_path(repo_root) -> Path:
     return repo_root / "tests" / ".gutconfig.json"
 
@@ -93,23 +123,28 @@ class TestTestCommandFileExists:
 
 
 class TestTestCommandWiring:
-    def test_runs_pytest(self, test_command_text):
-        assert "pytest" in test_command_text, (
-            "test_command must invoke pytest"
+    """FEAT-136 / DEF-002 / DEF-003: `test_command` no longer hand-duplicates
+    stage invocations — it delegates to scripts/test_command.sh (the
+    canonical script), which does the actual wiring. These tests confirm
+    the delegation itself; TestCanonicalScriptWiring below confirms the
+    canonical script performs the wiring test_command used to do directly."""
+
+    def test_delegates_to_canonical_script(self, test_command_text):
+        assert "scripts/test_command.sh" in test_command_text, (
+            "test_command must delegate to scripts/test_command.sh — the "
+            "single canonical script (FEAT-136 / DEF-002 / DEF-003) — "
+            "rather than hand-duplicating its own stage list"
         )
 
-    def test_runs_gut_run_all_headless(self, test_command_text):
-        assert "--gut-run-all" in test_command_text, (
-            "test_command must invoke godot with --gut-run-all"
+    def test_has_no_divergent_stage_list_of_its_own(self, test_command_text):
+        assert "python -m pytest" not in test_command_text, (
+            "test_command must not directly invoke pytest itself — that "
+            "would reintroduce the divergent stage list DEF-002/DEF-003 "
+            "fixed; it must delegate to scripts/test_command.sh instead"
         )
-        assert "--headless" in test_command_text, (
-            "test_command must invoke godot headlessly"
-        )
-
-    def test_wires_consolidated_domain_gutconfig(self, test_command_text):
-        assert "tests/.gutconfig.json" in test_command_text, (
-            "test_command must wire in the consolidated domain GUT suite "
-            "via tests/.gutconfig.json (US-014 single green gate)"
+        assert "gut_cmdln.gd" not in test_command_text, (
+            "test_command must not directly invoke GUT's CLI entry point "
+            "itself — it must delegate to scripts/test_command.sh instead"
         )
 
     def test_fails_fast_on_any_stage_failure(self, test_command_text):
@@ -117,6 +152,38 @@ class TestTestCommandWiring:
         # failure in any stage stops the script with a non-zero exit code.
         assert "set -e" in test_command_text, (
             "test_command must abort (non-zero exit) if any stage fails"
+        )
+
+
+class TestCanonicalScriptWiring:
+    """FEAT-136 / DEF-002 / DEF-003: scripts/test_command.sh (the canonical
+    script that test_command now delegates to) must perform the wiring
+    test_command used to do directly — pytest, `godot --gut-run-all`
+    headless, and the consolidated domain suite via tests/.gutconfig.json."""
+
+    def test_runs_pytest(self, canonical_script_text):
+        assert "pytest" in canonical_script_text, (
+            "scripts/test_command.sh must invoke pytest"
+        )
+
+    def test_runs_gut_run_all_headless(self, canonical_script_text):
+        assert "--gut-run-all" in canonical_script_text, (
+            "scripts/test_command.sh must invoke godot with --gut-run-all"
+        )
+        assert "--headless" in canonical_script_text, (
+            "scripts/test_command.sh must invoke godot headlessly"
+        )
+
+    def test_wires_consolidated_domain_gutconfig(self, canonical_script_text):
+        assert "tests/.gutconfig.json" in canonical_script_text, (
+            "scripts/test_command.sh must wire in the consolidated domain "
+            "GUT suite via tests/.gutconfig.json (US-014 single green gate)"
+        )
+
+    def test_fails_fast_on_any_stage_failure(self, canonical_script_text):
+        assert "set -e" in canonical_script_text, (
+            "scripts/test_command.sh must abort (non-zero exit) if any "
+            "stage fails"
         )
 
 
@@ -220,21 +287,26 @@ class TestConsolidatedGutConfig:
 # catches the ORIGINAL regression it targets without falsely flagging this
 # expected, intentional growth from 8 to 9 scripts.
 
-def _extract_domain_suite_command(test_command_text: str) -> str:
-    for line in test_command_text.splitlines():
+# FEAT-136 / DEF-002 / DEF-003: the domain-suite command is now extracted
+# from scripts/test_command.sh (the canonical script), not from the
+# delegating root `test_command` wrapper, since that's where the stage
+# actually lives now.
+
+def _extract_domain_suite_command(canonical_script_text: str) -> str:
+    for line in canonical_script_text.splitlines():
         stripped = line.strip()
         if stripped.startswith("godot") and "tests/.gutconfig.json" in stripped:
             return stripped
     raise AssertionError(
         "Could not find a godot invocation referencing tests/.gutconfig.json "
-        "inside test_command"
+        "inside scripts/test_command.sh"
     )
 
 
 @pytest.mark.skipif(not GODOT_AVAILABLE, reason="godot binary not on PATH")
 class TestConsolidatedDomainSuiteReallyPasses:
-    def _run(self, repo_root, test_command_text) -> subprocess.CompletedProcess:
-        cmd = _extract_domain_suite_command(test_command_text)
+    def _run(self, repo_root, canonical_script_text) -> subprocess.CompletedProcess:
+        cmd = _extract_domain_suite_command(canonical_script_text)
         return subprocess.run(
             cmd,
             shell=True,
@@ -244,15 +316,15 @@ class TestConsolidatedDomainSuiteReallyPasses:
             timeout=180,
         )
 
-    def test_consolidated_domain_suite_passes(self, repo_root, test_command_text):
-        result = self._run(repo_root, test_command_text)
+    def test_consolidated_domain_suite_passes(self, repo_root, canonical_script_text):
+        result = self._run(repo_root, canonical_script_text)
         output = result.stdout + result.stderr
         assert result.returncode == 0, (
             f"Consolidated GUT domain suite must exit 0. Output:\n{output}"
         )
 
-    def test_all_domain_suites_reported(self, repo_root, test_command_text):
-        result = self._run(repo_root, test_command_text)
+    def test_all_domain_suites_reported(self, repo_root, canonical_script_text):
+        result = self._run(repo_root, canonical_script_text)
         output = result.stdout + result.stderr
         for expected in (
             "test_hex_coord",
@@ -270,14 +342,14 @@ class TestConsolidatedDomainSuiteReallyPasses:
             )
 
     def test_consolidated_suite_is_scoped_not_full_project(
-        self, repo_root, test_command_text
+        self, repo_root, canonical_script_text
     ):
         """US-014's consolidated domain suite must actually be SCOPED to the
         domain/application test scripts under tests/unit/core (9, as of
         FEAT-015 -- see the module-level note above), not silently fall back
         to running the whole project's ~46 GUT scripts. This guards against
         the -gconfig-ignored regression described above."""
-        result = self._run(repo_root, test_command_text)
+        result = self._run(repo_root, canonical_script_text)
         output = result.stdout + result.stderr
         match = re.search(r"Scripts\s+(\d+)", output)
         assert match, f"Could not find a 'Scripts  N' summary line. Output:\n{output}"
@@ -285,8 +357,9 @@ class TestConsolidatedDomainSuiteReallyPasses:
         assert scripts_run == 9, (
             "The consolidated domain GUT suite stage must run exactly the 9 "
             f"domain/application test scripts under tests/unit/core, but ran "
-            f"{scripts_run}. This means test_command's stage 3 is not "
-            f"actually scoped via tests/.gutconfig.json.\nOutput:\n{output}"
+            f"{scripts_run}. This means scripts/test_command.sh's domain "
+            f"suite stage is not actually scoped via tests/.gutconfig.json."
+            f"\nOutput:\n{output}"
         )
         # An unrelated, non-domain test (present in the full project suite)
         # must NOT be collected by this stage.

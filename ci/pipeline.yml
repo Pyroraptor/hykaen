@@ -1,4 +1,5 @@
-# ci/pipeline.yml — FEAT-133 / US-011 (NFR-004, NFR-006, NFR-008, NFR-009)
+# ci/pipeline.yml — FEAT-133 / FEAT-136 / US-011 (NFR-004, NFR-006, NFR-008,
+# NFR-009; DEF-002, DEF-003)
 #
 # Canonical pipeline manifest for Hykaen's automated quality gate. This
 # declares (rather than duplicates) the stages that scripts/test_command.sh
@@ -6,6 +7,14 @@
 # N=1000 regression run are confirmed, in configuration, to be REQUIRED
 # gate steps wired into the same pipeline as the rest of the pytest + GUT
 # suite — not an optional/advisory side-channel.
+#
+# FEAT-136 (DEF-002/DEF-003): scripts/test_command.sh (declared below via
+# `test_command:`) is THE single canonical script — the root-level
+# `test_command` is now just a thin delegating wrapper around it (no stage
+# list of its own), and .github/workflows/test.yml's CI job invokes
+# scripts/test_command.sh directly rather than a hand-duplicated inline
+# step list, so pytest and `godot --headless -- --gut-run-all` both
+# genuinely execute in live CI, not just in local/manual runs.
 #
 # Process-level sign-off/findings tracking (e.g. V&V/PQA review gates) is
 # out of scope here and is handled by downstream steps, not this file.
@@ -17,7 +26,9 @@ description: >
   and the core/sim/simulator.gd N=1000 balance regression
   (tests/sim/test_balance_sim.gd) into the same automated gate as the
   full pytest + GUT (--gut-run-all) suite, via a single canonical entry
-  point.
+  point (scripts/test_command.sh) that both the root test_command wrapper
+  and live CI (.github/workflows/test.yml) now invoke, so no divergent
+  stage list can exist (FEAT-136 / DEF-002 / DEF-003).
 
 # The single command CI (and developers locally) invoke to run every
 # stage below in one pass. See scripts/test_command.sh for the actual
@@ -70,6 +81,41 @@ stages:
     command: >-
       godot --headless -s addons/gut/gut_cmdln.gd
       -gdir=res://tests/sim -gselect=test_balance_sim.gd -gexit
+    required: true
+    optional: false
+    allow_failure: false
+
+  - id: consolidated_domain_suite
+    name: GUT consolidated domain suite (tests/.gutconfig.json)
+    description: >
+      Scoped domain/application-layer gate (hex geometry, Combatant
+      hex-coordinate init, melee reach gating, RoundSession, movement,
+      flanking) under tests/unit/core, run via GUT's real CLI entry
+      point so -gconfig= is honored rather than silently widened to the
+      full project suite. Already covered by gut_full_suite, but
+      declared as its own explicit, required stage (FEAT-136,
+      reconciled from the former FEAT-004 test_command).
+    command: >-
+      godot --headless -s addons/gut/gut_cmdln.gd
+      -gconfig=res://tests/.gutconfig.json -gexit
+    required: true
+    optional: false
+    allow_failure: false
+
+  - id: steel_thread_prologue_encounter_e2e
+    name: Steel thread prologue-encounter E2E test
+    description: >
+      Headlessly boots MainScene.tscn into prologue_encounter.tres,
+      drives a player melee Strike and a full AI-controlled enemy turn
+      through the real Presentation/event pipeline, confirms the
+      Win/Loss ResultScreenView with input disabled afterward, and
+      re-confirms determinism (NFR-002/006). Already covered by
+      gut_full_suite, but declared as its own explicit, required stage
+      (FEAT-136, reconciled from the former FEAT-004 test_command).
+    command: >-
+      godot --headless -s addons/gut/gut_cmdln.gd
+      -gselect=test_steel_thread_prologue_encounter.gd
+      -gdir=res://tests/integration -ginclude_subdirs -gexit
     required: true
     optional: false
     allow_failure: false
