@@ -1,0 +1,67 @@
+#+TITLE: Hykaen — Iteration C Backlog
+#+DATE: 2026-07-02
+
+Running backlog of features slated for Iteration C (AEF sprint-4). NOT yet a
+locked scope — this is the candidate list that iteration planning will draw from.
+Seeded from Iteration B's deferrals plus findings surfaced during Iteration B play.
+
+* NEW — surfaced during Iteration B play-testing
+
+** FEAT: Randomize the RNG seed for real play (keep fixed-seed override for tests/sim)
+
+*** Problem
+The shipped composition root replays an identical playthrough every launch. The
+game's randomness is pinned to a fixed seed:
+- =MainScene.gd:317= — =var rng := RNGClass.new(encounter_resource.seed)=; this
+  =rng= is injected into =EncounterClass= (line 318), so it drives every combat
+  die roll. =encounter_resource.seed= is hardcoded to =42= in
+  =data/encounters/prologue_encounter.tres=.
+- =MainScene.gd:300= — =random_port = GodotRandomAdapterClass.new(encounter_resource.seed)=
+  likewise pins the port to 42.
+This is a design gap in the composition root, NOT a steel-thread artifact: the
+fixed seed is a deliberate reproducibility fixture that the determinism tests and
+balance sim require — it was simply never split from the play seed.
+
+*** Not just a one-liner (why it needs design)
+The fixed =seed=42= is REQUIRED by:
+- =tests/integration/test_steel_thread_prologue_encounter.gd= — boots the real
+  MainScene TWICE and diffs the event logs byte-for-byte to prove determinism
+  (NFR-002/006). Randomizing MainScene's default would break this.
+- =tests/integration/test_encounter_integration.gd= and the N=1000 balance sim
+  (=core/sim/simulator.gd=, which takes its own =base_seed= param — it does NOT
+  read the =.tres= seed, so it is unaffected by this change).
+So the fix is to SEPARATE the play-seed from the fixture-seed, not to remove the
+fixture.
+
+*** Approach (approved 2026-07-02)
+- Real play: the composition root seeds RANDOMLY by default — pass =null= to
+  =GodotRandomAdapter= (it already derives a time-based seed from
+  =Time.get_ticks_usec()= when seed_value is null — see its docstring at
+  =core/combat/godot_random_adapter.gd:33=), and give =RNGClass= a random seed
+  (=randomize()= + =randi()=, or =Time.get_ticks_usec()=). NOTE: =RNGClass=
+  (=core/rules/rng.gd=) currently has NO randomize path — it just sets
+  =_rng.seed = seed_value=; the composition root must supply the random value.
+- Reproducible runs: an explicit override WINS. Preferred mechanism: an
+  INJECTABLE seed property on MainScene (settable in-process, so GUT tests can pin
+  it without a subprocess) WITH an env-var fallback (e.g. =HYKAEN_SEED=) for
+  launch-time pinning. The double-boot determinism test then pins =42= explicitly
+  via the injection point instead of relying on the =.tres= default.
+- Leave =MainScene.gd:470= =RNGClass.new(0)= (attribute derivation) as-is —
+  HP/AC/stamina are intentionally deterministic and not part of this.
+
+*** Acceptance
+- Two real launches (no override) produce DIFFERENT combat sequences.
+- With the seed override set (property or =HYKAEN_SEED=), two launches are
+  byte-identical; the existing determinism/steel-thread tests stay green.
+- Constraint (ADR-002): =core/= stays framework-free; the composition root
+  (Presentation) owns the play-vs-fixture seed policy, not the domain RNG.
+
+* CARRIED OVER — deferred from Iteration B (see docs/iterations/iteration-B-ui-launchable-hex-movement.org)
+
+- *Hex movement*: Step (1 hex) and Stride (up to Speed hexes) as interactive UI +
+  domain moves, with reach re-gating after movement.
+- *Flanking → Off-Guard*: positional Off-Guard (+2) when attacker and an ally
+  occupy directly-opposite adjacent hexes; interactive/visual integration. (v0 is
+  blanket; a flankers-only tightening remains a documented future balance lever.)
+- (Iteration B built STATIC hex positioning — coords/distance/reach — only;
+  movement + flanking were the P1 deferral.)
