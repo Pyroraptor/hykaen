@@ -2,47 +2,47 @@ extends GutTest
 ## tests/integration/test_steel_thread_prologue_encounter.gd
 ##
 ## FEAT-113 / US-015: End-to-end steel thread validation.
+## FEAT-124 / FIND-120: retargeted at the REAL res://MainScene.tscn/
+## MainScene.gd composition root for BOTH halves below.
 ##
 ## The FINAL integration/E2E test exercising the complete steel thread from
 ## entry_point to exit_point, closing out the automated/testable portions of
-## US-015. Two complementary halves:
+## US-015. Two complementary halves, BOTH driven through one real, shipped
+## composition root instance (res://MainScene.tscn, wired by MainScene.gd,
+## corrected by FIX-001 to build the INTERACTIVE RunRoundUseCase.begin_round()
+## -> RoundSession pipeline instead of an autonomous run_round() while-loop):
 ##
-##   (A) Headless PRODUCTION BOOT (the real entry_point, MainScene.tscn,
-##       composition root wired by MainScene.gd/US-004/US-013): asserts the
-##       hex battlefield/status panel/initiative order are populated
-##       correctly from the real prologue_encounter.tres data, and
-##       re-confirms determinism (NFR-002/006) by booting the SAME seeded
-##       encounter twice and diffing the ordered event sequence.
+##   (A) Headless PRODUCTION BOOT: asserts the hex battlefield/status panel/
+##       initiative order are populated correctly from the real
+##       prologue_encounter.tres data, and re-confirms determinism
+##       (NFR-002/006) by booting the SAME seeded encounter twice and diffing
+##       the ordered event sequence.
 ##
 ##   (B) The INTERACTIVE Presentation pipeline (StrikeActionControl /
 ##       TurnController / EndTurnControl / ResultScreenView, US-009 through
-##       US-012): MainScene.gd's current _ready() still boots directly into
-##       the pre-existing AUTONOMOUS batch loop (Encounter.run_round() in a
-##       while-loop) — it does not yet wire the interactive controls that
-##       already sit, unconfigured, as MainScene.tscn child nodes. Driving
-##       those controls through a real player Strike + a real AI turn + a
-##       real Win/Loss ResultScreenView therefore requires this test to act
-##       as ITS OWN composition root for that half — exactly the same
-##       pattern already established by tests/unit/core/application/
-##       test_round_session_ai_turn.gd and tests/unit/presentation/
-##       test_strike_action_control.gd: real, REUSED production classes
-##       throughout (ResourceEncounterRepository, ResolveActionUseCase,
-##       DetermineOutcomeUseCase, RunRoundUseCase/RoundSession, the REAL
-##       core/combat/ai.gd, and the REAL Presentation Control scenes), with
-##       only the RandomNumberPort scripted (deterministic hit/miss/damage
-##       values, mirroring the existing convention in
-##       test_strike_action_control.gd / test_round_session_ai_turn.gd) so
-##       the narrative — Titus Strikes the Skeleton but does not kill it,
-##       the Skeleton's AI turn attacks back and misses, Titus's second
-##       Strike finishes the Skeleton — is fully deterministic and
-##       guaranteed to exercise a genuine AI-driven enemy turn before the
-##       encounter concludes.
+##       US-012): drives the REAL $StrikeActionControl / $EndTurnControl /
+##       $TurnController / $ResultScreenView child nodes already wired on the
+##       instantiated MainScene.tscn -- a real player Strike, a real
+##       AI-controlled enemy turn auto-driven through the real
+##       $TurnController, and a real Win/Loss $ResultScreenView -- exercising
+##       the SHIPPED entry point end-to-end rather than a test-only bypass
+##       (FEAT-124 / FIND-120). No test-local RunRoundUseCase/RoundSession/
+##       TurnController graph is constructed here -- MainScene.gd's own
+##       _ready() (composition root, corrected by FIX-001) is the ONLY place
+##       Application ports are wired to Infrastructure adapters; this file
+##       only drives the resulting real Presentation nodes and observes the
+##       real, production GodotRandomAdapter-seeded outcome (seed=42, per
+##       prologue_encounter.tres -- deterministic across runs, NFR-002/006,
+##       even though this file makes no assumption about which specific
+##       Strikes hit/miss/crit).
 ##
 ## No production code is modified for this feature (ADR-002/CR-001
-## guardrail; this feature's files_to_modify is test_command only) — every
-## object driven in part (B) is the exact, unmodified, REUSED production
-## class already covered by its own unit tests; this file's job is proving
-## they compose correctly end-to-end through one real UI/event pipeline.
+## guardrail; FEAT-124's files_to_modify is this test file only) -- every
+## object driven below is the exact, unmodified, REUSED production class
+## already covered by its own unit tests (see tests/unit/test_main_scene_
+## interactive_wiring.gd, the established precedent this file's Part (B)
+## follows); this file's job is proving they compose correctly end-to-end
+## through the ONE real, shipped MainScene.tscn entry point.
 ##
 ## test_criteria satisfied:
 ##   1. test_mainscene_boot_populates_hex_battlefield_status_panel_and_initiative()
@@ -50,123 +50,50 @@ extends GutTest
 ##   3. test_enemy_ai_turn_auto_drives_through_identical_pipeline_after_end_turn()
 ##   4. test_encounter_concludes_with_result_screen_matching_determine_outcome_use_case()
 ##   5. test_determinism_two_independent_mainscene_boots_produce_identical_event_sequence()
-##   6. (whole-suite regression) — enforced by test_command, not this file.
+##   6. (whole-suite regression) -- enforced by test_command, not this file.
 
-const PROLOGUE_ENCOUNTER_PATH: String = "res://data/encounters/prologue_encounter.tres"
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 
-## Mirrors MainScene.gd's DEFAULT_ENEMY_AC constant (EnemyResource carries no
-## AC field in the v0 schema) — duplicated here per this codebase's
-## established integration-test convention (fixture-building logic is
-## duplicated in test files rather than reaching into MainScene.gd's
-## internal helpers; see tests/integration/test_steel_thread_e2e.gd's
-## _build_titus_combatant()/_skeleton_dict() for the precedent).
-const DEFAULT_ENEMY_AC: int = 12
+const RoundEventsClass    = preload("res://core/rules/round_events.gd")
+const TurnControllerClass = preload("res://presentation/turn_controller.gd")
 
-const ResourceEncounterRepositoryClass = preload("res://infrastructure/resource_encounter_repository.gd")
-const AttributesClass                  = preload("res://core/rules/attributes.gd")
-const RNGClass                         = preload("res://core/rules/rng.gd")
-
-const ResolveActionUseCaseClass    = preload("res://core/application/resolve_action_use_case.gd")
-const DetermineOutcomeUseCaseClass = preload("res://core/application/determine_outcome_use_case.gd")
-const RunRoundUseCaseClass         = preload("res://core/application/run_round_use_case.gd")
-const ActionEconomyClass           = preload("res://core/rules/action_economy.gd")
-const AIClass                      = preload("res://core/combat/ai.gd")
-const TurnControllerClass          = preload("res://presentation/turn_controller.gd")
-
-const HexGridViewScene         : PackedScene = preload("res://presentation/hex_grid_view.tscn")
-const StatusPanelViewScene     : PackedScene = preload("res://presentation/status_panel_view.tscn")
-const InitiativeViewScene      : PackedScene = preload("res://presentation/initiative_view.tscn")
-const EventLogViewScene        : PackedScene = preload("res://presentation/event_log_view.tscn")
-const StrikeActionControlScene : PackedScene = preload("res://presentation/strike_action_control.tscn")
-const EndTurnControlScene      : PackedScene = preload("res://presentation/end_turn_control.tscn")
-const ResultScreenViewScene    : PackedScene = preload("res://presentation/result_screen_view.tscn")
+## _MAX_DRIVE_ITERATIONS -- an upper bound on how many player-turn/End-Turn
+## cycles test_encounter_concludes_with_result_screen_matching_determine_outcome_use_case()
+## will drive before giving up. core/rules/action_economy.gd caps every
+## combatant at MAX_BUDGET=7 actions PER ROUND, and this steel thread's only
+## action is a 1-action Strike, so the round MUST end (either by a decided
+## outcome or by both sides exhausting their budget) within 7 player turns --
+## this guard is a generous multiple of that hard ceiling, purely defensive
+## against a stalled drive hanging the test suite.
+const _MAX_DRIVE_ITERATIONS: int = 20
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Port test doubles (RandomNumberPort scripted for determinism; the other
-# three are plain in-memory recorders — mirrors the FakeEventSinkPort /
-# FakeRoundHistoryPort / FakeTurnOrderPort / ScriptedRandomNumberPort
-# doubles already established by tests/unit/core/application/
-# test_round_session_ai_turn.gd and tests/unit/presentation/
-# test_strike_action_control.gd).
+# Shared fixture: boot the REAL res://MainScene.tscn composition root -- the
+# SAME entry point project.godot's run/main_scene points at. Mirrors
+# tests/smoke/test_main_scene_headless_boot.gd's already-established,
+# reliable in-process boot pattern (also used by tests/unit/
+# test_main_scene_interactive_wiring.gd, this file's Part (B) precedent).
 # ══════════════════════════════════════════════════════════════════════════
 
-class ScriptedRandomNumberPort:
-	extends "res://core/rules/random_port.gd"
-
-	var _values: Array
-	var _index: int = 0
-
-	func _init(values: Array) -> void:
-		_values = values
-
-	func roll(_dice_spec: Dictionary) -> int:
-		var v = _values[_index]
-		_index += 1
-		return v
-
-
-class RecordingEventSinkPort:
-	extends "res://core/application/event_sink_port.gd"
-
-	## events — every emitted event, in emission order (used for the
-	## determinism / "identical pipeline" assertions).
-	var events: Array = []
-
-	## forward_to — Presentation nodes exposing on_round_event(event); the
-	## SAME production wiring pattern MainScene.gd's ConsoleEventSinkAdapter
-	## uses (forwarding every event to each Presentation projection).
-	var forward_to: Array = []
-
-	func emit(event) -> void:
-		events.append(event)
-		for target in forward_to:
-			target.on_round_event(event)
-
-
-class InMemoryRoundHistoryPort:
-	extends "res://core/application/round_history_port.gd"
-
-	var entries: Array = []
-
-	func append(entry: Dictionary) -> void:
-		entries.append(entry)
-
-	func get_history() -> Array:
-		return entries
-
-
-## FixedTurnOrderPort — returns the exact entries supplied at construction,
-## unchanged, on every call — this test drives a fixed, known-in-advance
-## turn order (Titus first) rather than re-deriving it from initiative rolls
-## (initiative rolling itself is already covered by the real, unmodified
-## core/combat/encounter.gd's initialize(), exercised in part (A) below).
-class FixedTurnOrderPort:
-	extends "res://core/application/turn_order_port.gd"
-
-	var _entries: Array
-
-	func _init(entries: Array) -> void:
-		_entries = entries
-
-	func get_turn_order() -> Array:
-		return _entries
-
-
-# ══════════════════════════════════════════════════════════════════════════
-# Part (A) fixtures — helpers for booting the real MainScene.tscn entry point.
-# ══════════════════════════════════════════════════════════════════════════
-
-## _boot_main_scene() -> Node — instantiates the real MainScene.tscn
-## composition root and lets one real process frame elapse, mirroring
-## tests/smoke/test_main_scene_headless_boot.gd's already-established,
-## reliable in-process boot pattern.
 func _boot_main_scene():
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
+	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	add_child_autofree(instance)
 	return instance
+
+
+## _find_combatant_by_id(instance, combatant_id) -> Dictionary -- looks up a
+## live combatant Dictionary (MainScene's own _party/_enemies fields, the SAME
+## Dictionaries every resolve_action_use_case.resolve() call mutates in
+## place) by combatant_id, mirroring the lookup already established by
+## tests/unit/test_main_scene_interactive_wiring.gd.
+func _find_combatant_by_id(instance, combatant_id: String) -> Dictionary:
+	for combatant in instance._party + instance._enemies:
+		if combatant.get("combatant_id", "") == combatant_id:
+			return combatant
+	return {}
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -250,330 +177,208 @@ func test_determinism_two_independent_mainscene_boots_produce_identical_event_se
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Part (B) fixtures — an interactive-pipeline "composition root" built from
-# the real prologue_encounter.tres data and real, REUSED production classes
-# (see file-level doc for why this test assembles the wiring MainScene.gd
-# does not yet perform).
-# ══════════════════════════════════════════════════════════════════════════
-
-## _build_titus_combatant(hex_coord, combatant_id) -> Dictionary — builds the
-## Dictionary shape resolve_action_use_case expects, from the REAL
-## titus.tres / fighter.tres / longsword.tres / chain_shirt.tres resources
-## (the same resources MainScene.gd's _build_party_combatant() reads),
-## computing derived HP/AC via the REAL core/rules/attributes.gd.
-func _build_titus_combatant(hex_coord, combatant_id: String) -> Dictionary:
-	var titus       = ResourceLoader.load("res://data/characters/titus.tres")
-	var class_data  = titus.class_ref
-	var chain_shirt = ResourceLoader.load("res://data/armor/chain_shirt.tres")
-	var longsword   = ResourceLoader.load("res://data/weapons/longsword.tres")
-
-	var attrs := AttributesClass.new(RNGClass.new(0))
-	var hp: int = attrs.compute_hp(titus.attributes, class_data)
-	var ac: int = attrs.compute_ac(titus.attributes, chain_shirt.ac_base, chain_shirt.category)
-	var stamina: int = attrs.compute_stamina(titus.attributes, class_data)
-
-	return {
-		"name":         titus.name,
-		"combatant_id": combatant_id,
-		"hex_coord":    hex_coord,
-		"_is_enemy":    false,
-		"hp_current":   hp,
-		"hp_max":       hp,
-		"stamina":      stamina,
-		"ac":           ac,
-		"strength":     titus.attributes.get("strength", 0),
-		"dexterity":    titus.attributes.get("dexterity", 0),
-		"intuition":    titus.attributes.get("intuition", 0),
-		"weapon": {
-			"damage_modifier_attribute": longsword.damage_modifier_attribute,
-			"proficiency_bonus":         longsword.proficiency_bonus,
-			"damage_die":                longsword.damage_die,
-		},
-	}
-
-
-## _build_skeleton_combatant(hex_coord, combatant_id) -> Dictionary — builds
-## the Dictionary shape resolve_action_use_case expects, from the REAL
-## skeleton.tres EnemyResource (the same resource MainScene.gd's
-## _build_enemy_combatant() reads).
-func _build_skeleton_combatant(hex_coord, combatant_id: String) -> Dictionary:
-	var skeleton = ResourceLoader.load("res://data/enemies/skeleton.tres")
-
-	var attribute_map: Dictionary = {"str": "strength", "dex": "dexterity"}
-	var raw_attribute: String = skeleton.weapon.get("attribute", "strength")
-	var weapon_attribute: String = attribute_map.get(raw_attribute, raw_attribute)
-
-	return {
-		"name":         skeleton.name,
-		"combatant_id": combatant_id,
-		"hex_coord":    hex_coord,
-		"_is_enemy":    true,
-		"hp_current":   skeleton.hp,
-		"hp_max":       skeleton.hp,
-		"stamina":      0,
-		"ac":           DEFAULT_ENEMY_AC,
-		"strength":     skeleton.str,
-		"dexterity":    skeleton.dex,
-		"intuition":    0,
-		"weapon": {
-			"damage_modifier_attribute": weapon_attribute,
-			"proficiency_bonus":         skeleton.weapon.get("proficiency_bonus", 1),
-			"damage_die":                skeleton.weapon.get("die", 6),
-		},
-	}
-
-
-## _run_interactive_playthrough() -> Dictionary
-##
-## Assembles a real, REUSED Application-layer pipeline (ResolveActionUseCase
-## / DetermineOutcomeUseCase / RunRoundUseCase / RoundSession, the real
-## core/combat/ai.gd) plus the real Presentation Control scenes
-## (StrikeActionControl / TurnController / EndTurnControl / ResultScreenView
-## / HexGridView / StatusPanelView / InitiativeView / EventLogView) around
-## Titus and the Skeleton built from the REAL prologue_encounter.tres hex
-## positions and the REAL titus.tres/skeleton.tres data.
-##
-## Drives ONE fully deterministic narrative (scripted RandomNumberPort
-## values [10, 1, 5, 10, 1]):
-##   1. Titus Strikes the Skeleton (hit, 6 damage) — the Skeleton survives
-##      (8 -> 2 HP) so a real AI-controlled enemy turn is guaranteed to
-##      follow (test_criteria #3).
-##   2. Titus ends his turn; TurnController auto-drives the Skeleton's full
-##      AI-controlled turn (a Strike back at Titus) through the IDENTICAL
-##      resolve_action_use_case pipeline — it misses (0 damage).
-##   3. Titus Strikes the Skeleton again (hit, 6 damage) — the Skeleton is
-##      defeated (2 -> -4 HP).
-##   4. Titus ends his turn; DetermineOutcomeUseCase decides the encounter
-##      ("won"), RoundSession ends the round, and ResultScreenView renders
-##      "Win" and disables the combat input controls.
-##
-## Returns a Dictionary bundling every wired object plus point-in-time
-## snapshots, so each test_* function below can assert on a single facet of
-## the SAME deterministic playthrough without re-deriving the wiring.
-func _run_interactive_playthrough() -> Dictionary:
-	var repository = ResourceEncounterRepositoryClass.new()
-	var hex_combatants: Array = repository.load_combatants(PROLOGUE_ENCOUNTER_PATH)
-	assert_eq(hex_combatants.size(), 2, "the prologue encounter must supply exactly 2 hex-positioned combatants (Titus + Skeleton)")
-
-	var titus_hex    = hex_combatants[0]
-	var skeleton_hex = hex_combatants[1]
-
-	var titus: Dictionary    = _build_titus_combatant(titus_hex.hex_coord, titus_hex.combatant_id)
-	var skeleton: Dictionary = _build_skeleton_combatant(skeleton_hex.hex_coord, skeleton_hex.combatant_id)
-
-	var event_sink          = RecordingEventSinkPort.new()
-	var round_history_port  = InMemoryRoundHistoryPort.new()
-	var random_number_port  = ScriptedRandomNumberPort.new([10, 1, 5, 10, 1])
-
-	var resolve_action_use_case    = ResolveActionUseCaseClass.new(random_number_port, event_sink, round_history_port)
-	var determine_outcome_use_case = DetermineOutcomeUseCaseClass.new()
-
-	var titus_action_economy    = ActionEconomyClass.new()
-	var skeleton_action_economy = ActionEconomyClass.new()
-	var turn_order_port = FixedTurnOrderPort.new([
-		{"combatant": titus,    "action_economy": titus_action_economy},
-		{"combatant": skeleton, "action_economy": skeleton_action_economy},
-	])
-
-	var run_round_use_case = RunRoundUseCaseClass.new(
-		turn_order_port, event_sink, round_history_port, AIClass.new(),
-		resolve_action_use_case, determine_outcome_use_case
-	)
-
-	# ── Real Presentation nodes, wired exactly as a composition root would ──
-	var hex_grid_view = HexGridViewScene.instantiate()
-	add_child_autofree(hex_grid_view)
-	var status_panel_view = StatusPanelViewScene.instantiate()
-	add_child_autofree(status_panel_view)
-	var initiative_view = InitiativeViewScene.instantiate()
-	add_child_autofree(initiative_view)
-	var event_log_view = EventLogViewScene.instantiate()
-	add_child_autofree(event_log_view)
-	var strike_action_control = StrikeActionControlScene.instantiate()
-	add_child_autofree(strike_action_control)
-	var end_turn_control = EndTurnControlScene.instantiate()
-	add_child_autofree(end_turn_control)
-	var result_screen_view = ResultScreenViewScene.instantiate()
-	add_child_autofree(result_screen_view)
-	var turn_controller = TurnControllerClass.new()
-	add_child_autofree(turn_controller)
-
-	event_sink.forward_to = [status_panel_view, initiative_view, event_log_view, result_screen_view]
-
-	hex_grid_view.load_combatants(hex_combatants)
-	status_panel_view.load_combatants([
-		{
-			"combatant_id": titus["combatant_id"], "name": titus["name"],
-			"hp_current": titus["hp_current"], "hp_max": titus["hp_max"],
-			"stamina_current": titus["stamina"], "stamina_max": titus["stamina"],
-			"action_budget_remaining": 7, "spent": false, "conditions": [],
-		},
-		{
-			"combatant_id": skeleton["combatant_id"], "name": skeleton["name"],
-			"hp_current": skeleton["hp_current"], "hp_max": skeleton["hp_max"],
-			"stamina_current": 0, "stamina_max": 0,
-			"action_budget_remaining": 7, "spent": false, "conditions": [],
-		},
-	])
-	initiative_view.load_combatants([
-		{"combatant_id": titus["combatant_id"], "name": titus["name"], "initiative_order": 2},
-		{"combatant_id": skeleton["combatant_id"], "name": skeleton["name"], "initiative_order": 1},
-	])
-	result_screen_view.configure(strike_action_control, end_turn_control)
-
-	var snapshot: Dictionary = {
-		"titus": titus, "skeleton": skeleton,
-		"resolve_action_use_case": resolve_action_use_case,
-		"determine_outcome_use_case": determine_outcome_use_case,
-		"hex_grid_view": hex_grid_view, "status_panel_view": status_panel_view,
-		"initiative_view": initiative_view, "event_log_view": event_log_view,
-		"strike_action_control": strike_action_control, "end_turn_control": end_turn_control,
-		"result_screen_view": result_screen_view, "event_sink": event_sink,
-	}
-
-	# ── Begin round 1 ────────────────────────────────────────────────────
-	var session = run_round_use_case.begin_round(1, [titus], [skeleton])
-	snapshot["session"] = session
-	turn_controller.set_session(session, end_turn_control, strike_action_control)
-
-	snapshot["current_actor_before_any_action"] = session.current_actor().get("name", "")
-
-	# ── (1) Player Strike #1 — the Skeleton survives ────────────────────
-	strike_action_control.configure(
-		titus, session.current_action_economy(), resolve_action_use_case, [skeleton], 1, 0
-	)
-	snapshot["strike1_result"] = strike_action_control.select_target(skeleton["combatant_id"])
-	snapshot["skeleton_hp_after_strike1"] = skeleton.get("hp_current", 0)
-	snapshot["event_log_count_after_strike1"] = event_log_view.get_entry_count()
-	snapshot["event_log_text_after_strike1"] = event_log_view.get_entry_text(event_log_view.get_entry_count() - 1)
-	snapshot["status_panel_skeleton_hp_after_strike1"] = status_panel_view.get_status(skeleton["combatant_id"]).get("hp_current", -1)
-
-	# ── (2) End Titus's turn — TurnController auto-drives the Skeleton's
-	# full AI-controlled turn through the SAME resolve_action_use_case
-	# pipeline (US-011), then settles back on Titus. ─────────────────────
-	snapshot["end_turn_1_result"] = turn_controller.on_end_turn_pressed()
-	snapshot["event_log_count_after_ai_turn"] = event_log_view.get_entry_count()
-	snapshot["event_log_text_after_ai_turn"] = event_log_view.get_entry_text(event_log_view.get_entry_count() - 1)
-	snapshot["status_panel_titus_hp_after_ai_turn"] = status_panel_view.get_status(titus["combatant_id"]).get("hp_current", -1)
-	snapshot["current_actor_after_ai_turn"] = session.current_actor().get("name", "")
-	snapshot["round_over_after_ai_turn"] = session.is_round_over()
-	snapshot["strike_action_control_buttons_after_ai_turn"] = strike_action_control.get_button_count()
-
-	# ── (3) Composition-root responsibility (mirrors turn_controller.gd's
-	# documented division of labor): re-enable StrikeActionControl for the
-	# new active player turn, then Titus Strikes again — finishing the
-	# Skeleton. ────────────────────────────────────────────────────────────
-	strike_action_control.configure(
-		titus, session.current_action_economy(), resolve_action_use_case, [skeleton], 1, 1
-	)
-	snapshot["strike2_result"] = strike_action_control.select_target(skeleton["combatant_id"])
-	snapshot["skeleton_hp_after_strike2"] = skeleton.get("hp_current", 0)
-
-	# ── (4) End Titus's second turn — DetermineOutcomeUseCase decides the
-	# encounter and RoundSession emits EncounterResultEvent. ─────────────
-	snapshot["end_turn_2_result"] = turn_controller.on_end_turn_pressed()
-	snapshot["final_outcome_via_classify"] = determine_outcome_use_case.classify([titus], [skeleton])
-
-	return snapshot
-
-
-# ══════════════════════════════════════════════════════════════════════════
-# Part (B) — Criterion 2: StrikeActionControl performs a melee Strike on an
-# in-reach enemy through the real UI/event pipeline; the resulting
-# AttackEvent appears in EventLogView and StatusPanelView.
+# Part (B) — Criterion 2: driving a player melee Strike through the REAL
+# $StrikeActionControl node on the instantiated MainScene.tscn; the resulting
+# AttackEvent appears in the real EventLogView/StatusPanelView, observed via
+# MainScene's real event-sink adapter (instance.event_sink).
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_player_strike_through_real_pipeline_observable_in_event_log_and_status_panel() -> void:
-	var s: Dictionary = _run_interactive_playthrough()
+	var instance = _boot_main_scene()
+	await get_tree().process_frame
 
-	assert_eq(s["current_actor_before_any_action"], "Titus", "Titus (adjacent to the Skeleton per prologue_encounter.tres hex positions) must act first")
+	assert_false(
+		instance.round_session.current_actor().get("_is_enemy", true),
+		"the first actor must be a living player combatant (Titus) per prologue_encounter.tres' hex layout"
+	)
 
-	assert_true(s["strike1_result"].get("ok", false), "the player's melee Strike on the in-reach Skeleton must resolve successfully")
-	assert_true(s["strike1_result"].get("resolved", false), "the player's Strike must be marked resolved by resolve_action_use_case")
+	var target_ids: Array = instance.strike_action_control.get_selectable_target_ids()
+	assert_true(
+		target_ids.size() > 0,
+		"the real $StrikeActionControl must be configured with at least one in-reach target for the active player combatant immediately after MainScene._ready()"
+	)
+	var target_id: String = target_ids[0]
 
-	assert_eq(s["event_log_count_after_strike1"], 1, "EventLogView must observe exactly one entry for the player's resolved Strike's AttackEvent")
-	assert_string_contains(s["event_log_text_after_strike1"], "Titus")
-	assert_string_contains(s["event_log_text_after_strike1"], "Skeleton")
+	assert_eq(instance.event_log_view.get_entry_count(), 0, "fixture assumption: no events logged yet before any Strike")
 
+	# ── Drive the real $StrikeActionControl node -- no test-local resolver. ──
+	var result: Dictionary = instance.strike_action_control.select_target(target_id)
+
+	assert_true(result.get("ok", false), "the player's melee Strike on the in-reach target must resolve successfully through the real StrikeActionControl node")
+	assert_true(result.get("resolved", false), "the player's Strike must be marked resolved by MainScene's real, wired resolve_action_use_case")
+
+	# At least one entry (the AttackEvent) -- possibly a second
+	# (CombatantDefeatedEvent) if the Strike also proved fatal; the
+	# AttackEvent is always emitted FIRST (resolve_action_use_case.resolve()'s
+	# documented emission order), so index 0 is always the Strike's own entry.
+	assert_true(
+		instance.event_log_view.get_entry_count() >= 1,
+		"the real EventLogView must observe at least one entry for the player's resolved Strike's AttackEvent"
+	)
+	var log_text: String = instance.event_log_view.get_entry_text(0)
+	assert_string_contains(log_text, "Titus")
+	assert_string_contains(log_text, "Skeleton")
+
+	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	assert_eq(attack_events.size(), 1, "MainScene's real event-sink adapter must have observed exactly one AttackEvent")
+	assert_eq(attack_events[0].attacker_name, "Titus", "the AttackEvent must attribute the Strike to Titus, the player-controlled actor")
+	assert_eq(attack_events[0].target_name, "Skeleton", "the AttackEvent must target the Skeleton")
+
+	var target_combatant: Dictionary = _find_combatant_by_id(instance, target_id)
+	assert_false(target_combatant.is_empty(), "fixture assumption: the selected target must be one of MainScene's live combatant Dictionaries")
+
+	# StatusPanelView clamps a displayed HP at 0 (it never shows an
+	# "overkill" negative value), while the live domain Dictionary MainScene
+	# mutates may go negative -- compare against the same floor
+	# StatusPanelView applies.
+	var status: Dictionary = instance.status_panel_view.get_status(target_id)
 	assert_eq(
-		s["status_panel_skeleton_hp_after_strike1"], s["skeleton_hp_after_strike1"],
-		"StatusPanelView must reflect the domain Skeleton's post-Strike HP via the same event pipeline"
-	)
-	assert_true(
-		s["skeleton_hp_after_strike1"] < s["skeleton"]["hp_max"],
-		"the player's Strike must have damaged the Skeleton"
-	)
-	assert_true(
-		s["skeleton_hp_after_strike1"] > 0,
-		"the Skeleton must survive the player's first Strike so a genuine AI-controlled enemy turn follows"
+		status.get("hp_current", -1), maxi(target_combatant.get("hp_current", -2), 0),
+		"the real StatusPanelView must reflect the target's post-Strike HP via MainScene's real event-sink pipeline"
 	)
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Part (B) — Criterion 3: driving a full AI-controlled enemy turn through the
-# IDENTICAL pipeline the player's own Strike used.
+# Part (B) — Criterion 3: pressing the REAL $EndTurnControl node drives the
+# enemy's turn automatically through the REAL $TurnController, producing an
+# AttackEvent/log entry indistinguishable in shape from the player's own.
+#
+# The player's turn is passed here WITHOUT Striking first (EndTurnControl is
+# documented as "ALWAYS available regardless of whether/what action was
+# spent", US-010), so the turn cursor advances directly onto the Skeleton
+# (the encounter's only Enemy) with zero prior RandomNumberPort draws
+# consumed -- guaranteeing the real $TurnController's AI-auto-drive path
+# (RoundSession.advance_ai_turn(), US-011) is deterministically exercised by
+# this run regardless of exactly which values the fixed seed=42 production
+# RNG happens to yield (unlike Striking first, which -- for this particular
+# seed -- lands a critical hit that outright defeats the Skeleton on the
+# very first player action, ending the round before any Enemy turn is ever
+# reached; see test_encounter_concludes_with_result_screen_matching_
+# determine_outcome_use_case() below, which exercises exactly that
+# legitimate alternate playthrough).
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_enemy_ai_turn_auto_drives_through_identical_pipeline_after_end_turn() -> void:
-	var s: Dictionary = _run_interactive_playthrough()
+	var instance = _boot_main_scene()
+	await get_tree().process_frame
 
-	assert_true(s["end_turn_1_result"].get("ok", false), "ending the player's turn must succeed")
-	assert_false(s["round_over_after_ai_turn"], "the round must not be over after only the Skeleton's non-lethal AI turn")
-
-	# One additional EventLogView entry (the Skeleton's AI-resolved Strike),
-	# rendered via the SAME EventSinkPort broadcast the player's own Strike
-	# used above — proving there is no parallel/duplicate event path.
-	assert_eq(
-		s["event_log_count_after_ai_turn"], 2,
-		"EventLogView must observe exactly one additional entry for the AI-resolved Strike's AttackEvent"
+	assert_is(instance.turn_controller, TurnControllerClass, "MainScene must wire the real $TurnController (presentation/turn_controller.gd)")
+	assert_false(
+		instance.round_session.current_actor().get("_is_enemy", true),
+		"fixture assumption: the first actor must be the living player combatant (Titus)"
 	)
-	assert_string_contains(s["event_log_text_after_ai_turn"], "Skeleton")
-	assert_string_contains(s["event_log_text_after_ai_turn"], "Titus")
-
 	assert_eq(
-		s["status_panel_titus_hp_after_ai_turn"], s["titus"]["hp_max"],
-		"the Skeleton's scripted AI Strike misses — Titus's displayed HP must remain unchanged"
+		instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent).size(), 0,
+		"fixture assumption: no Strike has been made yet"
+	)
+
+	# ── Pass the player's opening turn via the real $EndTurnControl node --
+	# no Strike, no test-local TurnController. ─────────────────────────────
+	var press_result: Dictionary = instance.end_turn_control.press()
+	assert_true(press_result.get("ok", false), "the real $EndTurnControl must forward to RoundSession.end_current_turn() successfully")
+
+	assert_false(
+		instance.round_session.is_round_over(),
+		"passing the player's turn with no damage yet dealt must not conclude the round"
+	)
+
+	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	assert_eq(
+		attack_events.size(), 1,
+		"the real $TurnController, driven via MainScene's EndTurnControl.turn_ended handoff, must auto-drive exactly one AI-controlled enemy Strike through resolve_action_use_case"
+	)
+	var ai_attack_event = attack_events[0]
+	assert_true(ai_attack_event is RoundEventsClass.AttackEvent, "the AI-resolved event must be a real RoundEvents.AttackEvent")
+	assert_eq(ai_attack_event.attacker_name, "Skeleton", "the auto-driven Strike must be attributed to the AI-controlled Skeleton")
+	assert_eq(ai_attack_event.target_name, "Titus", "the auto-driven Strike must target the player-controlled Titus")
+
+	assert_true(
+		instance.event_log_view.get_entry_count() >= 1,
+		"the real EventLogView must observe a new entry for the AI-resolved Strike's AttackEvent through MainScene's real event-sink pipeline"
 	)
 
 	# TurnController settles back on the player, ready for the next turn.
-	assert_eq(s["current_actor_after_ai_turn"], "Titus", "the turn cursor must return to Titus once the AI turn resolves")
+	assert_false(
+		instance.round_session.current_actor().get("_is_enemy", true),
+		"the real $TurnController must auto-drive the Enemy's full turn so the session settles back on a living player combatant"
+	)
+	var target_ids: Array = instance.strike_action_control.get_selectable_target_ids()
+	assert_true(
+		target_ids.size() > 0,
+		"MainScene must have reconfigured $StrikeActionControl with live targets once the real TurnController settles back on the player (FIND-120)"
+	)
+
+	# ── Now the player Strikes for real, through the real StrikeActionControl,
+	# giving a second, player-attributed AttackEvent to compare shapes with. ──
+	var player_result: Dictionary = instance.strike_action_control.select_target(target_ids[0])
+	assert_true(player_result.get("resolved", false), "the player's Strike through the real StrikeActionControl must resolve")
+
+	var attack_events_after: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	assert_eq(attack_events_after.size(), 2, "exactly one additional AttackEvent (the player's) must now exist")
+	var player_attack_event = attack_events_after[1]
+	assert_true(player_attack_event is RoundEventsClass.AttackEvent, "the player-resolved event must be a real RoundEvents.AttackEvent")
+	assert_eq(player_attack_event.attacker_name, "Titus", "the player's own Strike must be attributed to Titus")
+
+	# "Indistinguishable in shape": both events are the SAME AttackEvent type
+	# carrying the SAME field set, since both flow through the identical
+	# resolve_action_use_case.resolve() pipeline -- never a parallel one.
 	assert_eq(
-		s["strike_action_control_buttons_after_ai_turn"], 0,
-		"StrikeActionControl must remain disabled after the AI-drive settles (US-011) until the composition root reconfigures it for the new turn"
+		ai_attack_event.to_dict().keys(), player_attack_event.to_dict().keys(),
+		"the AI-resolved AttackEvent must carry the identical field shape as the player's own AttackEvent"
 	)
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Part (B) — Criterion 4: running the encounter to conclusion; ResultScreenView
-# shows Win/Loss matching determine_outcome_use_case, with
-# StrikeActionControl/EndTurnControl disabled afterward.
+# Part (B) — Criterion 4: driving the encounter to conclusion entirely
+# through the REAL $StrikeActionControl/$EndTurnControl nodes; the REAL
+# $ResultScreenView displays Win or Loss and combat input controls are
+# disabled afterward.
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_encounter_concludes_with_result_screen_matching_determine_outcome_use_case() -> void:
-	var s: Dictionary = _run_interactive_playthrough()
+	var instance = _boot_main_scene()
+	await get_tree().process_frame
 
-	assert_true(s["strike2_result"].get("ok", false), "the player's second Strike must resolve successfully")
-	assert_true(s["strike2_result"].get("target_defeated", false), "the player's second Strike must defeat the Skeleton")
-	assert_true(s["skeleton_hp_after_strike2"] <= 0, "the Skeleton's HP must be <= 0 after the finishing Strike")
+	assert_false(instance.result_screen_view.is_shown(), "fixture assumption: no result is shown before any input")
 
-	assert_eq(s["final_outcome_via_classify"], "won", "determine_outcome_use_case.classify() must report 'won' once the Skeleton side is fully defeated")
+	# ── Drive the REAL controls, one player turn at a time, until the round
+	# concludes -- every enemy turn in between is auto-driven by the real
+	# $TurnController via MainScene's EndTurnControl.turn_ended handoff
+	# (see presentation/turn_controller.gd / MainScene.gd). ─────────────────
+	var guard: int = 0
+	while not instance.round_session.is_round_over() and guard < _MAX_DRIVE_ITERATIONS:
+		if not instance.round_session.current_actor().get("_is_enemy", true):
+			var target_ids: Array = instance.strike_action_control.get_selectable_target_ids()
+			if target_ids.size() > 0:
+				instance.strike_action_control.select_target(target_ids[0])
+		instance.end_turn_control.press()
+		guard += 1
 
-	var session = s["session"]
-	assert_true(session.is_round_over(), "the round must be over once the encounter's outcome is decided")
-	assert_eq(session.outcome(), "won", "RoundSession.outcome() must match determine_outcome_use_case's classification")
+	assert_true(
+		instance.round_session.is_round_over(),
+		"driving the real StrikeActionControl/EndTurnControl nodes must eventually conclude the round (guard=%d/%d)" % [guard, _MAX_DRIVE_ITERATIONS]
+	)
+	# Queried via the real RoundSession (round_session.outcome() -- the
+	# authoritative source per its documented API contract), not MainScene's
+	# own `outcome` mirror field -- see the analogous comment in
+	# test_enemy_ai_turn_auto_drives_through_identical_pipeline_after_end_turn()
+	# above for why that field is not relied on here.
+	var decided_outcome: String = instance.round_session.outcome()
+	assert_true(
+		decided_outcome == "won" or decided_outcome == "lost",
+		"RoundSession.outcome() must be a decided terminal outcome ('won' or 'lost') once the round concludes; got '%s'" % decided_outcome
+	)
 
-	var result_screen_view = s["result_screen_view"]
-	assert_true(result_screen_view.is_shown(), "ResultScreenView must have processed the EncounterResultEvent")
-	assert_eq(result_screen_view.get_result_text(), "Win", "ResultScreenView must render 'Win' for a 'won' outcome")
-	assert_eq(result_screen_view.get_label_text(), "Win", "ResultScreenView's rendered label text must show 'Win'")
+	assert_true(instance.result_screen_view.is_shown(), "the real $ResultScreenView must have processed the EncounterResultEvent through MainScene's real event-sink pipeline")
+	var expected_text: String = "Win" if decided_outcome == "won" else "Loss"
+	assert_eq(instance.result_screen_view.get_result_text(), expected_text, "ResultScreenView must render the text matching MainScene's decided outcome")
+	assert_eq(instance.result_screen_view.get_label_text(), expected_text, "ResultScreenView's rendered label text must match the decided outcome")
 
-	var strike_action_control = s["strike_action_control"]
-	var end_turn_control = s["end_turn_control"]
-	assert_eq(strike_action_control.get_button_count(), 0, "StrikeActionControl must be disabled (no selectable targets) once the encounter has concluded")
-	assert_false(end_turn_control.is_enabled(), "EndTurnControl must be disabled once the encounter has concluded")
+	# Combat input controls disabled after conclusion (US-012).
+	assert_eq(instance.strike_action_control.get_button_count(), 0, "the real $StrikeActionControl must be disabled (no selectable targets) once the encounter has concluded")
+	assert_false(instance.end_turn_control.is_enabled(), "the real $EndTurnControl must be disabled once the encounter has concluded")
 
-	# Selecting a target after conclusion must be a defensive no-op — no
-	# further use-case call can reach the concluded encounter.
-	var post_conclusion_result: Dictionary = strike_action_control.select_target(s["skeleton"]["combatant_id"])
-	assert_false(post_conclusion_result.get("ok", true), "StrikeActionControl must reject input after the encounter has concluded")
-	assert_false(end_turn_control.press().get("ok", true), "EndTurnControl must reject input after the encounter has concluded")
+	# Further input after conclusion must be a defensive no-op -- no further
+	# use-case call can reach the concluded encounter.
+	var post_conclusion_press: Dictionary = instance.end_turn_control.press()
+	assert_false(post_conclusion_press.get("ok", true), "the real $EndTurnControl must reject input after the encounter has concluded")
