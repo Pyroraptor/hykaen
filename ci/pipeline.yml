@@ -1,0 +1,81 @@
+# ci/pipeline.yml — FEAT-133 / US-011 (NFR-004, NFR-006, NFR-008, NFR-009)
+#
+# Canonical pipeline manifest for Hykaen's automated quality gate. This
+# declares (rather than duplicates) the stages that scripts/test_command.sh
+# runs, so the headless smoke test (FEAT-001) and the core/sim/simulator.gd
+# N=1000 regression run are confirmed, in configuration, to be REQUIRED
+# gate steps wired into the same pipeline as the rest of the pytest + GUT
+# suite — not an optional/advisory side-channel.
+#
+# Process-level sign-off/findings tracking (e.g. V&V/PQA review gates) is
+# out of scope here and is handled by downstream steps, not this file.
+
+name: hykaen-quality-gate
+
+description: >
+  Wires the headless smoke test (FEAT-001, tests/gut/test_smoke_boot.gd)
+  and the core/sim/simulator.gd N=1000 balance regression
+  (tests/sim/test_balance_sim.gd) into the same automated gate as the
+  full pytest + GUT (--gut-run-all) suite, via a single canonical entry
+  point.
+
+# The single command CI (and developers locally) invoke to run every
+# stage below in one pass. See scripts/test_command.sh for the actual
+# stage implementations — this file is the declarative source of truth
+# for which stages are required/non-optional.
+test_command: scripts/test_command.sh
+
+stages:
+  - id: headless_smoke_test
+    name: Headless launchability smoke test (FEAT-001 / NFR-004 / NFR-006)
+    description: >
+      Boots MainScene.tscn headlessly via GUT, asserting autoload
+      resolution, run/main_scene wiring, and first-frame processing with
+      no unhandled errors. A fast, early gate ahead of the full suite.
+    command: >-
+      godot --headless -s addons/gut/gut_cmdln.gd
+      -gdir=res://tests/gut -gselect=test_smoke_boot.gd -gexit
+    required: true
+    optional: false
+    allow_failure: false
+
+  - id: pytest_suite
+    name: Python pytest suite
+    description: >
+      The full Python test suite — CI/infra and config assertions under
+      tests/unit/*.py.
+    command: python -m pytest -q --tb=short
+    required: true
+    optional: false
+    allow_failure: false
+
+  - id: gut_full_suite
+    name: Full GUT headless regression suite (--gut-run-all)
+    description: >
+      Whole-project GDScript/GUT regression gate, including the FEAT-001
+      headless smoke test and the N=1000 balance simulation.
+    command: godot --headless -- --gut-run-all
+    required: true
+    optional: false
+    allow_failure: false
+
+  - id: balance_simulation_n1000
+    name: core/sim/simulator.gd N=1000 balance regression (NFR-006 / NFR-008 / NFR-009)
+    description: >
+      Confirms the aggregate win-rate/outcome distribution from N=1000
+      simulated encounters remains within existing tolerance
+      ([0.40, 0.80]), an early-warning signal against accidental
+      balance-constant drift. Already covered by gut_full_suite, but
+      declared as its own explicit, required stage per US-011.
+    command: >-
+      godot --headless -s addons/gut/gut_cmdln.gd
+      -gdir=res://tests/sim -gselect=test_balance_sim.gd -gexit
+    required: true
+    optional: false
+    allow_failure: false
+
+gate:
+  # A single failing stage aborts the pipeline; scripts/test_command.sh
+  # enforces this at the shell level via `set -euo pipefail`.
+  fail_fast: true
+  exit_non_zero_on_any_stage_failure: true
