@@ -1,0 +1,65 @@
+#+TITLE: Iteration C RE-SCOPE — DEPTH sprint: Hex Movement + Flanking (AUTHORITATIVE)
+#+DATE: 2026-07-02
+
+* READ FIRST — this brief OVERRIDES prior sprint-4 scoping
+
+The previous sprint-4 plan wrongly DEFERRED hex movement and flanking under a
+"breadth-first / steel-thread" heuristic. That heuristic is now SATISFIED and MUST
+NOT be applied again: the playable breadth already exists and is COMMITTED. This
+sprint is the sanctioned DEPTH pass. Movement and flanking are P0 / MUST and are
+**NOT deferrable**. Do not defer FR-011/012/013/016 or their supporting utilities
+to any future iteration.
+
+* ALREADY DONE — REUSE, DO NOT REBUILD OR RE-PLAN
+
+The following are implemented, committed, and green — treat as fixed substrate,
+build on top, do NOT create features to re-derive them:
+- Playable UI loop: launchable MainScene, hex battlefield render + per-combatant
+  readout, initiative/turn-order display, event log, Player Strike input, end-turn/
+  pass, enemy-turn execution via existing AI, Win/Loss result screen. (Iteration B
+  + sprint-4 FEAT-001..010.)
+- RNG seed policy: play randomizes via Time.get_ticks_usec(); reproducible runs use
+  an injectable seed_override / HYKAEN_SEED env var. (sprint-4 FEAT-002, FEAT-003 —
+  DONE. Do NOT touch the seed policy except as movement/flanking tests require a
+  pinned seed, which the override already provides.)
+
+* THE ONLY COMMITTED SCOPE FOR THIS SPRINT (all P0 / MUST)
+
+Domain-first (ADR-001: all positioning/reach/flanking logic in core/, zero Node/
+Control; UI only reads/derives). Reuse existing ports/use-cases (ADR-002); the only
+new domain code is the movement/flanking logic below. All GUT-tested.
+
+1. Hex coordinate model + pure utilities (FR-011): flat-top hex grid, 1 hex = 5 ft,
+   6-neighbour adjacency, NO diagonal cost. Pure hex-distance and adjacency
+   functions usable by movement, reach, and flanking.
+2. Step (FR-012): move exactly 1 hex as a FREE action (no action-economy cost),
+   to an unoccupied adjacent hex.
+3. Stride (FR-013): move up to the combatant's Speed (4 hexes) along adjacent hexes;
+   COSTS one action per the existing action economy / Movement trait; may not exceed
+   Speed; may not end on an occupied hex.
+4. Reach re-gating: after a Step or Stride, recompute reach eligibility before
+   allowing a Strike. Melee reach = adjacency (6 neighbours); ranged = listed range
+   in hexes.
+5. Flanking → Off-Guard (FR-016): when an attacker and an ally occupy directly-
+   OPPOSITE adjacent hexes relative to a target, the target is Off-Guard (blanket
+   +2 to attacks against it) while so positioned; integrate into attack resolution.
+   v0 is blanket (NOT flankers-only — that tightening is a documented future lever).
+6. UI wiring for the above: interactive Step/Stride input on the player's turn
+   (select destination hex within budget), visual reach/flank affordances derived
+   from the domain state. Extend existing controls; do not rebuild them.
+
+* OUT OF SCOPE (unchanged from Iteration B deferrals)
+- Animation/audio/particles/camera polish; main menu/settings/save-load; multiple
+  encounters/campaign flow; difficult terrain/elevation/LoS; full reaction-prompt
+  UI; spellcasting UI; networking/multiplayer.
+- Any refactor of the combat core, action economy, RNG, seed policy, or balance sim
+  beyond the additive movement/flanking domain logic above.
+
+* VERIFICATION (gate must stay green)
+- New GUT unit tests: hex distance/adjacency; Step (free, 1 hex, unoccupied);
+  Stride (≤ Speed, consumes an action, no overshoot/occupied-end); reach re-gate
+  after movement; flanking Off-Guard (opposite-adjacent → +2; non-opposite → none).
+- Existing full suite + N=1000 balance determinism (via the seed override) MUST
+  remain green (NFR regression). MainScene still boots headless.
+- Static: no Node/Control in core/ (ADR-001); no undeclared new ports/use-cases
+  beyond the additive movement/flanking domain logic (ADR-002).
