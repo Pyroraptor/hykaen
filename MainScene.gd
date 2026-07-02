@@ -13,18 +13,21 @@ extends Node
 ##      loads data/encounters/prologue_encounter.tres and builds the domain
 ##      hex-positioned Combatant list (US-001) — the repository adapter.
 ##   2. GodotRandomAdapter (core/combat/godot_random_adapter.gd) is
-##      constructed from `resolved_seed` (FEAT-002 / US-002) — the RandomPort
-##      adapter for the interactive ResolveActionUseCase pipeline below
-##      (step 9). `resolved_seed` is `seed_override` (an in-process
+##      constructed from `resolved_seed` (FEAT-002/003 / US-002/003) — the
+##      RandomPort adapter for the interactive ResolveActionUseCase pipeline
+##      below (step 9). `resolved_seed` is resolved via
+##      infrastructure/seed_policy.gd's SeedPolicy.resolve_from_environment()
+##      (ADR-004), which honors, in order: `seed_override` (an in-process
 ##      injectable property GUT tests may set BEFORE add_child()/_ready()
 ##      completes composition, e.g. to pin the prologue fixture's seed=42
-##      for the double-boot determinism regression) when non-null, otherwise
-##      a fresh Time.get_ticks_usec()-derived value so real (non-test)
-##      launches never replay the same fixed playthrough (FR-001/NFR-002).
-##      data/encounters/prologue_encounter.tres' `seed` field (42) remains
-##      the deterministic fixture used by core/sim/simulator.gd and other
-##      tests that construct their own RNG directly — it is intentionally
-##      no longer read here.
+##      for the double-boot determinism regression), then the HYKAEN_SEED
+##      environment variable (fails open to random on a malformed/absent
+##      value, NFR-006), then a fresh Time.get_ticks_usec()-derived value so
+##      real (non-test) launches never replay the same fixed playthrough
+##      (FR-001/NFR-002). data/encounters/prologue_encounter.tres' `seed`
+##      field (42) remains the deterministic fixture used by
+##      core/sim/simulator.gd and other tests that construct their own RNG
+##      directly — it is intentionally no longer read here.
 ##   3. ConsoleEventSinkAdapter (defined below) implements EventSinkPort by
 ##      mirroring every round event to stdout AND forwarding it to every
 ##      subscribed Presentation projection (StatusPanelView/InitiativeView/
@@ -99,6 +102,7 @@ extends Node
 ## ports/use cases/Presentation controls and wires them together.
 
 const ResourceEncounterRepositoryClass = preload("res://infrastructure/resource_encounter_repository.gd")
+const SeedPolicyClass                  = preload("res://infrastructure/seed_policy.gd")
 const GodotRandomAdapterClass          = preload("res://core/combat/godot_random_adapter.gd")
 const EncounterClass                   = preload("res://core/combat/encounter.gd")
 const RNGClass                         = preload("res://core/rules/rng.gd")
@@ -191,25 +195,30 @@ class InMemoryRoundHistoryAdapter:
 		return _entries
 
 
-## seed_override — in-process injectable seed policy (FEAT-002 / US-002).
-## null | int. Composition-root contract: GUT tests (or any other caller)
-## may set this on a freshly-instantiated-but-not-yet-added-to-the-tree
+## seed_override — in-process injectable seed policy (FEAT-002 / US-002;
+## precedence formalized by FEAT-003 / US-003 / ADR-004, see SeedPolicyClass
+## above). null | int. Composition-root contract: GUT tests (or any other
+## caller) may set this on a freshly-instantiated-but-not-yet-added-to-the-tree
 ## MainScene BEFORE add_child() triggers _ready() to pin `resolved_seed`
 ## to a known value (e.g. 42, matching the prologue fixture, for
 ## determinism regressions such as tests/integration/
 ## test_steel_thread_prologue_encounter.gd's double-boot diff). Left null
-## (the default) for a real, non-test launch so `resolved_seed` is instead
-## derived randomly — see `resolved_seed` below.
+## (the default) so `resolved_seed` instead falls through to the HYKAEN_SEED
+## environment variable, then to a random value — see `resolved_seed` below.
 var seed_override = null
 
 ## resolved_seed — the actual int seed this boot's RNGClass/GodotRandomAdapter
-## were constructed with (FEAT-002 / US-002), computed once in _ready() as:
-##   seed_override if seed_override != null else a fresh Time.get_ticks_usec()
-##   -derived value
+## were constructed with, computed once in _ready() via
+## SeedPolicyClass.resolve_from_environment() (FEAT-003 / US-003 / ADR-004):
+##   1. seed_override (IN_PROCESS_INJECTED), when non-null
+##   2. the HYKAEN_SEED environment variable, when it parses as a valid
+##      integer (a malformed/unset value fails open to (3) rather than
+##      blocking boot, NFR-006)
+##   3. a fresh Time.get_ticks_usec()-derived value (RANDOM)
 ## Exposed (rather than left a private local) so tests can assert a real,
-## non-override launch never resolves to data/encounters/prologue_encounter
-## .tres' hardcoded fixture seed (42), and that two independent non-override
-## launches resolve to different values (FR-001/NFR-002).
+## non-override, no-env-var launch never resolves to data/encounters/
+## prologue_encounter.tres' hardcoded fixture seed (42), and that two
+## independent such launches resolve to different values (FR-001/NFR-002).
 var resolved_seed: int = -1
 
 ## encounter_repository — the repository adapter instantiated at the
@@ -327,13 +336,16 @@ func _ready() -> void:
 		push_error("MainScene: failed to load " + PROLOGUE_ENCOUNTER_PATH)
 		return
 
-	# ── FEAT-002 / US-002: separate the real-play seed from the fixture seed
-	# baked into prologue_encounter.tres (42). An explicit `seed_override`
-	# (set in-process before this node was added to the tree) always wins,
-	# for determinism tests/reproducible runs; otherwise a fresh
+	# ── FEAT-002/003 / US-002/003: separate the real-play seed from the
+	# fixture seed baked into prologue_encounter.tres (42), via
+	# SeedPolicyClass's precedence rule (ADR-004): an explicit
+	# `seed_override` (set in-process before this node was added to the
+	# tree) always wins, for determinism tests/reproducible runs; otherwise
+	# the HYKAEN_SEED environment variable is consulted (fails open to
+	# random on a malformed/absent value, NFR-006); otherwise a fresh
 	# Time.get_ticks_usec()-derived value is resolved so real launches are
 	# never pinned to the fixture's replayable playthrough. ────────────────
-	resolved_seed = seed_override if seed_override != null else int(Time.get_ticks_usec())
+	resolved_seed = SeedPolicyClass.resolve_from_environment(seed_override, int(Time.get_ticks_usec()))
 
 	random_port = GodotRandomAdapterClass.new(resolved_seed)
 	event_sink = ConsoleEventSinkAdapter.new()

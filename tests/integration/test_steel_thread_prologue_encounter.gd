@@ -87,14 +87,20 @@ func _boot_main_scene():
 
 
 ## _boot_main_scene_with_seed(seed_value) -- identical to _boot_main_scene()
-## above, but pins MainScene's `seed_override` (FEAT-002 / US-002 in-process
-## composition-root contract) BEFORE add_child() triggers _ready(), so the
-## resulting boot is reproducible. Since FEAT-002, a real (non-override)
-## MainScene launch resolves a fresh, randomized play seed every time (by
-## design -- see MainScene.gd's `resolved_seed`), so the determinism
-## regression below (booting the SAME seeded encounter twice and diffing the
-## event log byte-for-byte, NFR-002/006) must pin an explicit seed rather
-## than relying on the prologue fixture's default.
+## above, but pins MainScene's `seed_override` (FEAT-002/003 / US-002/003
+## in-process composition-root contract, formalized as the top-precedence
+## branch of infrastructure/seed_policy.gd's SeedPolicy.resolve_from_
+## environment(), ADR-004: in-process override > HYKAEN_SEED env var >
+## random) BEFORE add_child() triggers _ready(), so the resulting boot is
+## reproducible. Since FEAT-002, a real (non-override, no-env-var) MainScene
+## launch resolves a fresh, randomized play seed every time (by design --
+## see MainScene.gd's `resolved_seed`), so the determinism regression below
+## (booting the SAME seeded encounter twice and diffing the event log
+## byte-for-byte, NFR-002/006) must pin an explicit seed via this injection
+## point rather than relying on the prologue fixture's default or the
+## environment. infrastructure/seed_policy.gd's own precedence/fail-open
+## unit coverage lives in tests/gut/test_seed_policy.gd (FEAT-003); this
+## file only asserts the resulting composition-root behavior end-to-end.
 func _boot_main_scene_with_seed(seed_value: int):
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
