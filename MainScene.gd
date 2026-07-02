@@ -1,5 +1,6 @@
 extends Node
-## MainScene.gd — project composition root (ADR-006 / US-004 / FEAT-005)
+## MainScene.gd — project composition root (ADR-006 / US-004 / FEAT-005;
+## FEAT-123 / US-004,009,010,011,012, FIND-120)
 ##
 ## This is the SINGLE place Infrastructure adapters are wired to Application
 ## ports for the whole game (manual DI via the scene tree — no DI framework,
@@ -13,52 +14,80 @@ extends Node
 ##      hex-positioned Combatant list (US-001) — the repository adapter.
 ##   2. GodotRandomAdapter (core/combat/godot_random_adapter.gd) is
 ##      constructed, seeded from the encounter resource's seed field for
-##      determinism (NFR-002/006) — the RandomPort adapter. It is exposed on
-##      this node (random_port) as the production RandomNumberPort instance
-##      later Application-layer callers (e.g. a future TurnController/UI
-##      layer, US-011) can retrieve from the composition root without
-##      re-wiring their own adapter.
+##      determinism (NFR-002/006) — the RandomPort adapter for the
+##      interactive ResolveActionUseCase pipeline below (step 9).
 ##   3. ConsoleEventSinkAdapter (defined below) implements EventSinkPort by
-##      mirroring every round event to stdout — the event-sink adapter and
-##      this iteration's textual observability extension point.
-##   4. The existing Encounter composition root (core/combat/encounter.gd,
-##      itself already the established ADR-006 wiring for RunRoundUseCase /
-##      ResolveActionUseCase / DetermineOutcomeUseCase) drives the prologue
-##      party (reused from titus.tres via prologue_encounter.tres, per
-##      US-004) against the prologue enemy to a terminal outcome, republishing
-##      every round event through the event-sink adapter above.
-##   5. HexGridView (presentation/hex_grid_view.gd, instanced as this node's
+##      mirroring every round event to stdout AND forwarding it to every
+##      subscribed Presentation projection (StatusPanelView/InitiativeView/
+##      EventLogView/ResultScreenView) — the ONE event-sink adapter every
+##      Strike/AI-turn/turn-advance flows through, whether it happens at boot
+##      or later in response to player input (ADR-003).
+##   4. HexGridView (presentation/hex_grid_view.gd, instanced as this node's
 ##      "HexGridView" child in MainScene.tscn) is handed the SAME
 ##      hex-positioned Combatant list from step 1 via load_combatants(), so a
 ##      person running the project (not headless) sees the flat-top hex
 ##      battlefield with all combatants placed on load (US-005).
-##   6. StatusPanelView (presentation/status_panel_view.gd, instanced as this
-##      node's "StatusPanelView" child in MainScene.tscn, FEAT-008 / US-006)
-##      is handed an initial name/HP/Stamina/action-budget/Spent/conditions
-##      SNAPSHOT via load_combatants() before the first round runs, then
-##      receives every round event via on_round_event() the SAME way the
-##      ConsoleEventSinkAdapter above does — StatusPanelView never reaches
-##      into Encounter/ActionEconomy itself (read-only projection, ADR-003).
-##   7. InitiativeView (presentation/initiative_view.gd, instanced as this
-##      node's "InitiativeView" child in MainScene.tscn, FEAT-009 / US-007)
-##      is handed an initial name/initiative_order SNAPSHOT via
-##      load_combatants() (built from the SAME encounter.get_turn_order()
-##      result already used to seed StatusPanelView's action-budget/spent
-##      fields in step 6), then receives every round event via
-##      on_round_event() the SAME way StatusPanelView does — InitiativeView
-##      never reaches into Encounter itself (read-only projection, ADR-003).
-##   8. EventLogView (presentation/event_log_view.gd, instanced as this
-##      node's "EventLogView" child in MainScene.tscn, FEAT-010 / US-008) has
-##      no snapshot step (it is append-only, starting empty) and receives
-##      every round event via on_round_event() the SAME way StatusPanelView
-##      and InitiativeView do — EventLogView never reaches into
-##      Encounter/ActionEconomy itself (read-only projection, ADR-003),
-##      giving the player a chronologically ordered, human-readable combat
-##      log for the whole encounter.
+##   5. StatusPanelView / InitiativeView (FEAT-008/US-006, FEAT-009/US-007)
+##      are handed an initial snapshot (name/HP/Stamina/action-budget/Spent/
+##      conditions, and name/initiative_order respectively) built from the
+##      SAME Encounter composition helper (core/combat/encounter.gd) used to
+##      roll initiative and grant each combatant an ActionEconomy — Encounter
+##      is reused ONLY for that initiative/ActionEconomy bookkeeping here; its
+##      autonomous run_round() while-loop is never invoked (see step 8-10).
+##   6. EventLogView (presentation/event_log_view.gd) has no snapshot step (it
+##      is append-only, starting empty) and receives every round event via
+##      the event-sink adapter's forwarding (step 3) exactly like
+##      StatusPanelView/InitiativeView — no Presentation projection ever
+##      reaches into Encounter/ActionEconomy itself (read-only, ADR-003).
+##   7. Encounter (core/combat/encounter.gd) is constructed and initialize()d
+##      SOLELY to roll initiative and build one ActionEconomy per combatant
+##      (reusing that existing, tested bookkeeping) — its run_round() method
+##      is intentionally NEVER called by this composition root (FEAT-123 /
+##      FIND-120): the old "while outcome == '' : encounter.run_round()"
+##      autonomous batch loop that resolved the whole encounter on boot with
+##      no player input has been removed.
+##   8. RunRoundUseCase.begin_round(1, party, enemies) (core/application/
+##      run_round_use_case.gd, ADR-007) is called instead, wired with a
+##      TurnOrderPort adapter reading Encounter's turn order/ActionEconomy
+##      bookkeeping from step 7, the EventSinkPort from step 3, an in-memory
+##      RoundHistoryPort, the REAL core/combat/ai.gd AIDecisionPort, and a
+##      ResolveActionUseCase wired to the RandomPort from step 2. This
+##      returns a real, non-null RoundSession (core/application/
+##      round_session.gd) — the resumable, stepwise interactive cycle state
+##      a human drives one turn at a time, exposed on this node as
+##      `round_session` for verification.
+##   9. TurnController ($TurnController, presentation/turn_controller.gd) is
+##      handed the RoundSession plus the already-instantiated
+##      $EndTurnControl/$StrikeActionControl child controls via set_session()
+##      (US-010/US-011): it immediately auto-drives any leading Enemy turns
+##      and configures $EndTurnControl's enabled state for whoever the
+##      session now sits on. This node subscribes to TurnController's
+##      active_actor_changed/round_over signals (FIND-120) to reconfigure
+##      $StrikeActionControl's live targets for the new active player
+##      combatant and to clear it once the round is over — TurnController
+##      itself has no live-target data of its own to re-derive that from
+##      (see presentation/turn_controller.gd's documented division of
+##      responsibility).
+##  10. $EndTurnControl's own turn_ended signal (emitted after its press()
+##      forwards directly to RoundSession.end_current_turn(), US-010) is
+##      subscribed here so this composition root can re-invoke
+##      TurnController.set_session() with the SAME RoundSession afterward —
+##      TurnController's set_session() is documented safe to call repeatedly
+##      and always re-drives any consecutive Enemy turns via
+##      RoundSession.advance_ai_turn() before yielding back to the player
+##      (US-011) — giving the player-presses-EndTurn -> AI-turns-resolve flow
+##      a single, non-duplicated entry point without introducing any new
+##      public API on either control (ADR-002/CR-001 guardrail).
+##  11. $ResultScreenView (presentation/result_screen_view.gd, US-012) is
+##      configured with $StrikeActionControl/$EndTurnControl so that once the
+##      EncounterResultEvent this pipeline emits reaches it (via the SAME
+##      event-sink forwarding every other projection uses), it renders
+##      Win/Loss and disables both combat input controls.
 ##
-## No new ports or use cases are introduced here (ADR-002 / CR-001 guardrail)
-## — this file only constructs adapters around the pre-existing ports/use
-## cases and the pre-existing Encounter composition root.
+## No new ports or use cases are introduced here beyond the ADR-007-declared
+## RoundSession stepwise API RunRoundUseCase already exposes (ADR-002 / CR-001
+## guardrail) — this file only constructs adapters around the pre-existing
+## ports/use cases/Presentation controls and wires them together.
 
 const ResourceEncounterRepositoryClass = preload("res://infrastructure/resource_encounter_repository.gd")
 const GodotRandomAdapterClass          = preload("res://core/combat/godot_random_adapter.gd")
@@ -67,6 +96,10 @@ const RNGClass                         = preload("res://core/rules/rng.gd")
 const AttributesClass                  = preload("res://core/rules/attributes.gd")
 const WeaponResourceClass              = preload("res://core/model/weapon_resource.gd")
 const ArmorResourceClass               = preload("res://core/model/armor_resource.gd")
+const ResolveActionUseCaseClass        = preload("res://core/application/resolve_action_use_case.gd")
+const DetermineOutcomeUseCaseClass     = preload("res://core/application/determine_outcome_use_case.gd")
+const RunRoundUseCaseClass             = preload("res://core/application/run_round_use_case.gd")
+const AIClass                          = preload("res://core/combat/ai.gd")
 
 ## The steel-thread's entry_point: the one encounter this composition root boots into.
 const PROLOGUE_ENCOUNTER_PATH: String = "res://data/encounters/prologue_encounter.tres"
@@ -76,19 +109,29 @@ const PROLOGUE_ENCOUNTER_PATH: String = "res://data/encounters/prologue_encounte
 ## EnemyResource data (core/sim/simulator.gd / tests/integration/test_steel_thread_e2e.gd).
 const DEFAULT_ENEMY_AC: int = 12
 
-## Safety cap on run_round() calls — guards this composition root against an
-## unexpected non-terminating scenario hanging the running game at boot.
-const MAX_ROUNDS_GUARD: int = 100
+## The single round this composition root drives interactively this
+## iteration (FEAT-123 / ADR-007's RoundSession stepwise API). Multi-round
+## continuation (calling begin_round() again once a round ends without a
+## decided outcome) is out of this feature's scope.
+const ROUND_NUMBER: int = 1
 
 
 ## ConsoleEventSinkAdapter — concrete EventSinkPort adapter (ADR-006):
-## mirrors every emitted round event to stdout via print(), giving a textual
-## trace of the encounter without introducing a new port (the observability
-## extension point called out for this iteration).
+## mirrors every emitted round event to stdout via print() AND forwards it to
+## every Presentation projection registered in `forward_to` (FEAT-123) — the
+## ONE integration point between the Application-layer round events this
+## composition root's use cases emit and every subscribed Presentation
+## projection (StatusPanelView/InitiativeView/EventLogView/ResultScreenView),
+## whether the event happens synchronously at boot or later as a result of
+## live player/AI input.
 class ConsoleEventSinkAdapter:
 	extends "res://core/application/event_sink_port.gd"
 
 	var log: Array = []
+
+	## forward_to — Presentation nodes exposing on_round_event(event); set by
+	## this composition root once every subscriber has been instantiated.
+	var forward_to: Array = []
 
 	func emit(event) -> void:
 		log.append(event)
@@ -96,6 +139,47 @@ class ConsoleEventSinkAdapter:
 			print("INFO: round event ", event.to_dict())
 		else:
 			print("INFO: round event ", event)
+		for target in forward_to:
+			if target != null:
+				target.on_round_event(event)
+
+
+## _EncounterTurnOrderAdapter — implements TurnOrderPort (core/application/
+## turn_order_port.gd) over an already-initialize()d Encounter's PUBLIC
+## accessors (get_turn_order() / get_action_economy()) — reusing Encounter's
+## existing, tested initiative-rolling/ActionEconomy bookkeeping (step 7
+## above) without reaching into its private fields or calling its
+## autonomous run_round() (FEAT-123 / FIND-120).
+class _EncounterTurnOrderAdapter:
+	extends "res://core/application/turn_order_port.gd"
+
+	var _encounter
+
+	func _init(p_encounter) -> void:
+		_encounter = p_encounter
+
+	func get_turn_order() -> Array:
+		var order: Array = _encounter.get_turn_order()
+		var entries: Array = []
+		for i in range(order.size()):
+			entries.append({"combatant": order[i], "action_economy": _encounter.get_action_economy(i)})
+		return entries
+
+
+## InMemoryRoundHistoryAdapter — implements RoundHistoryPort (core/
+## application/round_history_port.gd) over a plain in-memory Array owned by
+## this composition root, mirroring the pattern already established by
+## core/combat/encounter.gd's own private _RoundHistoryAdapter.
+class InMemoryRoundHistoryAdapter:
+	extends "res://core/application/round_history_port.gd"
+
+	var _entries: Array = []
+
+	func append(entry: Dictionary) -> void:
+		_entries.append(entry)
+
+	func get_history() -> Array:
+		return _entries
 
 
 ## encounter_repository — the repository adapter instantiated at the
@@ -103,16 +187,43 @@ class ConsoleEventSinkAdapter:
 var encounter_repository
 
 ## random_port — the production RandomPort adapter instantiated at the
-## composition root (ADR-006), seeded for determinism (NFR-002/006).
+## composition root (ADR-006), seeded for determinism (NFR-002/006) and
+## wired into resolve_action_use_case below (FEAT-123) for every Strike this
+## interactive pipeline resolves, whether a player's or the AI's.
 var random_port
 
 ## event_sink — the EventSinkPort adapter instantiated at the composition
-## root (ADR-006); every round event from the booted encounter passes through it.
+## root (ADR-006); every round event this pipeline emits passes through it.
 var event_sink
 
-## encounter — the running Encounter (core/combat/encounter.gd) for the
-## booted prologue fight.
+## encounter — the Encounter (core/combat/encounter.gd) reused SOLELY for
+## initiative rolling / per-combatant ActionEconomy bookkeeping (FEAT-123);
+## its run_round() is intentionally never invoked by this composition root.
 var encounter
+
+## round_session — the interactive RoundSession (core/application/
+## round_session.gd) obtained via RunRoundUseCase.begin_round() (FEAT-123 /
+## ADR-007). Non-null once _ready() completes — this is the resumable,
+## stepwise cycle state $TurnController/$StrikeActionControl/$EndTurnControl
+## drive one turn at a time, replacing the old autonomous run_round()
+## while-loop.
+var round_session
+
+## run_round_use_case / resolve_action_use_case / determine_outcome_use_case /
+## round_history_port — the Application-layer use cases/ports wired at this
+## composition root for the interactive pipeline (FEAT-123), exposed for
+## verification.
+var run_round_use_case
+var resolve_action_use_case
+var determine_outcome_use_case
+var round_history_port
+
+## outcome — '' | 'won' | 'lost'; mirrors round_session.outcome() and is
+## refreshed once the round concludes (see _on_round_over()). Exposed for
+## verification (manual smoke test and automated GUT coverage) — no longer
+## guaranteed non-empty immediately after _ready() (FEAT-123 / FIND-120):
+## the encounter is no longer auto-resolved on boot without player input.
+var outcome: String = ""
 
 ## hex_grid_view — the HexGridView (presentation/hex_grid_view.gd) instanced
 ## in MainScene.tscn (FEAT-007 / US-005). Populated with one
@@ -125,31 +236,53 @@ var encounter
 ## instanced in MainScene.tscn (FEAT-008 / US-006). Populated with a
 ## name/HP/Stamina/action-budget/Spent/conditions snapshot for every
 ## combatant loaded from the prologue encounter, then updated per round
-## event as the booted encounter runs, so a person running the project (not
-## headless) sees each combatant's status.
+## event as the interactive session progresses.
 @onready var status_panel_view = $StatusPanelView
 
 ## initiative_view — the InitiativeView (presentation/initiative_view.gd)
 ## instanced in MainScene.tscn (FEAT-009 / US-007). Populated with the
 ## domain-determined turn order (name + initiative_order) for every
 ## combatant loaded from the prologue encounter, then updated per round
-## event as the booted encounter runs, so a person running the project (not
-## headless) sees the initiative order and the active combatant.
+## event as the interactive session progresses.
 @onready var initiative_view = $InitiativeView
 
 ## event_log_view — the EventLogView (presentation/event_log_view.gd)
 ## instanced in MainScene.tscn (FEAT-010 / US-008). Append-only — starts
-## empty and receives every round event as the booted encounter runs, so a
-## person running the project (not headless) sees a chronologically ordered,
-## human-readable combat log for the whole encounter.
+## empty and receives every round event as the interactive session
+## progresses, so a person running the project (not headless) sees a
+## chronologically ordered, human-readable combat log for the whole
+## encounter.
 @onready var event_log_view = $EventLogView
 
-## outcome / round_count / event_count — exposed for verification (manual
-## smoke test and automated GUT coverage) that the prologue encounter
-## actually ran to a terminal state.
-var outcome: String = ""
-var round_count: int = 0
-var event_count: int = 0
+## strike_action_control — the StrikeActionControl (presentation/
+## strike_action_control.gd) instanced in MainScene.tscn (FEAT-109 /
+## US-009). Reconfigured with the live active player combatant/targets by
+## this composition root every time TurnController's active_actor_changed
+## signal fires (FEAT-123 / FIND-120).
+@onready var strike_action_control = $StrikeActionControl
+
+## turn_controller — the TurnController (presentation/turn_controller.gd)
+## instanced in MainScene.tscn (FEAT-110/111, US-010/US-011). Handed the
+## live round_session by this composition root (FEAT-123).
+@onready var turn_controller = $TurnController
+
+## end_turn_control — the EndTurnControl (presentation/end_turn_control.gd)
+## instanced in MainScene.tscn (FEAT-110, US-010).
+@onready var end_turn_control = $EndTurnControl
+
+## result_screen_view — the ResultScreenView (presentation/
+## result_screen_view.gd) instanced in MainScene.tscn (FEAT-112, US-012).
+@onready var result_screen_view = $ResultScreenView
+
+## _party / _enemies — the live combatant Dictionaries built at boot,
+## mutated in place by every resolved Strike throughout the interactive
+## session (Dictionaries are reference types in GDScript). Kept as fields so
+## this composition root's own signal handlers (reacting to
+## TurnController's active_actor_changed/round_over) can rebuild
+## StrikeActionControl's live target list without re-deriving it from
+## Infrastructure.
+var _party: Array = []
+var _enemies: Array = []
 
 
 func _ready() -> void:
@@ -167,63 +300,161 @@ func _ready() -> void:
 	random_port = GodotRandomAdapterClass.new(encounter_resource.seed)
 	event_sink = ConsoleEventSinkAdapter.new()
 
-	var party: Array = []
+	_party = []
 	for i in range(encounter_resource.party_resource_paths.size()):
 		var party_hex = hex_combatants[i].hex_coord if i < hex_combatants.size() else null
-		party.append(_build_party_combatant(encounter_resource.party_resource_paths[i], party_hex))
+		var party_id: String = hex_combatants[i].combatant_id if i < hex_combatants.size() else ""
+		_party.append(_build_party_combatant(encounter_resource.party_resource_paths[i], party_hex, party_id))
 
 	var party_count: int = encounter_resource.party_resource_paths.size()
-	var enemies: Array = []
+	_enemies = []
 	for j in range(encounter_resource.enemy_resource_paths.size()):
 		var idx: int = party_count + j
 		var enemy_hex = hex_combatants[idx].hex_coord if idx < hex_combatants.size() else null
-		enemies.append(_build_enemy_combatant(encounter_resource.enemy_resource_paths[j], enemy_hex))
+		var enemy_id: String = hex_combatants[idx].combatant_id if idx < hex_combatants.size() else ""
+		_enemies.append(_build_enemy_combatant(encounter_resource.enemy_resource_paths[j], enemy_hex, enemy_id))
 
 	var rng := RNGClass.new(encounter_resource.seed)
-	encounter = EncounterClass.new(party, enemies, rng)
+	encounter = EncounterClass.new(_party, _enemies, rng)
 	encounter.initialize()
 
 	if status_panel_view != null:
 		status_panel_view.load_combatants(
-			_build_status_view_models(hex_combatants, party, enemies, encounter)
+			_build_status_view_models(hex_combatants, _party, _enemies, encounter)
 		)
 
 	if initiative_view != null:
 		initiative_view.load_combatants(
-			_build_initiative_view_models(hex_combatants, party, enemies, encounter)
+			_build_initiative_view_models(hex_combatants, _party, _enemies, encounter)
 		)
 
-	var rounds_run: int = 0
-	while encounter.get_outcome() == "" and rounds_run < MAX_ROUNDS_GUARD:
-		encounter.run_round()
-		for event in encounter.get_round_events():
-			event_sink.emit(event)
-			if status_panel_view != null:
-				status_panel_view.on_round_event(event)
-			if initiative_view != null:
-				initiative_view.on_round_event(event)
-			if event_log_view != null:
-				event_log_view.on_round_event(event)
-		rounds_run += 1
+	event_sink.forward_to = _presentation_event_subscribers()
 
-	outcome = encounter.get_outcome()
-	round_count = encounter.get_round_count()
-	event_count = event_sink.log.size()
+	# ── FEAT-123 / FIND-120: build the interactive pipeline (RunRoundUseCase
+	# .begin_round() -> RoundSession) instead of driving the autonomous
+	# core/combat/encounter.gd run_round() while-loop. ─────────────────────
+	var turn_order_port = _EncounterTurnOrderAdapter.new(encounter)
+	round_history_port = InMemoryRoundHistoryAdapter.new()
+	resolve_action_use_case = ResolveActionUseCaseClass.new(random_port, event_sink, round_history_port)
+	determine_outcome_use_case = DetermineOutcomeUseCaseClass.new()
+	var ai_decision_port = AIClass.new()
+	run_round_use_case = RunRoundUseCaseClass.new(
+		turn_order_port, event_sink, round_history_port, ai_decision_port,
+		resolve_action_use_case, determine_outcome_use_case
+	)
+
+	round_session = run_round_use_case.begin_round(ROUND_NUMBER, _party, _enemies)
+
+	if result_screen_view != null:
+		result_screen_view.configure(strike_action_control, end_turn_control)
+
+	if turn_controller != null:
+		turn_controller.active_actor_changed.connect(_on_active_actor_changed)
+		turn_controller.round_over.connect(_on_round_over)
+
+	if end_turn_control != null:
+		end_turn_control.turn_ended.connect(_on_end_turn_control_turn_ended)
+
+	if turn_controller != null:
+		turn_controller.set_session(round_session, end_turn_control, strike_action_control)
+
+	outcome = round_session.outcome()
 
 	print(
-		"INFO: Hykaen MainScene booted into prologue encounter -- outcome=" + outcome
-		+ " rounds=" + str(round_count) + " events=" + str(event_count)
+		"INFO: Hykaen MainScene booted into the prologue encounter (interactive) -- "
+		+ "current_actor=" + str(round_session.current_actor().get("name", ""))
+		+ " round_over=" + str(round_session.is_round_over())
 	)
 
 
-## _build_party_combatant(character_path, hex_coord) -> Dictionary
+## _presentation_event_subscribers() -> Array — every instantiated
+## Presentation projection that subscribes to the EventSinkPort broadcast
+## (ADR-003): StatusPanelView/InitiativeView/EventLogView/ResultScreenView.
+## HexGridView is NOT an EventSinkPort subscriber (a Strike never moves a
+## combatant in this steel thread) — see presentation/turn_controller.gd's
+## file-level doc for the precedent this mirrors.
+func _presentation_event_subscribers() -> Array:
+	var subscribers: Array = []
+	for view in [status_panel_view, initiative_view, event_log_view, result_screen_view]:
+		if view != null:
+			subscribers.append(view)
+	return subscribers
+
+
+## _on_active_actor_changed(combatant) -> void — TurnController
+## (presentation/turn_controller.gd) emits this once it settles on a new
+## (player) current actor, whether at boot or after auto-driving a run of
+## Enemy turns (FEAT-123 / FIND-120). Reconfigures $StrikeActionControl with
+## the live actor/action-economy/live-target data TurnController itself does
+## not own (see turn_controller.gd's documented division of responsibility).
+func _on_active_actor_changed(combatant: Dictionary) -> void:
+	if strike_action_control == null or round_session == null:
+		return
+	strike_action_control.configure(
+		combatant,
+		round_session.current_action_economy(),
+		resolve_action_use_case,
+		_living_combatants(_enemies),
+		ROUND_NUMBER,
+		0
+	)
+
+
+## _on_round_over() -> void — TurnController emits this once the held
+## RoundSession reports is_round_over(). Refreshes `outcome` and defensively
+## clears $StrikeActionControl (no acting combatant, no selectable targets)
+## even for the case where the round ends without a decided
+## EncounterResultEvent (ResultScreenView only reacts to that terminal
+## event; this is a defensive backstop for that gap, FEAT-123).
+func _on_round_over() -> void:
+	if round_session != null:
+		outcome = round_session.outcome()
+	if strike_action_control != null:
+		strike_action_control.configure({}, null, null, [])
+
+
+## _on_end_turn_control_turn_ended(_result) -> void — $EndTurnControl's own
+## press() forwards directly to RoundSession.end_current_turn() (US-010) and
+## emits this signal with that call's result. This composition root reacts
+## by re-invoking TurnController.set_session() with the SAME RoundSession
+## (documented safe to call repeatedly) so any consecutive Enemy turn(s) the
+## cursor now sits on are auto-driven via RoundSession.advance_ai_turn()
+## before yielding back to the player (US-011) — the single, non-duplicated
+## entry point for "player pressed End Turn -> AI turns resolve" (FEAT-123 /
+## FIND-120), without introducing any new public API on either control
+## (ADR-002/CR-001 guardrail).
+func _on_end_turn_control_turn_ended(_result: Dictionary) -> void:
+	if turn_controller == null or round_session == null:
+		return
+	if round_session.is_round_over():
+		return
+	turn_controller.set_session(round_session)
+
+
+## _living_combatants(combatants) -> Array — the subset of `combatants` with
+## hp_current > 0, mirroring the living-target filter core/combat/ai.gd and
+## core/application/round_session.gd already apply internally, so
+## StrikeActionControl is never offered an already-defeated target.
+func _living_combatants(combatants: Array) -> Array:
+	var living: Array = []
+	for c in combatants:
+		if c.get("hp_current", 0) > 0:
+			living.append(c)
+	return living
+
+
+## _build_party_combatant(character_path, hex_coord, combatant_id) -> Dictionary
 ##
-## Builds the Dictionary shape core/combat/encounter.gd expects (US-004
-## reuses the existing party pipeline) from a CharacterResource, its
-## class_ref, and the first WeaponResource / ArmorResource found among its
-## starting_equipment. hex_coord (a core/geometry/hex_coord.gd HexCoord, or
-## null) is attached so melee reach-gating (US-003) applies when present.
-func _build_party_combatant(character_path: String, hex_coord) -> Dictionary:
+## Builds the Dictionary shape core/application/resolve_action_use_case.gd
+## expects (US-004 reuses the existing party pipeline) from a
+## CharacterResource, its class_ref, and the first WeaponResource /
+## ArmorResource found among its starting_equipment. hex_coord (a
+## core/geometry/hex_coord.gd HexCoord, or null) is attached so melee
+## reach-gating (US-003) applies when present. combatant_id (the domain
+## Combatant's stable id from ResourceEncounterRepository, or "") is
+## attached so Presentation controls (StrikeActionControl/StatusPanelView)
+## can identify this combatant consistently with HexGridView's tokens.
+func _build_party_combatant(character_path: String, hex_coord, combatant_id: String = "") -> Dictionary:
 	var character = ResourceLoader.load(character_path)
 	var class_data = character.class_ref
 
@@ -258,15 +489,20 @@ func _build_party_combatant(character_path: String, hex_coord) -> Dictionary:
 	}
 	if hex_coord != null:
 		combatant["hex_coord"] = hex_coord
+	if combatant_id != "":
+		combatant["combatant_id"] = combatant_id
 	return combatant
 
 
-## _build_enemy_combatant(enemy_path, hex_coord) -> Dictionary
+## _build_enemy_combatant(enemy_path, hex_coord, combatant_id) -> Dictionary
 ##
-## Builds the Dictionary shape core/combat/encounter.gd expects from an
-## EnemyResource. hex_coord (a core/geometry/hex_coord.gd HexCoord, or null)
-## is attached so melee reach-gating (US-003) applies when present.
-func _build_enemy_combatant(enemy_path: String, hex_coord) -> Dictionary:
+## Builds the Dictionary shape core/application/resolve_action_use_case.gd
+## expects from an EnemyResource. hex_coord (a core/geometry/hex_coord.gd
+## HexCoord, or null) is attached so melee reach-gating (US-003) applies
+## when present. combatant_id (see _build_party_combatant() above) is
+## attached so Presentation controls can identify this combatant
+## consistently with HexGridView's tokens.
+func _build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String = "") -> Dictionary:
 	var enemy = ResourceLoader.load(enemy_path)
 
 	var attribute_map: Dictionary = {"str": "strength", "dex": "dexterity"}
@@ -290,6 +526,8 @@ func _build_enemy_combatant(enemy_path: String, hex_coord) -> Dictionary:
 	}
 	if hex_coord != null:
 		combatant["hex_coord"] = hex_coord
+	if combatant_id != "":
+		combatant["combatant_id"] = combatant_id
 	return combatant
 
 

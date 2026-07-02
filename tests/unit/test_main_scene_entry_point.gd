@@ -160,10 +160,13 @@ func test_main_scene_source_no_input_calls() -> void:
 
 
 # ── Criterion 3 (headless proxy for the manual smoke test): instantiating ───
-# MainScene boots the prologue encounter to a valid terminal outcome with
-# zero console errors, wiring real adapters (not mocks).
+# MainScene boots the prologue encounter cleanly, wiring real adapters (not
+# mocks) and a real, interactive RoundSession -- WITHOUT auto-resolving the
+# whole encounter (FEAT-123 / FIND-120 superseded the old autonomous
+# run_round() while-loop; see tests/unit/test_main_scene_interactive_wiring.gd
+# for full interactive-pipeline coverage).
 
-func test_main_scene_instantiated_boots_prologue_encounter_to_valid_outcome() -> void:
+func test_main_scene_instantiated_boots_prologue_encounter_without_auto_resolving() -> void:
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load for instantiation")
 	if packed == null:
@@ -176,17 +179,17 @@ func test_main_scene_instantiated_boots_prologue_encounter_to_valid_outcome() ->
 
 	add_child_autofree(instance)
 
-	assert_true(
-		instance.outcome == "won" or instance.outcome == "lost",
-		"MainScene must boot the prologue encounter to a terminal outcome ('won'/'lost'); got '%s'" % instance.outcome
+	assert_eq(
+		instance.outcome, "",
+		"MainScene must NOT auto-resolve the prologue encounter to a terminal outcome on boot (FEAT-123 / FIND-120) -- got '%s'" % instance.outcome
 	)
-	assert_true(
-		instance.round_count >= 1,
-		"MainScene's booted encounter must run at least 1 round; got %d" % instance.round_count
+	assert_not_null(
+		instance.round_session,
+		"MainScene must obtain a real RoundSession via RunRoundUseCase.begin_round() (FEAT-123)"
 	)
-	assert_true(
-		instance.event_count > 0,
-		"MainScene's event-sink adapter must have received at least one round event"
+	assert_false(
+		instance.round_session.is_round_over(),
+		"the freshly-begun RoundSession must not already be over with no player input"
 	)
 
 

@@ -100,14 +100,17 @@ func test_autoload_singletons_resolve_to_non_null_instances() -> void:
 
 # ══════════════════════════════════════════════════════════════════════════
 # Criteria 1 & 3 proxy: MainScene.tscn boots headlessly, completing
-# first-frame processing with a valid terminal outcome and no null
-# composition-root wiring. Instantiated fresh (add_child_autofree) inside
-# this already-headless GUT process, then a real frame is awaited so the
-# assertions below run only once idle/frame processing has actually
+# first-frame processing with a real, non-null interactive RoundSession and
+# no null composition-root wiring -- WITHOUT auto-resolving the whole
+# encounter (FEAT-123 / FIND-120 superseded the old autonomous run_round()
+# while-loop; see tests/unit/test_main_scene_interactive_wiring.gd for full
+# interactive-pipeline coverage). Instantiated fresh (add_child_autofree)
+# inside this already-headless GUT process, then a real frame is awaited so
+# the assertions below run only once idle/frame processing has actually
 # occurred, not merely immediately after _ready() returns synchronously.
 # ══════════════════════════════════════════════════════════════════════════
 
-func test_main_scene_headless_boot_completes_first_frame_with_valid_outcome() -> void:
+func test_main_scene_headless_boot_completes_first_frame_without_auto_resolving() -> void:
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene (US-013)")
 	if packed == null:
@@ -124,15 +127,18 @@ func test_main_scene_headless_boot_completes_first_frame_with_valid_outcome() ->
 	# "first frame processed", not merely "constructor ran".
 	await get_tree().process_frame
 
-	assert_true(
-		instance.outcome == "won" or instance.outcome == "lost",
-		"MainScene must complete first-frame processing with a terminal outcome "
-		+ "('won'/'lost'); got '%s' (US-013)" % instance.outcome
+	assert_eq(
+		instance.outcome, "",
+		"MainScene must NOT auto-resolve the prologue encounter to a terminal outcome on first frame "
+		+ "(FEAT-123 / FIND-120); got '%s'" % instance.outcome
 	)
-	assert_true(
-		instance.round_count >= 1,
-		"MainScene's booted encounter must run at least 1 round on first frame (US-013); got %d"
-		% instance.round_count
+	assert_not_null(
+		instance.round_session,
+		"MainScene must obtain a real RoundSession via RunRoundUseCase.begin_round() on first frame (FEAT-123)"
+	)
+	assert_false(
+		instance.round_session.is_round_over(),
+		"the freshly-begun RoundSession must not already be over with no player input"
 	)
 	assert_not_null(
 		instance.encounter_repository,

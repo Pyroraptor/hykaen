@@ -178,12 +178,16 @@ func test_mainscene_boot_populates_hex_battlefield_status_panel_and_initiative()
 	var instance = _boot_main_scene()
 	await get_tree().process_frame
 
-	# Steel thread exit_point: the booted encounter reaches a terminal outcome.
-	assert_true(
-		instance.outcome == "won" or instance.outcome == "lost",
-		"MainScene must boot the prologue encounter to a terminal outcome; got '%s'" % instance.outcome
+	# FEAT-123 / FIND-120: MainScene no longer auto-resolves the encounter on
+	# boot -- it wires a real, interactive RoundSession instead (full
+	# interactive-pipeline coverage lives in
+	# tests/unit/test_main_scene_interactive_wiring.gd).
+	assert_eq(
+		instance.outcome, "",
+		"MainScene must NOT auto-resolve the prologue encounter to a terminal outcome on boot; got '%s'" % instance.outcome
 	)
-	assert_true(instance.round_count >= 1, "the booted encounter must run at least 1 round")
+	assert_not_null(instance.round_session, "MainScene must obtain a real RoundSession via RunRoundUseCase.begin_round()")
+	assert_false(instance.round_session.is_round_over(), "the freshly-begun RoundSession must not already be over with no player input")
 
 	# Hex battlefield (US-005): one token per combatant loaded from
 	# prologue_encounter.tres (Titus + Skeleton).
@@ -221,17 +225,20 @@ func test_determinism_two_independent_mainscene_boots_produce_identical_event_se
 	var instance_2 = _boot_main_scene()
 	await get_tree().process_frame
 
-	assert_true(
-		instance_1.outcome == "won" or instance_1.outcome == "lost",
-		"run 1 must reach a terminal outcome before comparing determinism"
+	# FEAT-123 / FIND-120: MainScene no longer auto-resolves the encounter on
+	# boot -- both independent boots must still agree on the (now-undecided)
+	# outcome and on the RoundSession's initial state, proving the
+	# interactive wiring itself is deterministic.
+	assert_eq(instance_1.outcome, "", "MainScene must NOT auto-resolve the prologue encounter to a terminal outcome on boot")
+	assert_eq(instance_2.outcome, instance_1.outcome, "two independent boots of the same seeded encounter must reach the identical (undecided) outcome")
+	assert_eq(
+		instance_2.round_session.current_actor().get("name", ""), instance_1.round_session.current_actor().get("name", ""),
+		"two independent boots of the same seeded encounter must position the RoundSession cursor on the identical first actor"
 	)
-	assert_eq(instance_2.outcome, instance_1.outcome, "two independent boots of the same seeded encounter must reach the identical outcome")
-	assert_eq(instance_2.round_count, instance_1.round_count, "two independent boots of the same seeded encounter must take the identical number of rounds")
 
 	var log_1: Array = instance_1.event_sink.log
 	var log_2: Array = instance_2.event_sink.log
 
-	assert_true(log_1.size() > 0, "the booted encounter must emit at least one round event")
 	assert_eq(log_2.size(), log_1.size(), "two independent boots of the same seeded encounter must emit the same NUMBER of events")
 
 	var count: int = mini(log_1.size(), log_2.size())

@@ -1,0 +1,258 @@
+extends GutTest
+## tests/unit/test_main_scene_interactive_wiring.gd
+##
+## GUT test suite for FEAT-123 (US-004/US-009/US-010/US-011/US-012,
+## FIND-120): MainScene.gd's _ready() now builds the INTERACTIVE pipeline —
+## RunRoundUseCase.begin_round() -> RoundSession, driven by
+## $TurnController/$StrikeActionControl/$EndTurnControl/$ResultScreenView —
+## instead of autonomously resolving the whole prologue encounter via
+## core/combat/encounter.gd's run_round() while-loop with no player input.
+##
+## Verifies (test_criteria):
+##   1. MainScene._ready() invokes RunRoundUseCase.begin_round() and
+##      TurnController.set_session() with a real, non-null RoundSession.
+##   2. $StrikeActionControl, $EndTurnControl, and $ResultScreenView are
+##      configured (non-null session/live-target references) immediately
+##      after MainScene._ready() completes.
+##   3. Simulating a Strike via $StrikeActionControl on the real MainScene
+##      instance emits an AttackEvent through the real event-sink adapter,
+##      observable via the real EventLogView/StatusPanelView.
+##   4. Pressing $EndTurnControl invokes RoundSession.end_current_turn(), the
+##      turn cursor advances, and TurnController disables player input while
+##      the enemy turn resolves via RoundSession.advance_ai_turn().
+##   5. Regression: MainScene no longer auto-resolves the entire encounter
+##      on boot with no input (the old autonomous run_round() while-loop
+##      path is not exercised).
+
+const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
+
+const RoundSessionClass    = preload("res://core/application/round_session.gd")
+const RunRoundUseCaseClass = preload("res://core/application/run_round_use_case.gd")
+const RoundEventsClass     = preload("res://core/rules/round_events.gd")
+
+
+func _boot_main_scene():
+	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
+	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
+	var instance = packed.instantiate()
+	add_child_autofree(instance)
+	return instance
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Criterion 1: _ready() invokes RunRoundUseCase.begin_round() and
+# TurnController.set_session() with a real, non-null RoundSession.
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_ready_obtains_a_real_round_session_via_run_round_use_case() -> void:
+	var instance = _boot_main_scene()
+
+	assert_not_null(instance.run_round_use_case, "MainScene must wire a RunRoundUseCase")
+	assert_is(instance.run_round_use_case, RunRoundUseCaseClass, "MainScene.run_round_use_case must be a real RunRoundUseCase")
+
+	assert_not_null(instance.round_session, "MainScene.round_session must be non-null after _ready()")
+	assert_is(instance.round_session, RoundSessionClass, "MainScene.round_session must be a real RoundSession (begin_round()'s return value)")
+
+
+func test_ready_hands_the_round_session_to_turn_controller() -> void:
+	var instance = _boot_main_scene()
+
+	# TurnController.set_session() was called with the live RoundSession --
+	# proven behaviorally (no private-field reach-through, matching this
+	# codebase's established testing convention): EndTurnControl's enabled
+	# state is derived exclusively from a RoundSession injected via
+	# set_session()/configure(), and it reflects the session's actual
+	# current_actor() (Titus, the party member, per prologue_encounter.tres'
+	# hex layout already established by tests/integration/
+	# test_steel_thread_prologue_encounter.gd).
+	assert_true(
+		instance.end_turn_control.is_enabled(),
+		"TurnController must have configured EndTurnControl from the live RoundSession, enabled for the first (player) actor"
+	)
+	assert_false(instance.round_session.current_actor().get("_is_enemy", true))
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Criterion 2: $StrikeActionControl / $EndTurnControl / $ResultScreenView are
+# configured (non-null session/live-target references) immediately after
+# MainScene._ready() completes.
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_strike_action_control_is_configured_with_live_targets_after_ready() -> void:
+	var instance = _boot_main_scene()
+
+	var selectable: Array = instance.strike_action_control.get_selectable_target_ids()
+	assert_true(
+		selectable.size() > 0,
+		"StrikeActionControl must be configured with the active player's live, in-reach targets immediately after _ready()"
+	)
+
+
+func test_end_turn_control_is_configured_after_ready() -> void:
+	var instance = _boot_main_scene()
+
+	assert_true(
+		instance.end_turn_control.is_enabled(),
+		"EndTurnControl must be configured (enabled for the active player combatant) immediately after _ready()"
+	)
+
+
+func test_result_screen_view_is_configured_and_not_yet_shown_after_ready() -> void:
+	var instance = _boot_main_scene()
+
+	assert_not_null(instance.result_screen_view, "MainScene must expose a non-null result_screen_view")
+	assert_false(
+		instance.result_screen_view.is_shown(),
+		"ResultScreenView must not show a result immediately after _ready() -- no input has been given yet"
+	)
+
+	# ResultScreenView was configured with the live combat controls (US-012):
+	# proven behaviorally by triggering its disable path and observing both
+	# controls actually clear, rather than reaching into private fields.
+	instance.result_screen_view.on_encounter_result_event(RoundEventsClass.EncounterResultEvent.new(1, "won"))
+	assert_eq(
+		instance.strike_action_control.get_button_count(), 0,
+		"ResultScreenView must have been configured with strike_action_control (US-012 disable-on-conclusion contract)"
+	)
+	assert_false(
+		instance.end_turn_control.is_enabled(),
+		"ResultScreenView must have been configured with end_turn_control (US-012 disable-on-conclusion contract)"
+	)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Criterion 3: simulating a Strike via $StrikeActionControl on the real
+# MainScene instance emits an AttackEvent through the real event-sink
+# adapter, observable via EventLogView/StatusPanelView.
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_strike_via_strike_action_control_emits_attack_event_through_real_event_sink() -> void:
+	var instance = _boot_main_scene()
+
+	var target_ids: Array = instance.strike_action_control.get_selectable_target_ids()
+	assert_true(target_ids.size() > 0, "fixture assumption: the prologue's first actor has at least one in-reach target")
+	var target_id: String = target_ids[0]
+
+	assert_eq(instance.event_log_view.get_entry_count(), 0, "fixture assumption: no events logged yet before any Strike")
+
+	var result: Dictionary = instance.strike_action_control.select_target(target_id)
+
+	assert_true(result.get("resolved", false), "the real resolve_action_use_case must resolve the Strike")
+	assert_true(
+		instance.event_log_view.get_entry_count() >= 1,
+		"the AttackEvent must flow through MainScene's real event sink to the real EventLogView"
+	)
+
+	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	assert_eq(attack_events.size(), 1, "MainScene's real event-sink adapter must have observed exactly one AttackEvent")
+
+	var target_combatant: Dictionary = {}
+	for enemy in instance._enemies:
+		if enemy.get("combatant_id", "") == target_id:
+			target_combatant = enemy
+			break
+	assert_false(target_combatant.is_empty(), "fixture assumption: the selected target must be one of MainScene's live enemy combatants")
+
+	# StatusPanelView clamps a displayed HP at 0 (it never shows an "overkill"
+	# negative value), while the live domain Dictionary MainScene mutates may
+	# go negative -- compare against the same floor StatusPanelView applies.
+	var status: Dictionary = instance.status_panel_view.get_status(target_id)
+	assert_eq(
+		status.get("hp_current", -1), maxi(target_combatant.get("hp_current", -2), 0),
+		"StatusPanelView must reflect the Strike's outcome (the SAME live combatant Dictionary MainScene mutated) via the real event-sink pipeline"
+	)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Criterion 4: pressing $EndTurnControl invokes RoundSession.end_current_turn(),
+# the cursor advances, and TurnController disables player input while the
+# enemy turn resolves via RoundSession.advance_ai_turn().
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_pressing_end_turn_control_advances_cursor_and_auto_drives_enemy_turn() -> void:
+	var instance = _boot_main_scene()
+
+	var first_actor_name: String = instance.round_session.current_actor().get("name", "")
+	assert_ne(first_actor_name, "", "fixture assumption: a living actor is active before End Turn is pressed")
+
+	var events_before: int = instance.event_sink.log.size()
+
+	var press_result: Dictionary = instance.end_turn_control.press()
+	assert_true(press_result.get("ok", false), "EndTurnControl.press() must forward to RoundSession.end_current_turn() successfully")
+
+	# RoundSession.end_current_turn() must have run: with only two
+	# combatants in the prologue encounter (Titus/Skeleton), the cursor
+	# fully cycles back to the SAME first actor once TurnController has
+	# auto-driven the Skeleton's Enemy turn in between (US-011) -- so the
+	# turn cursor having genuinely moved is proven via the event trail
+	# (at least one TurnAdvancedEvent), not by the settled actor's name
+	# differing from where it started.
+	var turn_advanced_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.TurnAdvancedEvent)
+	assert_true(
+		instance.round_session.is_round_over() or turn_advanced_events.size() >= 1,
+		"RoundSession.end_current_turn() must advance the turn cursor (or conclude the round)"
+	)
+
+	if not instance.round_session.is_round_over():
+		# The prologue's only two combatants alternate; once end_current_turn()
+		# moves the cursor off the player, TurnController must have auto-driven
+		# the enemy's turn via advance_ai_turn() (US-011) and settled back on a
+		# living player combatant -- proven via the TurnAdvancedEvent trail
+		# through the real event sink (at least one for the player->enemy
+		# transition end_current_turn() itself emits, plus one more for the
+		# enemy->player transition advance_ai_turn() emits when it advances the
+		# cursor again).
+		assert_false(
+			instance.round_session.current_actor().get("_is_enemy", false),
+			"TurnController must auto-drive any Enemy turn so the session settles back on a player combatant"
+		)
+
+		var turn_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.TurnAdvancedEvent)
+		assert_true(
+			turn_events.size() >= 2,
+			"both end_current_turn()'s and advance_ai_turn()'s cursor advances must be observable through the real event sink"
+		)
+
+		# StrikeActionControl must have been disabled while the enemy turn was
+		# auto-driven, then reconfigured with live targets for the player's new
+		# turn (FIND-120) -- i.e. it must NOT be left disabled once settled.
+		assert_true(
+			instance.strike_action_control.get_selectable_target_ids().size() > 0,
+			"StrikeActionControl must be reconfigured with live targets once the driver settles back on the player"
+		)
+
+	assert_true(
+		instance.event_sink.log.size() > events_before,
+		"ending the turn must have emitted at least one new round event through the real event sink"
+	)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Criterion 5 (regression): MainScene no longer auto-resolves the entire
+# encounter on boot without any input.
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_boot_does_not_auto_resolve_the_encounter_without_any_input() -> void:
+	var instance = _boot_main_scene()
+
+	assert_eq(
+		instance.outcome, "",
+		"MainScene must NOT auto-resolve the encounter to a terminal outcome on boot -- the old autonomous run_round() while-loop path must not run"
+	)
+	assert_false(
+		instance.round_session.is_round_over(),
+		"the freshly-begun RoundSession must not already be over immediately after _ready() with no player input"
+	)
+	assert_false(
+		instance.result_screen_view.is_shown(),
+		"ResultScreenView must not have received an EncounterResultEvent from an autonomous boot-time resolution"
+	)
+
+	# The pre-existing Encounter composition helper is reused ONLY for
+	# initiative/ActionEconomy bookkeeping (see MainScene.gd step 7) --
+	# its own round counter must never advance, proving run_round() was
+	# never invoked.
+	assert_eq(
+		instance.encounter.get_round_count(), 0,
+		"core/combat/encounter.gd's run_round() must never be invoked by this composition root (FIND-120)"
+	)
