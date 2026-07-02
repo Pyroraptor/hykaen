@@ -45,14 +45,46 @@ const GRID_RADIUS: int = 5
 
 const GRID_LINE_COLOR: Color = Color(0.35, 0.35, 0.4, 1.0)
 
+## Tint applied to a readout marked selectable via
+## set_selectable_combatant_ids() (FEAT-007) -- a purely visual affordance,
+## computed and requested entirely by the caller (e.g. scenes/battlefield/
+## StrikeInputController.gd); this file never decides selectability itself.
+const _SELECTABLE_TINT: Color = Color(0.55, 1.0, 0.55, 1.0)
+
+## Tint applied to a readout explicitly marked NOT selectable (FEAT-007).
+const _NOT_SELECTABLE_TINT: Color = Color(1.0, 1.0, 1.0, 0.35)
+
+const _DEFAULT_TINT: Color = Color(1.0, 1.0, 1.0, 1.0)
+
 ## combatant_id (String) -> {"q": int, "r": int}, populated by
 ## load_combatants() -- the rendered hex position for each combatant,
 ## exposed for test/inspection assertions (US-005 test_criteria: "rendered
 ## hex coordinate matches its domain HexPosition").
 var _hex_by_id: Dictionary = {}
 
+## combatant_id (String) -> the domain HexCoord instance itself (as opposed
+## to _hex_by_id's plain {"q","r"} snapshot above), populated by
+## load_combatants() (FEAT-007). Exposed via get_hex_coord() so a caller
+## (e.g. StrikeInputController) can reuse this widget's already-loaded
+## position data as its single source of truth for target-selection
+## affordances, instead of requiring every candidate Dictionary to carry a
+## duplicated "hex_coord" key of its own.
+var _hex_coord_by_id: Dictionary = {}
+
 ## combatant_id (String) -> CombatantReadout, populated by load_combatants().
 var _readouts: Dictionary = {}
+
+## combatant_id (String) -> true, populated by set_selectable_combatant_ids()
+## (FEAT-007) -- purely a display concern (which token(s) currently render as
+## selectable); this file performs no computation of what SHOULD be
+## selectable.
+var _selectable_ids: Dictionary = {}
+
+## combatant_id (String) -> true, populated by set_selectable_combatant_ids()
+## (FEAT-007) -- tokens explicitly flagged as not-currently-selectable (e.g.
+## a candidate target too far away this turn), rendered dimmed so the UI
+## visibly communicates they cannot be chosen.
+var _not_selectable_ids: Dictionary = {}
 
 
 func _draw() -> void:
@@ -122,6 +154,9 @@ func load_combatants(combatants: Array, view_models: Array = []) -> void:
 		existing_readout.queue_free()
 	_readouts.clear()
 	_hex_by_id.clear()
+	_hex_coord_by_id.clear()
+	_selectable_ids.clear()
+	_not_selectable_ids.clear()
 
 	var view_model_by_id: Dictionary = {}
 	for view_model in view_models:
@@ -129,6 +164,7 @@ func load_combatants(combatants: Array, view_models: Array = []) -> void:
 
 	for combatant in combatants:
 		_hex_by_id[combatant.combatant_id] = {"q": combatant.hex_coord.q, "r": combatant.hex_coord.r}
+		_hex_coord_by_id[combatant.combatant_id] = combatant.hex_coord
 
 		var readout := CombatantReadoutClass.new()
 		add_child(readout)
@@ -146,6 +182,57 @@ func load_combatants(combatants: Array, view_models: Array = []) -> void:
 ## the given combatant, or an empty Dictionary if combatant_id is unknown.
 func get_hex_position(combatant_id: String) -> Dictionary:
 	return _hex_by_id.get(combatant_id, {})
+
+
+## get_hex_coord(combatant_id) → HexCoord or null — the actual domain
+## HexCoord instance (core/geometry/hex_coord.gd) this widget positioned
+## `combatant_id` at, or null if unknown (FEAT-007). Lets a caller (e.g.
+## scenes/battlefield/StrikeInputController.gd) reuse this widget's
+## already-loaded position data instead of duplicating it.
+func get_hex_coord(combatant_id: String):
+	return _hex_coord_by_id.get(combatant_id, null)
+
+
+## set_selectable_combatant_ids(selectable_ids, not_selectable_ids) → void —
+## a purely visual affordance (FEAT-007): tints every currently-instantiated
+## readout named in `selectable_ids`, dims every readout named in
+## `not_selectable_ids`, and resets any other readout to its default tint.
+## This widget computes NONE of this itself -- both Arrays are supplied
+## verbatim by the caller (e.g. StrikeInputController, which alone decides
+## what is in-range for the current actor); HexBattlefield only reflects
+## that decision visually (ADR-001: read-and-render only).
+func set_selectable_combatant_ids(selectable_ids: Array, not_selectable_ids: Array = []) -> void:
+	_selectable_ids.clear()
+	_not_selectable_ids.clear()
+	for id in selectable_ids:
+		_selectable_ids[id] = true
+	for id in not_selectable_ids:
+		_not_selectable_ids[id] = true
+	_refresh_selection_tints()
+
+
+## is_selectable(combatant_id) → bool — true iff `combatant_id` was named in
+## the most recent set_selectable_combatant_ids() call's `selectable_ids`.
+func is_selectable(combatant_id: String) -> bool:
+	return _selectable_ids.has(combatant_id)
+
+
+## is_marked_not_selectable(combatant_id) → bool — true iff `combatant_id`
+## was named in the most recent set_selectable_combatant_ids() call's
+## `not_selectable_ids`.
+func is_marked_not_selectable(combatant_id: String) -> bool:
+	return _not_selectable_ids.has(combatant_id)
+
+
+func _refresh_selection_tints() -> void:
+	for id in _readouts.keys():
+		var readout = _readouts[id]
+		if _selectable_ids.has(id):
+			readout.modulate = _SELECTABLE_TINT
+		elif _not_selectable_ids.has(id):
+			readout.modulate = _NOT_SELECTABLE_TINT
+		else:
+			readout.modulate = _DEFAULT_TINT
 
 
 ## get_readout(combatant_id) → CombatantReadout or null — test/inspection helper.

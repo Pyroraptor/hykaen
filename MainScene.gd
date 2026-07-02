@@ -113,6 +113,7 @@ const ResolveActionUseCaseClass        = preload("res://core/application/resolve
 const DetermineOutcomeUseCaseClass     = preload("res://core/application/determine_outcome_use_case.gd")
 const RunRoundUseCaseClass             = preload("res://core/application/run_round_use_case.gd")
 const AIClass                          = preload("res://core/combat/ai.gd")
+const StrikeInputControllerClass       = preload("res://scenes/battlefield/StrikeInputController.gd")
 
 ## The steel-thread's entry_point: the one encounter this composition root boots into.
 const PROLOGUE_ENCOUNTER_PATH: String = "res://data/encounters/prologue_encounter.tres"
@@ -321,6 +322,21 @@ var outcome: String = ""
 ## signal fires (FEAT-123 / FIND-120).
 @onready var strike_action_control = $StrikeActionControl
 
+## strike_input_controller — the StrikeInputController (scenes/battlefield/
+## StrikeInputController.gd) instantiated directly (FEAT-007 / US-007 -- no
+## companion .tscn, mirroring scenes/battlefield/CombatantReadout.gd's
+## code-only-instantiation convention). Reconfigured alongside
+## strike_action_control every time TurnController's active_actor_changed
+## signal fires, so the SAME live actor/action-economy/targets data drives
+## both -- StrikeInputController never derives its own copy of that data.
+## Unlike strike_action_control, it is also handed `hex_battlefield`
+## (FEAT-005) so it can reuse that widget's already-loaded hex positions and
+## visibly mark in-range/out-of-range targets on it (US-007's UI-affordance
+## criterion), and it is handed `active_combatant_id` so
+## resolve_action_use_case can enforce turn order (defense in depth) on every
+## Strike this control forwards.
+var strike_input_controller = StrikeInputControllerClass.new()
+
 ## turn_controller — the TurnController (presentation/turn_controller.gd)
 ## instanced in MainScene.tscn (FEAT-110/111, US-010/US-011). Handed the
 ## live round_session by this composition root (FEAT-123).
@@ -473,16 +489,36 @@ func _presentation_event_subscribers() -> Array:
 ## Enemy turns (FEAT-123 / FIND-120). Reconfigures $StrikeActionControl with
 ## the live actor/action-economy/live-target data TurnController itself does
 ## not own (see turn_controller.gd's documented division of responsibility).
+## Also reconfigures strike_input_controller (FEAT-007) with that SAME data
+## plus hex_battlefield, so its in-range/out-of-range affordance and its
+## resolve_action_use_case wiring both stay live for whichever combatant's
+## turn it now is -- no separate data path of its own.
 func _on_active_actor_changed(combatant: Dictionary) -> void:
-	if strike_action_control == null or round_session == null:
+	if round_session == null:
 		return
-	strike_action_control.configure(
+	var action_economy = round_session.current_action_economy()
+	var living_enemies: Array = _living_combatants(_enemies)
+	var active_combatant_id: String = combatant.get("combatant_id", combatant.get("name", ""))
+
+	if strike_action_control != null:
+		strike_action_control.configure(
+			combatant,
+			action_economy,
+			resolve_action_use_case,
+			living_enemies,
+			ROUND_NUMBER,
+			0
+		)
+
+	strike_input_controller.configure(
 		combatant,
-		round_session.current_action_economy(),
+		action_economy,
 		resolve_action_use_case,
-		_living_combatants(_enemies),
+		living_enemies,
+		active_combatant_id,
 		ROUND_NUMBER,
-		0
+		0,
+		hex_battlefield
 	)
 
 
@@ -491,12 +527,14 @@ func _on_active_actor_changed(combatant: Dictionary) -> void:
 ## clears $StrikeActionControl (no acting combatant, no selectable targets)
 ## even for the case where the round ends without a decided
 ## EncounterResultEvent (ResultScreenView only reacts to that terminal
-## event; this is a defensive backstop for that gap, FEAT-123).
+## event; this is a defensive backstop for that gap, FEAT-123). Also clears
+## strike_input_controller (FEAT-007) the same way.
 func _on_round_over() -> void:
 	if round_session != null:
 		outcome = round_session.outcome()
 	if strike_action_control != null:
 		strike_action_control.configure({}, null, null, [])
+	strike_input_controller.configure({}, null, null, [])
 
 
 ## _on_end_turn_control_turn_ended(_result) -> void — $EndTurnControl's own
