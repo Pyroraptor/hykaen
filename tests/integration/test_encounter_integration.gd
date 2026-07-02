@@ -4,6 +4,19 @@ extends GutTest
 ## GUT integration test suite for core/combat/encounter.gd — Headless Encounter Loop.
 ## Validates all test criteria for FEAT-009 / US-009.
 ##
+## DEF-005 (US-011) naming note: this suite constructs
+## core/combat/encounter.gd DIRECTLY (EncounterClass.new(...).run()/
+## run_round()) — a construction path MainScene.gd documents as
+## intentionally never invoked in production. It is domain/integration
+## coverage of encounter.gd in isolation, NOT the "steel thread" in the
+## sense of booting the real composition root (res://MainScene.tscn); that
+## end-to-end boot path is exercised exclusively by
+## tests/integration/test_steel_thread_prologue_encounter.gd and
+## tests/gut/test_steel_thread_e2e.gd. This file's name has always avoided
+## the "steel thread" label — kept as-is (no rename) — and other
+## direct-Encounter-construction suites in this repo have been renamed to
+## match this same convention.
+##
 ## Combatant dictionaries are stubbed inline — no .tres resource loading.
 ##
 ## Titus stats derived from titus.tres (FEAT-006) and longsword.tres (FEAT-086 DEF-003 fix):

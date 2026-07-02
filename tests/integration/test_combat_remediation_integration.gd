@@ -1,8 +1,18 @@
 extends GutTest
-## tests/integration/test_steel_thread_remediation.gd
+## tests/integration/test_combat_remediation_integration.gd
 ##
-## FEAT-064: Steel Thread Remediation End-to-End Integration Smoke Test.
+## FEAT-064: CR-001 Combat Remediation End-to-End Integration Smoke Test.
 ## Validates the KEPT remediation features end-to-end with pinned-seed determinism.
+##
+## DEF-005 (US-011) naming note: the CR-001 sections of this suite construct
+## core/combat/encounter.gd DIRECTLY (EncounterClass.new(...).run_round()) —
+## a construction path MainScene.gd documents as intentionally never invoked
+## in production. This file is NOT the "steel thread" in the sense of
+## booting the real composition root (res://MainScene.tscn); that end-to-end
+## boot path is exercised exclusively by
+## tests/integration/test_steel_thread_prologue_encounter.gd and
+## tests/gut/test_steel_thread_e2e.gd. This file's name intentionally avoids
+## the "steel thread" label to keep that distinction unambiguous.
 ##
 ##   (a) FEAT-059 — Four active defenses (Dodge/Block/Parry/Steel) resolve correctly
 ##       through resolution.gd and each consumes one round action via ActionEconomy.

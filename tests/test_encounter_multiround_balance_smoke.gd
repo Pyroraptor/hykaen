@@ -1,10 +1,20 @@
 extends GutTest
-## tests/test_steel_thread_e2e.gd
+## tests/test_encounter_multiround_balance_smoke.gd
 ##
-## FEAT-010 (CR-001 AC-4/AC-5, US-004/US-008): Steel Thread End-to-End
+## FEAT-010 (CR-001 AC-4/AC-5, US-004/US-008): Multi-Round Encounter
 ## Integration Test and N=1000 Balance Simulation Smoke Test.
 ##
-## This is the FINAL steel-thread verification for CR-001:
+## DEF-005 (US-011) naming note: this suite constructs
+## core/combat/encounter.gd DIRECTLY (EncounterClass.new(...).run_round()) —
+## a construction path MainScene.gd documents as intentionally never invoked
+## in production. It is NOT the "steel thread" in the sense of booting the
+## real composition root (res://MainScene.tscn); that end-to-end boot path is
+## exercised exclusively by
+## tests/integration/test_steel_thread_prologue_encounter.gd and
+## tests/gut/test_steel_thread_e2e.gd. This file's name intentionally avoids
+## the "steel thread" label to keep that distinction unambiguous.
+##
+## This is the FINAL CR-001 verification for the multi-round round loop:
 ##   entry point  — Encounter.run_round() begins a new round and cycles
 ##                   through _turn_order
 ##   exit point   — the round terminates with a correct win/loss outcome,

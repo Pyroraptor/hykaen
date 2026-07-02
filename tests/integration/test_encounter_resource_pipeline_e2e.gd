@@ -1,12 +1,25 @@
 extends GutTest
-## tests/integration/test_steel_thread_e2e.gd
+## tests/integration/test_encounter_resource_pipeline_e2e.gd
 ##
-## GUT integration test — FEAT-010 / FEAT-028: Steel Thread End-to-End Smoke Test.
-## CI-Gated deterministic encounter validation with all FIX-001 through FIX-007 applied.
+## GUT integration test — FEAT-010 / FEAT-028: Resource-Pipeline End-to-End
+## Smoke Test. CI-Gated deterministic encounter validation with all FIX-001
+## through FIX-007 applied.
+##
+## DEF-005 (US-011) naming note: this suite constructs
+## core/combat/encounter.gd DIRECTLY (EncounterClass.new(...).run()/
+## run_round()) — a construction path MainScene.gd documents as
+## intentionally never invoked in production. It is NOT the "steel thread"
+## in the sense of booting the real composition root (res://MainScene.tscn);
+## that end-to-end boot path is exercised exclusively by
+## tests/integration/test_steel_thread_prologue_encounter.gd and
+## tests/gut/test_steel_thread_e2e.gd. This file's name and doc comments
+## intentionally avoid the "steel thread" label to keep that distinction
+## unambiguous — see the reserved-naming guard test in
+## tests/integration/test_test_suite_naming_hygiene.gd.
 ##
 ## Satisfies: US-001, US-002, US-003, US-004, US-005, US-006, US-007, US-008, US-009
 ##
-## Steel thread entry → exit:
+## Resource pipeline entry → exit (direct Encounter construction, not MainScene):
 ##   data layer       → ResourceLoader.load('data/characters/titus.tres') non-null
 ##   business_logic   → attributes.gd computes HP=18, Stamina=10, AC=14, Reflex=14,
 ##                       Fortitude=19, Will=13 from titus.tres spread

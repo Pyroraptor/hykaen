@@ -1,11 +1,21 @@
 extends GutTest
-## tests/test_encounter_steelthread_e2e.gd
+## tests/test_encounter_no_hang_typed_events_smoke.gd
 ##
 ## FEAT-100 (CR-001 final verification, US-004/US-005/US-008): End-to-end
-## smoke test of the REMEDIATED steel thread, exercising the complete entry
-## point (Encounter.run_round() / Encounter.run()) through the exit point
-## (correct outcome, typed _round_events/_round_history, unmodified N=1000
-## simulator win-rate) with BOTH fixes applied together:
+## smoke test of the REMEDIATED encounter round loop, exercising the
+## complete entry point (Encounter.run_round() / Encounter.run()) through the
+## exit point (correct outcome, typed _round_events/_round_history,
+## unmodified N=1000 simulator win-rate) with BOTH fixes applied together:
+##
+## DEF-005 (US-011) naming note: this suite constructs
+## core/combat/encounter.gd DIRECTLY — a construction path MainScene.gd
+## documents as intentionally never invoked in production. It is NOT the
+## "steel thread" in the sense of booting the real composition root
+## (res://MainScene.tscn); that end-to-end boot path is exercised
+## exclusively by tests/integration/test_steel_thread_prologue_encounter.gd
+## and tests/gut/test_steel_thread_e2e.gd. This file's name intentionally
+## avoids the "steel thread"/"steelthread" label to keep that distinction
+## unambiguous.
 ##
 ##   FIND-095 (CWE-835 unbounded-loop hang) — a side with zero living
 ##   combatants (empty array, or a non-empty array of already-dead
@@ -290,7 +300,7 @@ func test_round_history_entry_typed_objects_consistent_across_full_encounter() -
 
 	# Group by (combatant name, round) preserving resolved order, to verify
 	# the shared-budget countdown and round-boundary reset across the WHOLE
-	# encounter (mirrors the pre-existing tests/test_steel_thread_e2e.gd
+	# encounter (mirrors the pre-existing tests/test_encounter_multiround_balance_smoke.gd
 	# pattern, now driven through the typed "entry" objects).
 	var by_combatant_round: Dictionary = {}  # name -> { round_number -> Array[typed entry] }
 	for entry in all_history:
