@@ -296,6 +296,16 @@ var outcome: String = ""
 ## event as the interactive session progresses.
 @onready var initiative_view = $InitiativeView
 
+## turn_order_widget — the TurnOrderWidget (scenes/battlefield/
+## TurnOrderWidget.gd) instanced as a child of $HexBattlefield in
+## HexBattlefield.tscn (FEAT-006 / US-006), completing the steel thread's
+## "turn order" surface alongside the hex battlefield renderer. Populated
+## with the SAME turn-order view-model snapshot handed to `initiative_view`
+## above (no separate initiative computation), then updated per
+## TurnAdvancedEvent as run_round_use_case's interactive cycle advances the
+## active combatant.
+@onready var turn_order_widget = $HexBattlefield/TurnOrderWidget
+
 ## event_log_view — the EventLogView (presentation/event_log_view.gd)
 ## instanced in MainScene.tscn (FEAT-010 / US-008). Append-only — starts
 ## empty and receives every round event as the interactive session
@@ -387,10 +397,13 @@ func _ready() -> void:
 	if hex_battlefield != null:
 		hex_battlefield.load_combatants(hex_combatants, status_view_models)
 
+	var initiative_view_models: Array = _build_initiative_view_models(hex_combatants, _party, _enemies, encounter)
+
 	if initiative_view != null:
-		initiative_view.load_combatants(
-			_build_initiative_view_models(hex_combatants, _party, _enemies, encounter)
-		)
+		initiative_view.load_combatants(initiative_view_models)
+
+	if turn_order_widget != null:
+		turn_order_widget.load_combatants(initiative_view_models)
 
 	event_sink.forward_to = _presentation_event_subscribers()
 
@@ -440,9 +453,15 @@ func _ready() -> void:
 ## for the precedent this mirrors. HexBattlefield (FEAT-005 / US-005) IS a
 ## subscriber because its per-combatant CombatantReadout children must
 ## update HP/conditions live as AttackEvent/CombatantDefeatedEvent fire.
+## turn_order_widget (FEAT-006 / US-006) is likewise a subscriber, so its
+## active-combatant highlight advances live on every TurnAdvancedEvent,
+## exactly like initiative_view's existing subscription.
 func _presentation_event_subscribers() -> Array:
 	var subscribers: Array = []
-	for view in [status_panel_view, initiative_view, event_log_view, result_screen_view, hex_battlefield]:
+	for view in [
+		status_panel_view, initiative_view, event_log_view, result_screen_view,
+		hex_battlefield, turn_order_widget,
+	]:
 		if view != null:
 			subscribers.append(view)
 	return subscribers
