@@ -41,8 +41,29 @@ const GRID_RADIUS: int = 5
 
 const GRID_LINE_COLOR: Color = Color(0.35, 0.35, 0.4, 1.0)
 
+## FEAT-013 / US-013: fill color for hexes currently reported as selectable
+## Step destinations (via set_selectable_hexes()) -- a purely visual
+## affordance, never a source of movement-rule truth (core/rules/movement.gd
+## remains that source; this view only reads/derives from it, ADR-001).
+const SELECTABLE_HEX_FILL_COLOR: Color = Color(0.35, 0.75, 0.35, 0.35)
+
 ## combatant_id (String) -> CombatantTokenView, populated by load_combatants().
 var _tokens: Dictionary = {}
+
+## FEAT-013 / US-013: the hexes currently highlighted as legal Step
+## destinations (an Array of core/geometry/hex_coord.gd HexCoord instances),
+## set via set_selectable_hexes() -- normally handed in verbatim from
+## presentation/movement_input_controller.gd's
+## Movement.get_step_destinations()-derived selectable set.
+var _selectable_hexes: Array = []
+
+## hex_clicked(hex_coord) -- FEAT-013 / US-013: emitted whenever the player
+## left-clicks anywhere on this view, carrying the HexCoord the click maps
+## to (pixel_to_axial()). This view performs NO movement-rule validation of
+## its own -- it is the caller's (e.g. MainScene.gd's, forwarding to a
+## configured presentation/movement_input_controller.gd) responsibility to
+## decide whether the clicked hex is actually a legal Step destination.
+signal hex_clicked(hex_coord)
 
 
 func _draw() -> void:
@@ -58,7 +79,25 @@ func _draw_hex_cell(coord) -> void:
 	var points: PackedVector2Array = PackedVector2Array()
 	for i in range(7):
 		points.append(center + _hex_corner_offset(HEX_SIZE, i % 6))
+	if _is_selectable_hex(coord):
+		draw_colored_polygon(points, SELECTABLE_HEX_FILL_COLOR)
 	draw_polyline(points, GRID_LINE_COLOR, 1.0)
+
+
+func _is_selectable_hex(coord) -> bool:
+	for hex_coord in _selectable_hexes:
+		if hex_coord.equals(coord):
+			return true
+	return false
+
+
+## _unhandled_input(event) -> void -- FEAT-013 / US-013: translates a
+## left-click anywhere on this view into hex_clicked(hex_coord), via
+## pixel_to_axial(). Purely an input-translation concern (ADR-001: no
+## movement rule is evaluated here).
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		hex_clicked.emit(pixel_to_axial(get_local_mouse_position(), HEX_SIZE))
 
 
 ## _hex_corner_offset(size, corner_index) → Vector2 — the offset of one of
@@ -80,6 +119,65 @@ static func axial_to_pixel(hex_coord, hex_size: float = HEX_SIZE) -> Vector2:
 	var x: float = hex_size * (1.5 * hex_coord.q)
 	var y: float = hex_size * (sqrt(3.0) / 2.0 * hex_coord.q + sqrt(3.0) * hex_coord.r)
 	return Vector2(x, y)
+
+
+## pixel_to_axial(pixel, hex_size) → HexCoord — FEAT-013 / US-013: the
+## inverse of axial_to_pixel() (the exact algebraic inverse of the ADR-004
+## flat-top formula), rounded to the nearest whole hex via cube rounding
+## (_round_to_hex_coord()) so an arbitrary click position anywhere inside a
+## hex cell always resolves to that cell's HexCoord. Used by
+## _unhandled_input() to translate a player's click into hex_clicked().
+static func pixel_to_axial(pixel: Vector2, hex_size: float = HEX_SIZE):
+	var q_frac: float = (2.0 / 3.0 * pixel.x) / hex_size
+	var r_frac: float = (-1.0 / 3.0 * pixel.x + sqrt(3.0) / 3.0 * pixel.y) / hex_size
+	return _round_to_hex_coord(q_frac, r_frac)
+
+
+## _round_to_hex_coord(q_frac, r_frac) → HexCoord — standard cube-coordinate
+## rounding: rounds q/r/s independently, then discards whichever of the
+## three had the largest rounding error and re-derives it from the other
+## two, so the cube invariant q + r + s == 0 always holds for the result.
+static func _round_to_hex_coord(q_frac: float, r_frac: float):
+	var s_frac: float = -q_frac - r_frac
+
+	var q: int = roundi(q_frac)
+	var r: int = roundi(r_frac)
+	var s: int = roundi(s_frac)
+
+	var q_diff: float = absf(q - q_frac)
+	var r_diff: float = absf(r - r_frac)
+	var s_diff: float = absf(s - s_frac)
+
+	if q_diff > r_diff and q_diff > s_diff:
+		q = -r - s
+	elif r_diff > s_diff:
+		r = -q - s
+
+	return HexCoordClass.new(q, r)
+
+
+## set_selectable_hexes(hexes) → void — FEAT-013 / US-013: highlights the
+## given Array of HexCoords (normally handed in verbatim from
+## presentation/movement_input_controller.gd's currently-legal Step
+## destinations) on the next _draw(). A purely visual affordance — this view
+## never decides which hexes ARE legal Step destinations, it only renders
+## whichever set it is told about (ADR-001).
+func set_selectable_hexes(hexes: Array) -> void:
+	_selectable_hexes = hexes
+	queue_redraw()
+
+
+## move_token(combatant_id, new_hex_coord) → void — FEAT-013 / US-013:
+## repositions the already-instantiated CombatantTokenView for
+## `combatant_id` (via its existing reposition() hook — see
+## combatant_token_view.gd's file-level doc, which was built specifically
+## for this purpose) to `new_hex_coord`. A no-op when no token is on record
+## for `combatant_id` (e.g. load_combatants() was never called, or the id is
+## unknown) — this view never crashes on a stale/unknown id.
+func move_token(combatant_id: String, new_hex_coord) -> void:
+	var token = _tokens.get(combatant_id, null)
+	if token != null:
+		token.reposition(new_hex_coord)
 
 
 ## load_combatants(combatants) → void — instantiates one CombatantTokenView

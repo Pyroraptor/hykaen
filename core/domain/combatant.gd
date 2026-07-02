@@ -65,3 +65,16 @@ func _init(
 	name = p_name
 	team = p_team
 	hex_coord = p_hex_coord if p_hex_coord != null else HexCoordClass.new(0, 0)
+
+
+## move_to(new_hex_coord) → void — FEAT-013 (US-013): updates this
+## combatant's current position to `new_hex_coord` (a
+## core/geometry/hex_coord.gd HexCoord instance). The sole mutator of
+## hex_coord — core/rules/movement.gd (domain layer, ADR-001) is the only
+## caller, after it has validated the move (adjacency/occupancy for Step).
+## This method performs NO validation itself: Combatant is a plain data
+## entity, not the rule-enforcing layer (that responsibility belongs to
+## core/rules/movement.gd, keeping the "where can I legally move" rule in
+## exactly one place).
+func move_to(new_hex_coord: HexCoordClass) -> void:
+	hex_coord = new_hex_coord

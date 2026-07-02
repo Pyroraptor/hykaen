@@ -115,6 +115,7 @@ const RunRoundUseCaseClass             = preload("res://core/application/run_rou
 const AIClass                          = preload("res://core/combat/ai.gd")
 const StrikeInputControllerClass       = preload("res://scenes/battlefield/StrikeInputController.gd")
 const EndTurnControllerClass           = preload("res://scenes/battlefield/EndTurnController.gd")
+const MovementInputControllerClass     = preload("res://presentation/movement_input_controller.gd")
 
 ## The steel-thread's entry_point: the one encounter this composition root boots into.
 const PROLOGUE_ENCOUNTER_PATH: String = "res://data/encounters/prologue_encounter.tres"
@@ -338,6 +339,24 @@ var outcome: String = ""
 ## Strike this control forwards.
 var strike_input_controller = StrikeInputControllerClass.new()
 
+## movement_input_controller — the MovementInputController (presentation/
+## movement_input_controller.gd) instantiated directly (FEAT-013 / US-013 --
+## no companion .tscn, mirroring strike_input_controller's own
+## code-only-instantiation convention above). Reconfigured alongside
+## strike_action_control/strike_input_controller every time TurnController's
+## active_actor_changed signal fires, so the SAME live actor/occupancy data
+## drives it. Handed `hex_grid_view` (FEAT-007) so a successful Step
+## visibly repositions the mover's token there, and is wired to
+## hex_grid_view's hex_clicked signal (below) so clicking a highlighted hex
+## on the battlefield performs a Step -- the interactive destination-picking
+## UI FEAT-013 adds. A Step never goes through resolve_action_use_case (it
+## has no action-economy/event side effects, core/rules/movement.gd, ADR-002)
+## -- but it DOES move the SAME live combatant Dictionary Strike reach reads
+## from, so _on_active_actor_changed() is re-invoked after every successful
+## Step to re-gate strike_action_control/strike_input_controller's in-reach
+## target sets from the new position.
+var movement_input_controller = MovementInputControllerClass.new()
+
 ## end_turn_controller — the EndTurnController (scenes/battlefield/
 ## EndTurnController.gd) instantiated directly (FEAT-008 / US-008 -- no
 ## companion .tscn, mirroring strike_input_controller's own
@@ -485,6 +504,12 @@ func _ready() -> void:
 	if turn_controller != null:
 		turn_controller.set_session(round_session, end_turn_control, strike_action_control)
 
+	# ── FEAT-013 / US-013: wire the interactive Step destination-picking UI --
+	# clicking a hex highlighted by movement_input_controller performs a Step
+	# on the currently active combatant. ────────────────────────────────────
+	if hex_grid_view != null:
+		hex_grid_view.hex_clicked.connect(_on_hex_grid_view_hex_clicked)
+
 	outcome = round_session.outcome()
 
 	print(
@@ -560,6 +585,13 @@ func _on_active_actor_changed(combatant: Dictionary) -> void:
 		hex_battlefield
 	)
 
+	movement_input_controller.configure(
+		combatant,
+		_other_living_combatants(combatant),
+		hex_grid_view,
+		active_combatant_id
+	)
+
 
 ## _on_round_over() -> void — TurnController emits this once the held
 ## RoundSession reports is_round_over(). Refreshes `outcome` and defensively
@@ -574,6 +606,7 @@ func _on_round_over() -> void:
 	if strike_action_control != null:
 		strike_action_control.configure({}, null, null, [])
 	strike_input_controller.configure({}, null, null, [])
+	movement_input_controller.configure({}, [])
 
 
 ## _on_end_turn_control_turn_ended(_result) -> void — either $EndTurnControl's
@@ -593,6 +626,42 @@ func _on_end_turn_control_turn_ended(_result: Dictionary) -> void:
 	if round_session.is_round_over():
 		return
 	turn_controller.set_session(round_session)
+
+
+## _on_hex_grid_view_hex_clicked(hex_coord) -> void — FEAT-013 / US-013:
+## hex_grid_view's hex_clicked signal handler. Forwards directly to the
+## injected, REUSED movement_input_controller.step_to() (ADR-002: no
+## duplicate movement path) -- a click on a hex that controller never offered
+## as a selectable Step destination (including before any actor has been
+## configured, e.g. before the first active_actor_changed signal) is simply
+## rejected there with no effect. On a successful Step, re-invokes
+## _on_active_actor_changed() with the SAME (now-moved) current actor so
+## strike_action_control/strike_input_controller re-gate their in-reach
+## target sets from the new position (Strike reach re-gate, FEAT-013's
+## test_criteria) -- this composition root never re-derives that reach logic
+## itself, it only re-triggers the SAME reconfiguration path US-009 already
+## established.
+func _on_hex_grid_view_hex_clicked(hex_coord) -> void:
+	if round_session == null:
+		return
+	var result: Dictionary = movement_input_controller.step_to(hex_coord)
+	if result.get("ok", false):
+		_on_active_actor_changed(round_session.current_actor())
+
+
+## _other_living_combatants(combatant) -> Array — every living (hp_current >
+## 0) combatant in _party + _enemies EXCEPT `combatant` itself, identified by
+## the same "combatant_id" falling back to "name" convention used throughout
+## this file -- the occupancy list movement_input_controller.configure()
+## requires (core/rules/movement.gd Movement.step()'s `other_combatants`
+## parameter must never include the mover itself).
+func _other_living_combatants(combatant: Dictionary) -> Array:
+	var self_id: String = combatant.get("combatant_id", combatant.get("name", ""))
+	var others: Array = []
+	for c in _living_combatants(_party + _enemies):
+		if c.get("combatant_id", c.get("name", "")) != self_id:
+			others.append(c)
+	return others
 
 
 ## _living_combatants(combatants) -> Array — the subset of `combatants` with

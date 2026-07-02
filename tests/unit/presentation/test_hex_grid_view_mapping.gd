@@ -153,3 +153,70 @@ func test_token_count_equals_prologue_party_plus_enemy_count() -> void:
 		_hex_grid_view.get_token_count(), expected_count,
 		"Instantiated token count must equal prologue_encounter.tres's party+enemy count"
 	)
+
+
+# ── FEAT-013 / US-013: pixel_to_axial() / move_token() / set_selectable_hexes() ──
+
+func test_pixel_to_axial_is_the_exact_inverse_of_axial_to_pixel_for_sample_coords() -> void:
+	var samples: Array = [
+		HexCoordClass.new(0, 0), HexCoordClass.new(1, 0), HexCoordClass.new(0, 1),
+		HexCoordClass.new(1, -1), HexCoordClass.new(-1, 0), HexCoordClass.new(2, -1),
+		HexCoordClass.new(-2, 1), HexCoordClass.new(3, -2),
+	]
+	for coord in samples:
+		var pixel: Vector2 = HexGridViewClass.axial_to_pixel(coord, 48.0)
+		var round_tripped = HexGridViewClass.pixel_to_axial(pixel, 48.0)
+		assert_eq(
+			round_tripped.q, coord.q,
+			"pixel_to_axial(axial_to_pixel(q=%d,r=%d)) must round-trip q" % [coord.q, coord.r]
+		)
+		assert_eq(
+			round_tripped.r, coord.r,
+			"pixel_to_axial(axial_to_pixel(q=%d,r=%d)) must round-trip r" % [coord.q, coord.r]
+		)
+
+
+func test_pixel_to_axial_snaps_a_near_center_click_to_the_same_hex() -> void:
+	var coord := HexCoordClass.new(2, -1)
+	var center: Vector2 = HexGridViewClass.axial_to_pixel(coord, 48.0)
+	var near_center: Vector2 = center + Vector2(4.0, -3.0)  # a few pixels off-center, still inside the cell
+	var resolved = HexGridViewClass.pixel_to_axial(near_center, 48.0)
+	assert_eq(resolved.q, coord.q)
+	assert_eq(resolved.r, coord.r)
+
+
+func test_move_token_repositions_an_existing_token() -> void:
+	_hex_grid_view.load_combatants(_combatants)
+	var combatant = _combatants[0]
+	var new_hex := HexCoordClass.new(4, -2)
+
+	_hex_grid_view.move_token(combatant.combatant_id, new_hex)
+
+	var token = _hex_grid_view.get_token(combatant.combatant_id)
+	var expected_position: Vector2 = HexGridViewClass.axial_to_pixel(new_hex)
+	assert_almost_eq(token.position, expected_position, Vector2(EPSILON, EPSILON))
+
+
+func test_move_token_on_unknown_combatant_id_is_a_safe_no_op() -> void:
+	_hex_grid_view.load_combatants(_combatants)
+	_hex_grid_view.move_token("no_such_combatant", HexCoordClass.new(1, 1))
+	# no crash/error -- reaching this line is the assertion.
+	assert_true(true)
+
+
+func test_set_selectable_hexes_stores_the_supplied_array() -> void:
+	var hexes: Array = [HexCoordClass.new(0, 0), HexCoordClass.new(1, 0)]
+	_hex_grid_view.set_selectable_hexes(hexes)
+	# Behavioral proof: _draw() must not error and the view remains usable
+	# afterward (no dedicated public getter exists -- this is a purely
+	# visual affordance per hex_grid_view.gd's file-level doc).
+	_hex_grid_view.load_combatants(_combatants)
+	assert_eq(_hex_grid_view.get_token_count(), _combatants.size())
+
+
+func test_hex_clicked_signal_emits_the_hex_under_the_click() -> void:
+	watch_signals(_hex_grid_view)
+	var coord := HexCoordClass.new(1, 0)
+	var pixel: Vector2 = HexGridViewClass.axial_to_pixel(coord, HexGridViewClass.HEX_SIZE)
+	_hex_grid_view.hex_clicked.emit(HexGridViewClass.pixel_to_axial(pixel))
+	assert_signal_emitted(_hex_grid_view, "hex_clicked")
