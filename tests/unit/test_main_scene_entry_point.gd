@@ -141,7 +141,7 @@ func _read_main_scene_script_source() -> String:
 
 
 # ── Criterion: MainScene.gd contains no DisplayServer/Input calls ───────────
-# (safe under --headless, matching the game/main.gd convention).
+# (safe under --headless).
 
 func test_main_scene_source_no_display_server_calls() -> void:
 	var content: String = _read_main_scene_script_source()
