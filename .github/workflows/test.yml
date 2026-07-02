@@ -183,20 +183,27 @@ jobs:
           godot --headless --check-only --path .
 
       # ---------------------------------------------------------------
-      # Entry-point smoke test (FEAT-041 / DEF-003)
-      # Runs game/main.gd in headless check-only mode to prove the entry-
-      # point script is syntactically and structurally valid in headless
-      # mode.  Uses -s to target the specific entry-point file and
+      # Entry-point smoke test (FEAT-041 / DEF-003, corrected FEAT-135 / DEF-001)
+      # Runs res://MainScene.gd in headless check-only mode to prove the
+      # REAL entry-point script is syntactically and structurally valid in
+      # headless mode.  MainScene.gd is the project's composition root --
+      # project.godot's run/main_scene points at res://MainScene.tscn, which
+      # attaches this script (ADR-006).  game/ is an empty placeholder
+      # directory (only .gitkeep) and was never the real entry point; the
+      # original reference to a nonexistent script under that directory was
+      # a defect (DEF-001) that made this mandatory gate fail on every
+      # single CI run.  Uses -s to target the specific entry-point file and
       # --check-only to parse + type-check it without requiring
-      # SceneTree/MainLoop inheritance (game/main.gd extends Node, which
-      # is correct for a scene script).  Runs AFTER the project-wide type-
+      # SceneTree/MainLoop inheritance (MainScene.gd extends Node, which is
+      # correct for a scene script).  Runs AFTER the project-wide type-
       # check gate so errors are clearly attributable to the entry-point.
-      # Exit 0 proves DEF-003 is resolved; any SCRIPT ERROR exits non-zero.
+      # Exit 0 proves the entry point is valid; any SCRIPT ERROR exits
+      # non-zero.
       # ---------------------------------------------------------------
       - name: Entry-Point Smoke Test (DEF-003)
         run: |
-          godot --headless -s game/main.gd --check-only
-          echo "OK: game/main.gd is syntactically and structurally valid in headless mode (DEF-003)"
+          godot --headless -s res://MainScene.gd --check-only
+          echo "OK: MainScene.gd is syntactically and structurally valid in headless mode (DEF-003)"
 
       # ---------------------------------------------------------------
       # Run GUT headless test suite (FEAT-039: DEF-002 output capture)
