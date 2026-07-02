@@ -56,6 +56,43 @@ func test_main_scene_tscn_loads_as_packed_scene() -> void:
 	assert_is(res, PackedScene, "MainScene.tscn must load as a PackedScene instance")
 
 
+# ── Regression guard: every ext_resource MainScene.tscn declares must exist ──
+# on disk. A dangling ext_resource path (referencing a file that was since
+# deleted/renamed elsewhere in the project) does not fail ResourceLoader.load()
+# outright, nor any of the outcome/round_count assertions above -- Godot just
+# prints "Cannot open file"/"Parse Error: [ext_resource] referenced
+# non-existent resource" to the console and silently drops that child node.
+# That violates the manual smoke test's "zero console errors" criterion
+# (FEAT-005 test_criteria) even though every other automated assertion here
+# still passes. Parse the .tscn text directly and assert each declared
+# ext_resource path resolves to a real file, so a future deletion of a
+# Presentation scene/script this composition root still references is
+# caught here instead of only surfacing as a runtime console error.
+
+func test_main_scene_tscn_ext_resources_all_exist_on_disk() -> void:
+	var file := FileAccess.open(MAIN_SCENE_PATH, FileAccess.READ)
+	assert_not_null(file, "MainScene.tscn must be readable")
+	if file == null:
+		return
+	var content: String = file.get_as_text()
+	file.close()
+
+	var regex := RegEx.new()
+	regex.compile('\\[ext_resource type="[^"]+" path="(res://[^"]+)"')
+	var matches: Array = regex.search_all(content)
+	assert_true(
+		matches.size() > 0,
+		"MainScene.tscn must declare at least one ext_resource to check"
+	)
+
+	for m in matches:
+		var res_path: String = m.get_string(1)
+		assert_true(
+			FileAccess.file_exists(res_path) or ResourceLoader.exists(res_path),
+			"MainScene.tscn references ext_resource '%s' which must exist on disk (dangling scene reference)" % res_path
+		)
+
+
 # ── Criterion 2: MainScene wires the repository/random/event-sink adapters ──
 # and loads data/encounters/prologue_encounter.tres, per ADR-006
 # composition-root wiring. Verified against MainScene.gd's source text (the
