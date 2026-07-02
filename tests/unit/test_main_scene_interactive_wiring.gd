@@ -29,6 +29,7 @@ const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 const RoundSessionClass    = preload("res://core/application/round_session.gd")
 const RunRoundUseCaseClass = preload("res://core/application/run_round_use_case.gd")
 const RoundEventsClass     = preload("res://core/rules/round_events.gd")
+const HexCoordClass        = preload("res://core/geometry/hex_coord.gd")
 
 
 ## FEAT-002 / US-002: this whole file's scenarios assume the prologue
@@ -265,4 +266,98 @@ func test_boot_does_not_auto_resolve_the_encounter_without_any_input() -> void:
 	assert_eq(
 		instance.encounter.get_round_count(), 0,
 		"core/combat/encounter.gd's run_round() must never be invoked by this composition root (FIND-120)"
+	)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# FEAT-015 / US-015 / FR-016: MainScene wires Flanking.is_off_guard()
+# (core/rules/flanking.gd) into $StatusPanelView so Off-Guard is surfaced
+# live in the per-combatant readout as combatants move around the field.
+# The prologue fixture only seats one party member (Titus) and one enemy
+# (Skeleton, at hex (1,0), with Titus already at hex (0,0) -- one of
+# Skeleton's 6 flat-top axial neighbors), so a second, synthetic party
+# combatant is appended directly to MainScene's live `_party` Array (a
+# Dictionary of the SAME shape _build_party_combatant() already produces)
+# to exercise the two-flanker positive case through the REAL composition-root
+# wiring (_refresh_off_guard_conditions()), not a re-derived/mocked copy of
+# the flanking rule.
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_boot_off_guard_is_false_when_only_a_single_combatant_is_adjacent() -> void:
+	var instance = _boot_main_scene()
+	var target_id: String = instance._enemies[0].get("combatant_id", "")
+
+	assert_false(
+		instance.status_panel_view.is_off_guard(target_id),
+		"fixture assumption: only Titus is adjacent to Skeleton at boot -- one flanker alone must not flag Off-Guard"
+	)
+
+
+func test_off_guard_wiring_flags_target_once_two_opposing_combatants_flank_it() -> void:
+	var instance = _boot_main_scene()
+	var target_id: String = instance._enemies[0].get("combatant_id", "")
+
+	# Skeleton sits at hex (1,0); Titus already occupies (0,0), the neighbor
+	# directly opposite hex (2,0) around Skeleton. Appending a second party
+	# combatant at (2,0) completes the opposite-adjacent flanking pair.
+	var ally: Dictionary = {
+		"name": "Marigold",
+		"hp_current": 10,
+		"combatant_id": "synthetic_ally_off_guard_test",
+		"hex_coord": HexCoordClass.new(2, 0),
+	}
+	instance._party.append(ally)
+	instance._refresh_off_guard_conditions()
+
+	assert_true(
+		instance.status_panel_view.is_off_guard(target_id),
+		"MainScene must push Flanking.is_off_guard()'s true result into StatusPanelView via set_off_guard()"
+	)
+	assert_true(
+		"Off-Guard" in instance.status_panel_view.get_status(target_id).get("conditions", []),
+		"the readout's conditions list must contain Off-Guard once the target is flanked"
+	)
+
+
+func test_off_guard_wiring_does_not_flag_target_for_non_opposite_flankers() -> void:
+	var instance = _boot_main_scene()
+	var target_id: String = instance._enemies[0].get("combatant_id", "")
+
+	# hex (1,-1) is adjacent to Skeleton (1,0) but NOT opposite Titus's
+	# (0,0) -- a non-opposite second flanker must not flag Off-Guard.
+	var ally: Dictionary = {
+		"name": "Marigold",
+		"hp_current": 10,
+		"combatant_id": "synthetic_ally_non_opposite_test",
+		"hex_coord": HexCoordClass.new(1, -1),
+	}
+	instance._party.append(ally)
+	instance._refresh_off_guard_conditions()
+
+	assert_false(
+		instance.status_panel_view.is_off_guard(target_id),
+		"a non-opposite second adjacent combatant must not flag Off-Guard (blanket rule requires directly-opposite hexes)"
+	)
+
+
+func test_off_guard_wiring_clears_once_a_flanker_moves_away() -> void:
+	var instance = _boot_main_scene()
+	var target_id: String = instance._enemies[0].get("combatant_id", "")
+
+	var ally: Dictionary = {
+		"name": "Marigold",
+		"hp_current": 10,
+		"combatant_id": "synthetic_ally_unflank_test",
+		"hex_coord": HexCoordClass.new(2, 0),
+	}
+	instance._party.append(ally)
+	instance._refresh_off_guard_conditions()
+	assert_true(instance.status_panel_view.is_off_guard(target_id), "fixture setup: target must be Off-Guard before the ally moves away")
+
+	ally["hex_coord"] = HexCoordClass.new(9, 9)
+	instance._refresh_off_guard_conditions()
+
+	assert_false(
+		instance.status_panel_view.is_off_guard(target_id),
+		"Off-Guard must clear once a flanker moves off the opposite-adjacent hex (live recompute, not a sticky flag)"
 	)

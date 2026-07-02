@@ -13,7 +13,22 @@
 ## the actor's 7-action round budget via ActionEconomy.spend_reaction() when
 ## an action_economy is provided in defense_context.
 ##
-## Satisfies: US-008, ADR-001, ADR-002, FEAT-059, DEF-NEW-003
+## FEAT-015 (US-015 / FR-016): Off-Guard positional condition. When the
+## target Dictionary's "conditions" list carries core/rules/flanking.gd's
+## Flanking.OFF_GUARD_CONDITION ("Off-Guard" — set by a caller after
+## detecting an attacker+ally on directly-opposite adjacent hexes around the
+## target via Flanking.is_off_guard(), typically the composition root/
+## infrastructure layer, not this file), the target's effective defense
+## value for the attack being resolved is reduced by
+## Flanking.OFF_GUARD_BONUS (a flat 2), equivalent to a +2 attack bonus for
+## the purposes of both the hit check and the crit-by-10-or-more check. This
+## is a BLANKET bonus: it applies to EVERY attack resolved against the
+## target while Off-Guard, regardless of which combatant is attacking —
+## resolve_weapon_attack()/resolve_spell_attack() never inspect attacker
+## identity against a flanking pair (v0 is explicitly NOT flankers-only; see
+## core/rules/flanking.gd's file-level doc).
+##
+## Satisfies: US-008, US-015, ADR-001, ADR-002, FEAT-059, FEAT-015, DEF-NEW-003
 ##
 ## Usage example:
 ##   var rng = RNG.new(12345)
@@ -27,6 +42,8 @@
 ##   #            damage_final, defender_stepped, next_check_bonus, on_hit_suppressed}
 
 class_name Resolution
+
+const FlankingClass = preload("res://core/rules/flanking.gd")
 
 ## Valid passive defense types (ADR-011).
 const VALID_DEFENSE_TYPES: Array = ["ac", "reflex", "fortitude", "will"]
@@ -172,6 +189,11 @@ func resolve_weapon_attack(
 	else:
 		defense_value = target[defense_type]
 
+	# Off-Guard (FEAT-015 / US-015 / FR-016): blanket +2 to ALL attacks
+	# against this target, applied as an equivalent flat reduction of its
+	# effective defense value — see file-level doc above.
+	defense_value -= _off_guard_defense_reduction(target)
+
 	var hit: bool = roll_total >= defense_value
 	var crit: bool = hit and (roll_total - defense_value) >= 10
 
@@ -268,6 +290,18 @@ func _try_spend_reaction(defense_context: Dictionary) -> bool:
 	return result["success"]
 
 
+## _off_guard_defense_reduction(target) -> int — FEAT-015 (US-015 / FR-016):
+## returns Flanking.OFF_GUARD_BONUS (2) when `target`'s "conditions" list
+## carries Flanking.OFF_GUARD_CONDITION ("Off-Guard"), else 0. Read-only —
+## this file never sets/clears the condition itself (that is the flanking
+## detector's caller's responsibility, e.g. the composition root recomputing
+## positions after a Step/Stride); resolution.gd only ever consumes it.
+func _off_guard_defense_reduction(target: Dictionary) -> int:
+	if FlankingClass.OFF_GUARD_CONDITION in target.get("conditions", []):
+		return FlankingClass.OFF_GUARD_BONUS
+	return 0
+
+
 ## resolve_spell_attack(attacker, target, spell, defense_type) → Dictionary
 ##
 ## Resolves a spell attack roll against a passive defense target.
@@ -318,6 +352,11 @@ func resolve_spell_attack(attacker: Dictionary, target: Dictionary, spell: Dicti
 
 	# Compare against the requested passive defense value
 	var defense_value: int = target[defense_type]
+
+	# Off-Guard (FEAT-015 / US-015 / FR-016): blanket +2 to ALL attacks
+	# against this target — spell attacks included, see file-level doc above.
+	defense_value -= _off_guard_defense_reduction(target)
+
 	var hit: bool = roll_total >= defense_value
 
 	# Crit: hit AND exceeded defense threshold by 10 or more

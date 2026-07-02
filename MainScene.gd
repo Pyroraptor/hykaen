@@ -116,6 +116,7 @@ const AIClass                          = preload("res://core/combat/ai.gd")
 const StrikeInputControllerClass       = preload("res://scenes/battlefield/StrikeInputController.gd")
 const EndTurnControllerClass           = preload("res://scenes/battlefield/EndTurnController.gd")
 const MovementInputControllerClass     = preload("res://presentation/movement_input_controller.gd")
+const FlankingClass                    = preload("res://core/rules/flanking.gd")
 
 ## The steel-thread's entry_point: the one encounter this composition root boots into.
 const PROLOGUE_ENCOUNTER_PATH: String = "res://data/encounters/prologue_encounter.tres"
@@ -456,6 +457,7 @@ func _ready() -> void:
 
 	if status_panel_view != null:
 		status_panel_view.load_combatants(status_view_models)
+		_refresh_off_guard_conditions()
 
 	if hex_battlefield != null:
 		hex_battlefield.load_combatants(hex_combatants, status_view_models)
@@ -659,6 +661,7 @@ func _on_hex_grid_view_hex_clicked(hex_coord) -> void:
 		return
 	var step_result: Dictionary = movement_input_controller.step_to(hex_coord)
 	if step_result.get("ok", false):
+		_refresh_off_guard_conditions()
 		_on_active_actor_changed(round_session.current_actor())
 		return
 
@@ -667,6 +670,7 @@ func _on_hex_grid_view_hex_clicked(hex_coord) -> void:
 
 	var stride_result: Dictionary = movement_input_controller.stride_to(hex_coord)
 	if stride_result.get("ok", false):
+		_refresh_off_guard_conditions()
 		_on_active_actor_changed(round_session.current_actor())
 
 
@@ -695,6 +699,37 @@ func _living_combatants(combatants: Array) -> Array:
 		if c.get("hp_current", 0) > 0:
 			living.append(c)
 	return living
+
+
+## _refresh_off_guard_conditions() -> void — FEAT-015 (US-015 / FR-016):
+## recomputes Off-Guard for every living combatant on the field via
+## core/rules/flanking.gd's Flanking.is_off_guard() (pure domain positional
+## detector) and pushes the result into $StatusPanelView via
+## StatusPanelView.set_off_guard(), so the readout stays live as combatants
+## Step/Stride around the battlefield (US-015's "surfaced in the
+## per-combatant readout" criterion). Team affiliation -- which this
+## composition root, not the team-agnostic domain detector, is responsible
+## for supplying (see flanking.gd's file-level doc) -- is derived from
+## which of `_party`/`_enemies` a combatant belongs to: a party member's
+## candidate flankers are the living enemies, and vice versa. Called once at
+## boot (right after the initial StatusPanelView snapshot) and again after
+## every successful Step/Stride (_on_hex_grid_view_hex_clicked), since
+## either side's move can flank OR unflank any combatant on the field, not
+## only the mover itself.
+func _refresh_off_guard_conditions() -> void:
+	if status_panel_view == null:
+		return
+
+	var living_party: Array = _living_combatants(_party)
+	var living_enemies: Array = _living_combatants(_enemies)
+
+	for combatant in _party:
+		var combatant_id: String = combatant.get("combatant_id", combatant.get("name", ""))
+		status_panel_view.set_off_guard(combatant_id, FlankingClass.is_off_guard(combatant, living_enemies))
+
+	for combatant in _enemies:
+		var combatant_id: String = combatant.get("combatant_id", combatant.get("name", ""))
+		status_panel_view.set_off_guard(combatant_id, FlankingClass.is_off_guard(combatant, living_party))
 
 
 ## _build_party_combatant(character_path, hex_coord, combatant_id) -> Dictionary

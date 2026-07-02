@@ -1685,3 +1685,116 @@ func test_bobbin_dmitri_dodge_negates_attack() -> void:
 		"Bobbin-vs-Dmitri Dodge: Dmitri deftly steps to the side (defender_stepped=true)")
 	assert_eq(result["damage_final"], 0,
 		"Bobbin-vs-Dmitri Dodge: hit=false → damage_final must be 0")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-015 / US-015 / FR-016: Off-Guard positional condition — blanket +2 to
+# ALL attacks against a flanked target, integrated via core/rules/flanking.gd's
+# Flanking.OFF_GUARD_CONDITION/OFF_GUARD_BONUS.
+#
+# seed 3 (_MISS_SEED) → rng.d20() yields 5 → roll_total 5+3+2=10.
+#   Against a plain target.ac=13: 10 < 13 → miss (pinned above, _EXPECTED_MISS_ROLL_TOTAL).
+#   Against the SAME target but Off-Guard (ac effectively 13-2=11): 10 < 11 →
+#   still a miss with THIS particular seed, so a dedicated ac=12 target
+#   fixture is used below instead to land squarely on the +2 boundary:
+#   roll_total=10 misses ac=12 (10<12) but hits an Off-Guard ac=12 target
+#   (effective defense 12-2=10, 10>=10 → hit).
+# ══════════════════════════════════════════════════════════════════════════════
+
+const FlankingConditionClass = preload("res://core/rules/flanking.gd")
+
+## A target whose plain AC (12) is JUST out of reach of the pinned seed-3
+## roll_total (10), so Off-Guard's +2 is the ONLY thing that can flip the
+## outcome to a hit — isolating the bonus's effect precisely.
+func _boundary_target(conditions: Array) -> Dictionary:
+	return {
+		"ac": 12,
+		"reflex": 12,
+		"fortitude": 14,
+		"will": 11,
+		"conditions": conditions,
+	}
+
+
+func test_off_guard_condition_absent_leaves_boundary_attack_a_miss() -> void:
+	# Baseline (no Off-Guard): seed 3 → roll_total=10 < ac=12 → miss.
+	var res = _make_res(_MISS_SEED)
+	var result: Dictionary = res.resolve_weapon_attack(_attacker, _boundary_target([]), _weapon, "ac")
+	assert_false(result["hit"], "without Off-Guard, roll_total=10 must miss ac=12")
+
+
+func test_off_guard_condition_present_turns_boundary_miss_into_a_hit() -> void:
+	# Off-Guard present: seed 3 → roll_total=10 vs effective ac=12-2=10 → hit.
+	var res = _make_res(_MISS_SEED)
+	var off_guard_target: Dictionary = _boundary_target([FlankingConditionClass.OFF_GUARD_CONDITION])
+	var result: Dictionary = res.resolve_weapon_attack(_attacker, off_guard_target, _weapon, "ac")
+	assert_true(
+		result["hit"],
+		"Off-Guard's blanket +2 must turn roll_total=10 vs ac=12 into a hit (effective ac=10)"
+	)
+
+
+func test_off_guard_bonus_applies_regardless_of_which_attacker_is_used() -> void:
+	# Criterion: "Off-Guard applies +2 to ALL attacks against the flanked
+	# target, not only the flanking pair" — resolve_weapon_attack() never
+	# receives or checks flanker identity at all, so ANY attacker Dictionary
+	# benefits identically once the target carries the condition (blanket
+	# v0, not flankers-only per core/rules/flanking.gd's file-level doc).
+	var off_guard_target: Dictionary = _boundary_target([FlankingConditionClass.OFF_GUARD_CONDITION])
+	var unrelated_attacker: Dictionary = {
+		"strength": 3, "dexterity": 1, "constitution": 2,
+		"willpower": 1, "intellect": 1, "intuition": 1, "social": 1
+	}
+
+	var res_a = _make_res(_MISS_SEED)
+	var result_a: Dictionary = res_a.resolve_weapon_attack(_attacker, off_guard_target, _weapon, "ac")
+
+	var res_b = _make_res(_MISS_SEED)
+	var result_b: Dictionary = res_b.resolve_weapon_attack(unrelated_attacker, off_guard_target, _weapon, "ac")
+
+	assert_true(result_a["hit"], "the first attacker must benefit from the blanket Off-Guard bonus")
+	assert_true(result_b["hit"], "a completely unrelated second attacker must ALSO benefit — blanket, not flankers-only")
+
+
+func test_off_guard_condition_does_not_affect_targets_without_it() -> void:
+	# A target with an unrelated condition (no Off-Guard) must resolve exactly
+	# as the no-conditions baseline — Off-Guard's bonus must not leak in.
+	var res = _make_res(_MISS_SEED)
+	var target_with_other_condition: Dictionary = _boundary_target(["Dazed"])
+	var result: Dictionary = res.resolve_weapon_attack(_attacker, target_with_other_condition, _weapon, "ac")
+	assert_false(result["hit"], "an unrelated condition (Dazed) must not grant the Off-Guard bonus")
+
+
+func test_off_guard_condition_boosts_crit_threshold_too() -> void:
+	# seed 1 (_CRIT_SEED) → roll_total=23. Against ac=13 that's already a
+	# crit (23-13=10>=10). Off-Guard's +2 (effective ac=11) must not somehow
+	# REMOVE the crit -- confirms the reduction composes correctly with the
+	# existing crit math rather than only gating the hit check.
+	var res = _make_res(_CRIT_SEED)
+	var off_guard_target: Dictionary = _target.duplicate()
+	off_guard_target["conditions"] = [FlankingConditionClass.OFF_GUARD_CONDITION]
+	var result: Dictionary = res.resolve_weapon_attack(_attacker, off_guard_target, _weapon, "ac")
+	assert_true(result["hit"])
+	assert_true(result["crit"], "Off-Guard must widen, never narrow, the crit margin")
+
+
+func test_off_guard_condition_applies_to_spell_attacks_too() -> void:
+	# resolve_spell_attack() must ALSO honor Off-Guard -- "blanket +2 to ALL
+	# attacks against it" is not limited to weapon Strikes.
+	var caster: Dictionary = {
+		"spellcasting_attribute": "intellect",
+		"intellect": 3,
+		"spell_attack_bonus": 2,
+	}
+	var spell: Dictionary = {"damage_die": 6}
+
+	# seed 3 → d20()=5 → roll_total = 5 + 3 + 2 = 10, identical shape to the
+	# weapon boundary fixture above.
+	var res_plain = _make_res(_MISS_SEED)
+	var plain_result: Dictionary = res_plain.resolve_spell_attack(caster, _boundary_target([]), spell, "ac")
+	assert_false(plain_result["hit"], "without Off-Guard, roll_total=10 must miss ac=12")
+
+	var res_off_guard = _make_res(_MISS_SEED)
+	var off_guard_target: Dictionary = _boundary_target([FlankingConditionClass.OFF_GUARD_CONDITION])
+	var off_guard_result: Dictionary = res_off_guard.resolve_spell_attack(caster, off_guard_target, spell, "ac")
+	assert_true(off_guard_result["hit"], "Off-Guard's blanket +2 must also apply to spell attacks")

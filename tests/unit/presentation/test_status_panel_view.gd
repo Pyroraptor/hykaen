@@ -222,3 +222,78 @@ func test_source_contains_no_direct_run_round_use_case_reference() -> void:
 		source.findn("run_round_use_case"), -1,
 		"status_panel_view.gd must never reference run_round_use_case (read-only projection)"
 	)
+
+
+# ── FEAT-015 / US-015 / FR-016: Off-Guard condition is visible in the ──────
+# per-combatant readout (StatusPanelView.set_off_guard() / is_off_guard()) ──
+
+func test_set_off_guard_true_adds_off_guard_to_conditions() -> void:
+	_panel.load_combatants(_sample_view_models())
+	_panel.set_off_guard("enemy_0", true)
+
+	assert_true(_panel.is_off_guard("enemy_0"))
+	assert_true(
+		"Off-Guard" in _panel.get_status("enemy_0").get("conditions", []),
+		"Off-Guard must appear in the combatant's displayed conditions list"
+	)
+
+
+func test_set_off_guard_true_preserves_existing_conditions() -> void:
+	_panel.load_combatants(_sample_view_models())
+	_panel.set_off_guard("enemy_0", true)
+
+	var conditions: Array = _panel.get_status("enemy_0").get("conditions", [])
+	assert_true("Dazed" in conditions, "setting Off-Guard must not drop a pre-existing condition (Dazed)")
+	assert_true("Off-Guard" in conditions)
+
+
+func test_set_off_guard_false_removes_off_guard_from_conditions() -> void:
+	_panel.load_combatants(_sample_view_models())
+	_panel.set_off_guard("enemy_0", true)
+	_panel.set_off_guard("enemy_0", false)
+
+	assert_false(_panel.is_off_guard("enemy_0"))
+	assert_false("Off-Guard" in _panel.get_status("enemy_0").get("conditions", []))
+
+
+func test_set_off_guard_false_when_never_set_is_a_noop() -> void:
+	_panel.load_combatants(_sample_view_models())
+	_panel.set_off_guard("player_0", false)
+
+	assert_false(_panel.is_off_guard("player_0"))
+	assert_eq(_panel.get_status("player_0").get("conditions", []), [])
+
+
+func test_set_off_guard_updates_row_text() -> void:
+	_panel.load_combatants(_sample_view_models())
+	_panel.set_off_guard("player_0", true)
+
+	var text: String = _panel.get_row_text("player_0")
+	assert_string_contains(text, "Off-Guard", "row text must show the Off-Guard condition once set")
+
+
+func test_set_off_guard_is_idempotent() -> void:
+	_panel.load_combatants(_sample_view_models())
+	_panel.set_off_guard("player_0", true)
+	_panel.set_off_guard("player_0", true)
+
+	var conditions: Array = _panel.get_status("player_0").get("conditions", [])
+	var count: int = 0
+	for c in conditions:
+		if c == "Off-Guard":
+			count += 1
+	assert_eq(count, 1, "Off-Guard must never be duplicated in the conditions list")
+
+
+func test_set_off_guard_for_unknown_combatant_is_a_silent_noop() -> void:
+	_panel.load_combatants(_sample_view_models())
+	_panel.set_off_guard("does_not_exist", true)
+
+	assert_false(_panel.is_off_guard("does_not_exist"))
+	assert_eq(_panel.get_row_count(), 2, "an Off-Guard update for an unknown combatant must not create rows")
+
+
+func test_is_off_guard_false_by_default() -> void:
+	_panel.load_combatants(_sample_view_models())
+	assert_false(_panel.is_off_guard("player_0"))
+	assert_false(_panel.is_off_guard("enemy_0"))

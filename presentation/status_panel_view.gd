@@ -42,6 +42,13 @@
 class_name StatusPanelView
 extends Control
 
+## FEAT-015 (US-015 / FR-016): the SAME domain constant
+## core/rules/flanking.gd / core/rules/resolution.gd use for the Off-Guard
+## condition label — StatusPanelView reads/derives it from the domain
+## rather than re-hardcoding the string "Off-Guard" itself (ADR-001:
+## Presentation reads/derives from domain state only).
+const FlankingClass = preload("res://core/rules/flanking.gd")
+
 ## Row keys copied verbatim into each row's status Dictionary
 ## (get_status()'s return shape) from the view model passed to
 ## load_combatants().
@@ -107,6 +114,42 @@ func get_status(combatant_id: String) -> Dictionary:
 ## get_row_count() → int — number of combatants currently displayed.
 func get_row_count() -> int:
 	return _rows.size()
+
+
+## set_off_guard(combatant_id, is_off_guard) → void — FEAT-015 (US-015 /
+## FR-016): toggles FlankingClass.OFF_GUARD_CONDITION ("Off-Guard") in the
+## given combatant's displayed conditions list and refreshes its rendered
+## row label, so the Off-Guard positional condition is visible in the
+## per-combatant readout. StatusPanelView never computes flanking itself
+## (that is core/rules/flanking.gd's Flanking.is_off_guard(), invoked by the
+## composition root — MainScene.gd — as combatant positions change); this
+## method only reflects a caller-supplied bool into the display, mirroring
+## on_attack_event()'s existing "presentation reflects, never derives"
+## contract. A combatant_id with no loaded row is a silent no-op (mirrors
+## on_attack_event()'s unknown-combatant behavior).
+func set_off_guard(combatant_id: String, is_off_guard: bool) -> void:
+	if not _rows.has(combatant_id):
+		return
+
+	var row: Dictionary = _rows[combatant_id]
+	var conditions: Array = row.get("conditions", [])
+	var has_condition: bool = FlankingClass.OFF_GUARD_CONDITION in conditions
+
+	if is_off_guard and not has_condition:
+		conditions.append(FlankingClass.OFF_GUARD_CONDITION)
+	elif not is_off_guard and has_condition:
+		conditions.erase(FlankingClass.OFF_GUARD_CONDITION)
+
+	row["conditions"] = conditions
+	_create_or_update_label(combatant_id)
+
+
+## is_off_guard(combatant_id) → bool — true iff the given combatant's
+## currently displayed conditions include Off-Guard (FEAT-015 / US-015).
+## Unknown combatant_id returns false.
+func is_off_guard(combatant_id: String) -> bool:
+	var row: Dictionary = _rows.get(combatant_id, {})
+	return FlankingClass.OFF_GUARD_CONDITION in row.get("conditions", [])
 
 
 ## get_row_text(combatant_id) → String — the exact text rendered on this
