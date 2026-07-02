@@ -1,0 +1,18 @@
+[gd_scene load_steps=2 format=3 uid="uid://hykaen_resultscreenview"]
+
+[ext_resource type="Script" path="res://presentation/result_screen_view.gd" id="1_resultscreenview"]
+
+[node name="ResultScreenView" type="Control"]
+layout_mode = 3
+anchors_preset = 0
+offset_left = 260.0
+offset_top = 8.0
+offset_right = 512.0
+offset_bottom = 128.0
+script = ExtResource("1_resultscreenview")
+
+[node name="ResultLabel" type="Label" parent="."]
+layout_mode = 2
+offset_right = 252.0
+offset_bottom = 64.0
+visible = false
