@@ -53,6 +53,22 @@ extends GutTest
 ##   4. test_encounter_concludes_with_result_screen_matching_determine_outcome_use_case()
 ##   5. test_determinism_two_independent_mainscene_boots_produce_identical_event_sequence()
 ##   6. (whole-suite regression) -- enforced by test_command, not this file.
+##
+## FEAT-134 cross-reference: this file's Part (B) exercises the NEWER
+## presentation/ interactive stack (StrikeActionControl / EndTurnControl /
+## TurnController / ResultScreenView, FEAT-109 onward) through the same real
+## res://MainScene.tscn composition root. FEAT-134's sibling end-to-end test,
+## tests/gut/test_steel_thread_e2e.gd, closes out the ORIGINAL FEAT-001
+## through FEAT-011 steel thread by driving MainScene's other, still-wired
+## widget/controller set (HexBattlefield / TurnOrderWidget / EventLogView /
+## StrikeInputController / EndTurnController / ResultScreen,
+## scenes/battlefield/) under a pinned seed_override=42 -- including the
+## final combatant HP/state snapshot and full ordered event log that only
+## scenes/battlefield/ResultScreen.gd (not ResultScreenView) renders. Both
+## files drive the SAME real MainScene.tscn entry point and the SAME
+## resolve_action_use_case/run_round_use_case pipeline (ADR-002/ADR-007); they
+## are complementary, not duplicate, coverage of the two widget stacks
+## MainScene.gd wires side by side.
 
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 
