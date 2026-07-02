@@ -277,6 +277,11 @@ func on_round_event(event) -> void:
 ## never crashes on a stale/unknown id, matching HexGridView's move_token()
 ## contract exactly.
 func move_token(combatant_id: String, new_hex_coord) -> void:
+	# Defensive guard (mirrors the combatant_id no-op below): a null or
+	# malformed coord (missing q/r) is a no-op rather than a crash, so a stray
+	# call from a resync path can never throw (FEAT-138).
+	if new_hex_coord == null or not ("q" in new_hex_coord) or not ("r" in new_hex_coord):
+		return
 	var readout = _readouts.get(combatant_id, null)
 	if readout == null:
 		return

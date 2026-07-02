@@ -596,7 +596,8 @@ func _on_active_actor_changed(combatant: Dictionary) -> void:
 		_other_living_combatants(combatant),
 		hex_grid_view,
 		active_combatant_id,
-		action_economy
+		action_economy,
+		hex_battlefield
 	)
 
 

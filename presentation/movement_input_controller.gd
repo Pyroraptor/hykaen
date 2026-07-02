@@ -116,6 +116,14 @@ var _other_combatants: Array = []
 ## controller repositions the mover's token on after a successful Step.
 var _hex_grid_view = null
 
+## The optional HexBattlefield collaborator (scenes/battlefield/HexBattlefield.gd)
+## this controller ALSO repositions the mover's token on after a successful
+## Step/Stride, mirroring the _hex_grid_view resync. MainScene renders BOTH
+## $HexGridView and $HexBattlefield, so both renderers must reflect the move
+## (FEAT-138 -- previously only _hex_grid_view was resynced, leaving the
+## battlefield view showing the stale pre-move position).
+var _hex_battlefield = null
+
 ## The identifier used to look up `_actor`'s token on `_hex_grid_view`
 ## (HexGridView.move_token()'s combatant_id argument).
 var _actor_id: String = ""
@@ -162,10 +170,11 @@ var _last_error_message: String = ""
 ##                       LAST parameter, after `actor_id`, so pre-existing
 ##                       callers that only ever configure() Step (and never
 ##                       pass this argument) are completely unaffected.
-func configure(actor, other_combatants: Array, hex_grid_view = null, actor_id: String = "", action_economy = null) -> void:
+func configure(actor, other_combatants: Array, hex_grid_view = null, actor_id: String = "", action_economy = null, hex_battlefield = null) -> void:
 	_actor = actor
 	_other_combatants = other_combatants
 	_hex_grid_view = hex_grid_view
+	_hex_battlefield = hex_battlefield
 	_actor_id = actor_id if actor_id != "" else _identifier_of(actor)
 	_action_economy = action_economy
 	_last_error_code = ""
@@ -252,8 +261,7 @@ func step_to(destination_hex) -> Dictionary:
 	_last_error_code = ""
 	_last_error_message = ""
 
-	if _hex_grid_view != null and _actor_id != "":
-		_hex_grid_view.move_token(_actor_id, destination_hex)
+	_resync_token_renderers(destination_hex)
 
 	_recompute_selectable_destinations()
 
@@ -305,8 +313,7 @@ func stride_to(destination_hex) -> Dictionary:
 	_last_error_code = ""
 	_last_error_message = ""
 
-	if _hex_grid_view != null and _actor_id != "":
-		_hex_grid_view.move_token(_actor_id, destination_hex)
+	_resync_token_renderers(destination_hex)
 
 	_recompute_selectable_destinations()
 
@@ -315,6 +322,22 @@ func stride_to(destination_hex) -> Dictionary:
 
 
 # ── Internal helpers ─────────────────────────────────────────────────────
+
+## _resync_token_renderers(destination_hex) -> void -- repositions the acting
+## combatant's token on EVERY configured render collaborator (HexGridView AND
+## HexBattlefield) after a successful Step/Stride, so both of MainScene's
+## renderers reflect the new hex. Read-and-render only (ADR-001): no domain
+## mutation, no move computation -- the move was already resolved by
+## core/rules/movement.gd. No-op for any renderer not supplied, or when
+## `_actor_id` is unknown (can't look the token up).
+func _resync_token_renderers(destination_hex) -> void:
+	if _actor_id == "":
+		return
+	if _hex_grid_view != null:
+		_hex_grid_view.move_token(_actor_id, destination_hex)
+	if _hex_battlefield != null:
+		_hex_battlefield.move_token(_actor_id, destination_hex)
+
 
 func _fail(error_code: String) -> Dictionary:
 	_last_error_code = error_code
