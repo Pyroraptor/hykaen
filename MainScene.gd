@@ -345,16 +345,20 @@ var strike_input_controller = StrikeInputControllerClass.new()
 ## code-only-instantiation convention above). Reconfigured alongside
 ## strike_action_control/strike_input_controller every time TurnController's
 ## active_actor_changed signal fires, so the SAME live actor/occupancy data
-## drives it. Handed `hex_grid_view` (FEAT-007) so a successful Step
+## drives it. Handed `hex_grid_view` (FEAT-007) so a successful Step/Stride
 ## visibly repositions the mover's token there, and is wired to
 ## hex_grid_view's hex_clicked signal (below) so clicking a highlighted hex
-## on the battlefield performs a Step -- the interactive destination-picking
-## UI FEAT-013 adds. A Step never goes through resolve_action_use_case (it
-## has no action-economy/event side effects, core/rules/movement.gd, ADR-002)
-## -- but it DOES move the SAME live combatant Dictionary Strike reach reads
-## from, so _on_active_actor_changed() is re-invoked after every successful
-## Step to re-gate strike_action_control/strike_input_controller's in-reach
-## target sets from the new position.
+## on the battlefield performs a Step (or, per FEAT-014 / US-014, a Stride
+## when the hex is beyond Step range but within Speed) -- the interactive
+## destination-picking UI FEAT-013/FEAT-014 add. A Step never goes through
+## resolve_action_use_case (it has no action-economy/event side effects,
+## core/rules/movement.gd, ADR-002) -- but it DOES move the SAME live
+## combatant Dictionary Strike reach reads from, so _on_active_actor_changed()
+## is re-invoked after every successful Step/Stride to re-gate
+## strike_action_control/strike_input_controller's in-reach target sets from
+## the new position. Also handed the active combatant's live ActionEconomy
+## (FEAT-014) so a Stride can spend the one action it requires from the SAME
+## shared budget StrikeActionControl/StrikeInputController already read from.
 var movement_input_controller = MovementInputControllerClass.new()
 
 ## end_turn_controller — the EndTurnController (scenes/battlefield/
@@ -589,7 +593,8 @@ func _on_active_actor_changed(combatant: Dictionary) -> void:
 		combatant,
 		_other_living_combatants(combatant),
 		hex_grid_view,
-		active_combatant_id
+		active_combatant_id,
+		action_economy
 	)
 
 
@@ -628,24 +633,40 @@ func _on_end_turn_control_turn_ended(_result: Dictionary) -> void:
 	turn_controller.set_session(round_session)
 
 
-## _on_hex_grid_view_hex_clicked(hex_coord) -> void — FEAT-013 / US-013:
-## hex_grid_view's hex_clicked signal handler. Forwards directly to the
-## injected, REUSED movement_input_controller.step_to() (ADR-002: no
-## duplicate movement path) -- a click on a hex that controller never offered
-## as a selectable Step destination (including before any actor has been
-## configured, e.g. before the first active_actor_changed signal) is simply
-## rejected there with no effect. On a successful Step, re-invokes
+## _on_hex_grid_view_hex_clicked(hex_coord) -> void — FEAT-013 / US-013
+## (Stride: FEAT-014 / US-014): hex_grid_view's hex_clicked signal handler.
+## Forwards directly to the injected, REUSED movement_input_controller
+## (ADR-002: no duplicate movement path) -- first trying step_to() (the FREE,
+## no-action-economy-cost 1-hex move), and, only when that is rejected
+## specifically because the clicked hex is not a legal Step destination
+## (ERR_DESTINATION_NOT_SELECTABLE -- e.g. it is farther than 1 hex away),
+## falling back to stride_to() (up to Speed hexes, spending one action) so a
+## single click on any currently-highlighted-or-Stride-reachable hex resolves
+## to whichever of the two moves actually applies -- no separate "Stride
+## mode" affordance is introduced by this composition root. A click that
+## names neither a legal Step NOR a legal Stride destination (including
+## before any actor has been configured, e.g. before the first
+## active_actor_changed signal) is simply rejected by both controllers with
+## no effect. On a successful Step OR Stride, re-invokes
 ## _on_active_actor_changed() with the SAME (now-moved) current actor so
 ## strike_action_control/strike_input_controller re-gate their in-reach
-## target sets from the new position (Strike reach re-gate, FEAT-013's
-## test_criteria) -- this composition root never re-derives that reach logic
-## itself, it only re-triggers the SAME reconfiguration path US-009 already
-## established.
+## target sets from the new position (Strike reach re-gate, FEAT-013/
+## FEAT-014's test_criteria) -- this composition root never re-derives that
+## reach logic itself, it only re-triggers the SAME reconfiguration path
+## US-009 already established.
 func _on_hex_grid_view_hex_clicked(hex_coord) -> void:
 	if round_session == null:
 		return
-	var result: Dictionary = movement_input_controller.step_to(hex_coord)
-	if result.get("ok", false):
+	var step_result: Dictionary = movement_input_controller.step_to(hex_coord)
+	if step_result.get("ok", false):
+		_on_active_actor_changed(round_session.current_actor())
+		return
+
+	if step_result.get("error", "") != MovementInputControllerClass.ERR_DESTINATION_NOT_SELECTABLE:
+		return
+
+	var stride_result: Dictionary = movement_input_controller.stride_to(hex_coord)
+	if stride_result.get("ok", false):
 		_on_active_actor_changed(round_session.current_actor())
 
 

@@ -104,7 +104,14 @@ func _reset_round_state() -> void:
 ## reactions are unified against a single ActionBudget regardless of mix
 ## or turn ownership.
 ## action_metadata may include: {"traits": Array[String]}
-##   "Movement" trait: only one movement action permitted per turn.
+##   "Movement" trait: only one movement action permitted per turn. This is
+##   the exact gate core/rules/movement.gd's Stride() (FR-013 / US-014) spends
+##   through — Stride tags its spend_action() call {"name": "Stride",
+##   "traits": ["Movement"]} so a Stride and any other Movement-trait action
+##   remain mutually exclusive within the same turn, sharing this single
+##   pre-existing per-turn gate rather than introducing a parallel one. Step
+##   (core/rules/movement.gd) is unaffected — it never calls spend_action() at
+##   all (see movement.gd's file-level doc), so it never touches this gate.
 ##
 ## Returns a Result-style Dictionary carrying BOTH the legacy
 ## success/error/remaining keys (preserved for existing callers) and the

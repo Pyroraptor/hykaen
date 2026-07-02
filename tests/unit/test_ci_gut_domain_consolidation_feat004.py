@@ -18,11 +18,12 @@ Verifies:
      (test_hex_coord.gd, test_hex_math.gd, test_combatant_hex_init.gd,
      test_resolve_action_reach.gd, test_round_session.gd [FEAT-110],
      test_round_session_ai_turn.gd [FEAT-111],
-     test_movement_step.gd [FEAT-013]), with should_exit true so the
-     exit code is forwarded correctly in CI/headless runs.
+     test_movement_step.gd [FEAT-013], test_movement_stride.gd [FEAT-014]),
+     with should_exit true so the exit code is forwarded correctly in
+     CI/headless runs.
   4. Actually running `godot --headless -- -gconfig=res://tests/.gutconfig.json
      --gut-run-all` (skipped if no `godot` binary is on PATH) passes and
-     reports all seven consolidated domain test files.
+     reports all eight consolidated domain test files.
   5. Running the full `test_command` script end-to-end (skipped if no
      `godot` binary is on PATH) exits 0.
 
@@ -196,6 +197,17 @@ class TestConsolidatedGutConfig:
 # assertions below were updated accordingly so this guard still catches the
 # ORIGINAL regression it targets without falsely flagging this expected,
 # intentional growth from 6 to 7 scripts.
+#
+# FEAT-014 note: tests/unit/core/rules/test_movement_stride.gd (US-014's
+# Stride movement domain-rule suite -- core/rules/movement.gd, covering the
+# up-to-Speed multi-hex Stride move that spends one action via
+# core/rules/action_economy.gd, its distance/occupancy/action-availability
+# preconditions, and the Strike reach re-gate after a Stride) was added under
+# tests/unit/core/rules/ by the identical established convention. The
+# consolidated domain suite therefore now legitimately collects 8 scripts,
+# not 7; the assertions below were updated accordingly so this guard still
+# catches the ORIGINAL regression it targets without falsely flagging this
+# expected, intentional growth from 7 to 8 scripts.
 
 def _extract_domain_suite_command(test_command_text: str) -> str:
     for line in test_command_text.splitlines():
@@ -239,6 +251,7 @@ class TestConsolidatedDomainSuiteReallyPasses:
             "test_round_session",
             "test_round_session_ai_turn",
             "test_movement_step",
+            "test_movement_stride",
         ):
             assert expected in output, (
                 f"Consolidated GUT run output must mention {expected}.gd"
@@ -248,8 +261,8 @@ class TestConsolidatedDomainSuiteReallyPasses:
         self, repo_root, test_command_text
     ):
         """US-014's consolidated domain suite must actually be SCOPED to the
-        domain/application test scripts under tests/unit/core (7, as of
-        FEAT-013 -- see the module-level note above), not silently fall back
+        domain/application test scripts under tests/unit/core (8, as of
+        FEAT-014 -- see the module-level note above), not silently fall back
         to running the whole project's ~46 GUT scripts. This guards against
         the -gconfig-ignored regression described above."""
         result = self._run(repo_root, test_command_text)
@@ -257,8 +270,8 @@ class TestConsolidatedDomainSuiteReallyPasses:
         match = re.search(r"Scripts\s+(\d+)", output)
         assert match, f"Could not find a 'Scripts  N' summary line. Output:\n{output}"
         scripts_run = int(match.group(1))
-        assert scripts_run == 7, (
-            "The consolidated domain GUT suite stage must run exactly the 7 "
+        assert scripts_run == 8, (
+            "The consolidated domain GUT suite stage must run exactly the 8 "
             f"domain/application test scripts under tests/unit/core, but ran "
             f"{scripts_run}. This means test_command's stage 3 is not "
             f"actually scoped via tests/.gutconfig.json.\nOutput:\n{output}"
