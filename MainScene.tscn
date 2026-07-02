@@ -1,4 +1,4 @@
-[gd_scene load_steps=10 format=3 uid="uid://hykaen_mainscene"]
+[gd_scene load_steps=11 format=3 uid="uid://hykaen_mainscene"]
 
 [ext_resource type="Script" path="res://MainScene.gd" id="1_mainscene"]
 [ext_resource type="PackedScene" path="res://presentation/hex_grid_view.tscn" id="2_hexgrid"]
@@ -10,6 +10,7 @@
 [ext_resource type="PackedScene" path="res://presentation/end_turn_control.tscn" id="8_endturncontrol"]
 [ext_resource type="PackedScene" path="res://presentation/result_screen_view.tscn" id="9_resultscreenview"]
 [ext_resource type="PackedScene" path="res://scenes/battlefield/HexBattlefield.tscn" id="10_hexbattlefield"]
+[ext_resource type="PackedScene" path="res://scenes/battlefield/ResultScreen.tscn" id="11_resultscreen"]
 
 [node name="MainScene" type="Node"]
 script = ExtResource("1_mainscene")
@@ -33,3 +34,5 @@ script = ExtResource("7_turncontroller")
 [node name="EndTurnControl" parent="." instance=ExtResource("8_endturncontrol")]
 
 [node name="ResultScreenView" parent="." instance=ExtResource("9_resultscreenview")]
+
+[node name="ResultScreen" parent="." instance=ExtResource("11_resultscreen")]

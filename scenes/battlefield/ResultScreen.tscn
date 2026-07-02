@@ -1,0 +1,31 @@
+[gd_scene load_steps=2 format=3 uid="uid://hykaen_resultscreen"]
+
+[ext_resource type="Script" path="res://scenes/battlefield/ResultScreen.gd" id="1_resultscreen"]
+
+[node name="ResultScreen" type="Control"]
+layout_mode = 3
+anchors_preset = 0
+offset_left = 8.0
+offset_top = 8.0
+offset_right = 1032.0
+offset_bottom = 720.0
+visible = false
+script = ExtResource("1_resultscreen")
+
+[node name="ResultLabel" type="Label" parent="."]
+layout_mode = 2
+offset_right = 252.0
+offset_bottom = 64.0
+visible = false
+
+[node name="SnapshotContainer" type="VBoxContainer" parent="."]
+layout_mode = 2
+offset_top = 72.0
+offset_right = 512.0
+offset_bottom = 300.0
+
+[node name="LogContainer" type="VBoxContainer" parent="."]
+layout_mode = 2
+offset_top = 308.0
+offset_right = 1024.0
+offset_bottom = 712.0

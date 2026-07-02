@@ -8,6 +8,19 @@
 ## turn-order surface it sits alongside (scenes/battlefield/TurnOrderWidget.gd,
 ## FEAT-006).
 ##
+## FEAT-010 / US-010: lock()/is_locked() add a persistent, sticky
+## post-resolution guard -- once scenes/battlefield/ResultScreen.gd (FEAT-010)
+## observes an EncounterResultEvent it calls lock() here, after which
+## select_target() always rejects with ERR_ENCOUNTER_ALREADY_RESOLVED
+## regardless of any later configure() call. This is deliberately independent
+## of (and stickier than) the existing "clear via configure({}, ...)"
+## technique the prior iteration's presentation/result_screen_view.gd used --
+## it survives a stray reconfigure() (e.g. a leftover TurnController signal)
+## after the encounter has already concluded (defense in depth, mirroring the
+## error_handling design note's "ENCOUNTER_ALREADY_RESOLVED is a defensive
+## domain-level guard behind [the UI guard], in case the UI guard is
+## bypassed").
+##
 ## Mirrors the target-selection affordance already established by the prior
 ## iteration's presentation/strike_action_control.gd, but:
 ##   1. When a HexBattlefield is supplied, reuses ITS already-loaded position
@@ -55,15 +68,22 @@ const ACTION_NAME: String = "Strike"
 ## spend, no event emission, no use-case call at all.
 const ERR_TARGET_NOT_SELECTABLE: String = "ERR_TARGET_NOT_SELECTABLE"
 
+## FEAT-010 / US-010: local/defensive rejection code returned by
+## select_target() once lock() has been called (see file-level doc) --
+## mirrors scenes/battlefield/EndTurnController.gd's identically-named
+## contract.
+const ERR_ENCOUNTER_ALREADY_RESOLVED: String = "ENCOUNTER_ALREADY_RESOLVED"
+
 ## Human-readable inline messages for every error code
 ## resolve_action_use_case.resolve() (core/application/resolve_action_use_case.gd)
-## may return, plus this controller's own local rejection code above.
+## may return, plus this controller's own local rejection codes above.
 const _ERROR_MESSAGES: Dictionary = {
 	"ERR_NOT_ACTIVE_COMBATANT": "It isn't your turn -- that action was not taken.",
 	"ERR_NO_ACTION_REMAINING":  "No actions remain this round -- that action was not taken.",
 	"ERR_TARGET_NOT_ADJACENT":  "That target is out of range -- pick an adjacent target.",
 	"ERR_TARGET_INVALID":       "That target is no longer valid.",
 	ERR_TARGET_NOT_SELECTABLE: "That target is out of range -- pick an adjacent target.",
+	ERR_ENCOUNTER_ALREADY_RESOLVED: "The encounter has already been resolved -- no further actions can be taken.",
 }
 
 const _DEFAULT_ERROR_MESSAGE: String = "That action could not be completed -- your turn is still active."
@@ -116,6 +136,26 @@ var _non_selectable_targets: Array = []
 
 var _last_error_code: String = ""
 var _last_error_message: String = ""
+
+## FEAT-010 / US-010: true once lock() has been called -- sticky across any
+## later configure() call (see file-level doc). select_target() always
+## rejects with ERR_ENCOUNTER_ALREADY_RESOLVED while true.
+var _locked: bool = false
+
+
+## lock() -> void -- permanently locks this controller (FEAT-010 / US-010):
+## every subsequent select_target() call is rejected with
+## ERR_ENCOUNTER_ALREADY_RESOLVED, regardless of any later configure() call.
+## Intended to be called exactly once, by scenes/battlefield/ResultScreen.gd,
+## the moment an EncounterResultEvent is observed. There is no unlock() --
+## this steel thread never continues a round past resolution.
+func lock() -> void:
+	_locked = true
+
+
+## is_locked() -> bool -- true once lock() has been called.
+func is_locked() -> bool:
+	return _locked
 
 
 ## configure(actor, action_economy, resolve_action_use_case,
@@ -183,6 +223,8 @@ func get_selectable_target_ids() -> Array:
 ## is_target_selectable(target_id) -> bool -- true iff target_id names one of
 ## the currently selectable (in-range) targets.
 func is_target_selectable(target_id: String) -> bool:
+	if _locked:
+		return false
 	return _find_target(_selectable_targets, target_id) != null
 
 
@@ -228,6 +270,9 @@ func get_last_error_message() -> String:
 ## {"ok": false, "resolved": false, "error": ERR_TARGET_NOT_SELECTABLE} and
 ## records the same kind of non-blocking inline message.
 func select_target(target_id: String) -> Dictionary:
+	if _locked:
+		return _fail(ERR_ENCOUNTER_ALREADY_RESOLVED)
+
 	var target = _find_target(_selectable_targets, target_id)
 	if target == null:
 		return _fail(ERR_TARGET_NOT_SELECTABLE)

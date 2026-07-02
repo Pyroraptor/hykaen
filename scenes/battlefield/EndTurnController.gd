@@ -33,6 +33,14 @@
 ## result rather than a crash (error_handling design note: "Post-resolution
 ## input guard ... ENCOUNTER_ALREADY_RESOLVED is a defensive domain-level
 ## guard behind [the UI guard], in case the UI guard is bypassed").
+##
+## FEAT-010 / US-010: lock()/is_locked() add a SECOND, sticky guard on top of
+## the RoundSession-derived one above -- once scenes/battlefield/
+## ResultScreen.gd observes an EncounterResultEvent it calls lock() here,
+## after which press() (and is_enabled()) always report resolved/disabled
+## regardless of any later configure() call with a fresh RoundSession. This
+## survives a stray reconfigure() (e.g. a leftover TurnController signal)
+## after the encounter has already concluded (defense in depth).
 
 class_name EndTurnController
 extends RefCounted
@@ -66,6 +74,26 @@ var _round_session = null
 var _last_error_code: String = ""
 var _last_error_message: String = ""
 
+## FEAT-010 / US-010: true once lock() has been called -- sticky across any
+## later configure() call (see file-level doc). press()/is_enabled() always
+## report resolved/disabled while true.
+var _locked: bool = false
+
+
+## lock() -> void -- permanently locks this controller (FEAT-010 / US-010):
+## every subsequent press() call is rejected with ERR_ENCOUNTER_ALREADY_RESOLVED
+## and is_enabled() reports false, regardless of any later configure() call.
+## Intended to be called exactly once, by scenes/battlefield/ResultScreen.gd,
+## the moment an EncounterResultEvent is observed. There is no unlock() --
+## this steel thread never continues a round past resolution.
+func lock() -> void:
+	_locked = true
+
+
+## is_locked() -> bool -- true once lock() has been called.
+func is_locked() -> bool:
+	return _locked
+
 
 ## configure(round_session) -> void -- injects the CURRENT RoundSession this
 ## controller advances. Safe to call repeatedly (e.g. rebinding to a fresh
@@ -82,6 +110,8 @@ func configure(round_session) -> void:
 ## gating (error_handling design note: "UI disables/greys the affordance
 ## proactively"), mirroring the prior iteration's EndTurnControl.is_enabled().
 func is_enabled() -> bool:
+	if _locked:
+		return false
 	return _compute_enabled()
 
 
@@ -122,7 +152,7 @@ func get_last_error_message() -> String:
 ## and recording a non-blocking inline message (US-008 test_criteria: pass
 ## issued after resolution must never crash).
 func press() -> Dictionary:
-	if _round_session == null or _round_session.is_round_over():
+	if _locked or _round_session == null or _round_session.is_round_over():
 		return _fail(ERR_ENCOUNTER_ALREADY_RESOLVED)
 
 	var result: Dictionary = _round_session.end_current_turn()

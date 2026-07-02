@@ -364,6 +364,16 @@ var end_turn_controller = EndTurnControllerClass.new()
 ## result_screen_view.gd) instanced in MainScene.tscn (FEAT-112, US-012).
 @onready var result_screen_view = $ResultScreenView
 
+## result_screen — the ResultScreen (scenes/battlefield/ResultScreen.gd)
+## instanced in MainScene.tscn (FEAT-010, US-010). Configured with the live
+## _party/_enemies combatant Dictionaries plus strike_input_controller/
+## end_turn_controller (scenes/battlefield/, FEAT-007/FEAT-008) so that once
+## the EncounterResultEvent this pipeline emits reaches it (via the SAME
+## event-sink forwarding every other projection uses), it renders Win/Loss
+## with the final combatant snapshot and full event log, and locks both
+## scenes/battlefield/ input controllers (US-010's exit_point).
+@onready var result_screen = $ResultScreen
+
 ## _party / _enemies — the live combatant Dictionaries built at boot,
 ## mutated in place by every resolved Strike throughout the interactive
 ## session (Dictionaries are reference types in GDScript). Kept as fields so
@@ -462,6 +472,9 @@ func _ready() -> void:
 	if result_screen_view != null:
 		result_screen_view.configure(strike_action_control, end_turn_control)
 
+	if result_screen != null:
+		result_screen.configure(_party + _enemies, strike_input_controller, end_turn_controller)
+
 	if turn_controller != null:
 		turn_controller.active_actor_changed.connect(_on_active_actor_changed)
 		turn_controller.round_over.connect(_on_round_over)
@@ -492,12 +505,17 @@ func _ready() -> void:
 ## update HP/conditions live as AttackEvent/CombatantDefeatedEvent fire.
 ## turn_order_widget (FEAT-006 / US-006) is likewise a subscriber, so its
 ## active-combatant highlight advances live on every TurnAdvancedEvent,
-## exactly like initiative_view's existing subscription.
+## exactly like initiative_view's existing subscription. result_screen
+## (scenes/battlefield/ResultScreen.gd, FEAT-010) is also a subscriber, so it
+## renders Win/Loss (with the final combatant snapshot and full event log)
+## and locks the scenes/battlefield/ input controllers the moment
+## EncounterResultEvent reaches it, exactly like result_screen_view's
+## existing subscription for its presentation/ counterparts.
 func _presentation_event_subscribers() -> Array:
 	var subscribers: Array = []
 	for view in [
 		status_panel_view, initiative_view, event_log_view, result_screen_view,
-		hex_battlefield, turn_order_widget,
+		hex_battlefield, turn_order_widget, result_screen,
 	]:
 		if view != null:
 			subscribers.append(view)
