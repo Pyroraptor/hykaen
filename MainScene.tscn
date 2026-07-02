@@ -9,11 +9,15 @@
 [ext_resource type="Script" path="res://presentation/turn_controller.gd" id="7_turncontroller"]
 [ext_resource type="PackedScene" path="res://presentation/end_turn_control.tscn" id="8_endturncontrol"]
 [ext_resource type="PackedScene" path="res://presentation/result_screen_view.tscn" id="9_resultscreenview"]
+[ext_resource type="PackedScene" path="res://scenes/battlefield/HexBattlefield.tscn" id="10_hexbattlefield"]
 
 [node name="MainScene" type="Node"]
 script = ExtResource("1_mainscene")
 
 [node name="HexGridView" parent="." instance=ExtResource("2_hexgrid")]
+
+[node name="HexBattlefield" parent="." instance=ExtResource("10_hexbattlefield")]
+position = Vector2(700, 0)
 
 [node name="StatusPanelView" parent="." instance=ExtResource("3_statuspanel")]
 

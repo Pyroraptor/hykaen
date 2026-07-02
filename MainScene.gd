@@ -271,6 +271,17 @@ var outcome: String = ""
 ## all combatants at boot.
 @onready var hex_grid_view = $HexGridView
 
+## hex_battlefield — the HexBattlefield (scenes/battlefield/HexBattlefield.gd)
+## instanced in MainScene.tscn (FEAT-005 / US-005). Populated with the same
+## hex-positioned Combatant list as hex_grid_view above, PLUS the
+## name/HP/Stamina/action-budget/Spent/conditions view-model snapshot
+## already built for status_panel_view (step 5 in the file-level doc above)
+## so each of its per-combatant CombatantReadout children renders the full
+## US-005 readout in one composed widget. Subscribed to the same
+## event-sink forwarding every other Presentation projection uses
+## (ADR-003) so its readouts update live as Strikes resolve.
+@onready var hex_battlefield = $HexBattlefield
+
 ## status_panel_view — the StatusPanelView (presentation/status_panel_view.gd)
 ## instanced in MainScene.tscn (FEAT-008 / US-006). Populated with a
 ## name/HP/Stamina/action-budget/Spent/conditions snapshot for every
@@ -368,10 +379,13 @@ func _ready() -> void:
 	encounter = EncounterClass.new(_party, _enemies, rng)
 	encounter.initialize()
 
+	var status_view_models: Array = _build_status_view_models(hex_combatants, _party, _enemies, encounter)
+
 	if status_panel_view != null:
-		status_panel_view.load_combatants(
-			_build_status_view_models(hex_combatants, _party, _enemies, encounter)
-		)
+		status_panel_view.load_combatants(status_view_models)
+
+	if hex_battlefield != null:
+		hex_battlefield.load_combatants(hex_combatants, status_view_models)
 
 	if initiative_view != null:
 		initiative_view.load_combatants(
@@ -419,13 +433,16 @@ func _ready() -> void:
 
 ## _presentation_event_subscribers() -> Array — every instantiated
 ## Presentation projection that subscribes to the EventSinkPort broadcast
-## (ADR-003): StatusPanelView/InitiativeView/EventLogView/ResultScreenView.
-## HexGridView is NOT an EventSinkPort subscriber (a Strike never moves a
-## combatant in this steel thread) — see presentation/turn_controller.gd's
-## file-level doc for the precedent this mirrors.
+## (ADR-003): StatusPanelView/InitiativeView/EventLogView/ResultScreenView/
+## HexBattlefield. HexGridView (the earlier, positional-only hex renderer)
+## is NOT an EventSinkPort subscriber (a Strike never moves a combatant in
+## this steel thread) — see presentation/turn_controller.gd's file-level doc
+## for the precedent this mirrors. HexBattlefield (FEAT-005 / US-005) IS a
+## subscriber because its per-combatant CombatantReadout children must
+## update HP/conditions live as AttackEvent/CombatantDefeatedEvent fire.
 func _presentation_event_subscribers() -> Array:
 	var subscribers: Array = []
-	for view in [status_panel_view, initiative_view, event_log_view, result_screen_view]:
+	for view in [status_panel_view, initiative_view, event_log_view, result_screen_view, hex_battlefield]:
 		if view != null:
 			subscribers.append(view)
 	return subscribers
