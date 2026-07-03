@@ -153,8 +153,15 @@ var _locked: bool = false
 ## Intended to be called exactly once, by scenes/battlefield/ResultScreen.gd,
 ## the moment an EncounterResultEvent is observed. There is no unlock() --
 ## this steel thread never continues a round past resolution.
+##
+## FEAT-156 (resolves FIND-149): also immediately clears any selectable-target
+## highlighting on the injected HexBattlefield (via _rebuild_targets([])), so
+## a target is never left visibly marked selectable post Win/Loss -- mirrors
+## presentation/strike_action_control.gd's lock() clearing its buttons the
+## same way.
 func lock() -> void:
 	_locked = true
+	_rebuild_targets([])
 
 
 ## is_locked() -> bool -- true once lock() has been called.
@@ -211,7 +218,12 @@ func configure(
 	_battlefield = battlefield
 	_last_error_code = ""
 	_last_error_message = ""
-	_rebuild_targets(candidate_targets)
+	# FEAT-156 (resolves FIND-149): once lock() has been called, no later
+	# configure() call may repopulate selectable targets or re-highlight the
+	# HexBattlefield -- the lock is sticky across a stray reconfigure() (see
+	# file-level doc), mirroring presentation/strike_action_control.gd's
+	# identical configure()-gating pattern.
+	_rebuild_targets([] if _locked else candidate_targets)
 
 
 ## get_selectable_target_ids() -> Array[String] -- the target_id (see

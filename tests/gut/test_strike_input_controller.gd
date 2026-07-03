@@ -484,6 +484,100 @@ func test_a_subsequent_successful_selection_clears_the_prior_inline_error() -> v
 
 
 # ══════════════════════════════════════════════════════════════════════════
+# FEAT-156 (resolves FIND-149): once lock() has been called, a subsequent
+# stray configure() call must NOT re-highlight a target as selectable on the
+# HexBattlefield -- set_selectable_combatant_ids() must be gated on _locked,
+# mirroring presentation/strike_action_control.gd's lock() (which clears its
+# buttons via _rebuild_targets([])).
+# ══════════════════════════════════════════════════════════════════════════
+
+## SpyBattlefield -- a minimal stand-in for scenes/battlefield/HexBattlefield.gd
+## that records every set_selectable_combatant_ids() call so tests can assert
+## on exactly what the controller reports post-lock(), without needing the
+## real HexBattlefield scene. get_hex_coord() always returns null so
+## StrikeInputController falls back to each Dictionary's own "hex_coord" key
+## (the same fixtures used throughout this suite).
+class SpyBattlefield:
+	var set_selectable_calls: Array = []
+
+	func get_hex_coord(_combatant_id: String):
+		return null
+
+	func set_selectable_combatant_ids(selectable_ids: Array, not_selectable_ids: Array = []) -> void:
+		set_selectable_calls.append({"selectable": selectable_ids, "not_selectable": not_selectable_ids})
+
+
+func test_lock_clears_selectable_highlighting_on_the_hex_battlefield() -> void:
+	var origin := HexCoordClass.new(0, 0)
+	var adjacent_enemy: Dictionary = _enemy("Skeleton", HexCoordClass.new(1, 0))
+	var battlefield := SpyBattlefield.new()
+
+	_controller.configure(_actor(origin), ActionEconomyClass.new(), ScriptedResolveActionUseCase.new(), [adjacent_enemy], "titus", 1, 0, battlefield)
+
+	assert_eq(battlefield.set_selectable_calls.size(), 1, "sanity check: configure() must report selectability once")
+	assert_eq(
+		battlefield.set_selectable_calls[0]["selectable"], ["skeleton"],
+		"sanity check: the in-range target must be reported selectable before lock()"
+	)
+
+	_controller.lock()
+
+	assert_eq(
+		battlefield.set_selectable_calls[battlefield.set_selectable_calls.size() - 1]["selectable"], [],
+		"lock() must immediately clear any selectable-target highlighting on the HexBattlefield"
+	)
+
+
+func test_stray_configure_after_lock_does_not_re_highlight_a_target_as_selectable_on_the_hex_battlefield() -> void:
+	var origin := HexCoordClass.new(0, 0)
+	var adjacent_enemy: Dictionary = _enemy("Skeleton", HexCoordClass.new(1, 0))
+	var battlefield := SpyBattlefield.new()
+
+	_controller.configure(_actor(origin), ActionEconomyClass.new(), ScriptedResolveActionUseCase.new(), [adjacent_enemy], "titus", 1, 0, battlefield)
+	assert_eq(battlefield.set_selectable_calls[0]["selectable"], ["skeleton"], "sanity check: target is selectable before lock()")
+
+	_controller.lock()
+	var calls_at_lock_time: int = battlefield.set_selectable_calls.size()
+
+	# The FIND-149 regression: a stray reconfigure() call (e.g. a leftover
+	# TurnController signal) after lock() must NOT re-highlight "skeleton" as
+	# selectable on the battlefield.
+	var spy := ScriptedResolveActionUseCase.new()
+	_controller.configure(_actor(origin), ActionEconomyClass.new(), spy, [adjacent_enemy], "titus", 1, 0, battlefield)
+
+	for i in range(calls_at_lock_time, battlefield.set_selectable_calls.size()):
+		assert_eq(
+			battlefield.set_selectable_calls[i]["selectable"], [],
+			"set_selectable_combatant_ids() must never be called with a non-empty list once locked, even after a stray reconfigure()"
+		)
+
+
+func test_is_target_selectable_and_select_target_continue_to_reject_after_lock_with_a_battlefield_configured() -> void:
+	var origin := HexCoordClass.new(0, 0)
+	var adjacent_enemy: Dictionary = _enemy("Skeleton", HexCoordClass.new(1, 0))
+	var battlefield := SpyBattlefield.new()
+
+	_controller.configure(_actor(origin), ActionEconomyClass.new(), ScriptedResolveActionUseCase.new(), [adjacent_enemy], "titus", 1, 0, battlefield)
+	assert_true(_controller.is_target_selectable("skeleton"), "sanity check: target is selectable before lock()")
+
+	_controller.lock()
+	assert_true(_controller.is_locked())
+	assert_false(_controller.is_target_selectable("skeleton"), "is_target_selectable() must reject once locked")
+
+	# Stray reconfigure() after lock() must not resurrect selectability.
+	var spy := ScriptedResolveActionUseCase.new()
+	_controller.configure(_actor(origin), ActionEconomyClass.new(), spy, [adjacent_enemy], "titus", 1, 0, battlefield)
+
+	assert_true(_controller.is_locked(), "is_locked() must stay true through a later configure() call")
+	assert_false(_controller.is_target_selectable("skeleton"), "a stray reconfigure() must not re-enable target selection")
+
+	var result: Dictionary = _controller.select_target("skeleton")
+	assert_false(result.get("ok", true), "select_target() must be rejected once locked, even after a stray reconfigure()")
+	assert_eq(result.get("error", ""), "ENCOUNTER_ALREADY_RESOLVED")
+	assert_eq(spy.call_count, 0, "resolve_action_use_case must never be invoked once locked")
+
+
+# ══════════════════════════════════════════════════════════════════════════
 # Criterion 4 (code-review guardrail): no hit/damage computation of its own.
 # ══════════════════════════════════════════════════════════════════════════
 
