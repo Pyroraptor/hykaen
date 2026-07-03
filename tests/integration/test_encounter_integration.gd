@@ -631,9 +631,11 @@ func test_attack_event_present_after_run_round() -> void:
 
 ## Criterion FEAT-025-3: The attack event exposes exactly the required fields.
 ## Required fields (pre-FEAT-099 Dictionary keys minus the 'type' discriminator,
-## which is now expressed by the value object's class — see CR-001 note below):
+## which is now expressed by the value object's class — see CR-001 note below)
+## PLUS FEAT-009/US-009's additive actor_updated_action_budget field:
 ##   round, attacker_name, target_name, roll,
-##   defense_type, defense_value, hit, crit, damage_final
+##   defense_type, defense_value, hit, crit, damage_final,
+##   actor_updated_action_budget
 ##
 ## CR-001/FEAT-099 (peer-review BLOCKER fix): get_round_events() elements are
 ## TYPED RoundEvents.AttackEvent value objects, not Dictionaries. Field
@@ -642,6 +644,12 @@ func test_attack_event_present_after_run_round() -> void:
 ## is verified via AttackEvent.to_dict() (a value object method declared
 ## alongside the typed fields in core/rules/round_events.gd) rather than
 ## Dictionary.has()/.keys().
+##
+## FEAT-009/US-009 (FR-014, ADR-003): actor_updated_action_budget was added
+## to AttackEvent as an explicitly additive/backward-compatible field (design
+## notes' api_contracts #5) — this list, and the "no extras" count check
+## below, are updated to include it rather than treating its presence as a
+## regression.
 func test_attack_event_has_all_required_fields() -> void:
 	var enc = EncounterClass.new(
 		[_titus_durable()], [_skeleton_durable()], RNGClass.new(42)
@@ -662,7 +670,8 @@ func test_attack_event_has_all_required_fields() -> void:
 
 	var required_fields: Array = [
 		"round", "attacker_name", "target_name",
-		"roll", "defense_type", "defense_value", "hit", "crit", "damage_final"
+		"roll", "defense_type", "defense_value", "hit", "crit", "damage_final",
+		"actor_updated_action_budget"
 	]
 	for field in required_fields:
 		assert_true(

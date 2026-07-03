@@ -4,6 +4,17 @@
 ## combatant's status (name, HP, Stamina, action budget, Spent, conditions)
 ## satisfying US-006's "sees ... status" steel-thread criterion.
 ##
+## FEAT-009 (US-009 / FR-014, ADR-003): update_action_budget(actor_id, event)
+## is a THIRD, narrower push-based update entry point — projecting an
+## AttackEvent's post-Strike actor_updated_action_budget snapshot
+## ({remaining, spent}) onto the acting combatant's row, called
+## automatically from on_attack_event() below when the event resolves an
+## attacker identity. Like on_round_event()/on_attack_event(), it is a pure
+## read-only projection: it never calls into core/rules/action_economy.gd or
+## any Application-layer use case, and it defensively no-ops + logs
+## (push_warning(), never throws) when the field is absent — see its own doc
+## below.
+##
 ## StatusPanelView is populated in exactly two ways, both of which are
 ## non-mutating with respect to domain state:
 ##   1. load_combatants(view_models) — an initial SNAPSHOT load performed
@@ -187,17 +198,70 @@ func on_round_event(event) -> void:
 func on_attack_event(event) -> void:
 	var target_name: String = _event_get(event, "target_name", "")
 	var combatant_id: String = _id_by_name.get(target_name, "")
-	if combatant_id == "" or not _rows.has(combatant_id):
+	if combatant_id != "" and _rows.has(combatant_id):
+		var row: Dictionary = _rows[combatant_id]
+		if _event_has(event, "target_hp_after"):
+			row["hp_current"] = _event_get(event, "target_hp_after", row["hp_current"])
+		elif _event_has(event, "damage_final"):
+			var damage: int = _event_get(event, "damage_final", 0)
+			row["hp_current"] = maxi(row.get("hp_current", 0) - damage, 0)
+
+		_create_or_update_label(combatant_id)
+
+	# ── FEAT-009 / US-009 / FR-014 (ADR-003): push the acting combatant's
+	# post-resolution action-budget snapshot, when the event carries one.
+	# Resolved by attacker_name -> combatant_id through the SAME _id_by_name
+	# lookup used above for the target, so no second identity-resolution
+	# rule is introduced. A Dictionary/event with no attacker_name (e.g. the
+	# pre-FEAT-009 test doubles throughout this suite that only carry
+	# target_name/damage_final) is simply not eligible for a budget update --
+	# skipped silently, never a warning (the warning is reserved for a
+	# resolvable actor whose event is missing the field entirely, see
+	# update_action_budget() below). ─────────────────────────────────────────
+	var attacker_name: String = _event_get(event, "attacker_name", "")
+	if attacker_name != "":
+		var attacker_id: String = _id_by_name.get(attacker_name, "")
+		if attacker_id != "":
+			update_action_budget(attacker_id, event)
+
+
+## update_action_budget(actor_id, event) → void — FEAT-009 (US-009 / FR-014,
+## ADR-003): projects `event`'s actor_updated_action_budget payload
+## ({remaining: int, spent: bool}) onto actor_id's displayed row, AS A
+## READ-ONLY PROJECTION — this method never reaches into
+## core/rules/action_economy.gd or recomputes the budget itself, it only
+## renders the value pushed to it (mirrors set_off_guard()'s
+## "caller-supplied bool, presentation reflects, never derives" contract).
+##
+## `event` is duck-typed (a Dictionary or an Object/RefCounted value object,
+## e.g. core/rules/round_events.gd's RoundEvents.AttackEvent) exactly like
+## every other event entry point on this class (_event_get()). When `event`
+## carries no actor_updated_action_budget (or a non-Dictionary value there --
+## e.g. an older AttackEvent constructed before FEAT-009 added the field,
+## which defaults to null), this is a DEFENSIVE no-op: push_warning() is
+## logged and no row is mutated -- it never throws, so a partially-migrated
+## event source can never crash the scene (design notes' "Status projection
+## failure isolation").
+##
+## An actor_id with no loaded row (e.g. the acting combatant was never
+## handed to load_combatants()) is also a silent no-op, matching every other
+## unknown-combatant_id contract on this class (set_off_guard(), on_attack_event()).
+func update_action_budget(actor_id: String, event) -> void:
+	var budget = _event_get(event, "actor_updated_action_budget", null)
+	if not (budget is Dictionary):
+		push_warning(
+			"StatusPanelView.update_action_budget: actor_updated_action_budget missing/invalid "
+			+ "for actor_id=" + actor_id + " -- no-op"
+		)
 		return
 
-	var row: Dictionary = _rows[combatant_id]
-	if _event_has(event, "target_hp_after"):
-		row["hp_current"] = _event_get(event, "target_hp_after", row["hp_current"])
-	elif _event_has(event, "damage_final"):
-		var damage: int = _event_get(event, "damage_final", 0)
-		row["hp_current"] = maxi(row.get("hp_current", 0) - damage, 0)
+	if not _rows.has(actor_id):
+		return
 
-	_create_or_update_label(combatant_id)
+	var row: Dictionary = _rows[actor_id]
+	row["action_budget_remaining"] = budget.get("remaining", row.get("action_budget_remaining", 0))
+	row["spent"] = budget.get("spent", row.get("spent", false))
+	_create_or_update_label(actor_id)
 
 
 # ── Internal helpers ─────────────────────────────────────────────────────

@@ -29,7 +29,13 @@
 ##      TYPED value objects (FEAT-099/FIND-096): core/rules/round_events.gd's
 ##      RoundEvents.AttackEvent / RoundEvents.CombatantDefeatedEvent, never a
 ##      raw Dictionary. EventSinkPort.emit() therefore now accepts any
-##      Variant (see core/application/event_sink_port.gd).
+##      Variant (see core/application/event_sink_port.gd). The emitted
+##      AttackEvent also carries actor_updated_action_budget (FEAT-009 /
+##      US-009 / FR-014, ADR-003) — a {remaining, spent} snapshot of the
+##      ACTING combatant's ActionBudget taken immediately after this
+##      resolve()'s spend_action() call — so presentation/status_panel_view.gd
+##      can project the actor's post-Strike budget read-only, with zero
+##      recomputation of action-economy rules on its side.
 ##   5. Append one entry via RoundHistoryPort carrying the post-spend
 ##      budget_remaining and the caller-supplied cycle_index. The appended
 ##      entry is a Dictionary preserving the historical
@@ -245,6 +251,15 @@ func resolve(
 	if damage > 0:
 		target["hp_current"] = target.get("hp_current", 0) - damage
 
+	# ── FEAT-009 / US-009 / FR-014 (ADR-003): snapshot the acting combatant's
+	# ActionBudget immediately after the spend_action() call above, so
+	# StatusPanelView can project a post-resolution "remaining/Spent" readout
+	# without recomputing anything itself. ──────────────────────────────────
+	var actor_updated_action_budget: Dictionary = {
+		"remaining": spend_result.get("remaining", -1),
+		"spent":     action_economy.is_spent(),
+	}
+
 	var attack_event = RoundEventsClass.AttackEvent.new(
 		round_number,
 		combatant.get("name", ""),
@@ -254,7 +269,8 @@ func resolve(
 		strike_result.get("defense_value", 0),
 		strike_result.get("hit", false),
 		strike_result.get("crit", false),
-		damage
+		damage,
+		actor_updated_action_budget
 	)
 	_event_sink_port.emit(attack_event)
 

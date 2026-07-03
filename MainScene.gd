@@ -56,6 +56,16 @@ extends Node
 ##      roll initiative and grant each combatant an ActionEconomy — Encounter
 ##      is reused ONLY for that initiative/ActionEconomy bookkeeping here; its
 ##      autonomous run_round() while-loop is never invoked (see step 8-10).
+##      FEAT-009 / US-009 / FR-014 (ADR-003): every subsequent Strike this
+##      pipeline resolves emits an AttackEvent additionally carrying the
+##      ACTING combatant's post-resolution actor_updated_action_budget
+##      ({remaining, spent} — core/application/resolve_action_use_case.gd).
+##      That AttackEvent reaches $StatusPanelView through the EXACT SAME
+##      ConsoleEventSinkAdapter.forward_to broadcast every other round event
+##      already uses (step 3/6 below) — $StatusPanelView.on_attack_event()
+##      resolves the attacker's combatant_id and pushes the snapshot via
+##      update_action_budget() itself; this composition root introduces no
+##      new event-routing of its own for it (ADR-002/CR-001 guardrail).
 ##   6. EventLogView (presentation/event_log_view.gd) has no snapshot step (it
 ##      is append-only, starting empty) and receives every round event via
 ##      the event-sink adapter's forwarding (step 3) exactly like

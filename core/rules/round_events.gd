@@ -12,9 +12,17 @@
 ##
 ##   RoundEvents.AttackEvent
 ##     round, attacker_name, target_name, roll, defense_type,
-##     defense_value, hit, crit, damage_final
+##     defense_value, hit, crit, damage_final, actor_updated_action_budget
 ##     — emitted once per resolved Strike (mirrors the 'attack' entries
 ##       already produced by core/combat/encounter.gd's _round_events).
+##       actor_updated_action_budget (FEAT-009 / US-009 / FR-014, ADR-003) is
+##       an additive, backward-compatible field: a Dictionary
+##       {remaining: int, spent: bool} snapshot of the ACTING combatant's
+##       ActionBudget (core/rules/action_economy.gd) taken immediately after
+##       this Strike's spend_action() call, or null when the caller did not
+##       supply one (every pre-FEAT-009 construction site). Presentation
+##       (presentation/status_panel_view.gd) projects this value read-only —
+##       it never recomputes the budget itself.
 ##
 ##   RoundEvents.CombatantDefeatedEvent
 ##     round, name, defeated_by
@@ -66,6 +74,10 @@ class AttackEvent:
 	var hit: bool
 	var crit: bool
 	var damage_final: int
+	## actor_updated_action_budget — FEAT-009/US-009: {remaining, spent}
+	## snapshot of the acting combatant's ActionBudget post-resolution, or
+	## null when not supplied (see file-level doc above).
+	var actor_updated_action_budget = null
 
 	func _init(
 		p_round: int = 0,
@@ -76,7 +88,8 @@ class AttackEvent:
 		p_defense_value: int = 0,
 		p_hit: bool = false,
 		p_crit: bool = false,
-		p_damage_final: int = 0
+		p_damage_final: int = 0,
+		p_actor_updated_action_budget = null
 	) -> void:
 		round         = p_round
 		attacker_name = p_attacker_name
@@ -87,6 +100,7 @@ class AttackEvent:
 		hit           = p_hit
 		crit          = p_crit
 		damage_final  = p_damage_final
+		actor_updated_action_budget = p_actor_updated_action_budget
 
 	## to_dict() → Dictionary — snapshot of all fields, for assertions/logging.
 	func to_dict() -> Dictionary:
@@ -99,6 +113,7 @@ class AttackEvent:
 			"defense_value": defense_value,
 			"hit":           hit,
 			"crit":          crit,
+			"actor_updated_action_budget": actor_updated_action_budget,
 			"damage_final":  damage_final,
 		}
 
