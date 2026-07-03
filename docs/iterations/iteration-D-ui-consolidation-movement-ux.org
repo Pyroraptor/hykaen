@@ -1,0 +1,106 @@
+#+TITLE: Iteration D — UI Consolidation + Movement UX (AUTHORITATIVE)
+#+DATE: 2026-07-03
+
+* Context (why this sprint exists)
+
+Iteration C delivered hex movement (Step/Stride), flanking Off-Guard, ranged
+reach, and the play-seed fix as DOMAIN logic + controllers, all unit-tested. But
+running the actual game in Godot surfaced TWO runtime bugs that unit tests missed
+because they exercise controllers directly, never the real MainScene interactive
+flow:
+
+1. MOVEMENT IS NOT USABLE BY THE PLAYER. On load, the only visible action is
+   Strike (attack). Step/Stride are wired at the controller/hex-click level but
+   NEVER surfaced: MainScene never highlights the legal move hexes (it calls
+   HexGridView.set_selectable_hexes() ZERO times, though that API exists), and
+   there is no visible movement affordance like StrikeActionControl/EndTurnControl.
+2. THE UI IS DUPLICATED. MainScene.tscn instantiates TWO parallel UI stacks, so
+   the player sees two hex grids, two status readouts, two turn/initiative
+   trackers, two result screens. Origin: FEAT-005/006 built a self-contained
+   scenes/battlefield/HexBattlefield widget (grid+status+turn-order), then
+   FEAT-007/008/009 built SEPARATE presentation/* components for the same things;
+   both were wired and never consolidated.
+3. THE STATUS BAR DOES NOT REFLECT SPENT ACTIONS. Taking a Strike spends an action
+   in the domain (core/rules/action_economy.gd), but the displayed
+   "action_budget_remaining / Spent" on StatusPanelView never decrements.
+   StatusPanelView.on_round_event() receives the AttackEvent but the actor's
+   UPDATED action budget is never pushed to it, so the status row keeps showing the
+   initial-snapshot value. Same class of bug: UI not mirroring domain state.
+
+* THE ONLY SCOPE FOR THIS SPRINT — all THREE P0 / MUST / NON-DEFERRABLE
+
+These three items (P0-1 movement UX, P0-2 UI de-duplication, P0-3 status-bar action
+refresh) ARE the sprint. Do NOT defer ANY of them under any "breadth-first /
+steel-thread / scope" heuristic. Do NOT build any new parallel/duplicate UI — this
+sprint REMOVES duplication.
+
+** P0-1: Surface movement to the player (Movement UX)
+- On the ACTIVE PLAYER's turn, MainScene must HIGHLIGHT the legal Step + Stride
+  destination hexes on the kept hex grid via its existing
+  set_selectable_hexes(...) API (fed by
+  movement_input_controller.get_selectable_step_hexes() +
+  get_selectable_stride_hexes()). It currently calls this 0 times — that is the bug.
+- Provide a clear, visible cue that movement is available (highlighted hexes plus
+  a visible Move label/prompt/control), consistent with how Strike is surfaced.
+- Clear the movement highlight when it is NOT the player's turn, after a move, and
+  after the encounter resolves (reuse the post-resolution lock).
+- The click-to-move plumbing (hex_clicked -> step_to/stride_to) already exists and
+  is correct — do NOT rebuild it; only surface the affordance.
+- INTEGRATION TEST through the REAL MainScene composition root (not the controller
+  in isolation): on a player turn the legal step/stride hexes ARE surfaced on the
+  kept grid, and a click on one performs the move. This is the same "wire it into
+  the real composition root + prove it with an integration test" bar that FEAT-138
+  and FEAT-162 required.
+
+** P0-2: Consolidate to ONE UI stack (de-duplicate)
+- KEEP the presentation/* stack — it owns the interactive player controls and the
+  movement wiring: HexGridView, StatusPanelView, InitiativeView, EventLogView,
+  StrikeActionControl, EndTurnControl, ResultScreenView, movement_input_controller,
+  TurnController.
+- REMOVE the duplicate scenes/battlefield/* stack from MainScene.tscn AND its
+  wiring in MainScene.gd: HexBattlefield (and its CombatantReadout / TurnOrderWidget
+  children), ResultScreen, StrikeInputController, and any battlefield-variant
+  controller duplicates (e.g. strike_input_controller, end_turn_controller,
+  result_screen). After this there must be EXACTLY ONE hex grid, ONE per-combatant
+  status display, ONE turn/initiative tracker, ONE result screen instantiated.
+- PRESERVE every Iteration C functional behavior in the KEPT stack — nothing may
+  regress:
+  - play-seed randomizes with HYKAEN_SEED/injectable override,
+  - flanking Off-Guard +2 is applied in live Strike resolution,
+  - the combatant token resyncs on the kept grid after Step/Stride,
+  - post-resolution input lock covers ALL player controls INCLUDING movement —
+    MOVE the FEAT-162 movement-lock wiring from the removed ResultScreen into the
+    kept ResultScreenView so movement still locks after the encounter,
+  - ranged reach + target selection still work.
+- Remove or retarget every test that referenced the deleted scenes/battlefield/*
+  components — leave NO dangling preload/instantiate of a removed scene, and keep
+  equivalent coverage on the kept stack.
+
+** P0-3: Status bar must reflect spent actions
+- After a Strike (or any action-spending resolution), the acting combatant's
+  displayed "Actions / Spent" on the KEPT status display must update to reflect the
+  action just spent from core/rules/action_economy.gd — currently it stays at the
+  initial value.
+- Fix by pushing the actor's UPDATED action_budget_remaining/spent to the status
+  view after the action resolves (e.g. re-snapshot the affected combatant on
+  resolution, or carry the updated budget on the event the status view already
+  consumes). Do NOT have the view recompute rules itself (ADR-001/ADR-003:
+  read-only projection).
+- Test: after resolving a Strike through the real MainScene wiring, the status
+  view's action_budget_remaining for the actor has decremented by one (and "Spent"
+  reflects it).
+
+* Out of scope (do NOT touch)
+- No new gameplay features. No changes to combat core, action economy, RNG/seed
+  policy, or the movement/flanking/ranged DOMAIN logic (core/rules/*, core/geometry/*,
+  core/application/* — that logic is done and correct; this sprint is UI-layer only).
+- No animation/audio/particles, main menu, save/load, multiplayer, new encounters.
+
+* Verification (gate must be green)
+- Full GUT suite + pytest green; determinism/steel-thread tests still pass; MainScene
+  boots headless with no errors.
+- A headless/integration assertion that MainScene instantiates EXACTLY ONE of each
+  UI element (no duplicate hex grid / status / turn-order / result-screen node).
+- The movement-affordance integration test above passes.
+- Static: no Node/Control in core/ (ADR-001); no new ports/use-cases; no re-introduced
+  duplicate UI stack.
