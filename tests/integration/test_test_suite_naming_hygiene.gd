@@ -34,6 +34,12 @@ extends GutTest
 ## steel-thread regression, and it, too, genuinely instantiates/boots
 ## res://MainScene.tscn.
 ##
+## FEAT-167 (DEF-005 continuation): tests/e2e/test_full_steel_thread_e2e.gd
+## was added to this allow-list for the same reason — it is the final,
+## fully-consolidated-UI capstone E2E smoke test (turn start through
+## post-resolution lock), and it, too, genuinely instantiates/boots
+## res://MainScene.tscn.
+##
 ## FEAT-001 (US-001, iteration D "UI Consolidation + Movement UX", P0-2):
 ## tests/gut/test_steel_thread_e2e.gd was deleted — it exclusively drove the
 ## duplicate scenes/battlefield/* UI stack (HexBattlefield/TurnOrderWidget/
@@ -53,6 +59,7 @@ const ALLOWED_STEEL_THREAD_PATHS: Array = [
 	"res://tests/integration/test_steel_thread_prologue_encounter.gd",
 	"res://tests/e2e/test_steel_thread_post_remediation_smoke.gd",
 	"res://tests/unit/test_steel_thread_prologue_encounter.gd",
+	"res://tests/e2e/test_full_steel_thread_e2e.gd",
 ]
 
 

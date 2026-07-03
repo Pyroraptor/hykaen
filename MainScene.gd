@@ -111,14 +111,20 @@ extends Node
 ##      a single, non-duplicated entry point without introducing any new
 ##      public API on either control (ADR-002/CR-001 guardrail).
 ##  11. $ResultScreenView (presentation/result_screen_view.gd, US-012;
-##      FEAT-005 / US-005 / FR-011 / ADR-005) is configured with
-##      $StrikeActionControl/$EndTurnControl/movement_input_controller so
-##      that once the EncounterResultEvent this pipeline emits reaches it
-##      (via the SAME event-sink forwarding every other projection uses), it
-##      renders Win/Loss and uniformly locks all three combat/movement input
-##      controls via lock_all_controls() (idempotent, ADR-005 -- no new
-##      event bus, the SAME EventSinkPort subscription drives every
-##      post-resolution lock).
+##      FEAT-005 / US-005 / FR-011 / ADR-005; FEAT-167) is configured with
+##      $StrikeActionControl/$EndTurnControl/movement_input_controller/
+##      $MoveActionControl so that once the EncounterResultEvent this
+##      pipeline emits reaches it (via the SAME event-sink forwarding every
+##      other projection uses), it renders Win/Loss and uniformly locks all
+##      four combat/movement input controls via lock_all_controls()
+##      (idempotent, ADR-005 -- no new event bus, the SAME EventSinkPort
+##      subscription drives every post-resolution lock). $MoveActionControl
+##      is included (FEAT-167) so its visible affordance is guaranteed
+##      hidden even on the outcome-decision call path
+##      (RoundSession.end_current_turn(), e.g. a player's own Strike
+##      defeating the encounter's last enemy) that never reaches
+##      $TurnController's round_over signal / this file's _on_round_over()
+##      backstop below.
 ##
 ## No new ports or use cases are introduced here beyond the ADR-007-declared
 ## RoundSession stepwise API RunRoundUseCase already exposes (ADR-002 / CR-001
@@ -463,7 +469,7 @@ func _ready() -> void:
 	round_session = run_round_use_case.begin_round(ROUND_NUMBER, _party, _enemies)
 
 	if result_screen_view != null:
-		result_screen_view.configure(strike_action_control, end_turn_control, movement_input_controller)
+		result_screen_view.configure(strike_action_control, end_turn_control, movement_input_controller, move_action_control)
 
 	if turn_controller != null:
 		turn_controller.active_actor_changed.connect(_on_active_actor_changed)

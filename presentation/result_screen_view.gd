@@ -46,6 +46,20 @@
 ##     had not yet been wired to lock -- FEAT-005 closes that gap by
 ##     migrating the SAME lock-wiring logic here, uniformly, as one
 ##     operation (lock_all_controls()).
+##   MoveActionControl (presentation/MoveActionControl.gd, FEAT-167 /
+##     US-005/US-007/US-008, design notes' API contract #6 "MoveActionControl
+##     hidden") — lock() hides the visible Move affordance and reports
+##     is_enabled() == false from that point on, regardless of any later
+##     configure() call. Closes the gap where MainScene's own
+##     _on_round_over() backstop (which clears move_action_control via
+##     configure([])) is never reached when the round concludes directly
+##     inside end_current_turn() (e.g. the player's own Strike defeats the
+##     last enemy and the very next EndTurnControl.press() decides "won"
+##     without TurnController ever re-driving/emitting round_over) --
+##     lock_all_controls() is the ONE place every combat/movement control is
+##     guaranteed to be locked no matter which of the two RoundSession
+##     outcome-decision call paths (advance_ai_turn() vs end_current_turn())
+##     actually decided the encounter.
 ## Unlike the prior one-time configure()-clear technique, lock() is a
 ## PERSISTENT, sticky guard: it survives any later configure() call on any
 ## of the three controls (e.g. a stray reconfigure() from a leftover
@@ -118,6 +132,11 @@ var _end_turn_control = null
 ## Optional, same no-op-if-null behavior as the two controls above.
 var _movement_input_controller = null
 
+## The injected MoveActionControl (presentation/MoveActionControl.gd,
+## FEAT-167) this view locks once an EncounterResultEvent is received.
+## Optional, same no-op-if-null behavior as the other controls above.
+var _move_action_control = null
+
 ## True once an EncounterResultEvent has been processed and the result is
 ## being displayed.
 var _shown: bool = false
@@ -135,18 +154,22 @@ func _ready() -> void:
 		_result_label.text = ""
 
 
-## configure(strike_action_control, end_turn_control, movement_input_controller) -> void
+## configure(strike_action_control, end_turn_control, movement_input_controller,
+##           move_action_control) -> void
 ## — injects the combat input controls this view disables once shown
-## (US-012; movement_input_controller added by FEAT-005 / US-005). All three
-## parameters are OPTIONAL (default null); passing null for any simply means
-## this view will not attempt to lock that control. Safe to call repeatedly
-## (e.g. once per turn, mirroring the other controls' configure() contracts)
-## with no leaked state. `movement_input_controller` is appended as the LAST
-## parameter so pre-existing two-argument callers/tests are unaffected.
-func configure(strike_action_control = null, end_turn_control = null, movement_input_controller = null) -> void:
+## (US-012; movement_input_controller added by FEAT-005 / US-005;
+## move_action_control added by FEAT-167). All four parameters are OPTIONAL
+## (default null); passing null for any simply means this view will not
+## attempt to lock that control. Safe to call repeatedly (e.g. once per
+## turn, mirroring the other controls' configure() contracts) with no
+## leaked state. `movement_input_controller`/`move_action_control` are
+## appended as the LAST parameters, in the order they were introduced, so
+## pre-existing two/three-argument callers/tests are unaffected.
+func configure(strike_action_control = null, end_turn_control = null, movement_input_controller = null, move_action_control = null) -> void:
 	_strike_action_control = strike_action_control
 	_end_turn_control = end_turn_control
 	_movement_input_controller = movement_input_controller
+	_move_action_control = move_action_control
 
 
 ## is_shown() -> bool — true once an EncounterResultEvent has been processed.
@@ -220,6 +243,8 @@ func lock_all_controls() -> void:
 		_end_turn_control.lock()
 	if _movement_input_controller != null:
 		_movement_input_controller.lock()
+	if _move_action_control != null:
+		_move_action_control.lock()
 
 
 # ── Internal helpers ─────────────────────────────────────────────────────
