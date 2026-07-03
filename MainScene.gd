@@ -498,7 +498,7 @@ func _ready() -> void:
 		result_screen_view.configure(strike_action_control, end_turn_control)
 
 	if result_screen != null:
-		result_screen.configure(_party + _enemies, strike_input_controller, end_turn_controller)
+		result_screen.configure(_party + _enemies, strike_input_controller, end_turn_controller, movement_input_controller)
 
 	if turn_controller != null:
 		turn_controller.active_actor_changed.connect(_on_active_actor_changed)

@@ -98,6 +98,13 @@ var _strike_input_controller = null
 ## as above.
 var _end_turn_controller = null
 
+## The injected MovementInputController (presentation/movement_input_controller.gd)
+## this view locks once an EncounterResultEvent is received (FEAT-162 / DEF-001),
+## via the SAME lock() contract as the other two controllers above -- so Step/
+## Stride are rejected post-resolution just like Strike/EndTurn. Optional, same
+## no-op-if-null behavior.
+var _movement_input_controller = null
+
 ## True once an EncounterResultEvent has been processed and the result is
 ## being displayed.
 var _shown: bool = false
@@ -139,11 +146,14 @@ func _ready() -> void:
 ##                           snapshot from once shown. Defaults to [].
 ## strike_input_controller — OPTIONAL; locked once shown (US-010).
 ## end_turn_controller     — OPTIONAL; locked once shown (US-010).
+## movement_input_controller — OPTIONAL; locked once shown (FEAT-162 / DEF-001),
+##                           so Step/Stride are rejected post-resolution too.
 ## Safe to call repeatedly with no leaked state.
-func configure(combatants: Array = [], strike_input_controller = null, end_turn_controller = null) -> void:
+func configure(combatants: Array = [], strike_input_controller = null, end_turn_controller = null, movement_input_controller = null) -> void:
 	_combatants = combatants
 	_strike_input_controller = strike_input_controller
 	_end_turn_controller = end_turn_controller
+	_movement_input_controller = movement_input_controller
 
 
 ## is_shown() -> bool — true once an EncounterResultEvent has been processed.
@@ -367,6 +377,8 @@ func _lock_input_controllers() -> void:
 		_strike_input_controller.lock()
 	if _end_turn_controller != null:
 		_end_turn_controller.lock()
+	if _movement_input_controller != null:
+		_movement_input_controller.lock()
 
 
 ## _event_has(event, key) → bool — true iff `event` (a Dictionary or an
