@@ -45,21 +45,28 @@ extends GutTest
 ## criterion 3 exercised through MainScene ($HexBattlefield's agreement with
 ## $HexGridView after a Step/Stride) has been REMOVED from MainScene's
 ## composition — there is now exactly one hex grid renderer. That criterion
-## is retired here rather than retargeted; HexBattlefield's own
-## move_token()/resync behavior remains independently covered by
+## is retired here rather than retargeted; only the now-meaningless "do the
+## two renderers agree" comparison is gone, since only one renderer remains.
+##
+## FEAT-004 (US-004 / FR-013, same iteration): the once-independent
 ## tests/gut/test_hex_battlefield_movement_resync.gd and tests/gut/
-## test_movement_resync_wiring.gd (both instantiate scenes/battlefield/
-## HexBattlefield.tscn directly, unaffected by this composition-root
-## change), so no coverage is lost — only the now-meaningless "do the two
-## renderers agree" comparison is gone, since only one renderer remains.
+## test_movement_resync_wiring.gd suites this doc used to cross-reference
+## have themselves since been deleted — they exclusively exercised
+## scenes/battlefield/HexBattlefield.gd's now-unwired move_token()/resync
+## path and the cross-renderer agreement this file also retired above. The
+## still-relevant half of test_movement_resync_wiring.gd (HexGridView resync
+## through the real movement_input_controller.gd path, with no
+## HexBattlefield collaborator configured) remains covered by
+## tests/unit/presentation/test_movement_input_controller.gd's
+## test_successful_step_repositions_token_on_hex_grid_view() — no coverage
+## is lost, only the dangling scenes/battlefield/* preloads are gone.
 ##
 ## No production code is modified for this feature (files_to_modify is empty)
 ## — every object driven below is the exact, unmodified, REUSED production
 ## class already covered by its own unit/integration suites (see
 ## tests/integration/test_steel_thread_prologue_encounter.gd, tests/gut/
-## test_presentation_controls_sticky_lock.gd, tests/gut/
-## test_hex_battlefield_movement_resync.gd, tests/gut/
-## test_movement_resync_wiring.gd, tests/unit/core/application/
+## test_presentation_controls_sticky_lock.gd, tests/unit/presentation/
+## test_movement_input_controller.gd, tests/unit/core/application/
 ## test_resolve_action_ranged_reach.gd) — this file's job is proving they
 ## ALL still compose correctly, together, through the ONE real, shipped
 ## MainScene.tscn entry point, post-remediation.
