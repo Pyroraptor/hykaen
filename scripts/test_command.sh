@@ -27,7 +27,18 @@
 #   2. pytest — the full Python test suite (CI/infra + config assertions
 #      under tests/unit/*.py, including this file's own suite).
 #
-#   3. The CONSOLIDATED domain suite via tests/.gutconfig.json — hex
+#   3. FEAT-158 (FIND-151) CI pipeline stage-list consistency check
+#      (scripts/check_ci_pipeline_sync.py) — ci/pipeline.yml's per-stage
+#      `command:` entries are documentation describing the SAME stage list
+#      this script executes; nothing previously stopped the two from
+#      drifting apart. This stage parses both stage lists and fails the
+#      whole pipeline immediately if they diverge, so drift is caught in
+#      CI rather than discovered later by a human reading stale docs.
+#      Already indirectly exercised by stage 2 via pytest test discovery
+#      (tests/ci/test_pipeline_sync.py), but also invoked directly here so
+#      a stage-list divergence produces its own clearly-labeled failure.
+#
+#   4. The CONSOLIDATED domain suite via tests/.gutconfig.json — hex
 #      distance/adjacency, Combatant hex-coordinate init, melee reach
 #      gating, RoundSession stepwise API, enemy-turn automation, Step/
 #      Stride movement, and Flanking/Off-Guard domain logic under
@@ -43,24 +54,24 @@
 #      1 already does) honors -gconfig= and keeps this stage a genuinely
 #      scoped, fast gate.
 #
-#   4. The FULL project-wide GUT suite (root .gutconfig.json) via
+#   5. The FULL project-wide GUT suite (root .gutconfig.json) via
 #      `godot --headless -- --gut-run-all`. This is the whole-project
 #      regression gate and already includes both
 #      tests/gut/test_smoke_boot.gd (stage 1) and tests/sim/test_balance_sim.gd
-#      (stage 5 below).
+#      (stage 6 below).
 #
-#   5. core/sim/simulator.gd N=1000 balance regression
+#   6. core/sim/simulator.gd N=1000 balance regression
 #      (tests/sim/test_balance_sim.gd, NFR-006/NFR-008/NFR-009) — already
-#      covered by stage 4's full-project run, but called out here as its
+#      covered by stage 5's full-project run, but called out here as its
 #      own explicit, clearly-labeled gate confirming the aggregate
 #      win-rate/outcome distribution stays within existing tolerance
 #      ([0.40, 0.80]) and that no balance-affecting constants were
 #      modified. Run via GUT's real CLI entry point scoped to just
 #      tests/sim/test_balance_sim.gd, mirroring stage 1's convention.
 #
-#   6. Steel thread prologue-encounter E2E test
+#   7. Steel thread prologue-encounter E2E test
 #      (tests/integration/test_steel_thread_prologue_encounter.gd) —
-#      already covered by stage 4's full-project run, but called out here
+#      already covered by stage 5's full-project run, but called out here
 #      as its own explicit, clearly-labeled gate: it headlessly boots
 #      MainScene.tscn into prologue_encounter.tres, verifies the hex
 #      battlefield/status/initiative render, drives a player melee Strike
@@ -69,7 +80,7 @@
 #      disabled afterward, and re-confirms determinism (NFR-002/006) by
 #      booting the same seeded encounter twice. Run via GUT's real CLI
 #      entry point with -gselect= scoped to this one script (mirroring
-#      stage 1/3/5's convention of invoking gut_cmdln.gd directly rather
+#      stage 1/4/6's convention of invoking gut_cmdln.gd directly rather
 #      than the -- --gut-run-all/HeadlessRunner path).
 #
 # Exit code: 0 only if every stage above exits 0. `set -euo pipefail`
@@ -80,22 +91,25 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-echo "=== [1/6] FEAT-001 / NFR-004 headless launchability smoke test (tests/gut/test_smoke_boot.gd) ==="
+echo "=== [1/7] FEAT-001 / NFR-004 headless launchability smoke test (tests/gut/test_smoke_boot.gd) ==="
 godot --headless -s addons/gut/gut_cmdln.gd -gdir=res://tests/gut -gselect=test_smoke_boot.gd -gexit
 
-echo "=== [2/6] pytest suite ==="
+echo "=== [2/7] pytest suite ==="
 python -m pytest -q --tb=short
 
-echo "=== [3/6] GUT consolidated domain suite (tests/.gutconfig.json) ==="
+echo "=== [3/7] FEAT-158 CI pipeline stage-list consistency check (FIND-151) ==="
+python scripts/check_ci_pipeline_sync.py
+
+echo "=== [4/7] GUT consolidated domain suite (tests/.gutconfig.json) ==="
 godot --headless -s addons/gut/gut_cmdln.gd -gconfig=res://tests/.gutconfig.json -gexit
 
-echo "=== [4/6] GUT full project suite (root .gutconfig.json, --gut-run-all regression gate) ==="
+echo "=== [5/7] GUT full project suite (root .gutconfig.json, --gut-run-all regression gate) ==="
 godot --headless -- --gut-run-all
 
-echo "=== [5/6] core/sim/simulator.gd N=1000 balance regression (NFR-006 / NFR-008 / NFR-009, tests/sim/test_balance_sim.gd) ==="
+echo "=== [6/7] core/sim/simulator.gd N=1000 balance regression (NFR-006 / NFR-008 / NFR-009, tests/sim/test_balance_sim.gd) ==="
 godot --headless -s addons/gut/gut_cmdln.gd -gdir=res://tests/sim -gselect=test_balance_sim.gd -gexit
 
-echo "=== [6/6] Steel thread prologue-encounter E2E test ==="
+echo "=== [7/7] Steel thread prologue-encounter E2E test ==="
 godot --headless -s addons/gut/gut_cmdln.gd -gselect=test_steel_thread_prologue_encounter.gd -gdir=res://tests/integration -ginclude_subdirs -gexit
 
 echo "=== scripts/test_command.sh: all stages passed ==="
