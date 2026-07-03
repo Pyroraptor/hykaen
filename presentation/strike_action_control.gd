@@ -9,11 +9,14 @@
 ##      domain rule): configure() is handed the acting combatant Dictionary
 ##      (MAY carry a "hex_coord" key -- a core/geometry/hex_coord.gd HexCoord
 ##      instance) and a list of candidate target Dictionaries. It restricts
-##      the SELECTABLE targets to exactly those candidates whose hex_coord is
-##      one of the actor's 6 flat-top axial neighbors, computed via the SAME
-##      domain function the application layer already uses internally
-##      (core/geometry/hex_math.gd HexMath.hex_neighbors() -- US-002/US-003).
-##      A non-adjacent candidate is never rendered as a selectable button and
+##      the SELECTABLE targets to exactly those candidates in reach of the
+##      actor's equipped weapon, computed via the SAME domain functions the
+##      application layer already uses internally (core/geometry/hex_math.gd
+##      HexMath.hex_neighbors() for melee -- US-002/US-003 -- OR
+##      HexMath.hex_distance() <= weapon.range_hexes for a ranged weapon --
+##      FEAT-154, resolves FIND-143/FIND-146, mirroring
+##      resolve_action_use_case's _is_ranged_weapon()/_is_in_range() exactly).
+##      An out-of-reach candidate is never rendered as a selectable button and
 ##      is rejected defensively even if select_target() is called with its id
 ##      directly (e.g. from a test or a stale UI reference) -- this control
 ##      never re-implements the reach RULE itself, it only mirrors it for UX.
@@ -235,19 +238,39 @@ func _rebuild_targets(candidate_targets: Array) -> void:
 
 
 ## _filter_in_reach(candidate_targets) -> Array -- exactly the subset of
-## candidate_targets whose "hex_coord" is one of the actor's 6 flat-top
-## axial neighbors (core/geometry/hex_math.gd HexMath.hex_neighbors(),
-## US-002/US-003). A candidate lacking "hex_coord", or an actor lacking
-## "hex_coord", is never selectable -- StrikeActionControl requires
-## positional data to gate reach at all (no reach data means no melee
-## target can be offered).
+## candidate_targets that are in reach of the actor's equipped weapon.
+##
+## FEAT-154 (resolves FIND-143/FIND-146): mirrors
+## core/application/resolve_action_use_case.gd's own reach gate exactly --
+## when the actor's "weapon" Dictionary carries a "range_hexes" key (see
+## _is_ranged_weapon(), the SAME convention as resolve_action_use_case's
+## _is_ranged_weapon()), reach is HexMath.hex_distance(actor, target) <=
+## weapon.range_hexes (core/geometry/hex_math.gd HexMath.hex_distance()),
+## NOT the melee 6-neighbor check. Weapon Dictionaries without
+## "range_hexes" (every melee fixture) keep using the pre-existing
+## HexMath.hex_neighbors() adjacency check unchanged.
+##
+## A candidate lacking "hex_coord", or an actor lacking "hex_coord", is
+## never selectable -- StrikeActionControl requires positional data to gate
+## reach at all (no reach data means no target can be offered).
 func _filter_in_reach(candidate_targets: Array) -> Array:
 	var actor_hex = _actor.get("hex_coord", null)
 	if actor_hex == null:
 		return []
 
-	var neighbors: Array = HexMathClass.hex_neighbors(actor_hex)
 	var in_reach: Array = []
+
+	if _is_ranged_weapon():
+		var range_hexes: int = _actor.get("weapon", {}).get("range_hexes", 1)
+		for target in candidate_targets:
+			var target_hex = target.get("hex_coord", null)
+			if target_hex == null:
+				continue
+			if HexMathClass.hex_distance(actor_hex, target_hex) <= range_hexes:
+				in_reach.append(target)
+		return in_reach
+
+	var neighbors: Array = HexMathClass.hex_neighbors(actor_hex)
 	for target in candidate_targets:
 		var target_hex = target.get("hex_coord", null)
 		if target_hex == null:
@@ -257,6 +280,17 @@ func _filter_in_reach(candidate_targets: Array) -> Array:
 				in_reach.append(target)
 				break
 	return in_reach
+
+
+## _is_ranged_weapon() -> bool -- true iff the actor's "weapon" Dictionary
+## carries a "range_hexes" key. Mirrors
+## core/application/resolve_action_use_case.gd's identically-named/behaved
+## helper exactly (the SAME reach-mode discriminant, not a re-derived copy)
+## so this control's UX filter can never drift from the domain's own
+## reach gate.
+func _is_ranged_weapon() -> bool:
+	var weapon: Dictionary = _actor.get("weapon", {})
+	return weapon.has("range_hexes")
 
 
 ## _find_selectable_target(target_id) -> Dictionary or null -- looks up

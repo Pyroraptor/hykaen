@@ -43,11 +43,15 @@
 ##      or retry; no use case advancing the round is ever called from here.
 ##
 ## StrikeInputController performs NO hit/damage computation of its own. Its
-## ONLY combat-adjacent computation is calling the SAME domain function the
+## ONLY combat-adjacent computation is calling the SAME domain functions the
 ## Application layer already uses internally (core/geometry/hex_math.gd
-## HexMath.hex_neighbors()) to decide what the UI *offers* -- a UX affordance
-## only (ADR-001). The actual Strike is always resolved by forwarding to the
-## injected, REUSED resolve_action_use_case (core/application/
+## HexMath.hex_neighbors() for a melee-equipped actor, OR
+## HexMath.hex_distance() <= weapon.range_hexes for a ranged-equipped actor
+## -- FEAT-154, resolves FIND-143/FIND-146, mirroring
+## resolve_action_use_case's _is_ranged_weapon()/_is_in_range() exactly) to
+## decide what the UI *offers* -- a UX affordance only (ADR-001). The actual
+## Strike is always resolved by forwarding to the injected, REUSED
+## resolve_action_use_case (core/application/
 ## resolve_action_use_case.gd, ADR-002/ADR-003: no forked/duplicate action
 ## path exists here) -- the domain re-validates every precondition
 ## regardless of what this controller pre-filtered (defense in depth); this
@@ -301,19 +305,37 @@ func _fail(error_code: String) -> Dictionary:
 
 ## _rebuild_targets(candidate_targets) -> void -- recomputes
 ## _selectable_targets/_non_selectable_targets (the in-range filter,
-## mirroring the domain's own hex_neighbors() precondition for UX purposes
-## only) and, when a battlefield collaborator is configured, reports the
-## result to it for visual display.
+## mirroring the domain's own reach precondition for UX purposes only) and,
+## when a battlefield collaborator is configured, reports the result to it
+## for visual display.
+##
+## FEAT-154 (resolves FIND-143/FIND-146): mirrors
+## core/application/resolve_action_use_case.gd's reach gate exactly -- when
+## the actor's "weapon" Dictionary carries a "range_hexes" key (see
+## _is_ranged_weapon(), the SAME convention as resolve_action_use_case's
+## _is_ranged_weapon()), reach is HexMath.hex_distance(actor, target) <=
+## weapon.range_hexes (core/geometry/hex_math.gd HexMath.hex_distance()),
+## NOT the melee 6-neighbor hex_neighbors() check. Weapon Dictionaries
+## without "range_hexes" (every melee fixture) keep using the pre-existing
+## hex_neighbors() adjacency check unchanged.
 func _rebuild_targets(candidate_targets: Array) -> void:
 	_selectable_targets = []
 	_non_selectable_targets = []
 
 	var actor_hex = _hex_coord_for(_actor)
 	if actor_hex != null:
-		var neighbors: Array = HexMathClass.hex_neighbors(actor_hex)
+		var ranged: bool = _is_ranged_weapon()
+		var neighbors: Array = [] if ranged else HexMathClass.hex_neighbors(actor_hex)
+		var range_hexes: int = _actor.get("weapon", {}).get("range_hexes", 1) if ranged else 1
 		for target in candidate_targets:
 			var target_hex = _hex_coord_for(target)
-			if target_hex != null and _is_one_of(target_hex, neighbors):
+			var in_reach: bool = false
+			if target_hex != null:
+				if ranged:
+					in_reach = HexMathClass.hex_distance(actor_hex, target_hex) <= range_hexes
+				else:
+					in_reach = _is_one_of(target_hex, neighbors)
+			if in_reach:
 				_selectable_targets.append(target)
 			else:
 				_non_selectable_targets.append(target)
@@ -322,6 +344,17 @@ func _rebuild_targets(candidate_targets: Array) -> void:
 
 	if _battlefield != null:
 		_battlefield.set_selectable_combatant_ids(get_selectable_target_ids(), _target_ids(_non_selectable_targets))
+
+
+## _is_ranged_weapon() -> bool -- true iff the actor's "weapon" Dictionary
+## carries a "range_hexes" key. Mirrors
+## core/application/resolve_action_use_case.gd's identically-named/behaved
+## helper exactly (the SAME reach-mode discriminant, not a re-derived copy)
+## so this controller's UX filter can never drift from the domain's own
+## reach gate.
+func _is_ranged_weapon() -> bool:
+	var weapon: Dictionary = _actor.get("weapon", {})
+	return weapon.has("range_hexes")
 
 
 func _is_one_of(hex_coord, candidates: Array) -> bool:

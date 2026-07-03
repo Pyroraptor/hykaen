@@ -129,6 +129,27 @@ func _enemy(name: String, hex_coord, hp: int = 20, ac: int = 10) -> Dictionary:
 	return {"combatant_id": name.to_lower(), "name": name, "hp_current": hp, "ac": ac, "hex_coord": hex_coord}
 
 
+## _ranged_actor(hex_coord, weapon, combatant_id) -> Dictionary -- FEAT-154:
+## an actor equipped with a real ranged WeaponResource fixture (e.g.
+## data/weapons/longbow.tres), wiring its range_hexes field through into the
+## weapon Dictionary exactly as MainScene.gd's _build_party_combatant() does
+## for damage_modifier_attribute/proficiency_bonus/damage_die.
+func _ranged_actor(hex_coord, weapon: Resource, combatant_id: String = "titus") -> Dictionary:
+	return {
+		"combatant_id": combatant_id,
+		"name": "Titus",
+		"strength": 3,
+		"dexterity": 3,
+		"hex_coord": hex_coord,
+		"weapon": {
+			"damage_modifier_attribute": weapon.damage_modifier_attribute,
+			"proficiency_bonus": weapon.proficiency_bonus,
+			"damage_die": weapon.damage_die,
+			"range_hexes": weapon.range_hexes,
+		},
+	}
+
+
 func _real_use_case(scripted_values: Array) -> Dictionary:
 	var rng_port   = ScriptedRandomNumberPort.new(scripted_values)
 	var event_sink = FakeEventSinkPort.new()
@@ -316,6 +337,63 @@ func test_out_of_range_target_is_marked_not_selectable_on_the_hex_battlefield() 
 			battlefield.is_marked_not_selectable(target_combatant.combatant_id),
 			"an out-of-range target must be visibly marked not-selectable on the battlefield"
 		)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# FEAT-154 (resolves FIND-143/FIND-146): ranged-weapon target selection --
+# StrikeInputController must branch on the actor's equipped weapon so a
+# target at hex_distance(actor, target) <= weapon.range_hexes is offered as
+# selectable, mirroring resolve_action_use_case's _is_ranged_weapon()/
+# _is_in_range() check exactly, instead of hardcoding hex_neighbors() (which
+# only ever allowed distance-1 melee targets even for a ranged-equipped
+# actor).
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_longbow_equipped_actor_offers_in_range_target_excludes_out_of_range_and_resolves_a_full_strike() -> void:
+	var longbow = ResourceLoader.load("res://data/weapons/longbow.tres")
+	assert_not_null(longbow, "data/weapons/longbow.tres must load")
+	if longbow == null:
+		return
+
+	var origin := HexCoordClass.new(0, 0)
+	# hex_distance(origin, (5, 0)) == 5 -- non-adjacent, but within the
+	# longbow's range_hexes of 10.
+	var in_range_enemy: Dictionary = _enemy("Skeleton", HexCoordClass.new(5, 0))
+	# hex_distance(origin, (11, 0)) == 11 -- beyond the longbow's range_hexes.
+	var out_of_range_enemy: Dictionary = _enemy("Goblin", HexCoordClass.new(11, 0))
+
+	var action_economy := ActionEconomyClass.new()
+	action_economy.start_of_round()
+	var budget_before: int = action_economy.get_remaining()
+
+	# raw=12 -> roll_total = 12 + strength(3) + proficiency(1) = 16 vs ac=10 -> hit.
+	var rig: Dictionary = _real_use_case([12, 4])
+	_controller.configure(
+		_ranged_actor(origin, longbow), action_economy, rig["use_case"],
+		[in_range_enemy, out_of_range_enemy], "titus"
+	)
+
+	assert_eq(
+		_controller.get_selectable_target_ids(), ["skeleton"],
+		"a non-adjacent target within the longbow's range_hexes must be offered as selectable"
+	)
+	assert_true(_controller.is_target_selectable("skeleton"))
+	assert_false(
+		_controller.is_target_selectable("goblin"),
+		"a target beyond the longbow's range_hexes must be excluded from selectable targets"
+	)
+
+	var result: Dictionary = _controller.select_target("skeleton")
+
+	assert_true(
+		result.get("ok", false),
+		"a full Strike against the selected non-adjacent ranged target must resolve successfully end-to-end"
+	)
+	assert_eq(rig["event_sink"].events.size(), 1, "exactly one AttackEvent must be emitted")
+	assert_eq(
+		action_economy.get_remaining(), budget_before - 1,
+		"the actor's action budget must be decremented by exactly one Strike"
+	)
 
 
 # ══════════════════════════════════════════════════════════════════════════

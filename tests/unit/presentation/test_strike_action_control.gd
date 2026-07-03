@@ -113,6 +113,27 @@ func _enemy(name: String, hex_coord, hp: int = 20, ac: int = 10) -> Dictionary:
 	return {"combatant_id": name.to_lower(), "name": name, "hp_current": hp, "ac": ac, "hex_coord": hex_coord}
 
 
+## _ranged_actor(hex_coord, weapon) -> Dictionary -- FEAT-154: an actor
+## equipped with a real ranged WeaponResource fixture (e.g.
+## data/weapons/shortbow.tres), wiring its range_hexes field through into
+## the weapon Dictionary exactly as MainScene.gd's _build_party_combatant()
+## does for damage_modifier_attribute/proficiency_bonus/damage_die.
+func _ranged_actor(hex_coord, weapon: Resource) -> Dictionary:
+	return {
+		"combatant_id": "archer",
+		"name": "Archer",
+		"strength": 3,
+		"dexterity": 3,
+		"hex_coord": hex_coord,
+		"weapon": {
+			"damage_modifier_attribute": weapon.damage_modifier_attribute,
+			"proficiency_bonus": weapon.proficiency_bonus,
+			"damage_die": weapon.damage_die,
+			"range_hexes": weapon.range_hexes,
+		},
+	}
+
+
 func _make_use_case(scripted_values: Array) -> Dictionary:
 	var rng_port   = ScriptedRandomNumberPort.new(scripted_values)
 	var event_sink = FakeEventSinkPort.new()
@@ -270,6 +291,54 @@ func test_attack_event_observable_in_event_log_view_and_status_panel_view() -> v
 	assert_eq(
 		status_panel.get_status("skeleton").get("hp_current"), 13,
 		"StatusPanelView must reflect the resolved Strike's damage (20 - 7 = 13)"
+	)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-154 (resolves FIND-143/FIND-146): ranged-weapon target selection --
+# StrikeActionControl must branch on the actor's equipped weapon so a target
+# at hex_distance(actor, target) <= weapon.range_hexes is offered as
+# selectable, mirroring resolve_action_use_case's _is_ranged_weapon()/
+# _is_in_range() check exactly, instead of hardcoding hex_neighbors() (which
+# only ever allowed distance-1 melee targets even for a ranged-equipped
+# actor).
+# ══════════════════════════════════════════════════════════════════════════════
+
+func test_shortbow_equipped_actor_selects_and_resolves_a_full_strike_against_a_three_hex_target() -> void:
+	var shortbow = ResourceLoader.load("res://data/weapons/shortbow.tres")
+	assert_not_null(shortbow, "data/weapons/shortbow.tres must load")
+	if shortbow == null:
+		return
+
+	var origin := HexCoordClass.new(0, 0)
+	# hex_distance(origin, (3, 0)) == 3 -- non-adjacent, but well within the
+	# shortbow's range_hexes of 8.
+	var ranged_target: Dictionary = _enemy("Goblin", HexCoordClass.new(3, 0))
+
+	var action_economy := ActionEconomyClass.new()
+	action_economy.start_of_round()
+	var budget_before: int = action_economy.get_remaining()
+
+	# raw=12 -> roll_total = 12 + dexterity(3) + proficiency(2) = 17 vs ac=10 -> hit.
+	var rig: Dictionary = _make_use_case([12, 4])
+	_control.configure(_ranged_actor(origin, shortbow), action_economy, rig["use_case"], [ranged_target])
+
+	assert_eq(
+		_control.get_selectable_target_ids(), ["goblin"],
+		"a target 3 hexes away must be selectable when the actor is equipped with a shortbow (range_hexes=8)"
+	)
+	assert_true(_control.is_target_selectable("goblin"))
+
+	var result: Dictionary = _control.select_target("goblin")
+
+	assert_true(
+		result.get("ok", false),
+		"a full Strike against the selected non-adjacent ranged target must resolve successfully end-to-end"
+	)
+	assert_eq(rig["event_sink"].events.size(), 1, "exactly one AttackEvent must be emitted")
+	assert_eq(
+		action_economy.get_remaining(), budget_before - 1,
+		"the actor's action budget must be decremented by exactly one Strike"
 	)
 
 
