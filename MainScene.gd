@@ -362,6 +362,14 @@ var movement_input_controller = MovementInputControllerClass.new()
 var _party: Array = []
 var _enemies: Array = []
 
+## _last_highlight_debug_log — FEAT-006 / US-006 (FR-001, ADR-004): the most
+## recent debug log line emitted by _highlight_legal_moves() (observability
+## requirement — see that method's doc). Exposed for GUT test verification
+## since stdout itself is not readily interceptable from a headless test;
+## mirrors this file's own ConsoleEventSinkAdapter.log Array's established
+## "store for verification, also print" convention.
+var _last_highlight_debug_log: String = ""
+
 
 func _ready() -> void:
 	encounter_repository = ResourceEncounterRepositoryClass.new()
@@ -514,6 +522,87 @@ func _on_active_actor_changed(combatant: Dictionary) -> void:
 		active_combatant_id,
 		action_economy
 	)
+
+	_highlight_legal_moves(combatant, active_combatant_id)
+
+
+## _highlight_legal_moves(combatant, active_combatant_id) -> void — FEAT-006 /
+## US-006 (FR-001, ADR-004): the turn_started handler's highlight step
+## (design notes' API contract #1 — this codebase realizes "turn_started" as
+## TurnController.active_actor_changed, see presentation/turn_controller.gd
+## and tests/infrastructure/test_presentation_stack_wiring.gd). Computes
+## union(movement_input_controller.get_selectable_step_hexes(),
+## get_selectable_stride_hexes()) for the NOW-configured actor and pushes it
+## to hex_grid_view.set_selectable_hexes() — fixing the P0-1 bug where this
+## call was never made at all: movement_input_controller.configure()'s own
+## internal push (presentation/movement_input_controller.gd's
+## _recompute_selectable_destinations()) only ever reports Step destinations,
+## never Stride, so this composition root explicitly re-asserts the WIDER
+## union here immediately afterward rather than relying on that internal
+## push alone.
+##
+## When `combatant` is not the active PLAYER (an enemy's turn), no highlight
+## may be shown at all (API contract #1) — this defensively clears
+## hex_grid_view instead, even though TurnController.active_actor_changed
+## only ever fires for a settled player actor today (see
+## presentation/turn_controller.gd's _drive()); this handler must not rely on
+## that invariant holding forever.
+##
+## Emits a structured debug log line (observability requirement) including
+## combatant_id and the Step/Stride hex counts that produced the highlighted
+## union, both to stdout (print(), matching this file's existing
+## ConsoleEventSinkAdapter.emit() convention) AND recorded on
+## `_last_highlight_debug_log` so GUT tests can assert on it directly.
+func _highlight_legal_moves(combatant: Dictionary, active_combatant_id: String) -> void:
+	var is_enemy_turn: bool = combatant.get("_is_enemy", false)
+
+	if is_enemy_turn:
+		if hex_grid_view != null:
+			hex_grid_view.set_selectable_hexes([])
+		_last_highlight_debug_log = (
+			"DEBUG: highlight_legal_moves combatant_id=" + active_combatant_id
+			+ " step_hex_count=0 stride_hex_count=0 (non-player turn, highlight suppressed)"
+		)
+		print(_last_highlight_debug_log)
+		return
+
+	var step_hexes: Array = movement_input_controller.get_selectable_step_hexes()
+	var stride_hexes: Array = movement_input_controller.get_selectable_stride_hexes()
+
+	if hex_grid_view != null:
+		hex_grid_view.set_selectable_hexes(_union_hexes(step_hexes, stride_hexes))
+
+	_last_highlight_debug_log = (
+		"DEBUG: highlight_legal_moves combatant_id=" + active_combatant_id
+		+ " step_hex_count=" + str(step_hexes.size())
+		+ " stride_hex_count=" + str(stride_hexes.size())
+	)
+	print(_last_highlight_debug_log)
+
+
+## _union_hexes(step_hexes, stride_hexes) -> Array — the deduplicated union of
+## two HexCoord arrays, compared via core/geometry/hex_coord.gd's equals()
+## (the same equality convention used throughout this codebase, e.g.
+## presentation/movement_input_controller.gd's _find_selectable()). Every
+## legal Step destination is currently also always a legal Stride
+## destination (both apply the identical unoccupied check at distance 1 —
+## see core/rules/movement.gd's file-level doc), so this reduces to
+## stride_hexes today — but is computed as an explicit union (never just
+## returning stride_hexes) so this stays correct even if that relationship
+## between the two rules ever changes.
+func _union_hexes(step_hexes: Array, stride_hexes: Array) -> Array:
+	var union_hexes: Array = []
+	for hex_coord in step_hexes:
+		union_hexes.append(hex_coord)
+	for hex_coord in stride_hexes:
+		var already_included: bool = false
+		for existing in union_hexes:
+			if existing.equals(hex_coord):
+				already_included = true
+				break
+		if not already_included:
+			union_hexes.append(hex_coord)
+	return union_hexes
 
 
 ## _on_round_over() -> void — TurnController emits this once the held
