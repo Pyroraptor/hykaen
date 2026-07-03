@@ -38,6 +38,19 @@ extends RefCounted
 ## as the fallback seed source when no in-process override is supplied.
 const ENV_VAR_NAME: String = "HYKAEN_SEED"
 
+## INT64_MAX_DIGITS / INT64_MIN_DIGITS — the decimal digit strings of
+## GDScript's 64-bit signed integer bounds (INT64_MAX and abs(INT64_MIN)
+## respectively). `is_valid_int()` only validates CHARACTER SHAPE (digits,
+## optional leading sign) — it does NOT validate magnitude, so a 20+ digit
+## numeric string like "99999999999999999999" passes `is_valid_int()` and
+## then silently CLAMPS to INT64_MAX via `to_int()` instead of failing open
+## to the random-seed path (FIND-147). `_is_within_int64_bounds()` below
+## performs an explicit digit-length/magnitude comparison against these
+## bounds BEFORE `to_int()` is ever called, so an out-of-range HYKAEN_SEED
+## is rejected (fails open) rather than silently clamped.
+const INT64_MAX_DIGITS: String = "9223372036854775807"
+const INT64_MIN_ABS_DIGITS: String = "9223372036854775808"
+
 
 ## resolve(seed_override, env_var_raw, random_fallback) -> int
 ##
@@ -74,13 +87,52 @@ static func resolve_from_environment(seed_override, random_fallback: int) -> int
 ## Strictly parses `raw` as an integer (never eval'd, never used to
 ## construct dynamic code — pure string validation). Returns null (rather
 ## than throwing) for anything that is not a clean integer literal —
-## unset/empty, whitespace-only, non-numeric, or float-shaped — so a
-## malformed HYKAEN_SEED fails OPEN to the random-fallback path instead of
-## crashing boot (fail-safe default, NFR-006).
+## unset/empty, whitespace-only, non-numeric, float-shaped, hex-looking
+## ("0x10"), or injection-shaped ("$(whoami)") — so a malformed HYKAEN_SEED
+## fails OPEN to the random-fallback path instead of crashing boot
+## (fail-safe default, NFR-006).
+##
+## `is_valid_int()` only validates CHARACTER SHAPE (digits, optional
+## leading sign) — it does NOT validate magnitude. Without an explicit
+## bounds check, a 20+ digit numeric string would pass `is_valid_int()`
+## and then silently CLAMP to INT64_MAX via `to_int()` (FIND-147) instead
+## of failing open. `_is_within_int64_bounds()` rejects any digit string
+## whose magnitude exceeds GDScript's 64-bit signed integer range before
+## `to_int()` is ever called.
 static func _parse_env_seed(raw: String):
 	var trimmed: String = raw.strip_edges()
 	if trimmed == "":
 		return null
 	if not trimmed.is_valid_int():
 		return null
+	if not _is_within_int64_bounds(trimmed):
+		return null
 	return trimmed.to_int()
+
+
+## _is_within_int64_bounds(digits) -> bool
+##
+## `digits` is assumed to already satisfy `is_valid_int()` (optional
+## leading '-', otherwise all ASCII digits). Returns false when the
+## magnitude of `digits` falls outside GDScript's 64-bit signed integer
+## range ([-9223372036854775808, 9223372036854775807]) — i.e. when a naive
+## `to_int()` call would silently clamp/overflow rather than represent the
+## literal value exactly.
+static func _is_within_int64_bounds(digits: String) -> bool:
+	var is_negative: bool = digits.begins_with("-")
+	var magnitude: String = digits.substr(1) if is_negative else digits
+
+	# Leading zeros ("007", "0000123") are semantically insignificant for
+	# magnitude comparison — strip them before comparing digit counts.
+	var normalized: String = magnitude.lstrip("0")
+	if normalized == "":
+		normalized = "0"
+
+	var bound: String = INT64_MIN_ABS_DIGITS if is_negative else INT64_MAX_DIGITS
+
+	if normalized.length() != bound.length():
+		return normalized.length() < bound.length()
+
+	# Same digit count: plain lexical (ASCII) comparison of equal-length,
+	# all-digit strings is equivalent to numeric comparison.
+	return normalized <= bound

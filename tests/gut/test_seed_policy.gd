@@ -115,6 +115,102 @@ func test_negative_integer_env_var_is_parsed() -> void:
 
 
 # ══════════════════════════════════════════════════════════════════════════
+# Part 2b — FIND-147 / FIND-148 regressions: overflow, hex-looking,
+# leading-zero, and injection-shaped HYKAEN_SEED values must never crash
+# boot and must never silently clamp/eval — they either parse to the exact
+# intended integer or fail open to the random fallback.
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_twenty_digit_numeric_env_var_falls_back_to_random_not_clamped_to_int64_max() -> void:
+	# is_valid_int() only checks character shape, so this 20-digit numeric
+	# string would previously pass validation and then silently clamp to
+	# INT64_MAX (9223372036854775807) via to_int() instead of failing open
+	# (FIND-147). It must now be rejected by the explicit magnitude/length
+	# bound check and fall open to the random-seed path.
+	var resolved: int = SeedPolicyClass.resolve(null, "99999999999999999999", RANDOM_FALLBACK)
+	assert_eq(
+		resolved, RANDOM_FALLBACK,
+		"a 20+ digit numeric HYKAEN_SEED must fail open to the random fallback, not silently clamp to INT64_MAX"
+	)
+	assert_ne(
+		resolved, 9223372036854775807,
+		"a 20+ digit numeric HYKAEN_SEED must never resolve to a silently-clamped INT64_MAX"
+	)
+
+
+func test_env_var_one_past_int64_max_falls_back_to_random() -> void:
+	# 19 digits, same length as INT64_MAX, but numerically one past it —
+	# exercises the magnitude comparison, not just the digit-count check.
+	var resolved: int = SeedPolicyClass.resolve(null, "9223372036854775808", RANDOM_FALLBACK)
+	assert_eq(
+		resolved, RANDOM_FALLBACK,
+		"a HYKAEN_SEED one past INT64_MAX must fail open to the random fallback rather than clamp"
+	)
+
+
+func test_env_var_exactly_int64_max_is_parsed_exactly() -> void:
+	# The boundary value itself must still parse successfully (not an
+	# off-by-one rejection of legitimate large seeds).
+	var resolved: int = SeedPolicyClass.resolve(null, "9223372036854775807", RANDOM_FALLBACK)
+	assert_eq(resolved, 9223372036854775807, "HYKAEN_SEED exactly at INT64_MAX must be parsed exactly, not rejected")
+
+
+func test_env_var_exactly_int64_min_is_parsed_exactly() -> void:
+	var resolved: int = SeedPolicyClass.resolve(null, "-9223372036854775808", RANDOM_FALLBACK)
+	assert_eq(resolved, -9223372036854775808, "HYKAEN_SEED exactly at INT64_MIN must be parsed exactly, not rejected")
+
+
+func test_negative_twenty_digit_env_var_falls_back_to_random() -> void:
+	var resolved: int = SeedPolicyClass.resolve(null, "-99999999999999999999", RANDOM_FALLBACK)
+	assert_eq(
+		resolved, RANDOM_FALLBACK,
+		"a negative 20+ digit HYKAEN_SEED must fail open to the random fallback, not clamp to INT64_MIN"
+	)
+
+
+func test_hex_looking_env_var_falls_back_to_random_without_crashing() -> void:
+	# FIND-148: a hex-looking value like "0x10" must not crash boot and
+	# must not be interpreted as hex (16) — is_valid_int() rejects the 'x'
+	# character shape, so this falls open to the random fallback.
+	var resolved: int = SeedPolicyClass.resolve(null, "0x10", RANDOM_FALLBACK)
+	assert_eq(
+		resolved, RANDOM_FALLBACK,
+		"a hex-looking HYKAEN_SEED ('0x10') must fall open to the random fallback without crashing"
+	)
+
+
+func test_leading_zero_env_var_is_parsed_as_intended_integer() -> void:
+	# "007" is a clean integer literal with insignificant leading zeros —
+	# documented/asserted behavior: it parses to the intended integer 7,
+	# it is not rejected and does not fall open to random.
+	var resolved: int = SeedPolicyClass.resolve(null, "007", RANDOM_FALLBACK)
+	assert_eq(resolved, 7, "a leading-zero HYKAEN_SEED ('007') must parse as the intended integer 7")
+
+
+func test_leading_zero_padded_int64_max_boundary_still_rejects_correctly() -> void:
+	# Leading zeros must not throw off the magnitude comparison used for
+	# the overflow bound check: this is INT64_MAX with a padding zero and
+	# must parse exactly, not be misclassified as out-of-bounds due to the
+	# extra leading digit.
+	var resolved: int = SeedPolicyClass.resolve(null, "09223372036854775807", RANDOM_FALLBACK)
+	assert_eq(
+		resolved, 9223372036854775807,
+		"a leading-zero-padded INT64_MAX HYKAEN_SEED must still parse exactly (leading zeros are insignificant)"
+	)
+
+
+func test_injection_shaped_env_var_falls_back_to_random_without_being_evaluated() -> void:
+	# FIND-148: a shell-injection-shaped value must never be eval'd/executed
+	# — it is pure string validation, so this simply fails is_valid_int()
+	# shape checking and falls open to the random fallback.
+	var resolved: int = SeedPolicyClass.resolve(null, "$(whoami)", RANDOM_FALLBACK)
+	assert_eq(
+		resolved, RANDOM_FALLBACK,
+		"an injection-shaped HYKAEN_SEED ('$(whoami)') must fall open to the random fallback without being eval'd"
+	)
+
+
+# ══════════════════════════════════════════════════════════════════════════
 # Part 3 — resolve_from_environment(): the OS-reading wrapper, exercised
 # against the REAL process environment (set/unset around each assertion so
 # no test state leaks to any other GUT script in the same headless run).
