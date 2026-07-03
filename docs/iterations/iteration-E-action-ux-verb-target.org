@@ -1,0 +1,106 @@
+#+TITLE: Iteration E — Two-Layer Action UX (Verb → Target/Destination) + Movable Token + Centered Grid (AUTHORITATIVE)
+#+DATE: 2026-07-03
+
+* Context (why this sprint exists)
+
+Iteration D fixed the UI duplication, surfaced movement highlighting, and made the
+status bar decrement. Running the game now reveals three UX gaps — all
+PRESENTATION-layer (the combat/movement/flanking DOMAIN logic is done and correct):
+
+1. THE ACTION UI IS SINGLE-LAYER. StrikeActionControl renders one button PER
+   in-reach target (the "Skeleton" button) and clicking it IMMEDIATELY strikes —
+   there is no "pick the Strike verb, THEN pick a target" step. MoveActionControl
+   is only a PASSIVE "Move" indicator (its own doc: "the move is executed by
+   clicking a highlighted hex", "no separate Step/Stride mode"). So there is no
+   verb-selection layer at all.
+2. THE TOKEN WON'T MOVE. Movement relies on clicking a highlighted hex ->
+   hex_clicked -> auto Step-then-Stride -> HexGridView.move_token(). That chain
+   exists but is broken: the click's pixel->hex mapping does not line up with where
+   the highlighted hexes are actually drawn, so clicks resolve to nothing and Titus
+   never moves. This is entangled with #3.
+3. THE HEX GRID IS ANCHORED AT (0,0). Titus sits at axial (0,0) = the top-left
+   screen corner, so most of the board (and the interactive/highlighted area) is
+   off-screen, which is both a visibility bug and the root of #2's mapping mismatch.
+
+* THE ONLY SCOPE FOR THIS SPRINT — all THREE P0 / MUST / NON-DEFERRABLE
+
+Do NOT defer ANY item under any "breadth-first / steel-thread / scope" heuristic.
+This is a PRESENTATION-layer restructure — REPLACE the current single-layer controls
+with the two-layer flow; do NOT leave the old immediate-action path wired alongside
+the new one (that would recreate a duplication problem).
+
+** P0-1: Two-layer action UX — verb selection, then target/destination
+- LAYER 1 (verb): on the active PLAYER's turn, present a verb bar with one button
+  per currently-available action: **Strike**, **Step**, **Stride**, **End Turn**.
+  Each verb's enabled/visible state is gated by real availability (Strike: an action
+  remains AND at least one target is in reach; Step: a legal adjacent unoccupied hex
+  exists; Stride: an action remains AND a legal ≤Speed destination exists; End Turn:
+  always). Do NOT auto-execute anything from Layer 1.
+- LAYER 2 (target/destination): selecting a verb enters that verb's selection mode:
+  - Strike -> highlight/enable the in-reach enemy target(s); selecting a target
+    resolves the Strike (via the SAME select_target()/ResolveAction path that exists
+    today — reuse it, do not fork the rule).
+  - Step  -> highlight the legal adjacent unoccupied hex(es); selecting one performs
+    the FREE Step and MOVES the token (P0-2).
+  - Stride -> highlight the legal ≤Speed destination hex(es); selecting one performs
+    the Stride (spends one action) and MOVES the token (P0-2).
+  - End Turn -> ends the turn (existing path); no Layer 2.
+- CANCEL/BACK: the player can back out of a verb's selection mode (e.g. an Esc/right-
+  click/Cancel button) and return to Layer 1 without spending anything.
+- EXTENSIBILITY (design for it, do NOT build the actions): structure Layer 1/Layer 2
+  as a small, data-driven action-selection pattern (a verb registry / state) so a
+  FUTURE verb — Cast a Spell, Channel — can be added by registering a new
+  {verb, availability(), enter-selection(), execute()} entry, WITHOUT rewriting the
+  controller. Add ONLY Strike/Step/Stride/End Turn now (Cast/Channel domain logic
+  does not exist yet — do not stub or build them).
+- REPLACE, don't layer: the old "click a target button = immediate Strike" and the
+  old "click a hex = auto Step-or-Stride" affordances must be REMOVED in favor of the
+  verb->target flow. Retarget/remove any test asserting the old immediate behavior.
+
+** P0-2: The token actually moves (fix click-to-move)
+- Selecting a Step or Stride destination in Layer 2 must VISIBLY reposition the
+  active combatant's token on the hex grid (HexGridView.move_token()).
+- The three transforms MUST share one origin/offset: the axial->pixel used to DRAW a
+  token, the pixel->axial used to interpret a CLICK, and the highlight of selectable
+  hexes. After centering (P0-3), clicking a visibly-highlighted destination must map
+  to THAT hex's axial coord and move the token there — no mapping mismatch.
+- INTEGRATION TEST through real MainScene: enter Step (and Stride) mode, select a
+  highlighted destination, assert (a) the domain move succeeded and (b) the token's
+  rendered/logical hex position updated to the chosen hex.
+
+** P0-3: Center the hex grid in the viewport
+- Offset/position the hex grid so the whole board and all tokens are visible within
+  the viewport (not clipped at the top-left origin). Center the occupied hex region
+  (or the grid extents) in the available play area.
+- Keep it consistent with P0-2's shared transform: the centering offset applies
+  equally to token drawing, click mapping, and highlight rendering.
+- A test/assertion that the rendered grid's on-screen bounds fall within the viewport
+  (no combatant token rendered off-screen at boot).
+
+* Out of scope (do NOT touch)
+- No new gameplay verbs (Cast a Spell, Channel, Reaction UI, etc.) — design the
+  pattern to accept them, but do NOT build/stub them (their domain logic is absent).
+- No changes to combat core, action economy, RNG/seed policy, or the movement/
+  flanking/ranged DOMAIN logic (core/rules/*, core/geometry/*, core/application/* are
+  done and correct; this sprint is presentation-layer only, ADR-001).
+- No re-introduction of the removed scenes/battlefield/* stack; no new duplicate UI.
+- No animation/audio/particles, camera zoom/pan, main menu, save/load, multiplayer.
+
+* PRESERVE (must not regress) — verified green in Iteration D
+- Single UI stack (MainScene instances presentation/* only; no scenes/battlefield/*).
+- Seed randomize + HYKAEN_SEED/injectable override; flanking Off-Guard +2 applied in
+  live resolution; ranged reach + selection; post-resolution lock on ALL player
+  controls INCLUDING the new verb controls (extend the SAME ResultScreenView lock);
+  status bar decrements Actions/Spent after an action resolves.
+
+* Verification (gate must be green)
+- Full GUT suite + pytest green; determinism/steel-thread tests still pass; MainScene
+  boots headless with no errors.
+- Integration tests through the real composition root for EACH verb: Strike
+  (verb -> target -> resolves), Step (verb -> destination -> token moves), Stride
+  (verb -> destination -> token moves + action spent), End Turn; plus verb-availability
+  gating and cancel/back.
+- P0-2: a test proving the token's position updates to a clicked highlighted hex.
+- P0-3: a test asserting all combatant tokens render within the viewport at boot.
+- Static: no Node/Control in core/ (ADR-001); no new ports/use-cases (ADR-002); the
+  old immediate-action affordances are gone (not wired alongside the new flow).
