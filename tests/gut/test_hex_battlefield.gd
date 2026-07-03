@@ -22,6 +22,8 @@ const HexBattlefieldScene: PackedScene = preload("res://scenes/battlefield/HexBa
 const HexBattlefieldClass: GDScript = preload("res://scenes/battlefield/HexBattlefield.gd")
 const CombatantReadoutClass: GDScript = preload("res://scenes/battlefield/CombatantReadout.gd")
 const ResourceEncounterRepositoryClass: GDScript = preload("res://infrastructure/resource_encounter_repository.gd")
+const HexCoordClass: GDScript = preload("res://core/geometry/hex_coord.gd")
+const CombatantClass: GDScript = preload("res://core/domain/combatant.gd")
 
 const HEX_BATTLEFIELD_SOURCE_PATH: String = "res://scenes/battlefield/HexBattlefield.gd"
 const PROLOGUE_ENCOUNTER_PATH: String = "res://data/encounters/prologue_encounter.tres"
@@ -170,3 +172,78 @@ func test_source_contains_no_combat_computation_keywords() -> void:
 			source.find(keyword), -1,
 			"scenes/battlefield/HexBattlefield.gd must contain no combat computation ('%s' found) -- read-and-render only (ADR-001)" % keyword
 		)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# FEAT-157 (US-013 / US-014, FIND-150): move_token()/load_combatants() must
+# bounds-validate a combatant's hex_coord against GRID_RADIUS before trusting
+# it for rendering, so a latent domain bug producing an out-of-grid
+# coordinate can never silently reposition a CombatantReadout off-screen with
+# no indication.
+#
+# Note on push_warning() capture: as documented in
+# tests/test_encounter_round_loop.gd and tests/unit/test_action_economy.gd,
+# GUT's push_warning() capture is a documented no-op on this project's pinned
+# Godot 4.3 engine. These tests therefore combine a BEHAVIORAL assertion
+# (out-of-radius input never crashes and never gets rendered/repositioned)
+# with a source-inspection check standing in for the push_warning() capture
+# itself.
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_move_token_with_out_of_radius_hex_coord_does_not_crash_and_skips_reposition() -> void:
+	_battlefield.load_combatants(_combatants)
+	var target = _combatants[0]
+	var before: Dictionary = _battlefield.get_hex_position(target.combatant_id)
+
+	var out_of_radius_coord := HexCoordClass.new(HexBattlefieldClass.GRID_RADIUS + 1, 0)
+	_battlefield.move_token(target.combatant_id, out_of_radius_coord)
+
+	var after: Dictionary = _battlefield.get_hex_position(target.combatant_id)
+	assert_eq(
+		after, before,
+		"move_token() with an out-of-radius hex_coord must not reposition the combatant (FEAT-157/FIND-150)"
+	)
+	assert_not_null(
+		_battlefield.get_readout(target.combatant_id),
+		"move_token() with an out-of-radius hex_coord must not crash or remove the existing readout"
+	)
+
+
+func test_load_combatants_with_out_of_radius_combatant_position_skips_offscreen_readout() -> void:
+	var out_of_radius_combatant = CombatantClass.new(
+		"oob_1", "Off-Grid Ghost", "Enemy", HexCoordClass.new(HexBattlefieldClass.GRID_RADIUS + 3, 0)
+	)
+	var in_radius_combatant = CombatantClass.new(
+		"ok_1", "Grid Guard", "Enemy", HexCoordClass.new(0, 0)
+	)
+
+	_battlefield.load_combatants([out_of_radius_combatant, in_radius_combatant])
+
+	assert_null(
+		_battlefield.get_readout("oob_1"),
+		"an out-of-radius combatant must not get a CombatantReadout instantiated for it (FEAT-157/FIND-150)"
+	)
+	assert_eq(
+		_battlefield.get_hex_position("oob_1"), {},
+		"an out-of-radius combatant must have no rendered hex position on record, rather than an off-screen one"
+	)
+	assert_not_null(
+		_battlefield.get_readout("ok_1"),
+		"an in-radius combatant in the same load_combatants() call must still get a readout"
+	)
+	assert_eq(
+		_battlefield.get_combatant_count(), 1,
+		"only the in-radius combatant should be counted/rendered"
+	)
+
+
+func test_hex_battlefield_gd_logs_push_warning_for_out_of_radius_hex_coord() -> void:
+	var source: String = _read_source(HEX_BATTLEFIELD_SOURCE_PATH)
+	assert_true(
+		source.contains("push_warning") and source.contains("GRID_RADIUS"),
+		"HexBattlefield.gd must call push_warning() describing an out-of-radius hex_coord (FEAT-157/FIND-150)"
+	)
+	assert_true(
+		source.contains("_is_within_grid_radius"),
+		"HexBattlefield.gd must bounds-validate hex_coord against GRID_RADIUS before rendering (FEAT-157/FIND-150)"
+	)

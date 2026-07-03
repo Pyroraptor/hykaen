@@ -131,6 +131,24 @@ static func axial_to_pixel_qr(q: int, r: int, hex_size: float = HEX_SIZE) -> Vec
 	return Vector2(x, y)
 
 
+## _is_within_grid_radius(hex_coord) → bool — FEAT-157 / FIND-150: true iff
+## `hex_coord`'s axial position falls within this battlefield's rendered
+## GRID_RADIUS ring (the same q/r/s bound _draw() already enforces for the
+## background grid cells). A latent domain bug that hands load_combatants()
+## or move_token() an out-of-radius HexPosition must never silently
+## reposition/render a CombatantReadout off-screen with no indication --
+## move_token() and load_combatants() both consult this guard before trusting
+## a hex_coord for rendering, logging a push_warning() and skipping the
+## render instead.
+static func _is_within_grid_radius(hex_coord) -> bool:
+	if hex_coord == null or not ("q" in hex_coord) or not ("r" in hex_coord):
+		return false
+	var q: int = hex_coord.q
+	var r: int = hex_coord.r
+	var s: int = -q - r
+	return absi(q) <= GRID_RADIUS and absi(r) <= GRID_RADIUS and absi(s) <= GRID_RADIUS
+
+
 ## load_combatants(combatants, view_models) → void — instantiates one
 ## CombatantReadout per entry in `combatants`, positioned at that
 ## combatant's mapped screen position (axial_to_pixel(hex_coord)). Clears
@@ -163,6 +181,13 @@ func load_combatants(combatants: Array, view_models: Array = []) -> void:
 		view_model_by_id[view_model.get("combatant_id", "")] = view_model
 
 	for combatant in combatants:
+		if not _is_within_grid_radius(combatant.hex_coord):
+			push_warning(
+				"HexBattlefield.load_combatants: combatant '%s' hex_coord (q=%d, r=%d) is outside GRID_RADIUS=%d -- skipping readout to avoid silently rendering it off-screen (FEAT-157/FIND-150)"
+				% [combatant.combatant_id, combatant.hex_coord.q, combatant.hex_coord.r, GRID_RADIUS]
+			)
+			continue
+
 		_hex_by_id[combatant.combatant_id] = {"q": combatant.hex_coord.q, "r": combatant.hex_coord.r}
 		_hex_coord_by_id[combatant.combatant_id] = combatant.hex_coord
 
@@ -276,6 +301,12 @@ func on_round_event(event) -> void:
 ## load_combatants() was never called, or the id is unknown) -- this widget
 ## never crashes on a stale/unknown id, matching HexGridView's move_token()
 ## contract exactly.
+##
+## Also a no-op -- logging a push_warning() first -- when `new_hex_coord`
+## falls outside GRID_RADIUS (FEAT-157/FIND-150): a latent domain bug
+## upstream (e.g. movement.gd producing an out-of-grid HexPosition) must
+## never silently reposition this combatant's CombatantReadout off-screen;
+## the readout instead stays put at its last known-good position.
 func move_token(combatant_id: String, new_hex_coord) -> void:
 	# Defensive guard (mirrors the combatant_id no-op below): a null or
 	# malformed coord (missing q/r) is a no-op rather than a crash, so a stray
@@ -284,6 +315,13 @@ func move_token(combatant_id: String, new_hex_coord) -> void:
 		return
 	var readout = _readouts.get(combatant_id, null)
 	if readout == null:
+		return
+
+	if not _is_within_grid_radius(new_hex_coord):
+		push_warning(
+			"HexBattlefield.move_token: combatant '%s' hex_coord (q=%d, r=%d) is outside GRID_RADIUS=%d -- skipping reposition to avoid silently rendering it off-screen (FEAT-157/FIND-150)"
+			% [combatant_id, new_hex_coord.q, new_hex_coord.r, GRID_RADIUS]
+		)
 		return
 
 	_hex_by_id[combatant_id] = {"q": new_hex_coord.q, "r": new_hex_coord.r}
