@@ -15,6 +15,22 @@
 ##   damage_count               — number of dice rolled for damage (1 in v0)
 ##   damage_modifier_attribute  — attribute added to damage: 'str' or 'dex'
 ##   proficiency_bonus          — flat bonus added when proficient (+1–3)
+##
+## FEAT-140 (DEF-007 / FR-014, US-007) addition:
+##   range_hexes                — maximum core/geometry/hex_math.gd
+##                                 HexMath.hex_distance() at which this
+##                                 weapon may Strike a target. Melee weapons
+##                                 (all fixtures prior to FEAT-140) use the
+##                                 default of 1 hex — equivalent to the
+##                                 existing hex_neighbors()-based adjacency
+##                                 precondition (FEAT-003/US-003). Ranged
+##                                 weapons (e.g. a shortbow/longbow) set this
+##                                 to their listed range converted to hexes
+##                                 (5 ft. == 1 hex, per docs/design-source/
+##                                 Weapons.pdf), reusing the SAME hex
+##                                 distance math rather than a re-derived
+##                                 notion of range (core/application/
+##                                 resolve_action_use_case.gd).
 
 class_name WeaponResource
 extends Resource
@@ -52,3 +68,12 @@ extends Resource
 ## Zero means this weapon has no parry capability.
 ## Source: docs/design-source/Weapons.pdf (Parry column).
 @export var parry_bonus: int = 0
+
+## Maximum hex_distance (core/geometry/hex_math.gd HexMath.hex_distance())
+## at which this weapon may Strike a target. Defaults to 1 — melee reach,
+## i.e. adjacency-only (5 ft. per docs/design-source/Weapons.pdf's Range
+## column == 1 hex), matching every pre-FEAT-140 melee weapon fixture
+## without requiring their .tres files to be touched. Ranged weapons set
+## this higher (e.g. a shortbow's 40 ft. short range == 8 hexes).
+## Source: docs/design-source/Weapons.pdf (Range column).
+@export var range_hexes: int = 1

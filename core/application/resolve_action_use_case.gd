@@ -77,6 +77,15 @@ const _MELEE_ACTION_NAMES: Array = ["Strike"]
 ## api_contracts (resolve_action_use_case.execute precondition, US-003).
 const ERR_TARGET_NOT_ADJACENT: String = "ERR_TARGET_NOT_ADJACENT"
 
+## Typed error code returned in ActionResult.error when a RANGED Strike (a
+## weapon whose Dictionary carries a "range_hexes" key — see
+## _is_ranged_weapon()) is attempted against a target whose
+## HexMath.hex_distance() from the actor exceeds the weapon's range_hexes
+## (FEAT-140 / DEF-007 / FR-014, US-007). Mirrors ERR_TARGET_NOT_ADJACENT's
+## contract exactly (checked before any action-budget spend, no side
+## effects on rejection) — see api_contracts' TARGET_OUT_OF_REACH.
+const ERR_TARGET_OUT_OF_REACH: String = "ERR_TARGET_OUT_OF_REACH"
+
 ## Typed error code returned in ActionResult.error when
 ## ActionEconomy.spend_action() fails because the acting combatant has no
 ## action budget remaining this round (the ALREADY_SPENT Result contract —
@@ -164,6 +173,17 @@ func _init(random_number_port, event_sink_port, round_history_port) -> void:
 ## do not yet populate it), this precondition is a no-op — preserving the
 ## pre-FEAT-003 contract exactly.
 ##
+## Ranged reach precondition (FEAT-140 / DEF-007 / FR-014, US-007): when the
+## acting combatant's weapon Dictionary carries a "range_hexes" key (see
+## _is_ranged_weapon()), the melee 6-neighbor check above is replaced by a
+## HexMath.hex_distance() <= weapon.range_hexes check — the target may be
+## anywhere within range_hexes hexes, not just adjacent. Out-of-range
+## targets are rejected with ERR_TARGET_OUT_OF_REACH, with the exact same
+## no-side-effects contract as ERR_TARGET_NOT_ADJACENT (no action-budget
+## spend, no damage, no events, no history). Weapon Dictionaries without
+## "range_hexes" (every pre-FEAT-140 melee fixture) are unaffected and keep
+## going through the adjacency path above.
+##
 ## Returns a Dictionary:
 ##   {resolved: false, ok: false, error: ERR_NOT_ACTIVE_COMBATANT}
 ##     — active_combatant_id was supplied and does not match combatant's
@@ -177,6 +197,10 @@ func _init(random_number_port, event_sink_port, round_history_port) -> void:
 ##     — melee Strike rejected: target is not adjacent to combatant. No
 ##       action-budget spend, no damage applied, no events emitted, no
 ##       history recorded.
+##   {resolved: false, ok: false, error: ERR_TARGET_OUT_OF_REACH}
+##     — ranged Strike rejected (FEAT-140): target's hex_distance from
+##       combatant exceeds the weapon's range_hexes. No action-budget
+##       spend, no damage applied, no events emitted, no history recorded.
 ##   {resolved: false, ok: false, error: ERR_NO_ACTION_REMAINING}
 ##     — ActionEconomy.spend_action() failed (ALREADY_SPENT contract
 ##       violation); no damage applied, no events emitted, no history
@@ -203,7 +227,10 @@ func resolve(
 		return {"resolved": false, "ok": false, "error": ERR_TARGET_INVALID}
 
 	if _is_melee_action(action_name) and _requires_reach_check(combatant, target):
-		if not _is_adjacent(combatant, target):
+		if _is_ranged_weapon(combatant):
+			if not _is_in_range(combatant, target):
+				return {"resolved": false, "ok": false, "error": ERR_TARGET_OUT_OF_REACH}
+		elif not _is_adjacent(combatant, target):
 			return {"resolved": false, "ok": false, "error": ERR_TARGET_NOT_ADJACENT}
 
 	var spend_result: Dictionary = action_economy.spend_action({"name": action_name, "traits": []})
@@ -312,6 +339,35 @@ func _is_adjacent(combatant: Dictionary, target: Dictionary) -> bool:
 		if neighbor.equals(target["hex_coord"]):
 			return true
 	return false
+
+
+## _is_ranged_weapon(combatant) -> bool — true iff the acting combatant's
+## "weapon" Dictionary carries a "range_hexes" key (FEAT-140 / DEF-007).
+## Weapon Dictionaries built from melee WeaponResource fixtures never set
+## this key (core/model/weapon_resource.gd's range_hexes field defaults to
+## 1 — melee adjacency — but callers that assemble the Dictionary, e.g.
+## MainScene.gd's _build_party_combatant()/_build_enemy_combatant(), only
+## copy fields they explicitly wire up), so this is a no-op/false for every
+## pre-FEAT-140 caller — preserving the melee _is_adjacent() path exactly.
+## A ranged weapon's Dictionary is expected to include "range_hexes" (the
+## WeaponResource field of the same name) so this use case can select the
+## distance-based reach check below instead of the 6-neighbor melee check.
+func _is_ranged_weapon(combatant: Dictionary) -> bool:
+	var weapon: Dictionary = combatant.get("weapon", {})
+	return weapon.has("range_hexes")
+
+
+## _is_in_range(combatant, target) -> bool — true iff the target's
+## HexMath.hex_distance() from the combatant is within the acting weapon's
+## range_hexes (inclusive), reusing the SAME hex distance math
+## (core/geometry/hex_math.gd HexMath.hex_distance()) as melee's
+## _is_adjacent() and core/rules/movement.gd — never a re-derived notion of
+## range (FEAT-140 / DEF-007 / FR-014, US-007).
+func _is_in_range(combatant: Dictionary, target: Dictionary) -> bool:
+	var weapon: Dictionary = combatant.get("weapon", {})
+	var range_hexes: int = weapon.get("range_hexes", 1)
+	var distance: int = HexMathClass.hex_distance(combatant["hex_coord"], target["hex_coord"])
+	return distance <= range_hexes
 
 
 ## _resolve_strike(attacker, target, weapon) -> Dictionary — internal helper:
