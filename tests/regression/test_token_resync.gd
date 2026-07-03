@@ -72,8 +72,11 @@ func _assert_token_matches_combatant_position(instance, actor_id: String, contex
 		"%s: HexGridView token's hex_coord must match Combatant.position (the live combatant Dictionary's hex_coord)" % context
 	)
 	assert_eq(
-		token.position, HexGridViewClass.axial_to_pixel(combatant.get("hex_coord")),
-		"%s: HexGridView token's rendered pixel position must match axial_to_pixel(Combatant.position)" % context
+		token.position, instance.hex_grid_view.axial_to_pixel_with_offset(combatant.get("hex_coord")),
+		(
+			"%s: HexGridView token's rendered pixel position must match axial_to_pixel(Combatant.position), honoring the "
+			+ "composition root's FEAT-002 viewport-centering origin offset"
+		) % context
 	)
 
 

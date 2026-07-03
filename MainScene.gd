@@ -145,9 +145,20 @@ const RunRoundUseCaseClass             = preload("res://core/application/run_rou
 const AIClass                          = preload("res://core/combat/ai.gd")
 const MovementInputControllerClass     = preload("res://presentation/movement_input_controller.gd")
 const FlankingClass                    = preload("res://core/rules/flanking.gd")
+const CoordinateTransformClass         = preload("res://presentation/infrastructure/coordinate_transform.gd")
+const HexGridViewClass                 = preload("res://presentation/hex_grid_view.gd")
+const HexCoordClass                    = preload("res://core/geometry/hex_coord.gd")
 
 ## The steel-thread's entry_point: the one encounter this composition root boots into.
 const PROLOGUE_ENCOUNTER_PATH: String = "res://data/encounters/prologue_encounter.tres"
+
+## FEAT-002 (US-002 / FR-012, ADR-003): fallback viewport dimensions used to
+## derive the boot-time centering offset (see _compute_boot_centering_offset())
+## when project.godot declares no explicit display/window/size override --
+## matching this project's actual default window size (verified by
+## tests/gut/test_viewport_centering.gd against ProjectSettings directly).
+const DEFAULT_VIEWPORT_WIDTH: int = 1152
+const DEFAULT_VIEWPORT_HEIGHT: int = 648
 
 ## EnemyResource carries no AC field in the v0 schema; 12 mirrors the
 ## production convention already established for enemies built from
@@ -395,12 +406,35 @@ var _enemies: Array = []
 ## "store for verification, also print" convention.
 var _last_highlight_debug_log: String = ""
 
+## centering_offset — FEAT-002 (US-002 / FR-012, ADR-003): the shared
+## screen-space origin offset this composition root computes at boot via
+## CoordinateTransform.compute_centering_offset() and hands to
+## hex_grid_view.set_origin_offset() -- the SAME offset every other
+## consumer of the FEAT-001 shared transform (token drawing, click mapping,
+## highlight rendering) then reads back via hex_grid_view.get_origin_offset(),
+## never a second/independent offset of its own. Exposed for GUT test
+## verification and observability (mirrors this file's other
+## boot-computed-value convention, e.g. `resolved_seed`).
+var centering_offset: Vector2 = Vector2.ZERO
+
 
 func _ready() -> void:
 	encounter_repository = ResourceEncounterRepositoryClass.new()
 	var hex_combatants: Array = encounter_repository.load_combatants(PROLOGUE_ENCOUNTER_PATH)
 
+	# ── FEAT-002 / US-002 / FR-012 (ADR-003): derive the ONE shared
+	# viewport-centering offset from the grid's own rendered extent corners
+	# (HexGridViewClass.GRID_RADIUS) unioned with every occupied hex loaded
+	# above, then hand it to hex_grid_view.set_origin_offset() BEFORE
+	# load_combatants() below so tokens are drawn centered on the very first
+	# frame -- never a token positioned first at Vector2.ZERO and only later
+	# shifted. This is the SAME CoordinateTransform.axial_to_pixel()/
+	# pixel_to_axial() shared transform every other consumer (drawing, click
+	# mapping, highlighting) already reads _origin_offset from (FEAT-001), so
+	# centering can never drift out of sync with them. ─────────────────────
+	centering_offset = _compute_boot_centering_offset(hex_combatants)
 	if hex_grid_view != null:
+		hex_grid_view.set_origin_offset(centering_offset)
 		hex_grid_view.load_combatants(hex_combatants)
 
 	var encounter_resource = ResourceLoader.load(PROLOGUE_ENCOUNTER_PATH)
@@ -494,6 +528,65 @@ func _ready() -> void:
 		+ "current_actor=" + str(round_session.current_actor().get("name", ""))
 		+ " round_over=" + str(round_session.is_round_over())
 	)
+
+	# ── FEAT-002 / US-002 (observability, per design notes): surface the
+	# resolved centering_offset once at boot so any future transform-drift
+	# regression (a token/grid rendering at the wrong screen position) is
+	# immediately visible in headless-boot logs, mirroring the ADR-003
+	# rationale already established for `resolved_seed`. ───────────────────
+	print("DEBUG: viewport_centering centering_offset=" + str(centering_offset))
+
+
+## _compute_boot_centering_offset(hex_combatants) -> Vector2 — FEAT-002
+## (US-002 / FR-012, ADR-003): builds the set of HexCoords whose combined
+## pixel extents this boot's centering offset must place within the
+## viewport -- the union of:
+##   1. the six corner HexCoords of the fixed hex-shaped background grid
+##      HexGridView renders (radius HexGridViewClass.GRID_RADIUS around the
+##      origin), and
+##   2. every occupied combatant hex_coord loaded from the prologue
+##      encounter (`hex_combatants`, from ResourceEncounterRepository) --
+## then delegates to presentation/infrastructure/coordinate_transform.gd
+## CoordinateTransform.compute_centering_offset() (FEAT-001's shared
+## transform module) for the actual pixel-space centering math, rather than
+## computing a second/independent offset here (ADR-003). The viewport size
+## is read from ProjectSettings' configured display/window size (falling
+## back to this project's actual configured default, DEFAULT_VIEWPORT_WIDTH/
+## HEIGHT, when unset) -- the game's real rendered window size in a normal
+## (non-headless) launch -- rather than the live Viewport's reported size,
+## which a headless test harness may report as an arbitrary small stub size
+## unrelated to how the project is actually meant to render (verified
+## against ProjectSettings directly by tests/gut/test_viewport_centering.gd).
+func _compute_boot_centering_offset(hex_combatants: Array) -> Vector2:
+	var extent_hexes: Array = _grid_extent_corner_hexes()
+	for combatant in hex_combatants:
+		if combatant.hex_coord != null:
+			extent_hexes.append(combatant.hex_coord)
+
+	var viewport_size := Vector2(
+		ProjectSettings.get_setting("display/window/size/viewport_width", DEFAULT_VIEWPORT_WIDTH),
+		ProjectSettings.get_setting("display/window/size/viewport_height", DEFAULT_VIEWPORT_HEIGHT)
+	)
+
+	return CoordinateTransformClass.compute_centering_offset(extent_hexes, viewport_size, HexGridViewClass.HEX_SIZE)
+
+
+## _grid_extent_corner_hexes() -> Array — the six HexCoords marking the
+## corners of the hex-shaped background grid HexGridView._draw() renders
+## (radius HexGridViewClass.GRID_RADIUS around the origin) -- the same
+## fixed rendered extent _compute_boot_centering_offset() above unions with
+## the occupied combatant hexes, so centering accounts for the visible
+## background grid, not merely the (much smaller) occupied-hex cluster.
+func _grid_extent_corner_hexes() -> Array:
+	var radius: int = HexGridViewClass.GRID_RADIUS
+	return [
+		HexCoordClass.new(radius, 0),
+		HexCoordClass.new(radius, -radius),
+		HexCoordClass.new(0, -radius),
+		HexCoordClass.new(-radius, 0),
+		HexCoordClass.new(-radius, radius),
+		HexCoordClass.new(0, radius),
+	]
 
 
 ## _presentation_event_subscribers() -> Array — every instantiated

@@ -40,6 +40,23 @@
 ## object exposing integer q/r fields (i.e. a core/geometry/hex_coord.gd
 ## HexCoord instance), matching the convention already established by
 ## core/geometry/hex_math.gd.
+##
+## compute_centering_offset(hex_coords, viewport_size, hex_size) → Vector2
+## (FEAT-002 / US-002 / FR-012, ADR-003): derives the ONE shared centering
+## offset a composition root (presentation/main_scene, i.e. MainScene.gd)
+## hands to HexGridView.set_origin_offset() so the grid/token battlefield
+## renders fully within the viewport at boot -- computed from the SAME
+## axial_to_pixel() this module already exposes (zero-offset pass) rather
+## than a second, independent pixel-space formula, so the resulting offset
+## is guaranteed consistent with every other axial<->pixel call site
+## (drawing, click mapping, highlighting, token positioning) once applied.
+## `hex_coords` is the caller-supplied set of HexCoords whose combined pixel
+## extents must fit the viewport -- normally the union of the rendered
+## grid's extent hexes and every occupied (combatant) hex, per this
+## feature's design notes ("compute grid/occupied-hex extents"). Returns
+## Vector2(viewport_size.x, viewport_size.y) / 2.0 (the plain viewport
+## center) when `hex_coords` is empty, so an empty board still centers on
+## something sane rather than producing a NaN/garbage offset.
 
 class_name CoordinateTransform
 
@@ -88,3 +105,32 @@ static func _round_to_hex_coord(q_frac: float, r_frac: float):
 		r = -q - s
 
 	return HexCoordClass.new(q, r)
+
+
+## compute_centering_offset(hex_coords, viewport_size, hex_size) → Vector2 —
+## see file-level doc. Derives the offset such that the pixel-space bounding
+## box of `hex_coords` (each hex padded by `hex_size` on every side, so a
+## hex's full drawn extent — not just its center point — is accounted for)
+## is centered within a `viewport_size`-sized rectangle. Uses the SAME
+## axial_to_pixel() above (with an implicit zero offset) to compute each raw
+## hex center, so this can never drift out of sync with how those hexes are
+## actually drawn once the returned offset is applied.
+static func compute_centering_offset(hex_coords: Array, viewport_size: Vector2, hex_size: float = DEFAULT_HEX_SIZE) -> Vector2:
+	var viewport_center: Vector2 = viewport_size / 2.0
+	if hex_coords.is_empty():
+		return viewport_center
+
+	var min_x: float = INF
+	var max_x: float = -INF
+	var min_y: float = INF
+	var max_y: float = -INF
+
+	for hex_coord in hex_coords:
+		var raw_pixel: Vector2 = axial_to_pixel(hex_coord, hex_size, Vector2.ZERO)
+		min_x = minf(min_x, raw_pixel.x - hex_size)
+		max_x = maxf(max_x, raw_pixel.x + hex_size)
+		min_y = minf(min_y, raw_pixel.y - hex_size)
+		max_y = maxf(max_y, raw_pixel.y + hex_size)
+
+	var content_center: Vector2 = Vector2((min_x + max_x) / 2.0, (min_y + max_y) / 2.0)
+	return viewport_center - content_center

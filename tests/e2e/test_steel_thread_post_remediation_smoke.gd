@@ -327,7 +327,7 @@ func test_hex_grid_view_resyncs_token_position_after_step_and_stride() -> void:
 
 	var grid_token = instance.hex_grid_view.get_token(PLAYER_ID)
 	assert_not_null(grid_token, "HexGridView must still have a token for the mover after a Step")
-	var expected_position_after_step: Vector2 = HexGridViewClass.axial_to_pixel(step_destination)
+	var expected_position_after_step: Vector2 = instance.hex_grid_view.axial_to_pixel_with_offset(step_destination)
 	assert_almost_eq(
 		grid_token.position, expected_position_after_step, Vector2(0.01, 0.01),
 		"HexGridView's token must resync to the combatant's new hex position after a Step via the real composition-root wiring"
@@ -345,7 +345,7 @@ func test_hex_grid_view_resyncs_token_position_after_step_and_stride() -> void:
 
 	var grid_token_after_stride = instance.hex_grid_view.get_token(PLAYER_ID)
 	assert_not_null(grid_token_after_stride, "HexGridView must still have a token for the mover after a Stride")
-	var expected_position_after_stride: Vector2 = HexGridViewClass.axial_to_pixel(stride_destination)
+	var expected_position_after_stride: Vector2 = instance.hex_grid_view.axial_to_pixel_with_offset(stride_destination)
 	assert_almost_eq(
 		grid_token_after_stride.position, expected_position_after_stride, Vector2(0.01, 0.01),
 		"HexGridView's token must resync to the combatant's new hex position after a Stride via the real composition-root wiring"

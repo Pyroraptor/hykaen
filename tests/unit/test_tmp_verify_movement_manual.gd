@@ -22,7 +22,7 @@ func test_manual_verify_step_through_real_main_scene() -> void:
 	gut.p("selectable strike targets after: " + str(instance.strike_action_control.get_selectable_target_ids()))
 
 	var token = instance.hex_grid_view.get_token(actor_after.get("combatant_id"))
-	gut.p("token position after move: " + str(token.position) + " expected: " + str(instance.hex_grid_view.axial_to_pixel(dest)))
+	gut.p("token position after move: " + str(token.position) + " expected: " + str(instance.hex_grid_view.axial_to_pixel_with_offset(dest)))
 
 	assert_true(actor_after.get("hex_coord").equals(dest), "actor must have actually moved to the clicked hex")
-	assert_almost_eq(token.position, instance.hex_grid_view.axial_to_pixel(dest), Vector2(0.01, 0.01))
+	assert_almost_eq(token.position, instance.hex_grid_view.axial_to_pixel_with_offset(dest), Vector2(0.01, 0.01))

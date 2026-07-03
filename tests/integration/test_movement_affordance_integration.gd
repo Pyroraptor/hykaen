@@ -218,8 +218,9 @@ func test_click_on_a_legal_hex_moves_the_combatant_and_resyncs_the_hex_grid_view
 		"the real HexGridView's token must resync its hex_coord to the new hex after a successful step_to()"
 	)
 	assert_eq(
-		token_after.position, HexGridViewClass.axial_to_pixel(destination),
-		"the real HexGridView's token must resync its rendered screen position to the new hex's ADR-004 axial-to-pixel projection"
+		token_after.position, instance.hex_grid_view.axial_to_pixel_with_offset(destination),
+		"the real HexGridView's token must resync its rendered screen position to the new hex's ADR-004 axial-to-pixel "
+		+ "projection, honoring the composition root's FEAT-002 viewport-centering origin offset"
 	)
 
 	# US-008 (design notes' API contract #4): the highlight is cleared
