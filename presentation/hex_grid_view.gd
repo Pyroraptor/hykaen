@@ -1,12 +1,14 @@
-## presentation/hex_grid_view.gd — HexGridView (FEAT-007 / US-005 / ADR-004)
+## presentation/hex_grid_view.gd — HexGridView (FEAT-007 / US-005 / ADR-004;
+## coordinate-transform extraction: FEAT-001 / US-001 / FR-011 / ADR-003)
 ##
 ## Presentation layer (Clean Architecture): renders the flat-top hex
-## battlefield and owns the ADR-004 axial-to-pixel translation. This
-## translation is kept in Presentation, NOT Domain (ADR-001) — mapping a
-## domain HexCoord to a screen-space Vector2 is a rendering concern, not a
-## combat rule, so core/geometry/hex_math.gd stays free of any pixel/Vector2
-## concept. HexGridView depends only on the read-only domain HexCoord value
-## object (core/geometry/hex_coord.gd) and never mutates domain state.
+## battlefield. The ADR-004 axial<->pixel translation formula itself lives in
+## presentation/infrastructure/coordinate_transform.gd (Infrastructure) — NOT
+## here and NOT in Domain (ADR-001: mapping a domain HexCoord to a
+## screen-space Vector2 is a rendering concern, not a combat rule, so
+## core/geometry/hex_math.gd stays free of any pixel/Vector2 concept).
+## HexGridView depends only on the read-only domain HexCoord value object
+## (core/geometry/hex_coord.gd) and never mutates domain state.
 ##
 ## Responsibilities:
 ##   1. Render the flat-top hex-cell grid (_draw()), covering GRID_RADIUS
@@ -19,17 +21,30 @@
 ##      core/domain/combatant.gd Combatant instance, as returned by
 ##      infrastructure/resource_encounter_repository.gd).
 ##
-## axial_to_pixel() is a `static func` — the single source of truth for the
-## ADR-004 flat-top axial-to-pixel formula, exercised directly by
-## tests/unit/presentation/test_hex_grid_view_mapping.gd without needing a
-## scene tree, and reused by CombatantTokenView (which preloads this script)
-## so the formula is never duplicated.
+## FEAT-001 (US-001 / FR-011 / ADR-003): token drawing (delegated to
+## CombatantTokenView.reposition(), which itself now consumes
+## CoordinateTransform directly), click-to-hex mapping (_unhandled_input()),
+## and highlight rendering (_draw_hex_cell(), which computes ONE `center` per
+## hex and reuses it for both the grid outline and the highlight fill) all
+## resolve through the SAME presentation/infrastructure/coordinate_transform.gd
+## CoordinateTransform.axial_to_pixel()/pixel_to_axial() calls, with the SAME
+## `_origin_offset` value (see set_origin_offset()/get_origin_offset()) —
+## eliminating the Iteration D class of bug where each consumer independently
+## recomputed the transform and could drift out of sync (a click on a
+## visibly highlighted hex resolving to the wrong axial coordinate).
+## axial_to_pixel()/pixel_to_axial() remain as `static func`s (with an
+## implicit zero offset) purely for backward-compatible callers that predate
+## the offset concept (e.g. tests/unit/presentation/test_hex_grid_view_mapping.gd);
+## they too delegate to CoordinateTransform rather than reimplementing the
+## formula, so there is exactly ONE place the flat-top axial<->pixel formula
+## is implemented anywhere in Presentation.
 
 class_name HexGridView
 extends Node2D
 
 const HexCoordClass = preload("res://core/geometry/hex_coord.gd")
 const CombatantTokenViewScene: PackedScene = preload("res://presentation/combatant_token_view.tscn")
+const CoordinateTransformClass = preload("res://presentation/infrastructure/coordinate_transform.gd")
 
 ## Pixel radius of one hex cell (center to corner), flat-top orientation.
 const HEX_SIZE: float = 48.0
@@ -49,6 +64,16 @@ const SELECTABLE_HEX_FILL_COLOR: Color = Color(0.35, 0.75, 0.35, 0.35)
 
 ## combatant_id (String) -> CombatantTokenView, populated by load_combatants().
 var _tokens: Dictionary = {}
+
+## FEAT-001 (US-001 / FR-011 / ADR-003): the shared screen-space origin
+## offset applied to EVERY axial<->pixel translation this view performs (grid
+## drawing, highlight rendering, click mapping) and hands to each
+## CombatantTokenView it positions (token drawing) — see set_origin_offset().
+## Defaults to Vector2.ZERO, matching this feature's pre-existing behavior
+## exactly (a future viewport-centering feature configures this via
+## set_origin_offset() rather than reintroducing a second/independent offset
+## computation).
+var _origin_offset: Vector2 = Vector2.ZERO
 
 ## FEAT-013 / US-013: the hexes currently highlighted as legal Step
 ## destinations (an Array of core/geometry/hex_coord.gd HexCoord instances),
@@ -75,7 +100,10 @@ func _draw() -> void:
 
 
 func _draw_hex_cell(coord) -> void:
-	var center: Vector2 = axial_to_pixel(coord, HEX_SIZE)
+	# FEAT-001: ONE offset-aware center Vector2, reused for BOTH the grid
+	# outline AND (when selectable) the highlight fill below -- highlight
+	# rendering has no separate transform of its own to drift out of sync.
+	var center: Vector2 = axial_to_pixel_with_offset(coord)
 	var points: PackedVector2Array = PackedVector2Array()
 	for i in range(7):
 		points.append(center + _hex_corner_offset(HEX_SIZE, i % 6))
@@ -97,7 +125,7 @@ func _is_selectable_hex(coord) -> bool:
 ## movement rule is evaluated here).
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		hex_clicked.emit(pixel_to_axial(get_local_mouse_position(), HEX_SIZE))
+		hex_clicked.emit(pixel_to_axial_with_offset(get_local_mouse_position()))
 
 
 ## _hex_corner_offset(size, corner_index) → Vector2 — the offset of one of
@@ -110,50 +138,63 @@ static func _hex_corner_offset(size: float, corner_index: int) -> Vector2:
 
 
 ## axial_to_pixel(hex_coord, hex_size) → Vector2 — ADR-004 flat-top axial
-## coordinate to screen-pixel translation:
-##   x = hex_size * (3/2 * q)
-##   y = hex_size * (sqrt(3)/2 * q + sqrt(3) * r)
-## `hex_coord` is duck-typed: any object exposing integer q/r fields (i.e. a
-## core/geometry/hex_coord.gd HexCoord instance).
+## coordinate to screen-pixel translation, delegated to
+## presentation/infrastructure/coordinate_transform.gd (FEAT-001) with an
+## implicit zero origin offset. Kept as a `static func` for
+## backward-compatible callers that predate the offset concept (e.g.
+## CombatantTokenView's default-offset path, existing tests); instance
+## callers that must honor this view's configured `_origin_offset` (drawing,
+## click mapping, highlight rendering) use axial_to_pixel_with_offset()
+## instead. `hex_coord` is duck-typed: any object exposing integer q/r
+## fields (i.e. a core/geometry/hex_coord.gd HexCoord instance).
 static func axial_to_pixel(hex_coord, hex_size: float = HEX_SIZE) -> Vector2:
-	var x: float = hex_size * (1.5 * hex_coord.q)
-	var y: float = hex_size * (sqrt(3.0) / 2.0 * hex_coord.q + sqrt(3.0) * hex_coord.r)
-	return Vector2(x, y)
+	return CoordinateTransformClass.axial_to_pixel(hex_coord, hex_size, Vector2.ZERO)
 
 
 ## pixel_to_axial(pixel, hex_size) → HexCoord — FEAT-013 / US-013: the
-## inverse of axial_to_pixel() (the exact algebraic inverse of the ADR-004
-## flat-top formula), rounded to the nearest whole hex via cube rounding
-## (_round_to_hex_coord()) so an arbitrary click position anywhere inside a
-## hex cell always resolves to that cell's HexCoord. Used by
-## _unhandled_input() to translate a player's click into hex_clicked().
+## inverse of axial_to_pixel(), delegated to CoordinateTransform (FEAT-001)
+## with an implicit zero origin offset. See axial_to_pixel()'s doc for why
+## this remains a `static func` alongside the offset-aware
+## pixel_to_axial_with_offset() instance method.
 static func pixel_to_axial(pixel: Vector2, hex_size: float = HEX_SIZE):
-	var q_frac: float = (2.0 / 3.0 * pixel.x) / hex_size
-	var r_frac: float = (-1.0 / 3.0 * pixel.x + sqrt(3.0) / 3.0 * pixel.y) / hex_size
-	return _round_to_hex_coord(q_frac, r_frac)
+	return CoordinateTransformClass.pixel_to_axial(pixel, hex_size, Vector2.ZERO)
 
 
-## _round_to_hex_coord(q_frac, r_frac) → HexCoord — standard cube-coordinate
-## rounding: rounds q/r/s independently, then discards whichever of the
-## three had the largest rounding error and re-derives it from the other
-## two, so the cube invariant q + r + s == 0 always holds for the result.
-static func _round_to_hex_coord(q_frac: float, r_frac: float):
-	var s_frac: float = -q_frac - r_frac
+## set_origin_offset(offset) → void — FEAT-001 (US-001 / FR-011 / ADR-003):
+## configures the shared screen-space origin offset applied to EVERY
+## axial<->pixel translation this view performs from now on (grid/highlight
+## drawing via axial_to_pixel_with_offset(), click mapping via
+## pixel_to_axial_with_offset()) AND handed to every CombatantTokenView this
+## view positions (load_combatants()/move_token()), so token drawing never
+## drifts out of sync with click mapping/highlight rendering. Defaults to
+## Vector2.ZERO (this feature's pre-existing behavior). Triggers a redraw so
+## an already-rendered grid/highlight immediately reflects the new offset.
+func set_origin_offset(offset: Vector2) -> void:
+	_origin_offset = offset
+	queue_redraw()
 
-	var q: int = roundi(q_frac)
-	var r: int = roundi(r_frac)
-	var s: int = roundi(s_frac)
 
-	var q_diff: float = absf(q - q_frac)
-	var r_diff: float = absf(r - r_frac)
-	var s_diff: float = absf(s - s_frac)
+## get_origin_offset() → Vector2 — the origin offset most recently configured
+## via set_origin_offset() (Vector2.ZERO if never called).
+func get_origin_offset() -> Vector2:
+	return _origin_offset
 
-	if q_diff > r_diff and q_diff > s_diff:
-		q = -r - s
-	elif r_diff > s_diff:
-		r = -q - s
 
-	return HexCoordClass.new(q, r)
+## axial_to_pixel_with_offset(hex_coord) → Vector2 — axial_to_pixel(), using
+## THIS view's currently configured `_origin_offset` (FEAT-001). The single
+## call site both _draw_hex_cell() (grid + highlight rendering) and
+## CombatantTokenView (token drawing, via the offset this view passes it)
+## are ultimately derived from.
+func axial_to_pixel_with_offset(hex_coord) -> Vector2:
+	return CoordinateTransformClass.axial_to_pixel(hex_coord, HEX_SIZE, _origin_offset)
+
+
+## pixel_to_axial_with_offset(pixel) → HexCoord — pixel_to_axial(), using
+## THIS view's currently configured `_origin_offset` (FEAT-001). Used by
+## _unhandled_input() so a click is always decoded with the SAME offset the
+## grid/highlights/tokens were drawn with.
+func pixel_to_axial_with_offset(pixel: Vector2):
+	return CoordinateTransformClass.pixel_to_axial(pixel, HEX_SIZE, _origin_offset)
 
 
 ## set_selectable_hexes(hexes) → void — FEAT-013 / US-013: highlights the
@@ -177,7 +218,7 @@ func set_selectable_hexes(hexes: Array) -> void:
 func move_token(combatant_id: String, new_hex_coord) -> void:
 	var token = _tokens.get(combatant_id, null)
 	if token != null:
-		token.reposition(new_hex_coord)
+		token.reposition(new_hex_coord, _origin_offset)
 
 
 ## load_combatants(combatants) → void — instantiates one CombatantTokenView
@@ -193,7 +234,7 @@ func load_combatants(combatants: Array) -> void:
 	for combatant in combatants:
 		var token = CombatantTokenViewScene.instantiate()
 		add_child(token)
-		token.set_combatant(combatant)
+		token.set_combatant(combatant, _origin_offset)
 		_tokens[combatant.combatant_id] = token
 
 

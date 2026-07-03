@@ -1,0 +1,90 @@
+## presentation/infrastructure/coordinate_transform.gd — CoordinateTransform
+## (FEAT-001 / US-001 / FR-011 / ADR-003)
+##
+## Infrastructure layer (Clean Architecture): the ONE shared, engine-light,
+## pure-function module for translating between a domain
+## core/geometry/hex_coord.gd HexCoord (axial q, r) and screen-space pixel
+## coordinates. This is Infrastructure rather than Domain because pixel/
+## screen space is a rendering concern (ADR-001 keeps core/geometry/
+## hex_math.gd free of any Vector2/pixel concept) — but it holds no Node/
+## Control state of its own and is independently unit-testable without a
+## scene tree.
+##
+## Iteration-D context (the bug this module exists to prevent by
+## construction): token drawing, click-to-hex mapping, and highlight
+## rendering each independently recomputed the axial<->pixel formula, so
+## they could (and did) drift out of sync — a click on a visibly highlighted
+## hex could resolve to the WRONG axial coordinate. Every consumer of the
+## axial<->pixel transform (presentation/hex_grid_view.gd's grid/highlight
+## drawing and click handling, presentation/combatant_token_view.gd's token
+## positioning) now calls THIS module's axial_to_pixel()/pixel_to_axial()
+## exclusively — there is no other place in Presentation the flat-top
+## axial<->pixel formula is implemented. Passing the SAME `offset` value to
+## every call site (e.g. a future viewport-centering offset, per ADR-003) is
+## what keeps drawing/clicking/highlighting mathematically guaranteed to
+## agree, rather than merely conventionally agreeing.
+##
+## axial_to_pixel(hex_coord, hex_size, offset) → Vector2 — ADR-004 flat-top
+## axial-to-pixel translation, translated by `offset`:
+##   x = offset.x + hex_size * (3/2 * q)
+##   y = offset.y + hex_size * (sqrt(3)/2 * q + sqrt(3) * r)
+##
+## pixel_to_axial(pixel, hex_size, offset) → HexCoord — the exact algebraic
+## inverse of axial_to_pixel() (accounting for `offset`), rounded to the
+## nearest whole hex via cube rounding so any click position inside a hex
+## cell resolves to that cell's HexCoord. Lossless round-trip with
+## axial_to_pixel() for every (hex_coord, hex_size, offset) combination —
+## see tests/gut/test_coordinate_transform.gd.
+##
+## Both functions are duck-typed on `hex_coord`/the returned HexCoord: any
+## object exposing integer q/r fields (i.e. a core/geometry/hex_coord.gd
+## HexCoord instance), matching the convention already established by
+## core/geometry/hex_math.gd.
+
+class_name CoordinateTransform
+
+const HexCoordClass = preload("res://core/geometry/hex_coord.gd")
+
+## Default pixel radius of one hex cell (center to corner), flat-top
+## orientation — mirrors presentation/hex_grid_view.gd's HEX_SIZE constant so
+## callers that omit `hex_size` get identical behavior to the rest of the
+## presentation stack.
+const DEFAULT_HEX_SIZE: float = 48.0
+
+
+## axial_to_pixel(hex_coord, hex_size, offset) → Vector2 — see file-level doc.
+static func axial_to_pixel(hex_coord, hex_size: float = DEFAULT_HEX_SIZE, offset: Vector2 = Vector2.ZERO) -> Vector2:
+	var x: float = hex_size * (1.5 * hex_coord.q)
+	var y: float = hex_size * (sqrt(3.0) / 2.0 * hex_coord.q + sqrt(3.0) * hex_coord.r)
+	return Vector2(x, y) + offset
+
+
+## pixel_to_axial(pixel, hex_size, offset) → HexCoord — see file-level doc.
+static func pixel_to_axial(pixel: Vector2, hex_size: float = DEFAULT_HEX_SIZE, offset: Vector2 = Vector2.ZERO):
+	var local: Vector2 = pixel - offset
+	var q_frac: float = (2.0 / 3.0 * local.x) / hex_size
+	var r_frac: float = (-1.0 / 3.0 * local.x + sqrt(3.0) / 3.0 * local.y) / hex_size
+	return _round_to_hex_coord(q_frac, r_frac)
+
+
+## _round_to_hex_coord(q_frac, r_frac) → HexCoord — standard cube-coordinate
+## rounding: rounds q/r/s independently, then discards whichever of the three
+## had the largest rounding error and re-derives it from the other two, so
+## the cube invariant q + r + s == 0 always holds for the result.
+static func _round_to_hex_coord(q_frac: float, r_frac: float):
+	var s_frac: float = -q_frac - r_frac
+
+	var q: int = roundi(q_frac)
+	var r: int = roundi(r_frac)
+	var s: int = roundi(s_frac)
+
+	var q_diff: float = absf(q - q_frac)
+	var r_diff: float = absf(r - r_frac)
+	var s_diff: float = absf(s - s_frac)
+
+	if q_diff > r_diff and q_diff > s_diff:
+		q = -r - s
+	elif r_diff > s_diff:
+		r = -q - s
+
+	return HexCoordClass.new(q, r)
