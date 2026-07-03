@@ -9,11 +9,12 @@ extends GutTest
 ## proves the SURVIVING presentation/* stack is not merely "not the
 ## battlefield stack" but is EXACTLY the expected composition —
 ##   1. MainScene's direct children are EXACTLY HexGridView, StatusPanelView,
-##      InitiativeView, EventLogView, StrikeActionControl, TurnController,
-##      EndTurnControl, ResultScreenView — no more, no less (movement_input_
-##      controller is the 9th presentation/* component, but a plain RefCounted
-##      adapter, not a scene Node, so it deliberately does not appear as a
-##      child — see test_mainscene_wires_movement_input_controller below).
+##      InitiativeView, EventLogView, StrikeActionControl, MoveActionControl
+##      (FEAT-007 / US-007), TurnController, EndTurnControl, ResultScreenView
+##      — no more, no less (movement_input_controller is a further
+##      presentation/* component, but a plain RefCounted adapter, not a scene
+##      Node, so it deliberately does not appear as a child — see
+##      test_mainscene_wires_movement_input_controller below).
 ##   2. Every player-facing interaction signal — hex_clicked (US-013 Step/
 ##      Stride), TurnController's "turn started" signal (active_actor_changed
 ##      — the design notes' API contract #1's turn_started, realized under
@@ -34,6 +35,7 @@ const StatusPanelViewClass         = preload("res://presentation/status_panel_vi
 const InitiativeViewClass          = preload("res://presentation/initiative_view.gd")
 const EventLogViewClass            = preload("res://presentation/event_log_view.gd")
 const StrikeActionControlClass     = preload("res://presentation/strike_action_control.gd")
+const MoveActionControlClass       = preload("res://presentation/MoveActionControl.gd")
 const EndTurnControlClass          = preload("res://presentation/end_turn_control.gd")
 const ResultScreenViewClass        = preload("res://presentation/result_screen_view.gd")
 const TurnControllerClass          = preload("res://presentation/turn_controller.gd")
@@ -58,6 +60,7 @@ const _EXPECTED_CHILDREN: Dictionary = {
 	"InitiativeView":      InitiativeViewClass,
 	"EventLogView":        EventLogViewClass,
 	"StrikeActionControl": StrikeActionControlClass,
+	"MoveActionControl":   MoveActionControlClass,
 	"TurnController":      TurnControllerClass,
 	"EndTurnControl":      EndTurnControlClass,
 	"ResultScreenView":    ResultScreenViewClass,

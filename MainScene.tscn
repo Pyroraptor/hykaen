@@ -1,4 +1,4 @@
-[gd_scene load_steps=9 format=3 uid="uid://hykaen_mainscene"]
+[gd_scene load_steps=10 format=3 uid="uid://hykaen_mainscene"]
 
 [ext_resource type="Script" path="res://MainScene.gd" id="1_mainscene"]
 [ext_resource type="PackedScene" path="res://presentation/hex_grid_view.tscn" id="2_hexgrid"]
@@ -9,6 +9,7 @@
 [ext_resource type="Script" path="res://presentation/turn_controller.gd" id="7_turncontroller"]
 [ext_resource type="PackedScene" path="res://presentation/end_turn_control.tscn" id="8_endturncontrol"]
 [ext_resource type="PackedScene" path="res://presentation/result_screen_view.tscn" id="9_resultscreenview"]
+[ext_resource type="PackedScene" path="res://presentation/MoveActionControl.tscn" id="10_moveactioncontrol"]
 
 [node name="MainScene" type="Node"]
 script = ExtResource("1_mainscene")
@@ -22,6 +23,8 @@ script = ExtResource("1_mainscene")
 [node name="EventLogView" parent="." instance=ExtResource("5_eventlogview")]
 
 [node name="StrikeActionControl" parent="." instance=ExtResource("6_strikeactioncontrol")]
+
+[node name="MoveActionControl" parent="." instance=ExtResource("10_moveactioncontrol")]
 
 [node name="TurnController" type="Node" parent="."]
 script = ExtResource("7_turncontroller")

@@ -317,6 +317,15 @@ var outcome: String = ""
 ## signal fires (FEAT-123 / FIND-120).
 @onready var strike_action_control = $StrikeActionControl
 
+## move_action_control — the MoveActionControl (presentation/
+## MoveActionControl.gd) instanced in MainScene.tscn (FEAT-007 / US-007 /
+## FR-002). A visible Move affordance, sibling to strike_action_control,
+## whose visibility this composition root binds to the SAME union(Step,
+## Stride) selectable-hex set _highlight_legal_moves() already computes and
+## pushes to hex_grid_view.set_selectable_hexes() (API contract #3) — never a
+## second, independently-derived legality check (ADR-001).
+@onready var move_action_control = $MoveActionControl
+
 ## movement_input_controller — the MovementInputController (presentation/
 ## movement_input_controller.gd) instantiated directly (FEAT-013 / US-013 --
 ## no companion .tscn, code-only instantiation). Reconfigured alongside
@@ -541,12 +550,18 @@ func _on_active_actor_changed(combatant: Dictionary) -> void:
 ## union here immediately afterward rather than relying on that internal
 ## push alone.
 ##
+## FEAT-007 / US-007 / FR-002: the SAME union is also handed to
+## move_action_control.configure(), so the visible Move affordance's
+## visibility is bound to exactly the same selectable-hex set hex_grid_view
+## highlights — never a second, independently-derived legality check
+## (ADR-001).
+##
 ## When `combatant` is not the active PLAYER (an enemy's turn), no highlight
 ## may be shown at all (API contract #1) — this defensively clears
-## hex_grid_view instead, even though TurnController.active_actor_changed
-## only ever fires for a settled player actor today (see
-## presentation/turn_controller.gd's _drive()); this handler must not rely on
-## that invariant holding forever.
+## hex_grid_view (and hides move_action_control) instead, even though
+## TurnController.active_actor_changed only ever fires for a settled player
+## actor today (see presentation/turn_controller.gd's _drive()); this
+## handler must not rely on that invariant holding forever.
 ##
 ## Emits a structured debug log line (observability requirement) including
 ## combatant_id and the Step/Stride hex counts that produced the highlighted
@@ -559,6 +574,8 @@ func _highlight_legal_moves(combatant: Dictionary, active_combatant_id: String) 
 	if is_enemy_turn:
 		if hex_grid_view != null:
 			hex_grid_view.set_selectable_hexes([])
+		if move_action_control != null:
+			move_action_control.configure([])
 		_last_highlight_debug_log = (
 			"DEBUG: highlight_legal_moves combatant_id=" + active_combatant_id
 			+ " step_hex_count=0 stride_hex_count=0 (non-player turn, highlight suppressed)"
@@ -568,9 +585,13 @@ func _highlight_legal_moves(combatant: Dictionary, active_combatant_id: String) 
 
 	var step_hexes: Array = movement_input_controller.get_selectable_step_hexes()
 	var stride_hexes: Array = movement_input_controller.get_selectable_stride_hexes()
+	var union_hexes: Array = _union_hexes(step_hexes, stride_hexes)
 
 	if hex_grid_view != null:
-		hex_grid_view.set_selectable_hexes(_union_hexes(step_hexes, stride_hexes))
+		hex_grid_view.set_selectable_hexes(union_hexes)
+
+	if move_action_control != null:
+		move_action_control.configure(union_hexes)
 
 	_last_highlight_debug_log = (
 		"DEBUG: highlight_legal_moves combatant_id=" + active_combatant_id
@@ -617,6 +638,8 @@ func _on_round_over() -> void:
 		outcome = round_session.outcome()
 	if strike_action_control != null:
 		strike_action_control.configure({}, null, null, [])
+	if move_action_control != null:
+		move_action_control.configure([])
 	movement_input_controller.configure({}, [])
 
 
