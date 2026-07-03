@@ -70,18 +70,22 @@
 #      tests/sim/test_balance_sim.gd, mirroring stage 1's convention.
 #
 #   7. Steel thread prologue-encounter E2E test
-#      (tests/integration/test_steel_thread_prologue_encounter.gd) —
-#      already covered by stage 5's full-project run, but called out here
-#      as its own explicit, clearly-labeled gate: it headlessly boots
-#      MainScene.tscn into prologue_encounter.tres, verifies the hex
-#      battlefield/status/initiative render, drives a player melee Strike
-#      and a full AI-controlled enemy turn through the real Presentation/
-#      event pipeline, confirms the Win/Loss ResultScreenView with input
-#      disabled afterward, and re-confirms determinism (NFR-002/006) by
-#      booting the same seeded encounter twice. Run via GUT's real CLI
-#      entry point with -gselect= scoped to this one script (mirroring
-#      stage 1/4/6's convention of invoking gut_cmdln.gd directly rather
-#      than the -- --gut-run-all/HeadlessRunner path).
+#      (tests/e2e/test_full_steel_thread_e2e.gd, FEAT-167) — already
+#      covered by stage 5's full-project run, but called out here as its
+#      own explicit, clearly-labeled gate: it headlessly boots the real
+#      MainScene.tscn composition root into prologue_encounter.tres and
+#      drives the COMPLETE steel thread end-to-end (turn-start highlight,
+#      a movement Step/Stride, a player melee Strike, a full
+#      AI-controlled enemy turn, and the post-resolution ResultScreenView
+#      lock with Strike/EndTurn/Move all disabled and the hex highlight
+#      cleared). DEF-002 fix (FEAT-172): this stage previously selected
+#      tests/integration/test_steel_thread_prologue_encounter.gd instead
+#      of the intended E2E capstone test; -gselect/-gdir now resolve
+#      directly to tests/e2e/test_full_steel_thread_e2e.gd (see
+#      tests/ci/test_pipeline_e2e_stage_config.py). Run via GUT's real
+#      CLI entry point with -gselect= scoped to this one script
+#      (mirroring stage 1/4/6's convention of invoking gut_cmdln.gd
+#      directly rather than the -- --gut-run-all/HeadlessRunner path).
 #
 # Exit code: 0 only if every stage above exits 0. `set -euo pipefail`
 # ensures a single failing assertion anywhere aborts the script
@@ -109,7 +113,7 @@ godot --headless -- --gut-run-all
 echo "=== [6/7] core/sim/simulator.gd N=1000 balance regression (NFR-006 / NFR-008 / NFR-009, tests/sim/test_balance_sim.gd) ==="
 godot --headless -s addons/gut/gut_cmdln.gd -gdir=res://tests/sim -gselect=test_balance_sim.gd -gexit
 
-echo "=== [7/7] Steel thread prologue-encounter E2E test ==="
-godot --headless -s addons/gut/gut_cmdln.gd -gselect=test_steel_thread_prologue_encounter.gd -gdir=res://tests/integration -ginclude_subdirs -gexit
+echo "=== [7/7] Steel thread prologue-encounter E2E test (tests/e2e/test_full_steel_thread_e2e.gd) ==="
+godot --headless -s addons/gut/gut_cmdln.gd -gselect=test_full_steel_thread_e2e.gd -gdir=res://tests/e2e -gexit
 
 echo "=== scripts/test_command.sh: all stages passed ==="

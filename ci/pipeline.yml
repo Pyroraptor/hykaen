@@ -105,17 +105,24 @@ stages:
   - id: steel_thread_prologue_encounter_e2e
     name: Steel thread prologue-encounter E2E test
     description: >
-      Headlessly boots MainScene.tscn into prologue_encounter.tres,
-      drives a player melee Strike and a full AI-controlled enemy turn
-      through the real Presentation/event pipeline, confirms the
-      Win/Loss ResultScreenView with input disabled afterward, and
-      re-confirms determinism (NFR-002/006). Already covered by
-      gut_full_suite, but declared as its own explicit, required stage
-      (FEAT-136, reconciled from the former FEAT-004 test_command).
+      Headlessly boots the real res://MainScene.tscn composition root
+      into prologue_encounter.tres and drives the COMPLETE steel thread
+      end-to-end (tests/e2e/test_full_steel_thread_e2e.gd, FEAT-167):
+      turn-start highlight, a movement Step/Stride, a player melee
+      Strike, a full AI-controlled enemy turn, and the post-resolution
+      ResultScreenView lock (Strike/EndTurn/Move all disabled, highlight
+      cleared). DEF-002 fix (FEAT-172): this stage's -gselect/-gdir
+      previously pointed at
+      tests/integration/test_steel_thread_prologue_encounter.gd, so this
+      dedicated, named gate never actually exercised the full steel
+      thread E2E test directly — it only ran incidentally as part of
+      gut_full_suite's whole-project sweep. The pairing below resolves
+      directly to tests/e2e/test_full_steel_thread_e2e.gd, and
+      tests/ci/test_pipeline_e2e_stage_config.py asserts this stays true.
     command: >-
       godot --headless -s addons/gut/gut_cmdln.gd
-      -gselect=test_steel_thread_prologue_encounter.gd
-      -gdir=res://tests/integration -ginclude_subdirs -gexit
+      -gselect=test_full_steel_thread_e2e.gd
+      -gdir=res://tests/e2e -gexit
     required: true
     optional: false
     allow_failure: false

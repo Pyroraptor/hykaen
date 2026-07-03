@@ -305,9 +305,16 @@ class TestPipelineStages:
     def test_steel_thread_e2e_stage_present_and_required(self, pipeline):
         """FEAT-136 (DEF-002/DEF-003): the steel-thread prologue-encounter
         E2E stage reconciled in from the former FEAT-004 test_command must
-        be declared, required, non-optional."""
+        be declared, required, non-optional.
+
+        FEAT-172 (DEF-002 fix): this stage's -gselect/-gdir now resolves
+        directly to tests/e2e/test_full_steel_thread_e2e.gd rather than
+        tests/integration/test_steel_thread_prologue_encounter.gd (see
+        tests/ci/test_pipeline_e2e_stage_config.py), so the stage is
+        located here by its stable id rather than by the old, now-fixed
+        selector string."""
         stages = self._stages(pipeline)
-        stage = self._find_stage(stages, "test_steel_thread_prologue_encounter")
+        stage = self._find_stage(stages, "steel_thread_prologue_encounter_e2e")
         assert stage.get("required") is True
         assert stage.get("allow_failure") is False
 
