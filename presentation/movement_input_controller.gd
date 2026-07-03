@@ -45,6 +45,25 @@
 ## Movement.stride() itself, via the SAME injected ActionEconomy instance
 ## StrikeActionControl/StrikeInputController already share for this actor).
 ##
+## FEAT-162 / US-010 (resolves DEF-001): lock()/is_locked() add the SAME
+## persistent, sticky post-resolution guard already added to
+## scenes/battlefield/StrikeInputController.gd (FEAT-010) and
+## presentation/end_turn_control.gd (FEAT-137 / DEF-004) -- once the
+## composition root's EventSinkPort subscriber (scenes/battlefield/
+## ResultScreen.gd / presentation/result_screen_view.gd) observes an
+## EncounterResultEvent it calls lock() here exactly as it already does for
+## those two controllers (ADR-005: no new event bus -- the SAME
+## EventSinkPort subscription drives every post-resolution lock), after
+## which step_to()/stride_to() always reject with
+## ERR_ENCOUNTER_ALREADY_RESOLVED regardless of any later configure() call.
+## This is deliberately independent of (and stickier than) a one-time
+## configure()-clear -- it survives a stray reconfigure() (e.g. a leftover
+## TurnController signal) after the encounter has already concluded (defense
+## in depth, mirroring the error_handling design note's
+## "ENCOUNTER_ALREADY_RESOLVED is a defensive domain-level guard behind [the
+## UI guard], in case the UI guard is bypassed"). There is no unlock() --
+## this steel thread never continues a round past resolution.
+##
 ## When a `hex_grid_view` (presentation/hex_grid_view.gd) collaborator is
 ## supplied, a successful Step also repositions that combatant's already-
 ## instantiated token via HexGridView.move_token() -- the SAME
@@ -74,6 +93,13 @@ const ERR_STRIDE_DESTINATION_NOT_SELECTABLE: String = "ERR_STRIDE_DESTINATION_NO
 ## US-014). Rejected HERE, before Movement.stride() is ever invoked.
 const ERR_ACTION_ECONOMY_MISSING: String = "ERR_ACTION_ECONOMY_MISSING"
 
+## FEAT-162 / US-010 (resolves DEF-001): local/defensive rejection code
+## returned by step_to()/stride_to() once lock() has been called -- mirrors
+## scenes/battlefield/StrikeInputController.gd's and
+## presentation/end_turn_control.gd's identically-named/valued contract
+## exactly.
+const ERR_ENCOUNTER_ALREADY_RESOLVED: String = "ENCOUNTER_ALREADY_RESOLVED"
+
 ## step_resolved(result) -- emitted after step_to() successfully invokes
 ## Movement.step(), carrying that call's full result Dictionary.
 signal step_resolved(result: Dictionary)
@@ -100,6 +126,7 @@ const _ERROR_MESSAGES: Dictionary = {
 	MovementClass.ERR_ACTION_UNAVAILABLE: "No action remains to Stride with this turn.",
 	ERR_STRIDE_DESTINATION_NOT_SELECTABLE: "That hex is not a legal Stride destination.",
 	ERR_ACTION_ECONOMY_MISSING: "No action economy is configured -- Stride is unavailable.",
+	ERR_ENCOUNTER_ALREADY_RESOLVED: "The encounter has already been resolved -- no further actions can be taken.",
 }
 const _DEFAULT_ERROR_MESSAGE: String = "That move could not be completed."
 
@@ -148,6 +175,37 @@ var _action_economy = null
 
 var _last_error_code: String = ""
 var _last_error_message: String = ""
+
+## FEAT-162 / US-010 (resolves DEF-001): true once lock() has been called --
+## sticky across any later configure() call (see file-level doc).
+## step_to()/stride_to() always reject with ERR_ENCOUNTER_ALREADY_RESOLVED
+## while true.
+var _locked: bool = false
+
+
+## lock() -> void -- permanently locks this controller (FEAT-162 / US-010,
+## resolves DEF-001): every subsequent step_to()/stride_to() call is
+## rejected with ERR_ENCOUNTER_ALREADY_RESOLVED, regardless of any later
+## configure() call. Intended to be called exactly once, by the composition
+## root's EventSinkPort subscriber (scenes/battlefield/ResultScreen.gd /
+## presentation/result_screen_view.gd), the moment an EncounterResultEvent
+## is observed -- mirrors scenes/battlefield/StrikeInputController.gd's and
+## presentation/end_turn_control.gd's lock() contract exactly. There is no
+## unlock() -- this steel thread never continues a round past resolution.
+##
+## Also immediately clears any selectable-destination highlighting on the
+## injected HexGridView (via _recompute_selectable_destinations(), which is
+## itself gated on _locked), so a destination is never left visibly marked
+## selectable post Win/Loss -- mirrors StrikeInputController.gd's lock()
+## clearing its own battlefield highlighting the same way.
+func lock() -> void:
+	_locked = true
+	_recompute_selectable_destinations()
+
+
+## is_locked() -> bool -- true once lock() has been called.
+func is_locked() -> bool:
+	return _locked
 
 
 ## configure(actor, other_combatants, hex_grid_view, actor_id, action_economy) -> void
@@ -250,6 +308,9 @@ func get_last_error_message() -> String:
 ## reposition, no domain call at all. Returns
 ## {"ok": false, "resolved": false, "error": ERR_DESTINATION_NOT_SELECTABLE}.
 func step_to(destination_hex) -> Dictionary:
+	if _locked:
+		return _fail(ERR_ENCOUNTER_ALREADY_RESOLVED)
+
 	if _find_selectable(destination_hex) == null:
 		return _fail(ERR_DESTINATION_NOT_SELECTABLE)
 
@@ -299,6 +360,9 @@ func step_to(destination_hex) -> Dictionary:
 ## action-economy spend, no token reposition, no domain call at all. Returns
 ## {"ok": false, "resolved": false, "error": ERR_STRIDE_DESTINATION_NOT_SELECTABLE}.
 func stride_to(destination_hex) -> Dictionary:
+	if _locked:
+		return _fail_stride(ERR_ENCOUNTER_ALREADY_RESOLVED)
+
 	if _action_economy == null:
 		return _fail_stride(ERR_ACTION_ECONOMY_MISSING)
 
@@ -353,7 +417,22 @@ func _fail_stride(error_code: String) -> Dictionary:
 	return {"ok": false, "resolved": false, "error": error_code}
 
 
+## _recompute_selectable_destinations() -> void -- recomputes
+## _selectable_destinations/_selectable_stride_destinations from the
+## currently configured actor. FEAT-162 / US-010 (resolves DEF-001): once
+## lock() has been called, this ALWAYS clears both destination sets (and
+## reports an empty selectable-hex set to `_hex_grid_view`, if configured,
+## clearing any highlighting) regardless of `_actor` -- called from both
+## lock() itself and from configure(), so a stray reconfigure() after lock()
+## can never resurrect a selectable destination, mirroring
+## StrikeInputController.gd's identical configure()-gating pattern.
 func _recompute_selectable_destinations() -> void:
+	if _locked:
+		_selectable_destinations = []
+		_selectable_stride_destinations = []
+		if _hex_grid_view != null:
+			_hex_grid_view.set_selectable_hexes([])
+		return
 	if _actor == null:
 		_selectable_destinations = []
 		_selectable_stride_destinations = []
