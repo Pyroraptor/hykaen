@@ -100,11 +100,15 @@ extends Node
 ##      (US-011) — giving the player-presses-EndTurn -> AI-turns-resolve flow
 ##      a single, non-duplicated entry point without introducing any new
 ##      public API on either control (ADR-002/CR-001 guardrail).
-##  11. $ResultScreenView (presentation/result_screen_view.gd, US-012) is
-##      configured with $StrikeActionControl/$EndTurnControl so that once the
-##      EncounterResultEvent this pipeline emits reaches it (via the SAME
-##      event-sink forwarding every other projection uses), it renders
-##      Win/Loss and disables both combat input controls.
+##  11. $ResultScreenView (presentation/result_screen_view.gd, US-012;
+##      FEAT-005 / US-005 / FR-011 / ADR-005) is configured with
+##      $StrikeActionControl/$EndTurnControl/movement_input_controller so
+##      that once the EncounterResultEvent this pipeline emits reaches it
+##      (via the SAME event-sink forwarding every other projection uses), it
+##      renders Win/Loss and uniformly locks all three combat/movement input
+##      controls via lock_all_controls() (idempotent, ADR-005 -- no new
+##      event bus, the SAME EventSinkPort subscription drives every
+##      post-resolution lock).
 ##
 ## No new ports or use cases are introduced here beyond the ADR-007-declared
 ## RoundSession stepwise API RunRoundUseCase already exposes (ADR-002 / CR-001
@@ -432,7 +436,7 @@ func _ready() -> void:
 	round_session = run_round_use_case.begin_round(ROUND_NUMBER, _party, _enemies)
 
 	if result_screen_view != null:
-		result_screen_view.configure(strike_action_control, end_turn_control)
+		result_screen_view.configure(strike_action_control, end_turn_control, movement_input_controller)
 
 	if turn_controller != null:
 		turn_controller.active_actor_changed.connect(_on_active_actor_changed)

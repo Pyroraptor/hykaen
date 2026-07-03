@@ -24,9 +24,11 @@
 ## matching every other Presentation projection's "unfamiliar event shape is a
 ## silent no-op" convention).
 ##
-## Disabling combat input controls (US-012, hardened by FEAT-137 / DEF-004)
-## reuses each control's EXISTING lock() API — no new method is added to
-## either control (ADR-002/CR-001: no duplicate/parallel disable surface):
+## Disabling combat input controls (US-012, hardened by FEAT-137 / DEF-004;
+## FEAT-005 / US-005 / FR-011 / ADR-005: uniformly extended to Movement)
+## reuses each control's EXISTING lock() API — no new method is added to any
+## of the three controls (ADR-002/CR-001: no duplicate/parallel disable
+## surface):
 ##   StrikeActionControl (presentation/strike_action_control.gd) — lock()
 ##     clears every selectable-target button (the same visible effect the
 ##     prior one-time configure({}, null, null, [])-clear had) AND
@@ -34,15 +36,35 @@
 ##     point on.
 ##   EndTurnControl (presentation/end_turn_control.gd) — lock() permanently
 ##     rejects press() and reports is_enabled() == false from that point on.
+##   MovementInputController (presentation/movement_input_controller.gd,
+##     FEAT-162 / DEF-001) — lock() clears every selectable Step/Stride
+##     destination (and any HexGridView highlight), and permanently rejects
+##     step_to()/stride_to() from that point on. This is the ONE remaining
+##     post-resolution input surface the removed scenes/battlefield/
+##     ResultScreen.gd already locked (via its own
+##     _movement_input_controller field) that presentation/result_screen_view.gd
+##     had not yet been wired to lock -- FEAT-005 closes that gap by
+##     migrating the SAME lock-wiring logic here, uniformly, as one
+##     operation (lock_all_controls()).
 ## Unlike the prior one-time configure()-clear technique, lock() is a
-## PERSISTENT, sticky guard: it survives any later configure() call on
-## either control (e.g. a stray reconfigure() from a leftover
-## TurnController signal) after the encounter has already concluded --
-## defense in depth, mirroring the error_handling design note's
-## "ENCOUNTER_ALREADY_RESOLVED is a defensive domain-level guard behind
-## [the UI guard], in case the UI guard is bypassed". Both controls are
-## OPTIONAL (configure() accepts either/both as null) so this view can be
-## unit-tested in isolation from either control.
+## PERSISTENT, sticky guard: it survives any later configure() call on any
+## of the three controls (e.g. a stray reconfigure() from a leftover
+## TurnController/active-actor-changed signal) after the encounter has
+## already concluded -- defense in depth, mirroring the error_handling
+## design note's "ENCOUNTER_ALREADY_RESOLVED is a defensive domain-level
+## guard behind [the UI guard], in case the UI guard is bypassed". All three
+## controls are OPTIONAL (configure() accepts any/all as null) so this view
+## can be unit-tested in isolation from any of them.
+##
+## lock_all_controls() (FEAT-005) is the single, idempotent operation that
+## performs this uniform lock -- called once from on_encounter_result_event()
+## when EncounterResolved (EncounterResultEvent) fires, but also exposed as a
+## public method so composition-root/test code may invoke it directly.
+## Idempotent: every one of Strike/EndTurn/MovementInputController's lock()
+## methods is itself idempotent (setting an already-true "locked" flag and
+## re-asserting an already-empty selectable/target set), so calling
+## lock_all_controls() any number of times produces the SAME end state with
+## no additional side effects beyond the first call.
 ##
 ## ResultScreenView MUST NOT call into either of the two Application-layer
 ## use cases that mutate combat state (the action-resolution use case or the
@@ -78,6 +100,12 @@ var _strike_action_control = null
 ## disables once an EncounterResultEvent is received. Optional, same as above.
 var _end_turn_control = null
 
+## The injected MovementInputController (presentation/
+## movement_input_controller.gd, FEAT-162 / DEF-001) this view locks once an
+## EncounterResultEvent is received (FEAT-005 / US-005 / FR-011 / ADR-005).
+## Optional, same no-op-if-null behavior as the two controls above.
+var _movement_input_controller = null
+
 ## True once an EncounterResultEvent has been processed and the result is
 ## being displayed.
 var _shown: bool = false
@@ -95,15 +123,18 @@ func _ready() -> void:
 		_result_label.text = ""
 
 
-## configure(strike_action_control, end_turn_control) -> void — injects the
-## combat input controls this view disables once shown (US-012). Both
-## parameters are OPTIONAL (default null); passing null for either simply
-## means this view will not attempt to disable that control. Safe to call
-## repeatedly (e.g. once per turn, mirroring the other controls' configure()
-## contracts) with no leaked state.
-func configure(strike_action_control = null, end_turn_control = null) -> void:
+## configure(strike_action_control, end_turn_control, movement_input_controller) -> void
+## — injects the combat input controls this view disables once shown
+## (US-012; movement_input_controller added by FEAT-005 / US-005). All three
+## parameters are OPTIONAL (default null); passing null for any simply means
+## this view will not attempt to lock that control. Safe to call repeatedly
+## (e.g. once per turn, mirroring the other controls' configure() contracts)
+## with no leaked state. `movement_input_controller` is appended as the LAST
+## parameter so pre-existing two-argument callers/tests are unaffected.
+func configure(strike_action_control = null, end_turn_control = null, movement_input_controller = null) -> void:
 	_strike_action_control = strike_action_control
 	_end_turn_control = end_turn_control
+	_movement_input_controller = movement_input_controller
 
 
 ## is_shown() -> bool — true once an EncounterResultEvent has been processed.
@@ -153,8 +184,30 @@ func on_encounter_result_event(event) -> void:
 		_result_label.text = _result_text
 		_result_label.visible = true
 
-	_disable_combat_controls()
+	lock_all_controls()
 	result_shown.emit(_result_text)
+
+
+## lock_all_controls() -> void — the single, idempotent post-resolution lock
+## operation (FEAT-005 / US-005 / FR-011 / ADR-005: the FEAT-162 lock-wiring
+## logic migrated from the removed scenes/battlefield/ResultScreen.gd,
+## reimplemented here uniformly across Strike, EndTurn, AND Movement).
+## Permanently locks every injected control via its EXISTING lock() API (see
+## file-level doc — no new method added to any of the three controls,
+## ADR-002/CR-001). FEAT-137 / DEF-004: lock() is persistent/sticky, unlike
+## the one-time configure()-clear this used to perform. Called automatically
+## once, from on_encounter_result_event(), but also exposed publicly so
+## callers (composition root, tests) may trigger the SAME operation
+## directly. Idempotent — safe to call any number of times: each injected
+## control's own lock() is itself idempotent, so a repeated call produces no
+## additional side effects beyond the first (see file-level doc).
+func lock_all_controls() -> void:
+	if _strike_action_control != null:
+		_strike_action_control.lock()
+	if _end_turn_control != null:
+		_end_turn_control.lock()
+	if _movement_input_controller != null:
+		_movement_input_controller.lock()
 
 
 # ── Internal helpers ─────────────────────────────────────────────────────
@@ -170,18 +223,6 @@ func _text_for_outcome(outcome: String) -> String:
 			return "Loss"
 		_:
 			return ""
-
-
-## _disable_combat_controls() -> void — permanently locks the injected
-## StrikeActionControl/EndTurnControl via their EXISTING lock() APIs (see
-## file-level doc — no new method added to either control, ADR-002/CR-001).
-## FEAT-137 / DEF-004: lock() is persistent/sticky, unlike the one-time
-## configure()-clear this method used to perform.
-func _disable_combat_controls() -> void:
-	if _strike_action_control != null:
-		_strike_action_control.lock()
-	if _end_turn_control != null:
-		_end_turn_control.lock()
 
 
 ## _event_has(event, key) → bool — true iff `event` (a Dictionary or an
