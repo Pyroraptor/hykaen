@@ -12,7 +12,7 @@ extends GutTest
 ##
 ## This test locks the convention in place: it scans res://tests
 ## recursively for any filename containing "steel_thread" or "steelthread"
-## (case-insensitive) and asserts the result set is EXACTLY the two files
+## (case-insensitive) and asserts the result set is EXACTLY the files
 ## that genuinely boot res://MainScene.tscn — no more, no fewer. A future
 ## test file that reintroduces the "steel thread" label without actually
 ## booting MainScene.tscn will fail this test.
@@ -20,13 +20,22 @@ extends GutTest
 ## Mirrors the acceptance check: `find tests -iname '*steel_thread*' -o
 ## -iname '*steelthread*'`.
 ##
-## Satisfies: DEF-005, US-011.
+## FEAT-141 (DEF-005 continuation): tests/e2e/
+## test_steel_thread_post_remediation_smoke.gd was added to this allow-list
+## because it, too, genuinely instantiates/boots res://MainScene.tscn (the
+## final post-remediation steel-thread smoke test) — see
+## test_allowed_steel_thread_files_actually_reference_main_scene() below,
+## which independently verifies every allow-listed file actually references
+## MainScene.
+##
+## Satisfies: DEF-005, US-011, FEAT-141.
 
-## The ONLY two filenames permitted to carry "steel_thread"/"steelthread" —
-## both genuinely instantiate/boot res://MainScene.tscn.
+## The ONLY filenames permitted to carry "steel_thread"/"steelthread" — all
+## genuinely instantiate/boot res://MainScene.tscn.
 const ALLOWED_STEEL_THREAD_PATHS: Array = [
 	"res://tests/integration/test_steel_thread_prologue_encounter.gd",
 	"res://tests/gut/test_steel_thread_e2e.gd",
+	"res://tests/e2e/test_steel_thread_post_remediation_smoke.gd",
 ]
 
 
