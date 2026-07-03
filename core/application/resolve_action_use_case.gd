@@ -64,6 +64,7 @@ extends RefCounted
 
 const RoundEventsClass = preload("res://core/rules/round_events.gd")
 const HexMathClass     = preload("res://core/geometry/hex_math.gd")
+const FlankingClass    = preload("res://core/rules/flanking.gd")
 
 ## Action names that are melee attacks and therefore subject to the
 ## hex_neighbors-based reach precondition (FEAT-003 / US-003). Only "Strike"
@@ -376,6 +377,19 @@ func _is_in_range(combatant: Dictionary, target: Dictionary) -> bool:
 ## resolve_weapon_attack(..., "ac", "none", {}) path exactly), rolled via the
 ## injected RandomNumberPort instead of a directly-held RNG instance.
 ##
+## FEAT-153 (US-015 / FR-016, resolves FIND-142/FIND-145): honors the
+## Off-Guard positional condition (core/rules/flanking.gd) the SAME way
+## core/rules/resolution.gd's legacy resolve_weapon_attack()/
+## resolve_spell_attack() path already does -- when `target`'s "conditions"
+## list carries Flanking.OFF_GUARD_CONDITION ("Off-Guard"), the effective
+## defense_value is reduced by Flanking.OFF_GUARD_BONUS (a flat 2) BEFORE the
+## hit/crit checks below, so the blanket +2 bonus reaches the live,
+## interactive Strike path this use case drives (MainScene.gd's
+## _refresh_off_guard_conditions() populates the live combatant Dictionary's
+## "conditions" key this reads -- see MainScene.gd). Targets with no
+## "conditions" key (every pre-FEAT-153 caller) see a reduction of 0 --
+## preserving the pre-existing contract exactly.
+##
 ## Returns {roll_total: int, hit: bool, crit: bool, damage_final: int,
 ##          defense_value: int}.
 func _resolve_strike(attacker: Dictionary, target: Dictionary, weapon: Dictionary) -> Dictionary:
@@ -383,7 +397,7 @@ func _resolve_strike(attacker: Dictionary, target: Dictionary, weapon: Dictionar
 	var attribute_mod: int = attacker.get(weapon["damage_modifier_attribute"], 0)
 	var roll_total: int = raw + attribute_mod + weapon["proficiency_bonus"]
 
-	var defense_value: int = target["ac"]
+	var defense_value: int = target["ac"] - _off_guard_defense_reduction(target)
 	var hit: bool = roll_total >= defense_value
 	var crit: bool = hit and (roll_total - defense_value) >= 10
 
@@ -402,3 +416,15 @@ func _resolve_strike(attacker: Dictionary, target: Dictionary, weapon: Dictionar
 		"damage_final":   damage_final,
 		"defense_value":  defense_value
 	}
+
+
+## _off_guard_defense_reduction(target) -> int — FEAT-153 (US-015 / FR-016):
+## returns Flanking.OFF_GUARD_BONUS (2) when `target`'s "conditions" list
+## carries Flanking.OFF_GUARD_CONDITION ("Off-Guard"), else 0. Mirrors
+## core/rules/resolution.gd's identically-named/behaved helper exactly (the
+## SAME domain constant/label, not a re-derived copy) so the live interactive
+## Strike path and the legacy resolution.gd path apply the bonus identically.
+func _off_guard_defense_reduction(target: Dictionary) -> int:
+	if FlankingClass.OFF_GUARD_CONDITION in target.get("conditions", []):
+		return FlankingClass.OFF_GUARD_BONUS
+	return 0

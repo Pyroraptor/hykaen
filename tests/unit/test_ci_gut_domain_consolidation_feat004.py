@@ -22,12 +22,13 @@ Verifies:
      test_round_session_ai_turn.gd [FEAT-111],
      test_movement_step.gd [FEAT-013], test_movement_stride.gd [FEAT-014],
      test_flanking.gd [FEAT-015],
-     test_resolve_action_ranged_reach.gd [FEAT-140]),
+     test_resolve_action_ranged_reach.gd [FEAT-140],
+     test_resolve_action_off_guard.gd [FEAT-153]),
      with should_exit true so the exit code is forwarded correctly in
      CI/headless runs.
   4. Actually running `godot --headless -- -gconfig=res://tests/.gutconfig.json
      --gut-run-all` (skipped if no `godot` binary is on PATH) passes and
-     reports all ten consolidated domain test files.
+     reports all eleven consolidated domain test files.
   5. Running the full `test_command` script end-to-end (skipped if no
      `godot` binary is on PATH) exits 0.
 
@@ -298,6 +299,18 @@ class TestConsolidatedGutConfig:
 # not 9; the assertions below were updated accordingly so this guard still
 # catches the ORIGINAL regression it targets without falsely flagging this
 # expected, intentional growth from 9 to 10 scripts.
+#
+# FEAT-153 note: tests/unit/core/application/test_resolve_action_off_guard.gd
+# (US-015 / FR-016, resolves FIND-142/FIND-145: the Off-Guard blanket +2
+# defense bonus reaching the LIVE Strike resolution path --
+# core/application/resolve_action_use_case.gd's resolve()/_resolve_strike(),
+# consulting core/rules/flanking.gd's OFF_GUARD_CONDITION/OFF_GUARD_BONUS the
+# same way core/rules/resolution.gd's legacy path already did) was added
+# under tests/unit/core/application/ by the identical established
+# convention. The consolidated domain suite therefore now legitimately
+# collects 11 scripts, not 10; the assertions below were updated accordingly
+# so this guard still catches the ORIGINAL regression it targets without
+# falsely flagging this expected, intentional growth from 10 to 11 scripts.
 
 # FEAT-136 / DEF-002 / DEF-003: the domain-suite command is now extracted
 # from scripts/test_command.sh (the canonical script), not from the
@@ -349,6 +362,7 @@ class TestConsolidatedDomainSuiteReallyPasses:
             "test_movement_stride",
             "test_flanking",
             "test_resolve_action_ranged_reach",
+            "test_resolve_action_off_guard",
         ):
             assert expected in output, (
                 f"Consolidated GUT run output must mention {expected}.gd"
@@ -358,8 +372,8 @@ class TestConsolidatedDomainSuiteReallyPasses:
         self, repo_root, canonical_script_text
     ):
         """US-014's consolidated domain suite must actually be SCOPED to the
-        domain/application test scripts under tests/unit/core (10, as of
-        FEAT-140 -- see the module-level note above), not silently fall back
+        domain/application test scripts under tests/unit/core (11, as of
+        FEAT-153 -- see the module-level note above), not silently fall back
         to running the whole project's ~46 GUT scripts. This guards against
         the -gconfig-ignored regression described above."""
         result = self._run(repo_root, canonical_script_text)
@@ -367,8 +381,8 @@ class TestConsolidatedDomainSuiteReallyPasses:
         match = re.search(r"Scripts\s+(\d+)", output)
         assert match, f"Could not find a 'Scripts  N' summary line. Output:\n{output}"
         scripts_run = int(match.group(1))
-        assert scripts_run == 10, (
-            "The consolidated domain GUT suite stage must run exactly the 10 "
+        assert scripts_run == 11, (
+            "The consolidated domain GUT suite stage must run exactly the 11 "
             f"domain/application test scripts under tests/unit/core, but ran "
             f"{scripts_run}. This means scripts/test_command.sh's domain "
             f"suite stage is not actually scoped via tests/.gutconfig.json."

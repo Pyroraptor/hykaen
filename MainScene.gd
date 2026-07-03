@@ -702,35 +702,50 @@ func _living_combatants(combatants: Array) -> Array:
 	return living
 
 
-## _refresh_off_guard_conditions() -> void — FEAT-015 (US-015 / FR-016):
-## recomputes Off-Guard for every living combatant on the field via
-## core/rules/flanking.gd's Flanking.is_off_guard() (pure domain positional
-## detector) and pushes the result into $StatusPanelView via
-## StatusPanelView.set_off_guard(), so the readout stays live as combatants
-## Step/Stride around the battlefield (US-015's "surfaced in the
-## per-combatant readout" criterion). Team affiliation -- which this
-## composition root, not the team-agnostic domain detector, is responsible
-## for supplying (see flanking.gd's file-level doc) -- is derived from
-## which of `_party`/`_enemies` a combatant belongs to: a party member's
-## candidate flankers are the living enemies, and vice versa. Called once at
-## boot (right after the initial StatusPanelView snapshot) and again after
-## every successful Step/Stride (_on_hex_grid_view_hex_clicked), since
-## either side's move can flank OR unflank any combatant on the field, not
-## only the mover itself.
+## _refresh_off_guard_conditions() -> void — FEAT-015 (US-015 / FR-016);
+## FEAT-153 (US-015 / FR-016, resolves FIND-142/FIND-145): recomputes
+## Off-Guard for every living combatant on the field via core/rules/
+## flanking.gd's Flanking.is_off_guard() (pure domain positional detector)
+## and:
+##   1. pushes the result into $StatusPanelView via
+##      StatusPanelView.set_off_guard(), so the readout stays live as
+##      combatants Step/Stride around the battlefield (US-015's "surfaced in
+##      the per-combatant readout" criterion), AND
+##   2. writes Flanking.off_guard_conditions() directly into the LIVE
+##      combatant Dictionary's "conditions" key (the SAME `_party`/`_enemies`
+##      entries core/application/resolve_action_use_case.gd's resolve()
+##      reads as its `target` argument via StrikeActionControl/RoundSession)
+##      so the FR-016 blanket +2 bonus this composition root's readout has
+##      always displayed also reaches the actual live Strike resolution path
+##      (FEAT-153 / FIND-142 -- previously this method only updated the
+##      read-only StatusPanelView projection, leaving the bonus dead in the
+##      real game loop even though core/rules/resolution.gd implemented it
+##      correctly for the unused legacy path).
+## Team affiliation -- which this composition root, not the team-agnostic
+## domain detector, is responsible for supplying (see flanking.gd's
+## file-level doc) -- is derived from which of `_party`/`_enemies` a
+## combatant belongs to: a party member's candidate flankers are the living
+## enemies, and vice versa. Called once at boot (right after the initial
+## StatusPanelView snapshot) and again after every successful Step/Stride
+## (_on_hex_grid_view_hex_clicked), since either side's move can flank OR
+## unflank any combatant on the field, not only the mover itself.
 func _refresh_off_guard_conditions() -> void:
-	if status_panel_view == null:
-		return
-
 	var living_party: Array = _living_combatants(_party)
 	var living_enemies: Array = _living_combatants(_enemies)
 
 	for combatant in _party:
 		var combatant_id: String = combatant.get("combatant_id", combatant.get("name", ""))
-		status_panel_view.set_off_guard(combatant_id, FlankingClass.is_off_guard(combatant, living_enemies))
+		var off_guard: bool = FlankingClass.is_off_guard(combatant, living_enemies)
+		combatant["conditions"] = FlankingClass.off_guard_conditions(combatant, living_enemies)
+		if status_panel_view != null:
+			status_panel_view.set_off_guard(combatant_id, off_guard)
 
 	for combatant in _enemies:
 		var combatant_id: String = combatant.get("combatant_id", combatant.get("name", ""))
-		status_panel_view.set_off_guard(combatant_id, FlankingClass.is_off_guard(combatant, living_party))
+		var off_guard: bool = FlankingClass.is_off_guard(combatant, living_party)
+		combatant["conditions"] = FlankingClass.off_guard_conditions(combatant, living_party)
+		if status_panel_view != null:
+			status_panel_view.set_off_guard(combatant_id, off_guard)
 
 
 ## _build_party_combatant(character_path, hex_coord, combatant_id) -> Dictionary
