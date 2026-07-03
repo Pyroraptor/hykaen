@@ -66,6 +66,18 @@
 ## lock_all_controls() any number of times produces the SAME end state with
 ## no additional side effects beyond the first call.
 ##
+## FEAT-008 / US-008 (FR-003): this is also the mechanism satisfying US-008's
+## "clear/keep-cleared the movement highlight post-resolution" requirement --
+## no new code is added here for that feature. lock_all_controls() ->
+## MovementInputController.lock() (presentation/movement_input_controller.gd)
+## already both clears any injected HexGridView's selectable-hex set
+## immediately AND permanently rejects every later configure()-driven
+## re-highlight attempt (sticky, FEAT-162/DEF-001), so a stray
+## turn_started/active_actor_changed re-fire after EncounterResolved can
+## never resurrect the highlight -- see
+## tests/business_logic/test_clear_highlight_triggers.gd and this file's
+## sibling tests/business_logic/test_result_screen_lock.gd.
+##
 ## ResultScreenView MUST NOT call into either of the two Application-layer
 ## use cases that mutate combat state (the action-resolution use case or the
 ## round-advancement use case) — directly or via preload — it is a read-only

@@ -681,11 +681,26 @@ func _on_end_turn_control_turn_ended(_result: Dictionary) -> void:
 ## position (Strike reach re-gate, FEAT-013/FEAT-014's test_criteria) --
 ## this composition root never re-derives that reach logic itself, it only
 ## re-triggers the SAME reconfiguration path US-009 already established.
+##
+## FEAT-008 / US-008 (FR-003, design notes' API contract #4): on a successful
+## Step OR Stride, hex_grid_view.set_selectable_hexes([]) is pushed
+## IMMEDIATELY -- before _on_active_actor_changed() below re-derives and
+## re-pushes whatever legal-move set now applies from the mover's new
+## position -- so the stale, pre-move highlight is never left visibly
+## selectable for even one frame while _refresh_off_guard_conditions()/
+## _on_active_actor_changed() do their (synchronous, but non-trivial) work.
+## movement_input_controller.step_to()/stride_to() themselves already push
+## their own (Step-only) selectable set to hex_grid_view as part of
+## re-deriving their internal destination cache (presentation/
+## movement_input_controller.gd's _recompute_selectable_destinations()) --
+## this explicit clear is pushed AFTER that internal push completes, so it is
+## always the last word before this composition root's own re-highlight.
 func _on_hex_grid_view_hex_clicked(hex_coord) -> void:
 	if round_session == null:
 		return
 	var step_result: Dictionary = movement_input_controller.step_to(hex_coord)
 	if step_result.get("ok", false):
+		_clear_movement_highlight()
 		_refresh_off_guard_conditions()
 		_on_active_actor_changed(round_session.current_actor())
 		return
@@ -695,8 +710,19 @@ func _on_hex_grid_view_hex_clicked(hex_coord) -> void:
 
 	var stride_result: Dictionary = movement_input_controller.stride_to(hex_coord)
 	if stride_result.get("ok", false):
+		_clear_movement_highlight()
 		_refresh_off_guard_conditions()
 		_on_active_actor_changed(round_session.current_actor())
+
+
+## _clear_movement_highlight() -> void — FEAT-008 / US-008 (FR-003): pushes an
+## empty selectable-hex set to hex_grid_view, when present. Factored out of
+## _on_hex_grid_view_hex_clicked() (called from both its Step and Stride
+## success branches) so there is exactly one place this composition root
+## clears the movement highlight after a successful move.
+func _clear_movement_highlight() -> void:
+	if hex_grid_view != null:
+		hex_grid_view.set_selectable_hexes([])
 
 
 ## _other_living_combatants(combatant) -> Array — every living (hp_current >
