@@ -14,30 +14,24 @@ extends GutTest
 ##      (infrastructure/seed_policy.gd's ADR-004 top-precedence contract) —
 ##      test_boots_real_main_scene_with_injected_seed_and_reaches_interactive_state()
 ##
-##   2. the full journey — hex battlefield / turn order / event log render at
-##      boot, a player Strike, a pass, an AI-resolved enemy turn (through the
-##      SAME resolve_action_use_case pipeline, core/combat/ai.gd), and the
-##      round concluding with exactly one EncounterResultEvent and a
-##      Win/Loss $ResultScreenView — completes and is asserted, immediately
-##      followed by test_criteria #4 (a stray reconfigure() call on
+##   2. the full journey — hex grid / event log render at boot, a player
+##      Strike, a pass, an AI-resolved enemy turn (through the SAME
+##      resolve_action_use_case pipeline, core/combat/ai.gd), and the round
+##      concluding with exactly one EncounterResultEvent and a Win/Loss
+##      $ResultScreenView — completes and is asserted, immediately followed
+##      by test_criteria #4 (a stray reconfigure() call on
 ##      $StrikeActionControl/$EndTurnControl after the result screen has
 ##      shown must remain locked/rejected — the FEAT-137/DEF-004
 ##      regression) —
 ##      test_full_journey_strike_pass_ai_turn_and_result_screen_stays_locked_through_stray_reconfigure()
 ##
-##   3. $HexBattlefield and $HexGridView (both real, both wired to the SAME
-##      real presentation/movement_input_controller.gd MainScene configures)
-##      agree on a combatant's position after a Step AND after a subsequent
-##      Stride — the FEAT-138/DEF-006 regression —
-##      test_hex_battlefield_and_hex_grid_view_agree_on_position_after_step_and_stride()
-##
-##   4. a ranged Strike within weapon range resolves successfully and one
+##   3. a ranged Strike within weapon range resolves successfully and one
 ##      beyond range is rejected with ERR_TARGET_OUT_OF_REACH, both driven
 ##      through MainScene's own real, wired resolve_action_use_case instance
 ##      — the FEAT-140/DEF-007 regression —
 ##      test_ranged_strike_within_reach_succeeds_and_beyond_reach_rejected_through_real_pipeline()
 ##
-##   5. scripts/test_command.sh (the sole canonical CI entry point, FEAT-133/
+##   4. scripts/test_command.sh (the sole canonical CI entry point, FEAT-133/
 ##      FEAT-136) exercises this file with no additional wiring required:
 ##      this file lives under res://tests/e2e, already covered by the root
 ##      .gutconfig.json's ("res://tests", include_subdirs=true) scope, which
@@ -46,11 +40,23 @@ extends GutTest
 ##      res://.gutconfig.json) and .github/workflows/test.yml's "Run GUT
 ##      tests" step already run.
 ##
+## FEAT-001 / US-001 (iteration D, "UI Consolidation + Movement UX", P0-2):
+## the duplicate res://scenes/battlefield/* UI stack this file's original
+## criterion 3 exercised through MainScene ($HexBattlefield's agreement with
+## $HexGridView after a Step/Stride) has been REMOVED from MainScene's
+## composition — there is now exactly one hex grid renderer. That criterion
+## is retired here rather than retargeted; HexBattlefield's own
+## move_token()/resync behavior remains independently covered by
+## tests/gut/test_hex_battlefield_movement_resync.gd and tests/gut/
+## test_movement_resync_wiring.gd (both instantiate scenes/battlefield/
+## HexBattlefield.tscn directly, unaffected by this composition-root
+## change), so no coverage is lost — only the now-meaningless "do the two
+## renderers agree" comparison is gone, since only one renderer remains.
+##
 ## No production code is modified for this feature (files_to_modify is empty)
 ## — every object driven below is the exact, unmodified, REUSED production
 ## class already covered by its own unit/integration suites (see
-## tests/gut/test_steel_thread_e2e.gd, tests/integration/
-## test_steel_thread_prologue_encounter.gd, tests/gut/
+## tests/integration/test_steel_thread_prologue_encounter.gd, tests/gut/
 ## test_presentation_controls_sticky_lock.gd, tests/gut/
 ## test_hex_battlefield_movement_resync.gd, tests/gut/
 ## test_movement_resync_wiring.gd, tests/unit/core/application/
@@ -63,6 +69,7 @@ const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 const RoundEventsClass    = preload("res://core/rules/round_events.gd")
 const HexCoordClass       = preload("res://core/geometry/hex_coord.gd")
 const ActionEconomyClass  = preload("res://core/rules/action_economy.gd")
+const HexGridViewClass    = preload("res://presentation/hex_grid_view.gd")
 
 ## The pinned deterministic-test fixture seed (matches
 ## data/encounters/prologue_encounter.tres' own `seed` field, 42) — injected
@@ -127,9 +134,6 @@ func test_boots_real_main_scene_with_injected_seed_and_reaches_interactive_state
 	assert_not_null(instance.round_session, "MainScene must obtain a real RoundSession via RunRoundUseCase.begin_round()")
 	assert_false(instance.round_session.is_round_over(), "the freshly-begun RoundSession must not already be over with zero player input")
 
-	assert_not_null(instance.hex_battlefield, "MainScene must expose a non-null hex_battlefield")
-	assert_eq(instance.hex_battlefield.get_combatant_count(), 2, "HexBattlefield must render one readout per live combatant (Titus + Skeleton)")
-
 	assert_not_null(instance.hex_grid_view, "MainScene must expose a non-null hex_grid_view")
 	assert_eq(instance.hex_grid_view.get_token_count(), 2, "HexGridView must render one token per live combatant")
 
@@ -158,9 +162,8 @@ func test_full_journey_strike_pass_ai_turn_and_result_screen_stays_locked_throug
 	var instance = _boot_main_scene_with_seed(SEED)
 	await get_tree().process_frame
 
-	# ── Boot-time render assertions (hex battlefield + turn order + event log) ─
-	assert_eq(instance.hex_battlefield.get_combatant_count(), 2, "HexBattlefield must render both combatants at boot")
-	assert_eq(instance.turn_order_widget.get_row_count(), 2, "TurnOrderWidget must show one row per combatant at boot")
+	# ── Boot-time render assertions (hex grid + event log) ──────────────────
+	assert_eq(instance.hex_grid_view.get_token_count(), 2, "HexGridView must render both combatant tokens at boot")
 	assert_eq(instance.event_log_view.get_entry_count(), 0, "fixture assumption: no events logged before any input")
 	assert_false(instance.result_screen_view.is_shown(), "fixture assumption: no result is shown before any input")
 
@@ -281,14 +284,17 @@ func test_full_journey_strike_pass_ai_turn_and_result_screen_stays_locked_throug
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Criterion 3 — HexBattlefield and HexGridView agree on a combatant's
-# position after a Step AND after a subsequent Stride, driven through the
-# REAL presentation/movement_input_controller.gd MainScene wires (both
-# renderer collaborators configured exactly as MainScene.gd's own
-# _on_active_actor_changed() does it -- FEAT-138/DEF-006).
+# Criterion 3 (retargeted, FEAT-001 / US-001) — HexGridView (the ONE kept hex
+# renderer, per iteration D's UI consolidation) resyncs a combatant's
+# rendered token position after a Step AND after a subsequent Stride, driven
+# through the REAL presentation/movement_input_controller.gd MainScene
+# wires (configured exactly as MainScene.gd's own
+# _on_active_actor_changed() does it). The original "HexBattlefield and
+# HexGridView agree" comparison (FEAT-138/DEF-006) is retired along with the
+# removed $HexBattlefield node -- see this file's header doc.
 # ══════════════════════════════════════════════════════════════════════════
 
-func test_hex_battlefield_and_hex_grid_view_agree_on_position_after_step_and_stride() -> void:
+func test_hex_grid_view_resyncs_token_position_after_step_and_stride() -> void:
 	var instance = _boot_main_scene_with_seed(SEED)
 	await get_tree().process_frame
 
@@ -312,17 +318,12 @@ func test_hex_battlefield_and_hex_grid_view_agree_on_position_after_step_and_str
 		"the real Movement.step() must update the live combatant Dictionary's hex_coord in place"
 	)
 
-	var battlefield_pos_after_step: Dictionary = instance.hex_battlefield.get_hex_position(PLAYER_ID)
-	assert_eq(battlefield_pos_after_step.get("q", null), step_destination.q, "HexBattlefield must resync q after a Step via the real composition-root wiring")
-	assert_eq(battlefield_pos_after_step.get("r", null), step_destination.r, "HexBattlefield must resync r after a Step via the real composition-root wiring")
-
-	var battlefield_readout = instance.hex_battlefield.get_readout(PLAYER_ID)
 	var grid_token = instance.hex_grid_view.get_token(PLAYER_ID)
-	assert_not_null(battlefield_readout, "HexBattlefield must still have a readout for the mover after a Step")
 	assert_not_null(grid_token, "HexGridView must still have a token for the mover after a Step")
+	var expected_position_after_step: Vector2 = HexGridViewClass.axial_to_pixel(step_destination)
 	assert_almost_eq(
-		battlefield_readout.position, grid_token.position, Vector2(0.01, 0.01),
-		"HexBattlefield and HexGridView must agree on the combatant's rendered position after a Step"
+		grid_token.position, expected_position_after_step, Vector2(0.01, 0.01),
+		"HexGridView's token must resync to the combatant's new hex position after a Step via the real composition-root wiring"
 	)
 
 	# From (-1,0), Stride to (-4,0) -- hex_distance 3, within Speed (4) and unoccupied.
@@ -335,19 +336,17 @@ func test_hex_battlefield_and_hex_grid_view_agree_on_position_after_step_and_str
 		"the real Movement.stride() must update the live combatant Dictionary's hex_coord in place"
 	)
 
-	var battlefield_pos_after_stride: Dictionary = instance.hex_battlefield.get_hex_position(PLAYER_ID)
-	assert_eq(battlefield_pos_after_stride.get("q", null), stride_destination.q, "HexBattlefield must resync q after a Stride via the real composition-root wiring")
-	assert_eq(battlefield_pos_after_stride.get("r", null), stride_destination.r, "HexBattlefield must resync r after a Stride via the real composition-root wiring")
-
 	var grid_token_after_stride = instance.hex_grid_view.get_token(PLAYER_ID)
+	assert_not_null(grid_token_after_stride, "HexGridView must still have a token for the mover after a Stride")
+	var expected_position_after_stride: Vector2 = HexGridViewClass.axial_to_pixel(stride_destination)
 	assert_almost_eq(
-		battlefield_readout.position, grid_token_after_stride.position, Vector2(0.01, 0.01),
-		"HexBattlefield and HexGridView must agree on the combatant's rendered position after a Stride"
+		grid_token_after_stride.position, expected_position_after_stride, Vector2(0.01, 0.01),
+		"HexGridView's token must resync to the combatant's new hex position after a Stride via the real composition-root wiring"
 	)
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Criterion 5 (test_criteria list item 4 for this file's numbering) — a
+# Criterion 4 (test_criteria list item 4 for this file's numbering) — a
 # ranged Strike within range succeeds and one beyond range is rejected,
 # within the same test run, driven through MainScene's own real, wired
 # resolve_action_use_case instance (FEAT-140/DEF-007).

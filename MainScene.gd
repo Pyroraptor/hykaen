@@ -1,12 +1,22 @@
 extends Node
 ## MainScene.gd — project composition root (ADR-006 / US-004 / FEAT-005;
-## FEAT-123 / US-004,009,010,011,012, FIND-120)
+## FEAT-123 / US-004,009,010,011,012, FIND-120; FEAT-001/US-001 UI
+## consolidation, iteration D)
 ##
 ## This is the SINGLE place Infrastructure adapters are wired to Application
 ## ports for the whole game (manual DI via the scene tree — no DI framework,
 ## per ADR-002). project.godot's run/main_scene points at MainScene.tscn
 ## (which attaches this script), so launching the project boots directly
 ## into the prologue encounter (US-004) — the steel thread's entry_point.
+##
+## Iteration D / FEAT-001 (US-001, ADR-002 single composition root): this
+## composition root now wires EXACTLY ONE presentation stack — HexGridView,
+## StatusPanelView, InitiativeView, EventLogView, StrikeActionControl,
+## EndTurnControl, TurnController, ResultScreenView, and the
+## movement_input_controller. The earlier, duplicate widget stack this file
+## used to also instantiate alongside it has been removed entirely — no
+## parallel hex grid, status readout, turn/initiative tracker, or result
+## screen remains wired here.
 ##
 ## Wiring performed in _ready():
 ##   1. ResourceEncounterRepository (infrastructure/resource_encounter_repository.gd)
@@ -113,8 +123,6 @@ const ResolveActionUseCaseClass        = preload("res://core/application/resolve
 const DetermineOutcomeUseCaseClass     = preload("res://core/application/determine_outcome_use_case.gd")
 const RunRoundUseCaseClass             = preload("res://core/application/run_round_use_case.gd")
 const AIClass                          = preload("res://core/combat/ai.gd")
-const StrikeInputControllerClass       = preload("res://scenes/battlefield/StrikeInputController.gd")
-const EndTurnControllerClass           = preload("res://scenes/battlefield/EndTurnController.gd")
 const MovementInputControllerClass     = preload("res://presentation/movement_input_controller.gd")
 const FlankingClass                    = preload("res://core/rules/flanking.gd")
 
@@ -272,19 +280,9 @@ var outcome: String = ""
 ## in MainScene.tscn (FEAT-007 / US-005). Populated with one
 ## CombatantTokenView per combatant loaded from the prologue encounter so a
 ## person running the project (not headless) sees the hex battlefield with
-## all combatants at boot.
+## all combatants at boot. This is the ONE hex grid renderer this
+## composition root wires (FEAT-001 / US-001, iteration D UI consolidation).
 @onready var hex_grid_view = $HexGridView
-
-## hex_battlefield — the HexBattlefield (scenes/battlefield/HexBattlefield.gd)
-## instanced in MainScene.tscn (FEAT-005 / US-005). Populated with the same
-## hex-positioned Combatant list as hex_grid_view above, PLUS the
-## name/HP/Stamina/action-budget/Spent/conditions view-model snapshot
-## already built for status_panel_view (step 5 in the file-level doc above)
-## so each of its per-combatant CombatantReadout children renders the full
-## US-005 readout in one composed widget. Subscribed to the same
-## event-sink forwarding every other Presentation projection uses
-## (ADR-003) so its readouts update live as Strikes resolve.
-@onready var hex_battlefield = $HexBattlefield
 
 ## status_panel_view — the StatusPanelView (presentation/status_panel_view.gd)
 ## instanced in MainScene.tscn (FEAT-008 / US-006). Populated with a
@@ -299,16 +297,6 @@ var outcome: String = ""
 ## combatant loaded from the prologue encounter, then updated per round
 ## event as the interactive session progresses.
 @onready var initiative_view = $InitiativeView
-
-## turn_order_widget — the TurnOrderWidget (scenes/battlefield/
-## TurnOrderWidget.gd) instanced as a child of $HexBattlefield in
-## HexBattlefield.tscn (FEAT-006 / US-006), completing the steel thread's
-## "turn order" surface alongside the hex battlefield renderer. Populated
-## with the SAME turn-order view-model snapshot handed to `initiative_view`
-## above (no separate initiative computation), then updated per
-## TurnAdvancedEvent as run_round_use_case's interactive cycle advances the
-## active combatant.
-@onready var turn_order_widget = $HexBattlefield/TurnOrderWidget
 
 ## event_log_view — the EventLogView (presentation/event_log_view.gd)
 ## instanced in MainScene.tscn (FEAT-010 / US-008). Append-only — starts
@@ -325,55 +313,25 @@ var outcome: String = ""
 ## signal fires (FEAT-123 / FIND-120).
 @onready var strike_action_control = $StrikeActionControl
 
-## strike_input_controller — the StrikeInputController (scenes/battlefield/
-## StrikeInputController.gd) instantiated directly (FEAT-007 / US-007 -- no
-## companion .tscn, mirroring scenes/battlefield/CombatantReadout.gd's
-## code-only-instantiation convention). Reconfigured alongside
-## strike_action_control every time TurnController's active_actor_changed
-## signal fires, so the SAME live actor/action-economy/targets data drives
-## both -- StrikeInputController never derives its own copy of that data.
-## Unlike strike_action_control, it is also handed `hex_battlefield`
-## (FEAT-005) so it can reuse that widget's already-loaded hex positions and
-## visibly mark in-range/out-of-range targets on it (US-007's UI-affordance
-## criterion), and it is handed `active_combatant_id` so
-## resolve_action_use_case can enforce turn order (defense in depth) on every
-## Strike this control forwards.
-var strike_input_controller = StrikeInputControllerClass.new()
-
 ## movement_input_controller — the MovementInputController (presentation/
 ## movement_input_controller.gd) instantiated directly (FEAT-013 / US-013 --
-## no companion .tscn, mirroring strike_input_controller's own
-## code-only-instantiation convention above). Reconfigured alongside
-## strike_action_control/strike_input_controller every time TurnController's
-## active_actor_changed signal fires, so the SAME live actor/occupancy data
-## drives it. Handed `hex_grid_view` (FEAT-007) so a successful Step/Stride
-## visibly repositions the mover's token there, and is wired to
-## hex_grid_view's hex_clicked signal (below) so clicking a highlighted hex
-## on the battlefield performs a Step (or, per FEAT-014 / US-014, a Stride
-## when the hex is beyond Step range but within Speed) -- the interactive
-## destination-picking UI FEAT-013/FEAT-014 add. A Step never goes through
-## resolve_action_use_case (it has no action-economy/event side effects,
-## core/rules/movement.gd, ADR-002) -- but it DOES move the SAME live
-## combatant Dictionary Strike reach reads from, so _on_active_actor_changed()
-## is re-invoked after every successful Step/Stride to re-gate
-## strike_action_control/strike_input_controller's in-reach target sets from
-## the new position. Also handed the active combatant's live ActionEconomy
-## (FEAT-014) so a Stride can spend the one action it requires from the SAME
-## shared budget StrikeActionControl/StrikeInputController already read from.
+## no companion .tscn, code-only instantiation). Reconfigured alongside
+## strike_action_control every time TurnController's active_actor_changed
+## signal fires, so the SAME live actor/occupancy data drives it. Handed
+## `hex_grid_view` (FEAT-007) so a successful Step/Stride visibly repositions
+## the mover's token there, and is wired to hex_grid_view's hex_clicked
+## signal (below) so clicking a highlighted hex on the battlefield performs
+## a Step (or, per FEAT-014 / US-014, a Stride when the hex is beyond Step
+## range but within Speed) -- the interactive destination-picking UI
+## FEAT-013/FEAT-014 add. A Step never goes through resolve_action_use_case
+## (it has no action-economy/event side effects, core/rules/movement.gd,
+## ADR-002) -- but it DOES move the SAME live combatant Dictionary Strike
+## reach reads from, so _on_active_actor_changed() is re-invoked after every
+## successful Step/Stride to re-gate strike_action_control's in-reach target
+## set from the new position. Also handed the active combatant's live
+## ActionEconomy (FEAT-014) so a Stride can spend the one action it requires
+## from the SAME shared budget StrikeActionControl already reads from.
 var movement_input_controller = MovementInputControllerClass.new()
-
-## end_turn_controller — the EndTurnController (scenes/battlefield/
-## EndTurnController.gd) instantiated directly (FEAT-008 / US-008 -- no
-## companion .tscn, mirroring strike_input_controller's own
-## code-only-instantiation convention above). Configured once with the live
-## round_session (round_session's identity is stable for the single round
-## this composition root drives, ADR-007), it is the round-advancement path
-## a player-facing "pass"/"end turn" affordance forwards to. Its turn_ended
-## signal is wired to the SAME _on_end_turn_control_turn_ended handler
-## $EndTurnControl already uses (below), so either input path re-invokes
-## TurnController.set_session() to auto-drive any consecutive Enemy turn(s)
-## before yielding back to the player (US-011) -- no duplicated wiring.
-var end_turn_controller = EndTurnControllerClass.new()
 
 ## turn_controller — the TurnController (presentation/turn_controller.gd)
 ## instanced in MainScene.tscn (FEAT-110/111, US-010/US-011). Handed the
@@ -386,17 +344,9 @@ var end_turn_controller = EndTurnControllerClass.new()
 
 ## result_screen_view — the ResultScreenView (presentation/
 ## result_screen_view.gd) instanced in MainScene.tscn (FEAT-112, US-012).
+## This is the ONE result screen this composition root wires (FEAT-001 /
+## US-001, iteration D UI consolidation).
 @onready var result_screen_view = $ResultScreenView
-
-## result_screen — the ResultScreen (scenes/battlefield/ResultScreen.gd)
-## instanced in MainScene.tscn (FEAT-010, US-010). Configured with the live
-## _party/_enemies combatant Dictionaries plus strike_input_controller/
-## end_turn_controller (scenes/battlefield/, FEAT-007/FEAT-008) so that once
-## the EncounterResultEvent this pipeline emits reaches it (via the SAME
-## event-sink forwarding every other projection uses), it renders Win/Loss
-## with the final combatant snapshot and full event log, and locks both
-## scenes/battlefield/ input controllers (US-010's exit_point).
-@onready var result_screen = $ResultScreen
 
 ## _party / _enemies — the live combatant Dictionaries built at boot,
 ## mutated in place by every resolved Strike throughout the interactive
@@ -459,16 +409,10 @@ func _ready() -> void:
 		status_panel_view.load_combatants(status_view_models)
 		_refresh_off_guard_conditions()
 
-	if hex_battlefield != null:
-		hex_battlefield.load_combatants(hex_combatants, status_view_models)
-
 	var initiative_view_models: Array = _build_initiative_view_models(hex_combatants, _party, _enemies, encounter)
 
 	if initiative_view != null:
 		initiative_view.load_combatants(initiative_view_models)
-
-	if turn_order_widget != null:
-		turn_order_widget.load_combatants(initiative_view_models)
 
 	event_sink.forward_to = _presentation_event_subscribers()
 
@@ -487,18 +431,8 @@ func _ready() -> void:
 
 	round_session = run_round_use_case.begin_round(ROUND_NUMBER, _party, _enemies)
 
-	# ── FEAT-008 / US-008: bind the new EndTurnController to the SAME live
-	# round_session -- the round-advancement path a "pass"/"end turn" input
-	# forwards to (ADR-007: reuses run_round_use_case's RoundSession, no
-	# duplicate turn-sequencing path). ──────────────────────────────────────
-	end_turn_controller.configure(round_session)
-	end_turn_controller.turn_ended.connect(_on_end_turn_control_turn_ended)
-
 	if result_screen_view != null:
 		result_screen_view.configure(strike_action_control, end_turn_control)
-
-	if result_screen != null:
-		result_screen.configure(_party + _enemies, strike_input_controller, end_turn_controller, movement_input_controller)
 
 	if turn_controller != null:
 		turn_controller.active_actor_changed.connect(_on_active_actor_changed)
@@ -527,26 +461,16 @@ func _ready() -> void:
 
 ## _presentation_event_subscribers() -> Array — every instantiated
 ## Presentation projection that subscribes to the EventSinkPort broadcast
-## (ADR-003): StatusPanelView/InitiativeView/EventLogView/ResultScreenView/
-## HexBattlefield. HexGridView (the earlier, positional-only hex renderer)
-## is NOT an EventSinkPort subscriber (a Strike never moves a combatant in
-## this steel thread) — see presentation/turn_controller.gd's file-level doc
-## for the precedent this mirrors. HexBattlefield (FEAT-005 / US-005) IS a
-## subscriber because its per-combatant CombatantReadout children must
-## update HP/conditions live as AttackEvent/CombatantDefeatedEvent fire.
-## turn_order_widget (FEAT-006 / US-006) is likewise a subscriber, so its
-## active-combatant highlight advances live on every TurnAdvancedEvent,
-## exactly like initiative_view's existing subscription. result_screen
-## (scenes/battlefield/ResultScreen.gd, FEAT-010) is also a subscriber, so it
-## renders Win/Loss (with the final combatant snapshot and full event log)
-## and locks the scenes/battlefield/ input controllers the moment
-## EncounterResultEvent reaches it, exactly like result_screen_view's
-## existing subscription for its presentation/ counterparts.
+## (ADR-003): StatusPanelView/InitiativeView/EventLogView/ResultScreenView.
+## HexGridView (the positional-only hex renderer) is NOT an EventSinkPort
+## subscriber (a Strike never moves a combatant in this steel thread) — see
+## presentation/turn_controller.gd's file-level doc for the precedent this
+## mirrors. This is the single, non-duplicated set of subscribers this
+## composition root wires (FEAT-001 / US-001, iteration D UI consolidation).
 func _presentation_event_subscribers() -> Array:
 	var subscribers: Array = []
 	for view in [
 		status_panel_view, initiative_view, event_log_view, result_screen_view,
-		hex_battlefield, turn_order_widget, result_screen,
 	]:
 		if view != null:
 			subscribers.append(view)
@@ -558,11 +482,10 @@ func _presentation_event_subscribers() -> Array:
 ## (player) current actor, whether at boot or after auto-driving a run of
 ## Enemy turns (FEAT-123 / FIND-120). Reconfigures $StrikeActionControl with
 ## the live actor/action-economy/live-target data TurnController itself does
-## not own (see turn_controller.gd's documented division of responsibility).
-## Also reconfigures strike_input_controller (FEAT-007) with that SAME data
-## plus hex_battlefield, so its in-range/out-of-range affordance and its
-## resolve_action_use_case wiring both stay live for whichever combatant's
-## turn it now is -- no separate data path of its own.
+## not own (see turn_controller.gd's documented division of responsibility),
+## and reconfigures movement_input_controller with that SAME data so its
+## Step/Stride affordance stays live for whichever combatant's turn it now
+## is -- no separate data path of its own.
 func _on_active_actor_changed(combatant: Dictionary) -> void:
 	if round_session == null:
 		return
@@ -580,24 +503,12 @@ func _on_active_actor_changed(combatant: Dictionary) -> void:
 			0
 		)
 
-	strike_input_controller.configure(
-		combatant,
-		action_economy,
-		resolve_action_use_case,
-		living_enemies,
-		active_combatant_id,
-		ROUND_NUMBER,
-		0,
-		hex_battlefield
-	)
-
 	movement_input_controller.configure(
 		combatant,
 		_other_living_combatants(combatant),
 		hex_grid_view,
 		active_combatant_id,
-		action_economy,
-		hex_battlefield
+		action_economy
 	)
 
 
@@ -607,20 +518,18 @@ func _on_active_actor_changed(combatant: Dictionary) -> void:
 ## even for the case where the round ends without a decided
 ## EncounterResultEvent (ResultScreenView only reacts to that terminal
 ## event; this is a defensive backstop for that gap, FEAT-123). Also clears
-## strike_input_controller (FEAT-007) the same way.
+## movement_input_controller's selectable destinations the same way.
 func _on_round_over() -> void:
 	if round_session != null:
 		outcome = round_session.outcome()
 	if strike_action_control != null:
 		strike_action_control.configure({}, null, null, [])
-	strike_input_controller.configure({}, null, null, [])
 	movement_input_controller.configure({}, [])
 
 
-## _on_end_turn_control_turn_ended(_result) -> void — either $EndTurnControl's
-## own press() OR end_turn_controller's press() (FEAT-008 / US-008 — both
-## forward directly to the SAME RoundSession.end_current_turn(), US-010) emit
-## this signal (connected to both, above) with that call's result. This
+## _on_end_turn_control_turn_ended(_result) -> void — $EndTurnControl's own
+## press() forwards directly to RoundSession.end_current_turn() (US-010),
+## then emits this signal (connected above) with that call's result. This
 ## composition root reacts by re-invoking TurnController.set_session() with
 ## the SAME RoundSession (documented safe to call repeatedly) so any
 ## consecutive Enemy turn(s) the cursor now sits on are auto-driven via
@@ -652,11 +561,10 @@ func _on_end_turn_control_turn_ended(_result: Dictionary) -> void:
 ## active_actor_changed signal) is simply rejected by both controllers with
 ## no effect. On a successful Step OR Stride, re-invokes
 ## _on_active_actor_changed() with the SAME (now-moved) current actor so
-## strike_action_control/strike_input_controller re-gate their in-reach
-## target sets from the new position (Strike reach re-gate, FEAT-013/
-## FEAT-014's test_criteria) -- this composition root never re-derives that
-## reach logic itself, it only re-triggers the SAME reconfiguration path
-## US-009 already established.
+## strike_action_control re-gates its in-reach target set from the new
+## position (Strike reach re-gate, FEAT-013/FEAT-014's test_criteria) --
+## this composition root never re-derives that reach logic itself, it only
+## re-triggers the SAME reconfiguration path US-009 already established.
 func _on_hex_grid_view_hex_clicked(hex_coord) -> void:
 	if round_session == null:
 		return
@@ -709,7 +617,7 @@ func _living_combatants(combatants: Array) -> Array:
 ## and:
 ##   1. pushes the result into $StatusPanelView via
 ##      StatusPanelView.set_off_guard(), so the readout stays live as
-##      combatants Step/Stride around the battlefield (US-015's "surfaced in
+##      combatants Step/Stride around the field (US-015's "surfaced in
 ##      the per-combatant readout" criterion), AND
 ##   2. writes Flanking.off_guard_conditions() directly into the LIVE
 ##      combatant Dictionary's "conditions" key (the SAME `_party`/`_enemies`

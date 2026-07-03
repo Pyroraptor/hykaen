@@ -34,13 +34,23 @@ extends GutTest
 ## steel-thread regression, and it, too, genuinely instantiates/boots
 ## res://MainScene.tscn.
 ##
-## Satisfies: DEF-005, US-011, FEAT-141, FEAT-159.
+## FEAT-001 (US-001, iteration D "UI Consolidation + Movement UX", P0-2):
+## tests/gut/test_steel_thread_e2e.gd was deleted — it exclusively drove the
+## duplicate scenes/battlefield/* UI stack (HexBattlefield/TurnOrderWidget/
+## StrikeInputController/EndTurnController/ResultScreen) through MainScene,
+## and that stack's wiring has been removed from MainScene.gd/.tscn
+## entirely. Its own file-level doc already noted the newer presentation/*
+## stack has independent, equivalent end-to-end coverage in
+## tests/integration/test_steel_thread_prologue_encounter.gd and
+## tests/e2e/test_prologue_encounter_e2e_smoke.gd, so no MainScene-booting
+## coverage was lost by its removal.
+##
+## Satisfies: DEF-005, US-011, FEAT-141, FEAT-159, FEAT-001.
 
 ## The ONLY filenames permitted to carry "steel_thread"/"steelthread" — all
 ## genuinely instantiate/boot res://MainScene.tscn.
 const ALLOWED_STEEL_THREAD_PATHS: Array = [
 	"res://tests/integration/test_steel_thread_prologue_encounter.gd",
-	"res://tests/gut/test_steel_thread_e2e.gd",
 	"res://tests/e2e/test_steel_thread_post_remediation_smoke.gd",
 	"res://tests/unit/test_steel_thread_prologue_encounter.gd",
 ]
