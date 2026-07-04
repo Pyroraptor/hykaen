@@ -9,25 +9,36 @@ extends GutTest
 ## proves the SURVIVING presentation/* stack is not merely "not the
 ## battlefield stack" but is EXACTLY the expected composition —
 ##   1. MainScene's direct children are EXACTLY HexGridView, StatusPanelView,
-##      InitiativeView, EventLogView, MoveActionControl (FEAT-007 / US-007),
-##      TurnController, EndTurnControl, VerbBarView, ResultScreenView — no
-##      more, no less (movement_input_controller is a further presentation/*
-##      component, but a plain RefCounted adapter, not a scene Node, so it
-##      deliberately does not appear as a child — see
+##      InitiativeView, EventLogView, TurnController, EndTurnControl,
+##      VerbBarView, ResultScreenView — no more, no less
+##      (movement_input_controller is a further presentation/* component, but
+##      a plain RefCounted adapter, not a scene Node, so it deliberately does
+##      not appear as a child — see
 ##      test_mainscene_wires_movement_input_controller below). FEAT-006
 ##      (US-006) removed the earlier StrikeActionControl child -- Strike is
 ##      now driven solely through MainScene's `_verb_registry` STRIKE entry
 ##      (see test_strike_verb_is_wired_to_the_presentation_stack_and_resolves_a_strike
-##      below), never a dedicated presentation/* node of its own.
-##   2. Every player-facing interaction signal — hex_clicked (US-013 Step/
-##      Stride), TurnController's "turn started" signal (active_actor_changed
-##      — the design notes' API contract #1's turn_started, realized under
-##      that name in this codebase), EndTurnControl's turn_ended, and an End
-##      Turn button press — is connected exclusively to a handler that is
-##      either a presentation/* component's own method or this composition
-##      root's (MainScene.gd's) forwarding method, never a
-##      scenes/battlefield/* handler; a Strike verb-registry execute() also
-##      resolves through the SAME, REUSED resolve_action_use_case.
+##      below), never a dedicated presentation/* node of its own. FEAT-007
+##      (this iteration's US-007/FR-010) removed the earlier
+##      MoveActionControl child (presentation/MoveActionControl.gd has been
+##      deleted entirely) -- Step/Stride are likewise now driven solely
+##      through `_verb_registry`'s STEP/STRIDE entries (see
+##      test_step_and_stride_verbs_are_wired_to_the_presentation_stack_and_move_the_token
+##      below), never a passive indicator Control of their own.
+##   2. Every player-facing interaction signal — TurnController's "turn
+##      started" signal (active_actor_changed — the design notes' API
+##      contract #1's turn_started, realized under that name in this
+##      codebase), EndTurnControl's turn_ended, and an End Turn button press —
+##      is connected exclusively to a handler that is either a presentation/*
+##      component's own method or this composition root's (MainScene.gd's)
+##      forwarding method, never a scenes/battlefield/* handler; a Strike/
+##      Step/Stride verb-registry execute() also resolves through the SAME,
+##      REUSED resolve_action_use_case / movement_input_controller. FEAT-007
+##      (this iteration): HexGridView.hex_clicked is deliberately no longer
+##      wired to any MainScene handler at all (the legacy "click a highlighted
+##      hex to auto Step-or-Stride" affordance has been removed) — see
+##      test_hex_clicked_signal_is_no_longer_wired_to_the_composition_root
+##      below.
 ##   3. MainScene.tscn still boots headlessly with zero compile/runtime
 ##      errors after this feature's re-verification (a fast regression signal
 ##      local to this suite, mirroring test_mainscene_headless_boot.gd's
@@ -39,7 +50,6 @@ const HexGridViewClass             = preload("res://presentation/hex_grid_view.g
 const StatusPanelViewClass         = preload("res://presentation/status_panel_view.gd")
 const InitiativeViewClass          = preload("res://presentation/initiative_view.gd")
 const EventLogViewClass            = preload("res://presentation/event_log_view.gd")
-const MoveActionControlClass       = preload("res://presentation/MoveActionControl.gd")
 const EndTurnControlClass          = preload("res://presentation/end_turn_control.gd")
 const ResultScreenViewClass        = preload("res://presentation/result_screen_view.gd")
 const TurnControllerClass          = preload("res://presentation/turn_controller.gd")
@@ -50,7 +60,7 @@ const VerbBarViewClass             = preload("res://presentation/verb_bar_view.g
 ## composition root itself (MainScene.gd, res:// root, NOT presentation/*) is
 ## also legitimate — it is the single place Infrastructure/Application
 ## adapters are wired to Presentation (ADR-002), so its own forwarding
-## methods (e.g. _on_hex_grid_view_hex_clicked) are the expected target for
+## methods (e.g. _on_end_turn_control_turn_ended) are the expected target for
 ## several of these signals.
 const _PRESENTATION_SCRIPT_PREFIX: String = "res://presentation/"
 const _COMPOSITION_ROOT_SCRIPT_PATH: String = "res://MainScene.gd"
@@ -64,12 +74,15 @@ const _COMPOSITION_ROOT_SCRIPT_PATH: String = "res://MainScene.gd"
 ## original FEAT-002 set: the Layer 1 verb bar is a legitimate, additional
 ## presentation/* component wired into MainScene.tscn, not a re-introduction
 ## of the removed scenes/battlefield/* stack this suite guards against.
+## FEAT-007 (this iteration's US-007/FR-010) removed MoveActionControl from
+## this set entirely -- presentation/MoveActionControl.gd (the passive "Move"
+## indicator) has been deleted; Step/Stride are surfaced solely through
+## VerbBarView's own STEP/STRIDE buttons now.
 const _EXPECTED_CHILDREN: Dictionary = {
 	"HexGridView":         HexGridViewClass,
 	"StatusPanelView":     StatusPanelViewClass,
 	"InitiativeView":      InitiativeViewClass,
 	"EventLogView":        EventLogViewClass,
-	"MoveActionControl":   MoveActionControlClass,
 	"TurnController":      TurnControllerClass,
 	"EndTurnControl":      EndTurnControlClass,
 	"VerbBarView":         VerbBarViewClass,
@@ -191,11 +204,65 @@ func test_mainscene_wires_movement_input_controller_as_the_sole_movement_pathway
 # exclusively to a presentation/*-or-composition-root handler.
 # ══════════════════════════════════════════════════════════════════════════
 
-func test_hex_clicked_signal_is_connected_to_the_presentation_stack() -> void:
+## FEAT-007 (this iteration's US-007/FR-010): the legacy "click any
+## highlighted hex to auto Step-or-Stride" affordance has been deleted --
+## HexGridView.hex_clicked is no longer connected to ANY handler from this
+## composition root (a future Layer 2 SelectionOverlay may subscribe to it,
+## but that is out of this feature's scope). Step/Stride are now driven
+## exclusively through the verb registry -- see
+## test_step_and_stride_verbs_are_wired_to_the_presentation_stack_and_move_the_token
+## below.
+func test_hex_clicked_signal_is_no_longer_wired_to_the_composition_root() -> void:
 	var instance = _boot_main_scene()
-	_assert_signal_connected_to_presentation_stack(
-		instance.hex_grid_view, "hex_clicked",
-		"HexGridView.hex_clicked (US-013 Step/Stride destination picking)"
+
+	assert_true(instance.hex_grid_view.has_signal("hex_clicked"), "HexGridView must still declare the hex_clicked signal (a future Layer 2 SelectionOverlay may use it)")
+	var connections: Array = instance.hex_grid_view.get_signal_connection_list("hex_clicked")
+	assert_eq(
+		connections.size(), 0,
+		"HexGridView.hex_clicked must carry NO connections from this composition root -- the legacy auto Step-or-Stride click behavior has been removed (FEAT-007)"
+	)
+
+
+## "Step"/"Stride" verb-registry wiring -- FEAT-007 (this iteration's
+## US-007/FR-010) removed the earlier MoveActionControl node and the
+## hex_grid_view.hex_clicked auto-resolve handler; Step/Stride are now driven
+## exclusively through $VerbBarView pressing "STEP"/"STRIDE" (entering Layer 2
+## selection) followed by `_verb_registry.execute(verb_id, destination_hex)` --
+## proven here both statically (VerbBarView's own rendered "STEP"/"STRIDE"
+## Buttons are wired to a presentation/* handler --
+## VerbBarView._on_verb_button_pressed) and behaviorally (driving the full
+## verb-bar-press -> registry.execute() path genuinely moves the active
+## combatant's token through the injected movement_input_controller, exactly
+## as a real player interaction would).
+func test_step_and_stride_verbs_are_wired_to_the_presentation_stack_and_move_the_token() -> void:
+	var instance = _boot_main_scene()
+
+	assert_true(
+		instance._verb_registry.is_available("STEP"),
+		"fixture assumption: the prologue's first actor has at least one legal Step destination at boot"
+	)
+
+	var button: Button = instance.verb_bar_view.get_button("STEP")
+	assert_not_null(button, "VerbBarView must render a STEP button when the verb is available")
+	_assert_signal_connected_to_presentation_stack(button, "pressed", "VerbBarView's rendered STEP Button.pressed (step pressed)")
+
+	var selection: Dictionary = instance.verb_bar_view.press("STEP")
+	var destination_hexes: Array = selection.get("candidate_hexes", [])
+	assert_true(destination_hexes.size() > 0, "entering STEP's Layer 2 selection must surface at least one legal destination hex")
+
+	var actor_id: String = instance.round_session.current_actor().get("combatant_id", "")
+	var token_before = instance.hex_grid_view.get_token(actor_id)
+	assert_not_null(token_before, "fixture assumption: the active actor already has a rendered token")
+	var destination = destination_hexes[0]
+	assert_false(token_before.hex_coord.equals(destination), "sanity check: the chosen destination differs from the actor's starting hex")
+
+	var result: Dictionary = instance._verb_registry.execute("STEP", destination)
+	assert_true(result.get("ok", false), "executing STEP against the selected destination must resolve a real Step")
+
+	var token_after = instance.hex_grid_view.get_token(actor_id)
+	assert_true(
+		token_after.hex_coord.equals(destination),
+		"resolving STEP through the verb registry must flow through movement_input_controller and move the real HexGridView token"
 	)
 
 

@@ -14,9 +14,17 @@ extends GutTest
 ## tests/infrastructure/test_presentation_stack_wiring.gd's
 ## `_boot_main_scene_with_seed()` fixture) with NO stub/mock standing in for
 ## HexGridView, movement_input_controller, or TurnController -- proving the
-## movement affordance (US-006/US-007's highlight-and-click-to-move UX) works
+## movement affordance (US-006/US-007's highlight-then-move UX) works
 ## end-to-end through the exact objects a real player drives, not merely
 ## through MainScene.gd's handler methods in isolation.
+##
+## FEAT-007 (this iteration's US-007/FR-010): Criterion 3 was retargeted from
+## simulating a hex_grid_view.hex_clicked emission (the legacy "click any
+## highlighted hex to auto Step-or-Stride" affordance, now deleted) to
+## executing the Layer 1 STEP verb (VerbBarView.press("STEP") ->
+## `_verb_registry`'s enter_selection()/execute()) -- the SOLE way a Step can
+## now be performed, mirroring tests/infrastructure/
+## test_presentation_stack_wiring.gd's STRIKE verb-wiring test pattern.
 ##
 ## Because presentation/hex_grid_view.gd deliberately exposes no public
 ## getter for its highlighted-hex set (see the SpyHexGridView precedent
@@ -31,7 +39,7 @@ extends GutTest
 ## test_criteria satisfied:
 ##   1. test_real_mainscene_boots_headlessly_with_the_real_movement_affordance_stack()
 ##   2. test_highlighted_hexes_on_turn_started_match_the_controllers_legal_step_stride_union()
-##   3. test_click_on_a_legal_hex_moves_the_combatant_and_resyncs_the_hex_grid_view_token()
+##   3. test_step_verb_execute_moves_the_combatant_and_resyncs_the_hex_grid_view_token()
 ##   4. (whole-suite regression) -- enforced by test_command, not this file.
 
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
@@ -172,14 +180,17 @@ func test_highlighted_hexes_on_turn_started_match_the_controllers_legal_step_str
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Criterion 3 — simulating a hex_clicked signal on a legal destination (drawn
-# straight from the real movement_input_controller's own legal-Step set)
-# moves the active combatant (Combatant.position, observed on MainScene's own
-# live combatant Dictionary) via step_to(), and the real HexGridView's token
-# resyncs to the new hex.
+# Criterion 3 — executing the Layer 1 STEP verb (VerbBarView.press("STEP") ->
+# `_verb_registry`'s enter_selection()/execute(), the SOLE Step entry point
+# since FEAT-007, this iteration's US-007/FR-010, deleted the legacy
+# hex_grid_view.hex_clicked auto-resolve handler) against a legal destination
+# (drawn straight from the real movement_input_controller's own legal-Step
+# set) moves the active combatant (Combatant.position, observed on
+# MainScene's own live combatant Dictionary) via step_to(), and the real
+# HexGridView's token resyncs to the new hex.
 # ══════════════════════════════════════════════════════════════════════════
 
-func test_click_on_a_legal_hex_moves_the_combatant_and_resyncs_the_hex_grid_view_token() -> void:
+func test_step_verb_execute_moves_the_combatant_and_resyncs_the_hex_grid_view_token() -> void:
 	var instance = _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
@@ -187,8 +198,13 @@ func test_click_on_a_legal_hex_moves_the_combatant_and_resyncs_the_hex_grid_view
 	var actor_id: String = actor.get("combatant_id", "")
 	assert_true(actor_id != "", "fixture assumption: the active actor carries a non-empty combatant_id")
 
-	var step_hexes: Array = instance.movement_input_controller.get_selectable_step_hexes()
-	assert_true(step_hexes.size() > 0, "sanity check: the active actor has at least one legal Step destination to click")
+	assert_true(
+		instance._verb_registry.is_available("STEP"),
+		"fixture assumption: the active actor has at least one legal Step destination"
+	)
+	var step_selection: Dictionary = instance.verb_bar_view.press("STEP")
+	var step_hexes: Array = step_selection.get("candidate_hexes", [])
+	assert_true(step_hexes.size() > 0, "sanity check: entering STEP's Layer 2 selection surfaces at least one legal destination hex")
 	var destination = step_hexes[0]
 
 	var token_before = instance.hex_grid_view.get_token(actor_id)
@@ -197,12 +213,11 @@ func test_click_on_a_legal_hex_moves_the_combatant_and_resyncs_the_hex_grid_view
 		token_before.hex_coord.equals(destination),
 		"sanity check: the chosen destination hex must differ from the actor's starting hex"
 	)
-	# ── Simulate the player's click: emit the REAL HexGridView's hex_clicked
-	# signal directly, exactly as a real left-click's _unhandled_input()
-	# translation would (presentation/hex_grid_view.gd), driving it through
-	# MainScene's real, `res://MainScene.tscn`-wired signal connection rather
-	# than calling any MainScene handler method directly. ────────────────────
-	instance.hex_grid_view.hex_clicked.emit(destination)
+	# ── Execute STEP through the real verb registry -- the SOLE Step entry
+	# point now that the legacy hex_grid_view.hex_clicked auto-resolve handler
+	# has been deleted (FEAT-007). ───────────────────────────────────────────
+	var step_result: Dictionary = instance._verb_registry.execute("STEP", destination)
+	assert_true(step_result.get("ok", false), "executing STEP against the selected destination must resolve a real Step")
 
 	var moved_combatant: Dictionary = _find_combatant_by_id(instance, actor_id)
 	assert_false(moved_combatant.is_empty(), "fixture assumption: the moved actor must be one of MainScene's live combatant Dictionaries")

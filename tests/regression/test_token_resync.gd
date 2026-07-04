@@ -9,18 +9,24 @@ extends GutTest
 ## shipped res://MainScene.tscn composition root (no stub/mock standing in
 ## for HexGridView/movement_input_controller/TurnController) -- mirroring
 ## tests/integration/test_movement_affordance_integration.gd's established
-## "boot the real MainScene.tscn, emit the real hex_clicked signal" pattern.
+## "boot the real MainScene.tscn, execute the real verb registry" pattern.
+##
+## FEAT-007 (this iteration's US-007/FR-010): both scenarios below drive
+## movement through `_verb_registry`'s STEP/STRIDE entries
+## (VerbBarView.press(verb_id) -> execute(verb_id, destination)) rather than
+## simulating a hex_grid_view.hex_clicked emission -- the legacy "click any
+## highlighted hex to auto Step-or-Stride" affordance (which used to try
+## step_to() first, falling back to stride_to()) has been deleted; Step and
+## Stride are each driven through their own dedicated verb now, so there is
+## no ambiguity about which branch resolves.
 ##
 ## tests/integration/test_movement_affordance_integration.gd's criterion 3
-## (test_click_on_a_legal_hex_moves_the_combatant_and_resyncs_the_hex_grid_view_token)
-## already exercises the Step path end-to-end; it always resolves via Step
-## because MainScene._on_hex_grid_view_hex_clicked() tries step_to() FIRST
-## and only falls back to stride_to() for a destination step_to() rejects as
-## non-selectable (i.e. distance > 1). No existing suite specifically proves
-## the Stride path resyncs the token too -- that gap is closed here by
+## (test_step_verb_execute_moves_the_combatant_and_resyncs_the_hex_grid_view_token)
+## already exercises the Step path end-to-end. No existing suite specifically
+## proves the Stride path resyncs the token too -- that gap is closed here by
 ## picking a destination hex present in the actor's Stride-legal set but
-## ABSENT from its Step-legal set (distance > 1), which forces
-## MainScene.gd's click handler down the stride_to() branch.
+## ABSENT from its Step-legal set (distance > 1), then executing the STRIDE
+## verb against it directly.
 ##
 ## test_criteria satisfied: "Token resync test confirms HexGridView token
 ## position matches Combatant.position after Step and after Stride."
@@ -100,14 +106,16 @@ func test_hex_grid_view_token_resyncs_to_combatant_position_after_step() -> void
 	assert_not_null(token_before, "the kept HexGridView must already carry a token for the active actor")
 	assert_false(token_before.hex_coord.equals(destination), "sanity check: the chosen Step destination must differ from the actor's starting hex")
 
-	# ── Simulate the player's click on the real, kept HexGridView -- exactly
-	# as a real left-click's _unhandled_input() translation would. ──────────
-	instance.hex_grid_view.hex_clicked.emit(destination)
+	# ── Execute the real STEP verb through `_verb_registry` -- the SOLE Step
+	# entry point now that the legacy hex_grid_view.hex_clicked auto-resolve
+	# handler has been deleted (FEAT-007). ───────────────────────────────────
+	var step_result: Dictionary = instance._verb_registry.execute("STEP", destination)
+	assert_true(step_result.get("ok", false), "executing STEP against the selected destination must resolve a real Step")
 
 	var moved: Dictionary = _find_combatant_by_id(instance, actor_id)
 	assert_true(
 		moved.get("hex_coord").equals(destination),
-		"Combatant.position must change to the clicked legal Step hex via movement_input_controller.step_to()"
+		"Combatant.position must change to the selected legal Step hex via movement_input_controller.step_to()"
 	)
 
 	_assert_token_matches_combatant_position(instance, actor_id, "after Step")
@@ -157,17 +165,17 @@ func test_hex_grid_view_token_resyncs_to_combatant_position_after_stride() -> vo
 
 	var action_budget_before: int = instance.round_session.current_action_economy().get_remaining()
 
-	# ── Same real hex_clicked signal as the Step scenario above -- MainScene's
-	# _on_hex_grid_view_hex_clicked() tries step_to() first, which rejects a
-	# distance > 1 destination as ERR_DESTINATION_NOT_SELECTABLE, then falls
-	# back to stride_to() -- proving this scenario genuinely exercises the
-	# Stride branch, not Step. ────────────────────────────────────────────
-	instance.hex_grid_view.hex_clicked.emit(stride_only_destination)
+	# ── Execute the real STRIDE verb through `_verb_registry` directly --
+	# proving this scenario genuinely exercises the Stride branch, not Step
+	# (FEAT-007: Step and Stride are each driven through their own dedicated
+	# verb now, so there is no step-then-fallback-to-stride ambiguity). ─────
+	var stride_result: Dictionary = instance._verb_registry.execute("STRIDE", stride_only_destination)
+	assert_true(stride_result.get("ok", false), "executing STRIDE against the selected destination must resolve a real Stride")
 
 	var moved: Dictionary = _find_combatant_by_id(instance, actor_id)
 	assert_true(
 		moved.get("hex_coord").equals(stride_only_destination),
-		"Combatant.position must change to the clicked legal Stride hex via movement_input_controller.stride_to()"
+		"Combatant.position must change to the selected legal Stride hex via movement_input_controller.stride_to()"
 	)
 
 	# Stride (unlike Step) spends exactly one action -- confirms this really

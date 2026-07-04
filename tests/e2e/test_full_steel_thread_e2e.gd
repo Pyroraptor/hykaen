@@ -1,68 +1,67 @@
 extends GutTest
 ## tests/e2e/test_full_steel_thread_e2e.gd — FEAT-167
-## (US-005..US-011, iteration D "UI Consolidation + Movement UX" capstone).
+## (US-005..US-011, iteration D "UI Consolidation + Movement UX" capstone);
+## retargeted by FEAT-006/FEAT-007 (this iteration's two-layer verb->target/
+## destination UX, US-006/US-007/FR-009/FR-010).
 ##
 ## THE final E2E smoke test exercising the COMPLETE steel thread, entry to
 ## exit, through the real, fully-consolidated res://MainScene.tscn
 ## composition root (project.godot's own run/main_scene target) — no
 ## test-local resolver/use-case/session graph, no mocked Application-layer
-## port anywhere in this file. Every collaborator driven below
-## (HexGridView, MoveActionControl, StrikeActionControl, EndTurnControl,
-## StatusPanelView, ResultScreenView, movement_input_controller,
-## TurnController, resolve_action_use_case, RoundSession) is the exact,
-## unmodified, REUSED production instance MainScene.gd's own _ready() wires
-## — this file's job is proving they ALL compose correctly together, one
-## continuous playthrough, from turn start through post-resolution lock.
+## port anywhere in this file. Every collaborator driven below (HexGridView,
+## EndTurnControl, StatusPanelView, VerbBarView, ResultScreenView,
+## movement_input_controller, TurnController, resolve_action_use_case,
+## RoundSession, `_verb_registry`) is the exact, unmodified, REUSED
+## production instance MainScene.gd's own _ready() wires — this file's job is
+## proving they ALL compose correctly together, one continuous playthrough,
+## from turn start through post-resolution lock.
 ##
 ## The single continuous journey this file drives:
 ##   1. Boot -> the active player's turn_started (TurnController.
 ##      active_actor_changed, this codebase's realization of the design
 ##      notes' API contract #1) highlights the EXACT union(Step, Stride) hex
-##      set on the real HexGridView and shows the real MoveActionControl
-##      (US-006/US-007).
-##   2. A simulated click (HexGridView.hex_clicked.emit()) on one of those
+##      set on the real HexGridView (US-006).
+##   2. Executing the Layer 1 STEP verb (VerbBarView.press("STEP") ->
+##      `_verb_registry`'s enter_selection()/execute()) against one of those
 ##      highlighted hexes moves the token via movement_input_controller's
-##      real step_to()/stride_to() dispatch, resyncs HexGridView's rendered
-##      token position, and the highlight is cleared then re-derived from
-##      the mover's NEW position (US-006/US-008).
-##   3. A real Strike, driven through StrikeActionControl.select_target()
-##      -> resolve_action_use_case.resolve(), decrements the acting
-##      combatant's action budget as reflected by the real StatusPanelView's
-##      projection (US-009).
-##   4. The encounter is driven to resolution (bounded, real
-##      StrikeActionControl/EndTurnControl input, exactly as a human would
-##      drive it) — once EncounterResolved (EncounterResultEvent) fires,
-##      StrikeActionControl, EndTurnControl, AND MoveActionControl are all
-##      disabled/hidden, the hex highlight is cleared, and no further
-##      hex_clicked/Strike/EndTurn signal produces any state mutation
+##      real step_to() dispatch, resyncs HexGridView's rendered token
+##      position, and the highlight is cleared then re-derived from the
+##      mover's NEW position (US-006/US-008). FEAT-007 (this iteration's
+##      US-007/FR-010): this is now the SOLE way a Step/Stride can be
+##      performed — the legacy "click any highlighted hex to auto
+##      Step-or-Stride" affordance (and its passive presentation/
+##      MoveActionControl.gd "Move" indicator) has been deleted; a stray
+##      hex_grid_view.hex_clicked emission is proven to be a pure no-op below.
+##   3. A real Strike, driven through the Layer 1 STRIKE verb
+##      (VerbBarView.press("STRIKE") -> `_verb_registry`'s
+##      enter_selection()/execute()) -> resolve_action_use_case.resolve(),
+##      decrements the acting combatant's action budget as reflected by the
+##      real StatusPanelView's projection (US-009).
+##   4. The encounter is driven to resolution (bounded, real VerbBarView/
+##      EndTurnControl input, exactly as a human would drive it) — once
+##      EncounterResolved (EncounterResultEvent) fires, VerbBarView's
+##      STRIKE/STEP/STRIDE verbs and EndTurnControl are all
+##      unavailable/disabled, the hex highlight is cleared, and no further
+##      hex_clicked/verb-execute/EndTurn signal produces any state mutation
 ##      (US-005/US-008/US-010/US-011).
 ##
-## FEAT-167 also closes a real gap this file's own probing surfaced: prior
-## to this feature, presentation/result_screen_view.gd's lock_all_controls()
-## locked StrikeActionControl/EndTurnControl/movement_input_controller but
-## never MoveActionControl — so on the (very common, single-enemy-fixture)
-## outcome-decision path where the player's own Strike defeats the
-## encounter's last enemy and the immediately-following EndTurnControl.
-## press() decides "won" directly inside RoundSession.end_current_turn()
-## (never re-driving TurnController, so its round_over signal / MainScene's
-## _on_round_over() backstop is never reached), MoveActionControl stayed
-## VISIBLE and enabled indefinitely after the encounter had already
-## concluded — violating this steel thread's design notes' API contract #6
-## ("MoveActionControl hidden") and this feature's own test_criteria.
-## presentation/result_screen_view.gd/MainScene.gd are the two files this
-## feature extends (each already documents the exact minimal, additive
-## change made) to close that gap uniformly, regardless of which of
-## RoundSession's two outcome-decision call paths
-## (advance_ai_turn()/end_current_turn()) actually decided the encounter —
-## this test drives exactly that path (the player's own Strike/EndTurn
-## deciding "won") so the fix is exercised, not sidestepped.
+## FEAT-167's original gap-closing rationale (presentation/
+## result_screen_view.gd's lock_all_controls() must lock EVERY combat/
+## movement input surface, regardless of which of RoundSession's two
+## outcome-decision call paths — advance_ai_turn()/end_current_turn() —
+## actually decided the encounter) still holds; this suite still drives
+## exactly that path (the player's own Strike/EndTurn deciding "won") so the
+## fix stays exercised. FEAT-007 (this iteration) removed
+## presentation/MoveActionControl.gd (the one Control that gap used to
+## additionally lock) entirely — Step/Stride are surfaced solely through
+## $VerbBarView's own STEP/STRIDE buttons now, re-gated by the SAME
+## verb_bar_view.refresh_availability() every other verb already relies on,
+## so there is no separate visible-affordance Control left needing its own
+## lock() call.
 ##
 ## No production Application/Domain code is modified for this feature —
-## only the two thin Presentation-layer wiring points named above (ADR-001:
-## neither file gains a Node/Control import it didn't already have, neither
-## re-implements any rule; each simply forwards an already-existing lock()
-## call to one more already-existing collaborator, mirroring the exact
-## pattern already established for movement_input_controller).
+## ADR-001: no file gains a Node/Control import it didn't already have,
+## nothing re-implements any rule.
 
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 
@@ -174,9 +173,8 @@ func test_full_steel_thread_from_turn_start_to_post_resolution_lock() -> void:
 
 
 	# ══════════════════════════════════════════════════════════════════════
-	# Step 1 (US-006/US-007) — on the active player's turn_started, the real
-	# HexGridView highlights the EXACT legal Step/Stride union and the real
-	# MoveActionControl is visible.
+	# Step 1 (US-006) — on the active player's turn_started, the real
+	# HexGridView highlights the EXACT legal Step/Stride union.
 	# ══════════════════════════════════════════════════════════════════════
 
 	var step_hexes_at_start: Array = instance.movement_input_controller.get_selectable_step_hexes()
@@ -190,22 +188,29 @@ func test_full_steel_thread_from_turn_start_to_post_resolution_lock() -> void:
 	_assert_highlight_matches_controller_union(instance, "turn_started")
 
 	assert_true(
-		instance.move_action_control.is_enabled(),
-		"MoveActionControl must be enabled (a non-empty selectable-hex set) on the active player's turn_started"
-	)
-	assert_true(
-		instance.move_action_control.visible,
-		"MoveActionControl must be visible on the active player's turn_started"
+		instance._verb_registry.is_available("STEP"),
+		"the STEP verb must be available (a non-empty selectable-hex set) on the active player's turn_started"
 	)
 
 
 	# ══════════════════════════════════════════════════════════════════════
-	# Step 2 (US-006/US-008) — clicking a legal hex moves the token via
-	# step_to()/stride_to(), resyncs HexGridView, then the highlight is
-	# cleared and re-derived from the mover's NEW position.
+	# Step 2 (US-006/US-007/US-008) — pressing the Layer 1 STEP verb, then
+	# executing it against a highlighted destination, moves the token via
+	# step_to(), resyncs HexGridView, then the highlight is cleared and
+	# re-derived from the mover's NEW position. FEAT-007 (this iteration's
+	# US-007/FR-010): this is the SOLE way Step/Stride can be performed now —
+	# there is no standing hex_grid_view.hex_clicked subscription to drive
+	# this through anymore.
 	# ══════════════════════════════════════════════════════════════════════
 
-	var destination = step_hexes_at_start[0]
+	var step_button: Button = instance.verb_bar_view.get_button("STEP")
+	assert_not_null(step_button, "VerbBarView must render a STEP button when the verb is available")
+
+	var step_selection: Dictionary = instance.verb_bar_view.press("STEP")
+	var candidate_hexes: Array = step_selection.get("candidate_hexes", [])
+	assert_true(candidate_hexes.size() > 0, "entering STEP's Layer 2 selection must surface at least one legal destination hex")
+
+	var destination = candidate_hexes[0]
 	var token_before = instance.hex_grid_view.get_token(actor_id)
 	assert_not_null(token_before, "the real HexGridView must already carry a token for the active actor")
 	assert_false(
@@ -213,18 +218,14 @@ func test_full_steel_thread_from_turn_start_to_post_resolution_lock() -> void:
 		"sanity check: the chosen destination hex must differ from the actor's starting hex"
 	)
 
-	# Simulate the player's click: emit the REAL HexGridView's hex_clicked
-	# signal directly (exactly as a real left-click's _unhandled_input()
-	# translation would), driving it through MainScene's real,
-	# res://MainScene.tscn-wired signal connection rather than calling any
-	# MainScene handler method directly.
-	instance.hex_grid_view.hex_clicked.emit(destination)
+	var step_result: Dictionary = instance._verb_registry.execute("STEP", destination)
+	assert_true(step_result.get("ok", false), "executing STEP against the selected destination must resolve a real Step")
 
 	var moved_combatant: Dictionary = _find_combatant_by_id(instance, actor_id)
 	assert_false(moved_combatant.is_empty(), "fixture assumption: the moved actor must be one of MainScene's live combatant Dictionaries")
 	assert_true(
 		moved_combatant.get("hex_coord").equals(destination),
-		"Combatant.position (the live combatant Dictionary's hex_coord) must change to the clicked legal hex via step_to()/stride_to()"
+		"Combatant.position (the live combatant Dictionary's hex_coord) must change to the selected legal hex via step_to()"
 	)
 
 	var token_after = instance.hex_grid_view.get_token(actor_id)
@@ -247,8 +248,9 @@ func test_full_steel_thread_from_turn_start_to_post_resolution_lock() -> void:
 
 
 	# ══════════════════════════════════════════════════════════════════════
-	# Step 3 (US-009) — a real Strike decrements the acting combatant's
-	# action budget as reflected by the real StatusPanelView's projection.
+	# Step 3 (US-009) — a real Strike, driven through the Layer 1 STRIKE verb,
+	# decrements the acting combatant's action budget as reflected by the
+	# real StatusPanelView's projection.
 	# ══════════════════════════════════════════════════════════════════════
 
 	assert_false(
@@ -262,11 +264,16 @@ func test_full_steel_thread_from_turn_start_to_post_resolution_lock() -> void:
 	var action_economy = instance.round_session.current_action_economy()
 	assert_not_null(action_economy, "fixture assumption: the active actor has a live domain ActionEconomy")
 
-	var target_ids: Array = instance.strike_action_control.get_selectable_target_ids()
-	assert_true(target_ids.size() > 0, "fixture assumption: the active actor has at least one in-reach target after moving")
+	assert_true(
+		instance._verb_registry.is_available("STRIKE"),
+		"fixture assumption: the active actor has at least one in-reach target after moving"
+	)
+	var strike_selection: Dictionary = instance.verb_bar_view.press("STRIKE")
+	var target_ids: Array = strike_selection.get("candidate_targets", [])
+	assert_true(target_ids.size() > 0, "entering STRIKE's Layer 2 selection must surface at least one in-reach target")
 	var target_id: String = target_ids[0]
 
-	var strike_result: Dictionary = instance.strike_action_control.select_target(target_id)
+	var strike_result: Dictionary = instance._verb_registry.execute("STRIKE", target_id)
 	assert_true(strike_result.get("resolved", false), "the real resolve_action_use_case must resolve the player's Strike")
 
 	var after_remaining: int = instance.status_panel_view.get_status(actor_id).get("action_budget_remaining", -1)
@@ -282,26 +289,26 @@ func test_full_steel_thread_from_turn_start_to_post_resolution_lock() -> void:
 
 	# ══════════════════════════════════════════════════════════════════════
 	# Step 4 (US-005/US-008/US-010/US-011) — drive the encounter to
-	# resolution through the real StrikeActionControl/EndTurnControl nodes,
-	# exactly as a human would (every enemy turn in between auto-driven by
-	# the real $TurnController via MainScene's EndTurnControl.turn_ended
-	# handoff), then assert every combat/movement input control is
-	# disabled/hidden, the hex highlight is cleared, and it cannot be
-	# re-triggered.
+	# resolution through the real VerbBarView/EndTurnControl nodes, exactly
+	# as a human would (every enemy turn in between auto-driven by the real
+	# $TurnController via MainScene's EndTurnControl.turn_ended handoff),
+	# then assert every combat/movement input surface is unavailable/
+	# disabled, the hex highlight is cleared, and it cannot be re-triggered.
 	# ══════════════════════════════════════════════════════════════════════
 
 	var guard: int = 0
 	while not instance.round_session.is_round_over() and guard < _MAX_DRIVE_ITERATIONS:
-		if not instance.round_session.current_actor().get("_is_enemy", true):
-			var live_target_ids: Array = instance.strike_action_control.get_selectable_target_ids()
+		if not instance.round_session.current_actor().get("_is_enemy", true) and instance._verb_registry.is_available("STRIKE"):
+			var live_selection: Dictionary = instance.verb_bar_view.press("STRIKE")
+			var live_target_ids: Array = live_selection.get("candidate_targets", [])
 			if live_target_ids.size() > 0:
-				instance.strike_action_control.select_target(live_target_ids[0])
+				instance._verb_registry.execute("STRIKE", live_target_ids[0])
 		instance.end_turn_control.press()
 		guard += 1
 
 	assert_true(
 		instance.round_session.is_round_over(),
-		"driving the real StrikeActionControl/EndTurnControl nodes must eventually conclude the round (guard=%d/%d)" % [guard, _MAX_DRIVE_ITERATIONS]
+		"driving the real VerbBarView/EndTurnControl nodes must eventually conclude the round (guard=%d/%d)" % [guard, _MAX_DRIVE_ITERATIONS]
 	)
 	var decided_outcome: String = instance.round_session.outcome()
 	assert_true(
@@ -313,16 +320,13 @@ func test_full_steel_thread_from_turn_start_to_post_resolution_lock() -> void:
 		"the real $ResultScreenView must have processed the EncounterResolved (EncounterResultEvent) through MainScene's real event-sink pipeline"
 	)
 
-	# ── Strike/EndTurn/Move all disabled/hidden ─────────────────────────────
-	assert_eq(instance.strike_action_control.get_button_count(), 0, "StrikeActionControl must render zero selectable-target buttons once the encounter has concluded")
-	assert_true(instance.strike_action_control.is_locked(), "StrikeActionControl.is_locked() must be true once the encounter has concluded")
+	# ── Strike/Step/Stride/EndTurn all unavailable/disabled ─────────────────
+	assert_false(instance._verb_registry.is_available("STRIKE"), "the STRIKE verb must be unavailable once the encounter has concluded")
+	assert_false(instance._verb_registry.is_available("STEP"), "the STEP verb must be unavailable once the encounter has concluded")
+	assert_false(instance._verb_registry.is_available("STRIDE"), "the STRIDE verb must be unavailable once the encounter has concluded")
 
 	assert_false(instance.end_turn_control.is_enabled(), "EndTurnControl must be disabled once the encounter has concluded")
 	assert_true(instance.end_turn_control.is_locked(), "EndTurnControl.is_locked() must be true once the encounter has concluded")
-
-	assert_false(instance.move_action_control.is_enabled(), "MoveActionControl must be disabled once the encounter has concluded")
-	assert_false(instance.move_action_control.visible, "MoveActionControl must be hidden once the encounter has concluded")
-	assert_true(instance.move_action_control.is_locked(), "MoveActionControl.is_locked() must be true once the encounter has concluded (FEAT-167)")
 
 	assert_true(instance.movement_input_controller.is_locked(), "movement_input_controller.is_locked() must be true once the encounter has concluded")
 
@@ -344,12 +348,17 @@ func test_full_steel_thread_from_turn_start_to_post_resolution_lock() -> void:
 	var attack_event_count_before: int = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent).size()
 
 	# A stray hex_clicked on an arbitrary hex (even one that WAS legal before
-	# resolution, e.g. the fixture's original starting hex) must be a no-op.
+	# resolution, e.g. the fixture's original starting hex) must be a no-op --
+	# FEAT-007 (this iteration): this signal carries no connection at all
+	# anymore, so emitting it can never reach any handler in the first place.
 	instance.hex_grid_view.hex_clicked.emit(destination)
 
-	var strike_reject: Dictionary = instance.strike_action_control.select_target(target_id)
-	assert_false(strike_reject.get("ok", true), "select_target() must be rejected after the encounter has concluded")
-	assert_eq(strike_reject.get("error", ""), "ENCOUNTER_ALREADY_RESOLVED")
+	var strike_reject: Dictionary = instance._verb_registry.execute("STRIKE", target_id)
+	assert_false(strike_reject.get("ok", true), "STRIKE execute() must be rejected after the encounter has concluded")
+	assert_eq(strike_reject.get("error", ""), "ERR_TARGET_NOT_SELECTABLE")
+
+	var step_reject: Dictionary = instance._verb_registry.execute("STEP", destination)
+	assert_false(step_reject.get("ok", true), "STEP execute() must be rejected after the encounter has concluded")
 
 	var end_turn_reject: Dictionary = instance.end_turn_control.press()
 	assert_false(end_turn_reject.get("ok", true), "press() must be rejected after the encounter has concluded")
@@ -374,7 +383,6 @@ func test_full_steel_thread_from_turn_start_to_post_resolution_lock() -> void:
 	# ...and the highlight/affordance state remains cleared/locked -- it
 	# cannot be re-triggered by the stray input above.
 	assert_eq(instance.hex_grid_view._selectable_hexes.size(), 0, "the hex highlight must remain empty after a stray post-resolution hex_clicked signal")
-	assert_false(instance.move_action_control.is_enabled(), "MoveActionControl must remain disabled after a stray post-resolution hex_clicked signal")
-	assert_false(instance.move_action_control.visible, "MoveActionControl must remain hidden after a stray post-resolution hex_clicked signal")
-	assert_eq(instance.strike_action_control.get_button_count(), 0, "StrikeActionControl must remain fully disabled after the rejected post-resolution select_target()")
+	assert_false(instance._verb_registry.is_available("STRIKE"), "the STRIKE verb must remain unavailable after the rejected post-resolution execute()")
+	assert_false(instance._verb_registry.is_available("STEP"), "the STEP verb must remain unavailable after the rejected post-resolution execute()")
 	assert_false(instance.end_turn_control.is_enabled(), "EndTurnControl must remain disabled after the rejected post-resolution press()")

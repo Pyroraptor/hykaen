@@ -13,11 +13,15 @@ extends GutTest
 ##      feature's own regression guard, independent of that suite ever being
 ##      edited or removed.
 ##   2. IMMEDIATELY after a successful Step/Stride move -- MainScene.gd's
-##      _on_hex_grid_view_hex_clicked() handler (FEAT-013/FEAT-014) now
-##      explicitly pushes an empty selectable-hex set to hex_grid_view the
-##      moment movement_input_controller.step_to()/stride_to() reports
-##      success, BEFORE re-deriving/re-pushing the new post-move legal-move
-##      set via _on_active_actor_changed() -- design notes' API contract #4
+##      _after_successful_move() helper (FEAT-013/FEAT-014's original
+##      behavior, now invoked from _verb_bar_step_execute()/
+##      _verb_bar_stride_execute() -- FEAT-007, this iteration's US-007/
+##      FR-010, deleted the earlier hex_grid_view.hex_clicked auto-resolve
+##      handler that used to invoke this same logic) explicitly pushes an
+##      empty selectable-hex set to hex_grid_view the moment
+##      movement_input_controller.step_to()/stride_to() reports success,
+##      BEFORE re-deriving/re-pushing the new post-move legal-move set via
+##      _on_active_actor_changed() -- design notes' API contract #4
 ##      ("HexGridView.set_selectable_hexes([]) called immediately after").
 ##   3. Post-resolution -- reusing the SAME sticky lock mechanism FEAT-005
 ##      wired into presentation/result_screen_view.gd's lock_all_controls()
@@ -59,8 +63,8 @@ class SpyHexGridView:
 
 
 ## FakeRoundSession -- minimal stand-in for core/application/round_session.gd,
-## exposing only what _on_active_actor_changed()/_on_hex_grid_view_hex_clicked()
-## read (current_action_economy() / current_actor()). `current_actor()`
+## exposing only what _on_active_actor_changed()/_after_successful_move() read
+## (current_action_economy() / current_actor()). `current_actor()`
 ## returns the SAME live Dictionary handed to _init() -- Dictionaries are
 ## reference types in GDScript, so a successful Step/Stride's in-place
 ## "hex_coord" mutation (core/rules/movement.gd Movement._set_hex()) is
@@ -153,6 +157,9 @@ func test_highlight_cleared_directly_on_a_non_active_player_turn_started_event()
 # successful step_to/stride_to call.
 # ══════════════════════════════════════════════════════════════════════════
 
+## FEAT-007 (this iteration's US-007/FR-010): drives MainScene's
+## _verb_bar_step_execute() directly -- the SOLE Step entry point now that the
+## legacy hex_grid_view.hex_clicked auto-resolve handler has been deleted.
 func test_highlight_cleared_immediately_after_a_successful_step() -> void:
 	var actor: Dictionary = _origin_actor("titus", false)
 	_instance.round_session = FakeRoundSession.new(actor, ActionEconomyClass.new())
@@ -161,27 +168,33 @@ func test_highlight_cleared_immediately_after_a_successful_step() -> void:
 	var calls_before: int = _hex_grid_view.set_selectable_calls.size()
 
 	var destination := HexCoordClass.new(1, 0)
-	_instance._on_hex_grid_view_hex_clicked(destination)
+	var result: Dictionary = _instance._verb_bar_step_execute(destination)
 
-	assert_true(actor["hex_coord"].equals(destination), "sanity check: the Step actually moved the actor to the clicked hex")
+	assert_true(result.get("ok", false), "sanity check: the Step verb execute() must succeed for a legal adjacent destination")
+	assert_true(actor["hex_coord"].equals(destination), "sanity check: the Step actually moved the actor to the destination hex")
 	# movement_input_controller.step_to() itself pushes one (non-empty)
 	# selectable set as part of re-deriving its own internal destination
 	# cache from the actor's new position (presentation/
 	# movement_input_controller.gd's _recompute_selectable_destinations()) --
 	# that push happens BEFORE step_to() returns control to MainScene, so it
-	# is calls_before + 0. The explicit clear MainScene itself pushes the
-	# moment step_to() reports success -- BEFORE re-deriving/re-pushing the
-	# new post-move legal-move set -- is therefore calls_before + 1.
+	# is calls_before + 0. The explicit clear MainScene's
+	# _after_successful_move() pushes the moment step_to() reports success --
+	# BEFORE re-deriving/re-pushing the new post-move legal-move set -- is
+	# therefore calls_before + 1.
 	assert_true(
 		_hex_grid_view.set_selectable_calls.size() > calls_before + 1,
 		"sanity check: a successful Step produces at least two more set_selectable_hexes() calls (movement_input_controller's own internal push, then MainScene's explicit clear)"
 	)
 	assert_eq(
 		_hex_grid_view.set_selectable_calls[calls_before + 1], [],
-		"the set_selectable_hexes() call MainScene makes immediately after a successful step_to() must be an explicit clear ([])"
+		"the set_selectable_hexes() call MainScene makes immediately after a successful Step verb execute() must be an explicit clear ([])"
 	)
 
 
+## FEAT-007 (this iteration's US-007/FR-010): drives MainScene's
+## _verb_bar_stride_execute() directly -- the SOLE Stride entry point now
+## that the legacy hex_grid_view.hex_clicked auto-resolve handler (which used
+## to try step_to() first, falling back to stride_to()) has been deleted.
 func test_highlight_cleared_immediately_after_a_successful_stride() -> void:
 	var action_economy := ActionEconomyClass.new()
 	action_economy.start_of_round()
@@ -192,31 +205,30 @@ func test_highlight_cleared_immediately_after_a_successful_stride() -> void:
 	var calls_before: int = _hex_grid_view.set_selectable_calls.size()
 
 	# Two hexes away -- not a legal Step (adjacent-only), but within Stride's
-	# default Speed (4), so _on_hex_grid_view_hex_clicked() falls through to
-	# stride_to() after step_to() rejects it locally with
-	# ERR_DESTINATION_NOT_SELECTABLE (see MainScene.gd's
-	# _on_hex_grid_view_hex_clicked() doc).
+	# default Speed (4).
 	var destination := HexCoordClass.new(2, 0)
-	_instance._on_hex_grid_view_hex_clicked(destination)
+	var result: Dictionary = _instance._verb_bar_stride_execute(destination)
 
-	assert_true(actor["hex_coord"].equals(destination), "sanity check: the Stride actually moved the actor to the clicked hex")
-	# step_to() rejects this hex locally (not adjacent) WITHOUT pushing
-	# anything to hex_grid_view (see MovementInputController.step_to()'s
-	# doc: a non-selectable destination is rejected before Movement.step()
-	# is ever invoked), so stride_to()'s own internal push (non-empty) is
-	# calls_before + 0, and MainScene's explicit clear is calls_before + 1 --
-	# mirroring the Step case above exactly.
+	assert_true(result.get("ok", false), "sanity check: the Stride verb execute() must succeed for a legal Stride-only destination")
+	assert_true(actor["hex_coord"].equals(destination), "sanity check: the Stride actually moved the actor to the destination hex")
+	# stride_to()'s own internal push (non-empty) is calls_before + 0, and
+	# MainScene's explicit clear is calls_before + 1 -- mirroring the Step
+	# case above exactly.
 	assert_true(
 		_hex_grid_view.set_selectable_calls.size() > calls_before + 1,
 		"sanity check: a successful Stride produces at least two more set_selectable_hexes() calls (movement_input_controller's own internal push, then MainScene's explicit clear)"
 	)
 	assert_eq(
 		_hex_grid_view.set_selectable_calls[calls_before + 1], [],
-		"the set_selectable_hexes() call MainScene makes immediately after a successful stride_to() must be an explicit clear ([])"
+		"the set_selectable_hexes() call MainScene makes immediately after a successful Stride verb execute() must be an explicit clear ([])"
 	)
 
 
-func test_highlight_not_cleared_by_a_click_that_resolves_to_neither_step_nor_stride() -> void:
+## FEAT-007 (this iteration's US-007/FR-010): an out-of-range destination is
+## rejected by BOTH the Step and Stride verb closures with no effect, exactly
+## as the deleted hex_grid_view.hex_clicked auto-resolve handler used to
+## reject a doubly-out-of-range click.
+func test_highlight_not_cleared_by_a_verb_execute_that_resolves_to_neither_step_nor_stride() -> void:
 	var actor: Dictionary = _origin_actor("titus", false)
 	_instance.round_session = FakeRoundSession.new(actor, ActionEconomyClass.new())
 	_instance._on_active_actor_changed(actor)
@@ -224,13 +236,17 @@ func test_highlight_not_cleared_by_a_click_that_resolves_to_neither_step_nor_str
 	var calls_before: int = _hex_grid_view.set_selectable_calls.size()
 
 	# Farther than both Step (1 hex) and the default Stride Speed (4 hexes) --
-	# rejected by both controllers with no effect at all, so no
+	# rejected by both verb closures with no effect at all, so no
 	# additional set_selectable_hexes() call is made.
-	_instance._on_hex_grid_view_hex_clicked(HexCoordClass.new(10, 0))
+	var far_hex := HexCoordClass.new(10, 0)
+	var step_result: Dictionary = _instance._verb_bar_step_execute(far_hex)
+	var stride_result: Dictionary = _instance._verb_bar_stride_execute(far_hex)
 
+	assert_false(step_result.get("ok", false), "sanity check: an out-of-range hex must be rejected by the Step verb")
+	assert_false(stride_result.get("ok", false), "sanity check: an out-of-range hex must be rejected by the Stride verb")
 	assert_eq(
 		_hex_grid_view.set_selectable_calls.size(), calls_before,
-		"a click that resolves to neither a legal Step nor a legal Stride destination must not push any additional highlight state"
+		"a verb execute() call that resolves to neither a legal Step nor a legal Stride destination must not push any additional highlight state"
 	)
 
 
@@ -273,14 +289,19 @@ func test_highlight_stays_empty_and_cannot_be_repopulated_after_encounter_resolv
 		"a stray turn_started/active_actor_changed re-fire after EncounterResolved must never re-populate the highlight"
 	)
 
-	# A stray hex click after resolution must likewise never re-populate the
-	# highlight (step_to()/stride_to() both stay rejected once locked).
+	# A stray post-resolution Step/Stride verb execute() must likewise never
+	# re-populate the highlight (step_to()/stride_to() both stay rejected once
+	# locked) -- FEAT-007 (this iteration): there is no longer a
+	# hex_grid_view.hex_clicked handler to drive this through, so this suite
+	# drives _verb_bar_step_execute() directly, the SAME entry point a stray
+	# post-resolution VerbBarView press would use.
 	var calls_before_click: int = _hex_grid_view.set_selectable_calls.size()
-	_instance._on_hex_grid_view_hex_clicked(HexCoordClass.new(1, 0))
+	var stray_result: Dictionary = _instance._verb_bar_step_execute(HexCoordClass.new(1, 0))
 
+	assert_false(stray_result.get("ok", false), "a stray post-resolution Step verb execute() must be rejected")
 	for i in range(calls_before_click, _hex_grid_view.set_selectable_calls.size()):
 		assert_eq(
 			_hex_grid_view.set_selectable_calls[i], [],
 			"every set_selectable_hexes() call made after EncounterResolved must still report an empty set"
 		)
-	assert_false(actor["hex_coord"].equals(HexCoordClass.new(1, 0)), "a stray click after resolution must never move the actor")
+	assert_false(actor["hex_coord"].equals(HexCoordClass.new(1, 0)), "a stray post-resolution verb execute() must never move the actor")

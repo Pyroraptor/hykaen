@@ -126,21 +126,22 @@ extends Node
 ##      public API on either control (ADR-002/CR-001 guardrail).
 ##  11. $ResultScreenView (presentation/result_screen_view.gd, US-012;
 ##      FEAT-005 / US-005 / FR-011 / ADR-005; FEAT-167) is configured with
-##      $EndTurnControl/movement_input_controller/$MoveActionControl (its
-##      first, strike_action_control, argument is no longer supplied --
-##      FEAT-006 removed that node; see this file's FEAT-006 doc above) so
-##      that once the EncounterResultEvent this
-##      pipeline emits reaches it (via the SAME event-sink forwarding every
-##      other projection uses), it renders Win/Loss and uniformly locks all
-##      four combat/movement input controls via lock_all_controls()
-##      (idempotent, ADR-005 -- no new event bus, the SAME EventSinkPort
-##      subscription drives every post-resolution lock). $MoveActionControl
-##      is included (FEAT-167) so its visible affordance is guaranteed
-##      hidden even on the outcome-decision call path
-##      (RoundSession.end_current_turn(), e.g. a player's own Strike
-##      defeating the encounter's last enemy) that never reaches
-##      $TurnController's round_over signal / this file's _on_round_over()
-##      backstop below.
+##      $EndTurnControl/movement_input_controller (its first,
+##      strike_action_control, argument is no longer supplied -- FEAT-006
+##      removed that node; see this file's FEAT-006 doc above) so that once
+##      the EncounterResultEvent this pipeline emits reaches it (via the SAME
+##      event-sink forwarding every other projection uses), it renders
+##      Win/Loss and uniformly locks all remaining combat/movement input
+##      controls via lock_all_controls() (idempotent, ADR-005 -- no new event
+##      bus, the SAME EventSinkPort subscription drives every post-resolution
+##      lock). FEAT-007 (this iteration): the fourth, move_action_control,
+##      argument is likewise no longer supplied -- presentation/
+##      MoveActionControl.gd (the passive "Move" indicator FEAT-167 above
+##      used to also lock here) has been deleted entirely; Step/Stride are
+##      now driven solely through `_verb_registry`'s STEP/STRIDE entries,
+##      re-gated by the SAME $VerbBarView.refresh_availability() every other
+##      verb already relies on -- there is no separate visible-affordance
+##      Control left needing its own lock() call.
 ##
 ## No new ports or use cases are introduced here beyond the ADR-007-declared
 ## RoundSession stepwise API RunRoundUseCase already exposes (ADR-002 / CR-001
@@ -413,33 +414,33 @@ var outcome: String = ""
 ## encounter.
 @onready var event_log_view = $EventLogView
 
-## move_action_control — the MoveActionControl (presentation/
-## MoveActionControl.gd) instanced in MainScene.tscn (FEAT-007 / US-007 /
-## FR-002). A visible Move affordance, sibling to strike_action_control,
-## whose visibility this composition root binds to the SAME union(Step,
-## Stride) selectable-hex set _highlight_legal_moves() already computes and
-## pushes to hex_grid_view.set_selectable_hexes() (API contract #3) — never a
-## second, independently-derived legality check (ADR-001).
-@onready var move_action_control = $MoveActionControl
-
 ## movement_input_controller — the MovementInputController (presentation/
 ## movement_input_controller.gd) instantiated directly (FEAT-013 / US-013 --
 ## no companion .tscn, code-only instantiation). Reconfigured alongside
-## strike_action_control every time TurnController's active_actor_changed
+## the STRIKE verb closures every time TurnController's active_actor_changed
 ## signal fires, so the SAME live actor/occupancy data drives it. Handed
 ## `hex_grid_view` (FEAT-007) so a successful Step/Stride visibly repositions
-## the mover's token there, and is wired to hex_grid_view's hex_clicked
-## signal (below) so clicking a highlighted hex on the battlefield performs
-## a Step (or, per FEAT-014 / US-014, a Stride when the hex is beyond Step
-## range but within Speed) -- the interactive destination-picking UI
-## FEAT-013/FEAT-014 add. A Step never goes through resolve_action_use_case
-## (it has no action-economy/event side effects, core/rules/movement.gd,
-## ADR-002) -- but it DOES move the SAME live combatant Dictionary Strike
-## reach reads from, so _on_active_actor_changed() is re-invoked after every
-## successful Step/Stride to re-gate strike_action_control's in-reach target
-## set from the new position. Also handed the active combatant's live
-## ActionEconomy (FEAT-014) so a Stride can spend the one action it requires
-## from the SAME shared budget StrikeActionControl already reads from.
+## the mover's token there.
+##
+## FEAT-007 (this iteration's US-007/FR-010): Step/Stride are now driven
+## SOLELY through `_verb_registry`'s STEP/STRIDE entries
+## (_verb_bar_step_execute()/_verb_bar_stride_execute() below), which forward
+## a Layer-2-selected destination hex straight to step_to()/stride_to() --
+## there is no longer a standing hex_grid_view.hex_clicked subscription that
+## auto-resolves a Step-or-Stride the instant ANY highlighted hex is clicked
+## (the legacy behavior presentation/MoveActionControl.gd's passive "Move"
+## indicator advertised). HexGridView.hex_clicked still exists as a signal
+## (a future Layer 2 SelectionOverlay may subscribe to it) but this
+## composition root no longer connects to it directly. A Step never goes
+## through resolve_action_use_case (it has no action-economy/event side
+## effects, core/rules/movement.gd, ADR-002) -- but it DOES move the SAME
+## live combatant Dictionary Strike reach reads from, so
+## _on_active_actor_changed() is re-invoked after every successful
+## Step/Stride (see _after_successful_move() below) to re-gate STRIKE's
+## in-reach target set from the new position. Also handed the active
+## combatant's live ActionEconomy (FEAT-014) so a Stride can spend the one
+## action it requires from the SAME shared budget the STRIKE verb closures
+## already read from.
 var movement_input_controller = MovementInputControllerClass.new()
 
 ## turn_controller — the TurnController (presentation/turn_controller.gd)
@@ -591,7 +592,10 @@ func _ready() -> void:
 		# FEAT-006: no strike_action_control node exists anymore -- its
 		# first (optional, default-null) argument is simply omitted; see
 		# this file's FEAT-006 doc above and presentation/result_screen_view.gd.
-		result_screen_view.configure(null, end_turn_control, movement_input_controller, move_action_control)
+		# FEAT-007 (this iteration): no move_action_control node exists
+		# anymore either -- its fourth (optional, default-null) argument is
+		# likewise simply omitted; see this file's FEAT-007 doc above.
+		result_screen_view.configure(null, end_turn_control, movement_input_controller)
 
 	if turn_controller != null:
 		turn_controller.active_actor_changed.connect(_on_active_actor_changed)
@@ -614,11 +618,16 @@ func _ready() -> void:
 	if verb_bar_view != null:
 		verb_bar_view.configure(_verb_registry)
 
-	# ── FEAT-013 / US-013: wire the interactive Step destination-picking UI --
-	# clicking a hex highlighted by movement_input_controller performs a Step
-	# on the currently active combatant. ────────────────────────────────────
-	if hex_grid_view != null:
-		hex_grid_view.hex_clicked.connect(_on_hex_grid_view_hex_clicked)
+	# FEAT-007 (this iteration's US-007/FR-010): hex_grid_view.hex_clicked is
+	# deliberately left unconnected here -- the legacy "click any highlighted
+	# hex to auto Step-or-Stride" affordance (and its passive
+	# presentation/MoveActionControl.gd "Move" indicator) has been removed;
+	# Step/Stride are now driven exclusively through `_verb_registry`'s
+	# STEP/STRIDE entries (_verb_bar_step_execute()/_verb_bar_stride_execute()
+	# below), the SAME Layer 1 (verb bar) -> Layer 2 (selection) path STRIKE
+	# already uses. HexGridView.hex_clicked itself is untouched (a future
+	# Layer 2 SelectionOverlay may subscribe to it) -- only this composition
+	# root's own subscription is removed.
 
 	outcome = round_session.outcome()
 
@@ -891,8 +900,19 @@ func _verb_bar_step_enter_selection() -> Dictionary:
 	return {"verb_id": "STEP", "candidate_hexes": movement_input_controller.get_selectable_step_hexes(), "candidate_targets": []}
 
 
+## _verb_bar_step_execute(selection) -> Dictionary — FEAT-007 (this
+## iteration's US-007/FR-010): `selection` is the Layer-2-picked destination
+## HexCoord (see _verb_bar_step_enter_selection()'s candidate_hexes). Forwards
+## directly to the injected, REUSED movement_input_controller.step_to() (ADR-
+## 002: no duplicate movement path -- this is now the SOLE Step entry point,
+## replacing the deleted hex_grid_view.hex_clicked auto-resolve handler). On
+## success, runs the SAME post-move refresh
+## (_after_successful_move()) that handler used to run.
 func _verb_bar_step_execute(selection) -> Dictionary:
-	return movement_input_controller.step_to(selection)
+	var result: Dictionary = movement_input_controller.step_to(selection)
+	if result.get("ok", false):
+		_after_successful_move()
+	return result
 
 
 func _verb_bar_stride_availability() -> bool:
@@ -905,8 +925,15 @@ func _verb_bar_stride_enter_selection() -> Dictionary:
 	return {"verb_id": "STRIDE", "candidate_hexes": movement_input_controller.get_selectable_stride_hexes(), "candidate_targets": []}
 
 
+## _verb_bar_stride_execute(selection) -> Dictionary — FEAT-007 (this
+## iteration's US-007/FR-010): mirrors _verb_bar_step_execute() exactly, for
+## Stride -- the SOLE Stride entry point now that the legacy
+## hex_grid_view.hex_clicked auto-resolve handler is gone.
 func _verb_bar_stride_execute(selection) -> Dictionary:
-	return movement_input_controller.stride_to(selection)
+	var result: Dictionary = movement_input_controller.stride_to(selection)
+	if result.get("ok", false):
+		_after_successful_move()
+	return result
 
 
 func _verb_bar_end_turn_availability() -> bool:
@@ -983,18 +1010,20 @@ func _on_active_actor_changed(combatant: Dictionary) -> void:
 ## union here immediately afterward rather than relying on that internal
 ## push alone.
 ##
-## FEAT-007 / US-007 / FR-002: the SAME union is also handed to
-## move_action_control.configure(), so the visible Move affordance's
-## visibility is bound to exactly the same selectable-hex set hex_grid_view
-## highlights — never a second, independently-derived legality check
-## (ADR-001).
+## FEAT-007 (this iteration's US-007/FR-010): the union computed here is no
+## longer also handed to a move_action_control.configure() call --
+## presentation/MoveActionControl.gd (the passive "Move" indicator this used
+## to also drive) has been deleted; Step/Stride availability is now surfaced
+## entirely through $VerbBarView's STEP/STRIDE buttons (re-gated via
+## verb_bar_view.refresh_availability(), called by this method's caller,
+## _on_active_actor_changed(), immediately after this method returns).
 ##
 ## When `combatant` is not the active PLAYER (an enemy's turn), no highlight
 ## may be shown at all (API contract #1) — this defensively clears
-## hex_grid_view (and hides move_action_control) instead, even though
-## TurnController.active_actor_changed only ever fires for a settled player
-## actor today (see presentation/turn_controller.gd's _drive()); this
-## handler must not rely on that invariant holding forever.
+## hex_grid_view instead, even though TurnController.active_actor_changed
+## only ever fires for a settled player actor today (see
+## presentation/turn_controller.gd's _drive()); this handler must not rely on
+## that invariant holding forever.
 ##
 ## Emits a structured debug log line (observability requirement) including
 ## combatant_id and the Step/Stride hex counts that produced the highlighted
@@ -1007,8 +1036,6 @@ func _highlight_legal_moves(combatant: Dictionary, active_combatant_id: String) 
 	if is_enemy_turn:
 		if hex_grid_view != null:
 			hex_grid_view.set_selectable_hexes([])
-		if move_action_control != null:
-			move_action_control.configure([])
 		_last_highlight_debug_log = (
 			"DEBUG: highlight_legal_moves combatant_id=" + active_combatant_id
 			+ " step_hex_count=0 stride_hex_count=0 (non-player turn, highlight suppressed)"
@@ -1022,9 +1049,6 @@ func _highlight_legal_moves(combatant: Dictionary, active_combatant_id: String) 
 
 	if hex_grid_view != null:
 		hex_grid_view.set_selectable_hexes(union_hexes)
-
-	if move_action_control != null:
-		move_action_control.configure(union_hexes)
 
 	_last_highlight_debug_log = (
 		"DEBUG: highlight_legal_moves combatant_id=" + active_combatant_id
@@ -1073,11 +1097,14 @@ func _union_hexes(step_hexes: Array, stride_hexes: Array) -> Array:
 ## round_session.gd), so _strike_reachable_targets() (and therefore STRIKE's
 ## availability/enter_selection/execute closures) already naturally report
 ## no actor/no targets with zero extra bookkeeping here.
+##
+## FEAT-007 (this iteration): no longer also clears a move_action_control
+## (that node was deleted) -- Step/Stride availability is re-gated below via
+## verb_bar_view.refresh_availability(), the SAME mechanism every other verb
+## already relies on.
 func _on_round_over() -> void:
 	if round_session != null:
 		outcome = round_session.outcome()
-	if move_action_control != null:
-		move_action_control.configure([])
 	movement_input_controller.configure({}, [])
 	# FEAT-004 / US-004/FR-001: re-gate the verb bar now that no actor/targets
 	# remain configured (Strike/Step/Stride all become unavailable; End Turn
@@ -1104,26 +1131,20 @@ func _on_end_turn_control_turn_ended(_result: Dictionary) -> void:
 	turn_controller.set_session(round_session)
 
 
-## _on_hex_grid_view_hex_clicked(hex_coord) -> void — FEAT-013 / US-013
-## (Stride: FEAT-014 / US-014): hex_grid_view's hex_clicked signal handler.
-## Forwards directly to the injected, REUSED movement_input_controller
-## (ADR-002: no duplicate movement path) -- first trying step_to() (the FREE,
-## no-action-economy-cost 1-hex move), and, only when that is rejected
-## specifically because the clicked hex is not a legal Step destination
-## (ERR_DESTINATION_NOT_SELECTABLE -- e.g. it is farther than 1 hex away),
-## falling back to stride_to() (up to Speed hexes, spending one action) so a
-## single click on any currently-highlighted-or-Stride-reachable hex resolves
-## to whichever of the two moves actually applies -- no separate "Stride
-## mode" affordance is introduced by this composition root. A click that
-## names neither a legal Step NOR a legal Stride destination (including
-## before any actor has been configured, e.g. before the first
-## active_actor_changed signal) is simply rejected by both controllers with
-## no effect. On a successful Step OR Stride, re-invokes
-## _on_active_actor_changed() with the SAME (now-moved) current actor so
-## strike_action_control re-gates its in-reach target set from the new
-## position (Strike reach re-gate, FEAT-013/FEAT-014's test_criteria) --
-## this composition root never re-derives that reach logic itself, it only
-## re-triggers the SAME reconfiguration path US-009 already established.
+## _after_successful_move() -> void — FEAT-007 (this iteration's US-007/
+## FR-010): the shared post-move refresh both _verb_bar_step_execute() and
+## _verb_bar_stride_execute() run the moment movement_input_controller
+## reports a successful Step/Stride. Replaces the deleted
+## _on_hex_grid_view_hex_clicked()'s identical inline logic (FEAT-013/
+## FEAT-014's original click-to-move handler, removed by this feature since
+## Step/Stride are now driven solely through the verb registry, never a
+## standing hex_grid_view.hex_clicked subscription) — behavior is otherwise
+## UNCHANGED: re-invokes _on_active_actor_changed() with the SAME (now-moved)
+## current actor so STRIKE's in-reach target set (and STEP/STRIDE's own
+## availability) re-gates from the new position (Strike reach re-gate,
+## FEAT-013/FEAT-014's test_criteria) — this composition root never
+## re-derives that reach logic itself, it only re-triggers the SAME
+## reconfiguration path US-009 already established.
 ##
 ## FEAT-008 / US-008 (FR-003, design notes' API contract #4): on a successful
 ## Step OR Stride, hex_grid_view.set_selectable_hexes([]) is pushed
@@ -1138,34 +1159,12 @@ func _on_end_turn_control_turn_ended(_result: Dictionary) -> void:
 ## movement_input_controller.gd's _recompute_selectable_destinations()) --
 ## this explicit clear is pushed AFTER that internal push completes, so it is
 ## always the last word before this composition root's own re-highlight.
-func _on_hex_grid_view_hex_clicked(hex_coord) -> void:
-	if round_session == null:
-		return
-	var step_result: Dictionary = movement_input_controller.step_to(hex_coord)
-	if step_result.get("ok", false):
-		_clear_movement_highlight()
-		_refresh_off_guard_conditions()
-		_on_active_actor_changed(round_session.current_actor())
-		return
-
-	if step_result.get("error", "") != MovementInputControllerClass.ERR_DESTINATION_NOT_SELECTABLE:
-		return
-
-	var stride_result: Dictionary = movement_input_controller.stride_to(hex_coord)
-	if stride_result.get("ok", false):
-		_clear_movement_highlight()
-		_refresh_off_guard_conditions()
-		_on_active_actor_changed(round_session.current_actor())
-
-
-## _clear_movement_highlight() -> void — FEAT-008 / US-008 (FR-003): pushes an
-## empty selectable-hex set to hex_grid_view, when present. Factored out of
-## _on_hex_grid_view_hex_clicked() (called from both its Step and Stride
-## success branches) so there is exactly one place this composition root
-## clears the movement highlight after a successful move.
-func _clear_movement_highlight() -> void:
+func _after_successful_move() -> void:
 	if hex_grid_view != null:
 		hex_grid_view.set_selectable_hexes([])
+	_refresh_off_guard_conditions()
+	if round_session != null:
+		_on_active_actor_changed(round_session.current_actor())
 
 
 ## _other_living_combatants(combatant) -> Array — every living (hp_current >
@@ -1220,8 +1219,8 @@ func _living_combatants(combatants: Array) -> Array:
 ## combatant belongs to: a party member's candidate flankers are the living
 ## enemies, and vice versa. Called once at boot (right after the initial
 ## StatusPanelView snapshot) and again after every successful Step/Stride
-## (_on_hex_grid_view_hex_clicked), since either side's move can flank OR
-## unflank any combatant on the field, not only the mover itself.
+## (_after_successful_move()), since either side's move can flank OR unflank
+## any combatant on the field, not only the mover itself.
 func _refresh_off_guard_conditions() -> void:
 	var living_party: Array = _living_combatants(_party)
 	var living_enemies: Array = _living_combatants(_enemies)

@@ -15,7 +15,7 @@ func test_manual_verify_step_through_real_main_scene() -> void:
 
 	var dest = instance.movement_input_controller.get_selectable_step_hexes()[0]
 	gut.p("stepping to: " + str(dest))
-	instance.hex_grid_view.hex_clicked.emit(dest)
+	instance._verb_registry.execute("STEP", dest)
 
 	var actor_after = instance.round_session.current_actor()
 	gut.p("actor after: " + str(actor_after.get("name")) + " hex=" + str(actor_after.get("hex_coord")))
