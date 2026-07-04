@@ -70,6 +70,15 @@ signal selection_resolved(verb_id: String, result)
 ## call is ever made for this case (see file-level doc).
 signal selection_rejected(verb_id: String, hex_coord)
 
+## selection_cancelled(verb_id) — FEAT-176 (US-012 / FR-007, ADR-005):
+## emitted by cancel() whenever a Layer 2 selection WAS active and has now
+## been discarded via the cancel/back affordance (Esc/right-click/Cancel
+## button — see presentation/cancel_controller.gd, the sole caller of
+## cancel()). Distinguishes an explicit cancel from a normal
+## selection_resolved-triggered clear() — NEVER emitted by clear() itself,
+## only by cancel().
+signal selection_cancelled(verb_id: String)
+
 ## The injected registry (duck-typed: any object exposing execute(verb_id,
 ## selection) — mirrors presentation/verb_bar_view.gd's identical
 ## convention). SelectionOverlay never constructs one itself and never
@@ -146,14 +155,40 @@ func activate(verb_id: String, selection) -> void:
 
 ## clear() -> void — leaves Layer 2 (returns to Layer 1) and clears any
 ## highlight this overlay pushed to hex_grid_view. Called internally once a
-## selection resolves; also safe to call externally (e.g. a future
-## CancelController, out of this feature's scope).
+## selection resolves; also safe to call externally (e.g. cancel() below).
+## Never emits selection_cancelled and never touches `_registry` — this is
+## the pure state-reset primitive both a normal resolution and an explicit
+## cancel share.
 func clear() -> void:
 	_active_verb_id = ""
 	_candidate_hexes = []
 	_target_hex_by_id = {}
 	if _hex_grid_view != null:
 		_hex_grid_view.set_selectable_hexes([])
+
+
+## cancel() -> bool — FEAT-176 (US-012 / FR-007, ADR-005): the cancel/back
+## affordance's sole entry point into this overlay (called exclusively by
+## presentation/cancel_controller.gd's CancelController, never by
+## VerbBarView/HexGridView directly). Discards the pending Layer 2 selection
+## via clear() — which, per that method's own doc, NEVER calls `_registry`
+## (no ActionResolverPort/MovementPort/TurnPort method is reachable from this
+## call) — and returns to Layer 1 with zero state mutation beyond this
+## overlay's own transient Layer 2 bookkeeping (candidate hexes/targets) and
+## the purely-visual hex_grid_view highlight.
+##
+## Returns true and emits selection_cancelled(verb_id) iff a Layer 2
+## selection was actually active (is_active() was true before this call);
+## returns false (a true no-op — no signal emitted, `clear()` not even
+## called) when Layer 1 was already active, so cancelling with nothing to
+## cancel is guaranteed inert.
+func cancel() -> bool:
+	if not is_active():
+		return false
+	var verb_id: String = _active_verb_id
+	clear()
+	selection_cancelled.emit(verb_id)
+	return true
 
 
 # ── Internal helpers ─────────────────────────────────────────────────────

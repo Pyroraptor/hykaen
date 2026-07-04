@@ -1,7 +1,8 @@
 extends Node
 ## MainScene.gd — project composition root (ADR-006 / US-004 / FEAT-005;
 ## FEAT-123 / US-004,009,010,011,012, FIND-120; FEAT-001/US-001 UI
-## consolidation, iteration D; FEAT-006 / US-006, iteration E)
+## consolidation, iteration D; FEAT-006 / US-006, iteration E; FEAT-176 /
+## US-012, cancel/back affordance, ADR-005)
 ##
 ## This is the SINGLE place Infrastructure adapters are wired to Application
 ## ports for the whole game (manual DI via the scene tree — no DI framework,
@@ -168,6 +169,7 @@ const HexCoordClass                    = preload("res://core/geometry/hex_coord.
 const HexMathClass                     = preload("res://core/geometry/hex_math.gd")
 const VerbBarViewClass                 = preload("res://presentation/verb_bar_view.gd")
 const SelectionOverlayClass            = preload("res://presentation/selection_overlay.gd")
+const CancelControllerClass            = preload("res://presentation/cancel_controller.gd")
 
 ## The steel-thread's entry_point: the one encounter this composition root boots into.
 const PROLOGUE_ENCOUNTER_PATH: String = "res://data/encounters/prologue_encounter.tres"
@@ -481,6 +483,20 @@ var _verb_registry = null
 ## verification.
 var selection_overlay = SelectionOverlayClass.new()
 
+## cancel_controller — the CancelController (presentation/cancel_controller.gd,
+## FEAT-176 / US-012 / FR-007, ADR-005) instantiated directly (code-only, no
+## companion .tscn, plain RefCounted — mirrors selection_overlay's/
+## movement_input_controller's precedent EXACTLY, including never being
+## add_child()ed, so it never grows MainScene's exact-child-set — see
+## tests/infrastructure/test_presentation_stack_wiring.gd). This composition
+## root's own _unhandled_input() (below) forwards every event to it, since a
+## RefCounted has no engine input callback of its own. Configured with ONLY
+## `selection_overlay` in _ready() — this composition root never hands it
+## `_verb_registry` or any port/use case, so the "CancelController never
+## invokes ActionResolverPort/MovementPort/TurnPort methods" guarantee holds
+## at the wiring level too. Exposed for verification.
+var cancel_controller = CancelControllerClass.new()
+
 ## result_screen_view — the ResultScreenView (presentation/
 ## result_screen_view.gd) instanced in MainScene.tscn (FEAT-112, US-012).
 ## This is the ONE result screen this composition root wires (FEAT-001 /
@@ -646,6 +662,19 @@ func _ready() -> void:
 		verb_bar_view.verb_selection_entered.connect(_on_verb_bar_selection_entered)
 	selection_overlay.selection_resolved.connect(_on_selection_overlay_resolved)
 
+	# ── FEAT-176 / US-012 (FR-007, ADR-005): wire the generic Layer 2 cancel/
+	# back affordance (Esc/right-click/Cancel button) over the SAME
+	# `selection_overlay` above -- instantiated directly, never add_child()ed
+	# (it is a plain RefCounted adapter, mirroring selection_overlay/
+	# movement_input_controller -- see tests/infrastructure/
+	# test_presentation_stack_wiring.gd's exact-child-set invariant, which
+	# this composition root must not grow). This node's OWN
+	# _unhandled_input() (below) forwards Esc-key/right-click events to it
+	# instead. Configured with ONLY `selection_overlay` -- never
+	# `_verb_registry` -- so no ActionResolverPort/MovementPort/TurnPort call
+	# is reachable from it (see cancel_controller.gd's file-level doc). ──────
+	cancel_controller.configure(selection_overlay)
+
 	outcome = round_session.outcome()
 
 	print(
@@ -660,6 +689,22 @@ func _ready() -> void:
 	# immediately visible in headless-boot logs, mirroring the ADR-003
 	# rationale already established for `resolved_seed`. ───────────────────
 	print("DEBUG: viewport_centering centering_offset=" + str(centering_offset))
+
+
+## _unhandled_input(event) -> void — FEAT-176 (US-012 / FR-007, ADR-005):
+## forwards EVERY unhandled input event straight to
+## `cancel_controller`.handle_input() -- the ONE place an Esc-key-pressed or
+## right-click-pressed event is translated into a Layer 2 cancel, mirroring
+## presentation/hex_grid_view.gd's own _unhandled_input() (left-click ->
+## hex_clicked) convention. `cancel_controller` is a plain RefCounted adapter
+## (never add_child()ed -- see this file's `cancel_controller` field doc), so
+## this composition root -- already a live SceneTree Node -- is the one place
+## that must own this translation. Marks the event handled only when a real
+## cancel occurred, so an Esc/right-click with no active Layer 2 selection is
+## left for any other listener (e.g. a future menu) to handle.
+func _unhandled_input(event: InputEvent) -> void:
+	if cancel_controller.handle_input(event):
+		get_viewport().set_input_as_handled()
 
 
 ## _compute_boot_centering_offset(hex_combatants) -> Vector2 — FEAT-002
