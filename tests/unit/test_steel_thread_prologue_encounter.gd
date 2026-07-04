@@ -9,8 +9,7 @@ extends GutTest
 ## file is the only file_to_modify) — every object driven below is the
 ## exact, unmodified, REUSED production class already covered individually
 ## by FEAT-152 (tests/unit/test_ranged_weapon_fixtures.gd), FEAT-153
-## (tests/unit/core/application/test_resolve_action_off_guard.gd), FEAT-154
-## (tests/unit/presentation/test_strike_action_control.gd), FEAT-155
+## (tests/unit/core/application/test_resolve_action_off_guard.gd), FEAT-155
 ## through FEAT-158, and the pre-existing steel-thread suites
 ## (tests/gut/test_steel_thread_e2e.gd, tests/integration/
 ## test_steel_thread_prologue_encounter.gd, tests/e2e/
@@ -18,6 +17,15 @@ extends GutTest
 ## prove ALL of those remediations still compose correctly TOGETHER,
 ## through the ONE real, shipped entry point, closing out the steel-thread
 ## exit criteria.
+##
+## FEAT-181 (DEF-001 / FR-009/NFR-003): FEAT-006 (US-006) later removed the
+## legacy presentation/strike_action_control.gd/.tscn control entirely --
+## Strike is now driven SOLELY through the Layer 1 verb bar
+## (presentation/verb_bar_view.gd) -> `_verb_registry`'s STRIKE entry (see
+## MainScene.gd's file-level FEAT-006 doc). This file's Strike-driving
+## criteria below (3 and 5) are retargeted onto that real two-layer flow
+## instead of the deleted control, preserving their original regression
+## intent unchanged.
 ##
 ## test_criteria satisfied:
 ##   1. FIX-001 fixture files (data/weapons/shortbow.tres,
@@ -61,7 +69,6 @@ const HexMathClass        = preload("res://core/geometry/hex_math.gd")
 const ActionEconomyClass  = preload("res://core/rules/action_economy.gd")
 const FlankingClass       = preload("res://core/rules/flanking.gd")
 const WeaponResourceClass = preload("res://core/model/weapon_resource.gd")
-const StrikeActionControlScene: PackedScene = preload("res://presentation/strike_action_control.tscn")
 
 ## The pinned deterministic-test fixture seed (matches
 ## data/encounters/prologue_encounter.tres' own `seed` field, 42) --
@@ -230,6 +237,17 @@ func test_off_guard_condition_reduces_defense_value_by_two_in_live_event_log() -
 # Strike against a target 3+ hexes away is offered as selectable BEFORE
 # resolution, then resolves and is logged in MainScene's real, full
 # captured event log.
+#
+# FEAT-181 (DEF-001): retargeted onto the real `_verb_registry` (the SOLE
+# Strike entry point since FEAT-006 removed presentation/
+# strike_action_control.gd) instead of the deleted control. The live active
+# actor's own "weapon" Dictionary is mutated in place to the shortbow
+# fixture -- the SAME "mutate the LIVE Dictionary" convention criterion 2
+# above already uses via _refresh_off_guard_conditions() -- and a synthetic,
+# far-away ranged target is appended to the LIVE `_enemies` list so
+# `_verb_registry`'s STRIKE entry (which reads round_session.current_actor()/
+# `_enemies` directly, see MainScene.gd's _strike_reachable_targets()) picks
+# it up without needing a rendered HexGridView token of its own.
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_ranged_shortbow_strike_against_target_three_hexes_away_is_selectable_and_resolves_and_is_logged() -> void:
@@ -239,27 +257,29 @@ func test_ranged_shortbow_strike_against_target_three_hexes_away_is_selectable_a
 	var shortbow = ResourceLoader.load("res://data/weapons/shortbow.tres")
 	assert_not_null(shortbow, "data/weapons/shortbow.tres must load (FIX-001)")
 
+	var actor: Dictionary = instance.round_session.current_actor()
+	var actor_hex = actor.get("hex_coord", null)
+	assert_not_null(actor_hex, "fixture assumption: the live active actor has a hex_coord")
+
+	# Equip the LIVE active actor with the shortbow fixture in place -- the
+	# SAME live Dictionary `_verb_registry`'s STRIKE entry reads from, never a
+	# second/independent actor.
+	actor["weapon"] = {
+		"damage_modifier_attribute": shortbow.damage_modifier_attribute,
+		"proficiency_bonus":         shortbow.proficiency_bonus,
+		"damage_die":                shortbow.damage_die,
+		"range_hexes":               shortbow.range_hexes,
+	}
+
 	# Placed far from the live Titus/Skeleton fixture so this scenario is
-	# fully isolated from it; hex_distance((30,0), (33,0)) == 3, well within
-	# shortbow.range_hexes (8).
-	var archer_origin := HexCoordClass.new(30, 0)
-	var target_hex := HexCoordClass.new(33, 0)
+	# fully isolated from it; hex_distance(actor_hex, target_hex) == 3, well
+	# within shortbow.range_hexes (8).
+	var target_hex := HexCoordClass.new(actor_hex.q + 3, actor_hex.r)
 	assert_true(
-		HexMathClass.hex_distance(archer_origin, target_hex) >= 3,
+		HexMathClass.hex_distance(actor_hex, target_hex) >= 3,
 		"fixture assumption: the target must be at least 3 hexes away from the shortbow-equipped actor"
 	)
 
-	var archer: Dictionary = {
-		"name":       "SteelThreadArcher",
-		"dexterity":  3,
-		"hex_coord":  archer_origin,
-		"weapon": {
-			"damage_modifier_attribute": shortbow.damage_modifier_attribute,
-			"proficiency_bonus":         shortbow.proficiency_bonus,
-			"damage_die":                shortbow.damage_die,
-			"range_hexes":               shortbow.range_hexes
-		}
-	}
 	# ac deliberately far below any possible roll_total so the Strike is
 	# guaranteed to hit (a genuinely "successful" ranged Strike), without
 	# needing to control MainScene's live, real (seeded but shared) RNG roll
@@ -272,23 +292,23 @@ func test_ranged_shortbow_strike_against_target_three_hexes_away_is_selectable_a
 		"ac":          -1000,
 		"hex_coord":   target_hex
 	}
+	instance._enemies.append(target)
 
-	var control = StrikeActionControlScene.instantiate()
-	add_child_autofree(control)
-	control.configure(archer, ActionEconomyClass.new(), instance.resolve_action_use_case, [target], 1, 0)
-
-	# ── Pre-resolution: the 3+ hex target must be offered as selectable. ────
-	var selectable_ids: Array = control.get_selectable_target_ids()
+	# ── Pre-resolution: the 3+ hex target must be offered as selectable
+	# through the real `_verb_registry`'s STRIKE entry. ─────────────────────
+	assert_true(instance._verb_registry.is_available("STRIKE"), "STRIKE must be available with a live ranged in-reach target")
+	var selection: Dictionary = instance._verb_registry.enter_selection("STRIKE")
+	var selectable_ids: Array = selection.get("candidate_targets", [])
 	assert_true(
 		selectable_ids.has("steel_thread_ranged_target"),
 		"a target 3+ hexes away must be offered as selectable BEFORE resolution when the actor wields a ranged (shortbow) weapon (FIND-143/FIND-146)"
 	)
 
-	# ── Resolution: forwards to MainScene's real, live resolve_action_use_case
-	# -- the resulting AttackEvent lands in MainScene's real, full captured
-	# event log. ─────────────────────────────────────────────────────────────
+	# ── Resolution: `_verb_registry.execute()` forwards to MainScene's real,
+	# live resolve_action_use_case -- the resulting AttackEvent lands in
+	# MainScene's real, full captured event log. ────────────────────────────
 	var events_before: int = instance.event_sink.log.size()
-	var result: Dictionary = control.select_target("steel_thread_ranged_target")
+	var result: Dictionary = instance._verb_registry.execute("STRIKE", "steel_thread_ranged_target")
 
 	assert_true(result.get("ok", false), "the ranged Strike against the 3+ hex target must resolve successfully")
 	assert_true(result.get("resolved", false), "the ranged Strike must be marked resolved")
@@ -298,16 +318,23 @@ func test_ranged_shortbow_strike_against_target_three_hexes_away_is_selectable_a
 	)
 	assert_eq(new_attack_events.size(), 1, "the resolved ranged Strike must appear in MainScene's real, full captured event log")
 	var logged_event = new_attack_events[0]
-	assert_eq(logged_event.attacker_name, "SteelThreadArcher", "the logged AttackEvent must attribute the ranged Strike to the shortbow-equipped actor")
+	assert_eq(logged_event.attacker_name, actor.get("name", ""), "the logged AttackEvent must attribute the ranged Strike to the shortbow-equipped actor")
 	assert_eq(logged_event.target_name, "SteelThreadRangedTarget", "the logged AttackEvent must target the 3+ hex-away target")
 	assert_true(logged_event.hit, "the ranged Strike must be a successful (hit) Strike, per this fixture's guaranteed-hit target ac")
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Criterion 5 -- driving the real $StrikeActionControl/$EndTurnControl
+# Criterion 5 -- driving the real $VerbBarView (STRIKE, via `_verb_registry`
+# and the real SelectionOverlay/HexGridView click flow)/$EndTurnControl
 # controls to conclusion under the pinned seed=42 fixture fires exactly one
 # EncounterResultEvent and reaches the correct Win/Loss $ResultScreenView
 # state, matching the pre-remediation steel-thread outcome for this fixture.
+#
+# FEAT-181 (DEF-001): retargeted onto the real Layer 1 (VerbBarView.press())
+# / Layer 2 (SelectionOverlay via HexGridView.hex_clicked) two-layer flow
+# instead of the deleted presentation/strike_action_control.gd control (see
+# tests/gut/test_strike_layer2_integration.gd's identically-shaped click
+# convention).
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_seed_42_fixture_concludes_with_encounter_result_event_and_matches_pre_remediation_win_outcome() -> void:
@@ -326,15 +353,19 @@ func test_seed_42_fixture_concludes_with_encounter_result_event_and_matches_pre_
 	var guard: int = 0
 	while not instance.round_session.is_round_over() and guard < _MAX_DRIVE_ITERATIONS:
 		if not instance.round_session.current_actor().get("_is_enemy", true):
-			var target_ids: Array = instance.strike_action_control.get_selectable_target_ids()
-			if target_ids.size() > 0:
-				instance.strike_action_control.select_target(target_ids[0])
+			if instance._verb_registry.is_available("STRIKE"):
+				var selection: Dictionary = instance.verb_bar_view.press("STRIKE")
+				var target_ids: Array = selection.get("candidate_targets", [])
+				if target_ids.size() > 0:
+					var target_token = instance.hex_grid_view.get_token(target_ids[0])
+					if target_token != null:
+						instance.hex_grid_view.hex_clicked.emit(target_token.hex_coord)
 		instance.end_turn_control.press()
 		guard += 1
 
 	assert_true(
 		instance.round_session.is_round_over(),
-		"driving the real StrikeActionControl/EndTurnControl controls must conclude the round well within this loop's safety bound (guard=%d/%d)" % [guard, _MAX_DRIVE_ITERATIONS]
+		"driving the real VerbBarView(STRIKE)/EndTurnControl controls must conclude the round well within this loop's safety bound (guard=%d/%d)" % [guard, _MAX_DRIVE_ITERATIONS]
 	)
 
 	var decided_outcome: String = instance.round_session.outcome()
@@ -352,5 +383,5 @@ func test_seed_42_fixture_concludes_with_encounter_result_event_and_matches_pre_
 	assert_eq(instance.result_screen_view.get_label_text(), "Win", "the rendered Label text must match the displayed result text")
 
 	# Post-conclusion input guard (US-010/US-012): combat controls disabled.
-	assert_eq(instance.strike_action_control.get_button_count(), 0, "StrikeActionControl must be disabled (no selectable targets) once the encounter has concluded")
+	assert_true(instance.verb_bar_view.is_locked(), "VerbBarView must be locked (no verb, including STRIKE, remains pressable) once the encounter has concluded")
 	assert_false(instance.end_turn_control.is_enabled(), "EndTurnControl must be disabled once the encounter has concluded")

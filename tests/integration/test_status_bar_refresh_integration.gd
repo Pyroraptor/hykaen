@@ -9,12 +9,20 @@ extends GutTest
 ## res://MainScene.tscn composition root with NO mocked/stubbed
 ## ActionResolutionPort (core/application/resolve_action_use_case.gd) --
 ## a genuine Strike is resolved through the exact call path a real player
-## drives ($StrikeActionControl.select_target() ->
-## resolve_action_use_case.resolve(), the codebase's "resolve_strike()" call
-## path per the design notes' API contract #5), and this suite asserts
-## presentation/status_panel_view.gd's projected action_budget_remaining/
-## Spent values track the domain core/rules/action_economy.gd ActionEconomy
-## instance exactly.
+## drives ($VerbBarView.press("STRIKE") -> `_verb_registry`.enter_selection()/
+## execute() -> resolve_action_use_case.resolve(), the codebase's
+## "resolve_strike()" call path per the design notes' API contract #5), and
+## this suite asserts presentation/status_panel_view.gd's projected
+## action_budget_remaining/Spent values track the domain core/rules/
+## action_economy.gd ActionEconomy instance exactly.
+##
+## FEAT-181 (DEF-001 / FR-009/NFR-003): FEAT-006 (US-006) later removed the
+## legacy presentation/strike_action_control.gd/.tscn control entirely --
+## Strike is now driven SOLELY through the Layer 1 verb bar
+## (presentation/verb_bar_view.gd) -> `_verb_registry`'s STRIKE entry (see
+## MainScene.gd's file-level FEAT-006 doc). This suite is retargeted onto
+## that real two-layer flow instead of the deleted control, preserving its
+## original Iteration D status-bar-decrement regression intent unchanged.
 ##
 ## test_criteria satisfied:
 ##   1. test_real_main_scene_boots_headlessly_and_resolves_a_strike_through_the_real_resolve_action_use_case()
@@ -25,7 +33,7 @@ extends GutTest
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 
 const ResolveActionUseCaseClass = preload("res://core/application/resolve_action_use_case.gd")
-const StrikeActionControlClass  = preload("res://presentation/strike_action_control.gd")
+const VerbBarViewClass          = preload("res://presentation/verb_bar_view.gd")
 const StatusPanelViewClass      = preload("res://presentation/status_panel_view.gd")
 
 
@@ -47,7 +55,8 @@ func _boot_main_scene_with_seed(seed_value: int):
 # Criterion 1 — the REAL MainScene.tscn boots headlessly, wiring the REAL
 # (not mocked/stubbed) ActionResolutionPort (resolve_action_use_case), and a
 # Strike is resolved through the REAL call path a player drives:
-# $StrikeActionControl.select_target() -> resolve_action_use_case.resolve().
+# $VerbBarView.press("STRIKE") -> `_verb_registry`.enter_selection()/
+# execute() -> resolve_action_use_case.resolve().
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_real_main_scene_boots_headlessly_and_resolves_a_strike_through_the_real_resolve_action_use_case() -> void:
@@ -60,18 +69,20 @@ func test_real_main_scene_boots_headlessly_and_resolves_a_strike_through_the_rea
 		"MainScene must wire the REAL core/application/resolve_action_use_case.gd ActionResolutionPort -- no mocked/stubbed use case"
 	)
 	assert_true(
-		is_instance_of(instance.strike_action_control, StrikeActionControlClass),
-		"MainScene must wire the REAL presentation/strike_action_control.gd StrikeActionControl -- no stub/mock"
+		is_instance_of(instance.verb_bar_view, VerbBarViewClass),
+		"MainScene must wire the REAL presentation/verb_bar_view.gd VerbBarView -- no stub/mock"
 	)
 	assert_true(
 		is_instance_of(instance.status_panel_view, StatusPanelViewClass),
 		"MainScene must wire the REAL presentation/status_panel_view.gd StatusPanelView -- no stub/mock"
 	)
 
-	var target_ids: Array = instance.strike_action_control.get_selectable_target_ids()
+	assert_true(instance._verb_registry.is_available("STRIKE"), "fixture assumption: the prologue's first actor has at least one in-reach target at seed=42")
+	var selection: Dictionary = instance.verb_bar_view.press("STRIKE")
+	var target_ids: Array = selection.get("candidate_targets", [])
 	assert_true(target_ids.size() > 0, "fixture assumption: the prologue's first actor has at least one in-reach target at seed=42")
 
-	var result: Dictionary = instance.strike_action_control.select_target(target_ids[0])
+	var result: Dictionary = instance._verb_registry.execute("STRIKE", target_ids[0])
 	assert_true(
 		result.get("resolved", false),
 		"the Strike must resolve through the REAL resolve_action_use_case.resolve() call path (no mocked ActionResolutionPort)"
@@ -93,10 +104,11 @@ func test_status_panel_view_action_budget_remaining_decreases_by_exactly_one_for
 	var before_remaining: int = instance.status_panel_view.get_status(actor_id).get("action_budget_remaining", -1)
 	assert_true(before_remaining > 0, "sanity check: the acting combatant starts with a positive action budget")
 
-	var target_ids: Array = instance.strike_action_control.get_selectable_target_ids()
+	var selection: Dictionary = instance.verb_bar_view.press("STRIKE")
+	var target_ids: Array = selection.get("candidate_targets", [])
 	assert_true(target_ids.size() > 0, "fixture assumption: the active actor has at least one in-reach target")
 
-	var result: Dictionary = instance.strike_action_control.select_target(target_ids[0])
+	var result: Dictionary = instance._verb_registry.execute("STRIKE", target_ids[0])
 	assert_true(result.get("resolved", false), "fixture assumption: the real Strike must resolve")
 
 	var after_remaining: int = instance.status_panel_view.get_status(actor_id).get("action_budget_remaining", -1)
@@ -137,11 +149,12 @@ func test_status_panel_view_spent_value_matches_the_domain_action_economys_spent
 	var action_economy = instance.round_session.current_action_economy()
 	assert_not_null(action_economy, "fixture assumption: the active actor has a live domain ActionEconomy")
 
-	var target_ids: Array = instance.strike_action_control.get_selectable_target_ids()
+	var selection: Dictionary = instance.verb_bar_view.press("STRIKE")
+	var target_ids: Array = selection.get("candidate_targets", [])
 	assert_true(target_ids.size() > 0, "fixture assumption: the active actor has at least one in-reach target")
 	var target_id: String = target_ids[0]
 
-	var result: Dictionary = instance.strike_action_control.select_target(target_id)
+	var result: Dictionary = instance._verb_registry.execute("STRIKE", target_id)
 	assert_true(result.get("resolved", false), "fixture assumption: the real Strike must resolve")
 
 	assert_eq(
