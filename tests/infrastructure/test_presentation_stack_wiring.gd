@@ -40,6 +40,7 @@ const EndTurnControlClass          = preload("res://presentation/end_turn_contro
 const ResultScreenViewClass        = preload("res://presentation/result_screen_view.gd")
 const TurnControllerClass          = preload("res://presentation/turn_controller.gd")
 const MovementInputControllerClass = preload("res://presentation/movement_input_controller.gd")
+const VerbBarViewClass             = preload("res://presentation/verb_bar_view.gd")
 
 ## Every path under presentation/* is a legitimate signal-handler home; the
 ## composition root itself (MainScene.gd, res:// root, NOT presentation/*) is
@@ -54,6 +55,11 @@ const _COMPOSITION_ROOT_SCRIPT_PATH: String = "res://MainScene.gd"
 ## "No more, no less" (test_criteria #1) is enforced by comparing this
 ## Dictionary's size against the live child count, not merely checking each
 ## expected name is present.
+##
+## VerbBarView (FEAT-004 / US-004/FR-001) was added here alongside the
+## original FEAT-002 set: the Layer 1 verb bar is a legitimate, additional
+## presentation/* component wired into MainScene.tscn, not a re-introduction
+## of the removed scenes/battlefield/* stack this suite guards against.
 const _EXPECTED_CHILDREN: Dictionary = {
 	"HexGridView":         HexGridViewClass,
 	"StatusPanelView":     StatusPanelViewClass,
@@ -63,6 +69,7 @@ const _EXPECTED_CHILDREN: Dictionary = {
 	"MoveActionControl":   MoveActionControlClass,
 	"TurnController":      TurnControllerClass,
 	"EndTurnControl":      EndTurnControlClass,
+	"VerbBarView":         VerbBarViewClass,
 	"ResultScreenView":    ResultScreenViewClass,
 }
 

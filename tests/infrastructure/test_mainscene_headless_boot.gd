@@ -66,6 +66,9 @@ func test_mainscene_boots_headlessly_with_zero_errors_after_battlefield_removal(
 	assert_not_null(instance.result_screen_view, "MainScene.result_screen_view must remain wired (the kept stack, FEAT-001)")
 	assert_not_null(instance.turn_controller, "MainScene.turn_controller must remain wired (the kept stack, FEAT-001)")
 	assert_not_null(instance.movement_input_controller, "MainScene.movement_input_controller must remain wired (the kept stack, FEAT-001)")
+	assert_not_null(instance.verb_bar_view, "MainScene.verb_bar_view must be wired to a real $VerbBarView node in MainScene.tscn (FEAT-004 / US-004)")
+	if instance.verb_bar_view != null:
+		assert_gt(instance.verb_bar_view.get_button_count(), 0, "MainScene.verb_bar_view must render at least one verb button after boot (FEAT-004 / US-004)")
 
 
 # ══════════════════════════════════════════════════════════════════════════
