@@ -6,8 +6,9 @@ extends GutTest
 ##
 ## Re-runs the Flanking Off-Guard (+2) rule (core/rules/flanking.gd, FEAT-015
 ## / US-015 / FR-016) resolved through REAL MainScene Strike resolution --
-## i.e. driven through the real, shipped $StrikeActionControl node's
-## select_target(), which forwards to MainScene's real, wired
+## i.e. driven through the real, shipped Layer 1 verb bar
+## ($VerbBarView, presentation/verb_bar_view.gd) -> `_verb_registry`'s
+## STRIKE entry's execute(), which forwards to MainScene's real, wired
 ## resolve_action_use_case (not a test-local resolve_action_use_case
 ## instance standing in for it, unlike tests/unit/core/application/
 ## test_resolve_action_off_guard.gd's criterion 3, which constructs a fresh
@@ -17,8 +18,16 @@ extends GutTest
 ## _refresh_off_guard_conditions() writes into the live combatant
 ## Dictionaries resolve() reads; this suite closes the remaining gap by
 ## proving the SAME bonus survives being driven end-to-end through the real
-## Presentation control a player actually clicks, against the kept
+## Presentation path a player actually clicks, against the kept
 ## single-stack MainScene (no scenes/battlefield/* duplicate remains wired).
+##
+## FEAT-182 (DEF-001 / FR-009/NFR-003): FEAT-006 (US-006) removed the legacy
+## immediate-resolve-on-click Strike control (its .gd/.tscn pair, formerly
+## under presentation/) this suite originally drove entirely -- every
+## Strike below is retargeted onto the real `_verb_registry`'s STRIKE entry
+## (`is_available()`/`enter_selection()`/`execute()`, entered via the real
+## `verb_bar_view.press("STRIKE")`) instead, preserving this suite's +2
+## Off-Guard flanking-bonus assertion unchanged (NFR-004).
 ##
 ## AttackEvent.defense_value is roll-independent (it is the target's
 ## effective AC after any Off-Guard reduction, computed before the d20 roll
@@ -67,14 +76,35 @@ func _first_attack_event(instance) -> RoundEventsClass.AttackEvent:
 	return attack_events[0]
 
 
+## _strike_candidate_target_ids(instance) -> Array — obtains the currently
+## selectable Strike target ids through the REAL $VerbBarView.press("STRIKE")
+## -> `_verb_registry.enter_selection("STRIKE")` path (FEAT-182), mirroring
+## $VerbBarView.press()'s own non-END_TURN dispatch exactly (see
+## presentation/verb_bar_view.gd).
+func _strike_candidate_target_ids(instance) -> Array:
+	var selection: Dictionary = instance.verb_bar_view.press("STRIKE")
+	return selection.get("candidate_targets", [])
+
+
+## _resolve_strike(instance, target_id) -> Dictionary — resolves a Strike
+## against `target_id` through the REAL `_verb_registry.execute("STRIKE",
+## ...)` path (FEAT-182), the SAME dispatch $VerbBarView's Layer 2 selection
+## overlay itself invokes once a target is clicked (see
+## presentation/selection_overlay.gd) -- never a re-derived/duplicate
+## resolution path.
+func _resolve_strike(instance, target_id: String) -> Dictionary:
+	return instance._verb_registry.execute("STRIKE", target_id)
+
+
 # ══════════════════════════════════════════════════════════════════════════
-# Criterion — a Strike resolved through the REAL $StrikeActionControl node
-# against a live Off-Guard target uses a defense_value exactly 2 lower than
-# the identical scenario with no flanking set up, proving the +2 bonus
-# reaches real MainScene Strike resolution end-to-end.
+# Criterion — a Strike resolved through the REAL $VerbBarView ->
+# `_verb_registry` STRIKE entry against a live Off-Guard target uses a
+# defense_value exactly 2 lower than the identical scenario with no
+# flanking set up, proving the +2 bonus reaches real MainScene Strike
+# resolution end-to-end.
 # ══════════════════════════════════════════════════════════════════════════
 
-func test_baseline_strike_through_real_strike_action_control_uses_plain_ac_as_defense_value() -> void:
+func test_baseline_strike_through_real_verb_registry_uses_plain_ac_as_defense_value() -> void:
 	var instance = _boot_main_scene()
 	await get_tree().process_frame
 
@@ -85,26 +115,26 @@ func test_baseline_strike_through_real_strike_action_control_uses_plain_ac_as_de
 		"fixture assumption: before any flanking is set up, the live enemy carries no conditions"
 	)
 
-	var target_ids: Array = instance.strike_action_control.get_selectable_target_ids()
+	var target_ids: Array = _strike_candidate_target_ids(instance)
 	assert_true(target_ids.has(target_id), "fixture assumption: the enemy is an in-reach Strike target before any flanking is set up")
 
-	var result: Dictionary = instance.strike_action_control.select_target(target_id)
-	assert_true(result.get("resolved", false), "the baseline Strike must resolve through the real $StrikeActionControl node")
+	var result: Dictionary = _resolve_strike(instance, target_id)
+	assert_true(result.get("resolved", false), "the baseline Strike must resolve through the real `_verb_registry` STRIKE entry")
 
 	var attack_event: RoundEventsClass.AttackEvent = _first_attack_event(instance)
 	var target_ac: int = instance._enemies[0].get("ac", -1)
 	assert_eq(
 		attack_event.defense_value, target_ac,
-		"without Off-Guard, a Strike resolved through the real $StrikeActionControl must use the target's plain ac as defense_value"
+		"without Off-Guard, a Strike resolved through the real `_verb_registry` STRIKE entry must use the target's plain ac as defense_value"
 	)
 
 
-func test_off_guard_flanking_reduces_defense_value_by_exactly_two_through_real_strike_action_control() -> void:
+func test_off_guard_flanking_reduces_defense_value_by_exactly_two_through_real_verb_registry() -> void:
 	var baseline_instance = _boot_main_scene()
 	await get_tree().process_frame
 
 	var baseline_target_id: String = baseline_instance._enemies[0].get("combatant_id", "")
-	var baseline_result: Dictionary = baseline_instance.strike_action_control.select_target(baseline_target_id)
+	var baseline_result: Dictionary = _resolve_strike(baseline_instance, baseline_target_id)
 	assert_true(baseline_result.get("resolved", false), "the baseline (no-flanking) Strike must resolve")
 	var baseline_defense_value: int = _first_attack_event(baseline_instance).defense_value
 
@@ -133,17 +163,17 @@ func test_off_guard_flanking_reduces_defense_value_by_exactly_two_through_real_s
 		"fixture setup: the live enemy target must carry the Off-Guard condition before the Strike is driven"
 	)
 
-	var target_ids: Array = off_guard_instance.strike_action_control.get_selectable_target_ids()
+	var target_ids: Array = _strike_candidate_target_ids(off_guard_instance)
 	assert_true(target_ids.has(target_id), "the flanked enemy must remain an in-reach Strike target (Off-Guard never affects reach)")
 
-	var off_guard_result: Dictionary = off_guard_instance.strike_action_control.select_target(target_id)
-	assert_true(off_guard_result.get("resolved", false), "the Off-Guard Strike must resolve through the real $StrikeActionControl node")
+	var off_guard_result: Dictionary = _resolve_strike(off_guard_instance, target_id)
+	assert_true(off_guard_result.get("resolved", false), "the Off-Guard Strike must resolve through the real `_verb_registry` STRIKE entry")
 
 	var off_guard_defense_value: int = _first_attack_event(off_guard_instance).defense_value
 
 	assert_eq(
 		off_guard_defense_value, baseline_defense_value - 2,
-		"a Strike resolved through the real $StrikeActionControl against a live Off-Guard target must use a defense_value exactly " +
+		"a Strike resolved through the real `_verb_registry` STRIKE entry against a live Off-Guard target must use a defense_value exactly " +
 		"2 lower than the identical scenario with no flanking -- proving the blanket +2 bonus reaches real MainScene Strike resolution"
 	)
 
@@ -161,7 +191,7 @@ func test_off_guard_condition_is_absent_when_only_a_single_combatant_flanks_thro
 		"fixture assumption: only Titus (a single flanker) is adjacent to the Skeleton at boot -- must not flag Off-Guard"
 	)
 
-	var result: Dictionary = instance.strike_action_control.select_target(target_id)
+	var result: Dictionary = _resolve_strike(instance, target_id)
 	assert_true(result.get("resolved", false))
 
 	var attack_event: RoundEventsClass.AttackEvent = _first_attack_event(instance)
