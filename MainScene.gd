@@ -1003,10 +1003,30 @@ func _verb_bar_stride_enter_selection() -> Dictionary:
 ## iteration's US-007/FR-010): mirrors _verb_bar_step_execute() exactly, for
 ## Stride -- the SOLE Stride entry point now that the legacy
 ## hex_grid_view.hex_clicked auto-resolve handler is gone.
+##
+## FEAT-178 (US-014 / FR-014): a Stride spends one action from the SAME live
+## ActionEconomy instance Strike's status-bar push already reads from -- but
+## unlike Strike (whose post-resolution action-budget snapshot reaches
+## StatusPanelView via an AttackEvent, see status_panel_view.gd's
+## on_attack_event()), a Stride emits no event at all. `actor_id`/
+## `action_economy` are captured BEFORE movement_input_controller.stride_to()
+## runs (the Stride never changes whose turn it is, so this is exactly the
+## SAME actor/economy the Stride itself spends from) so this composition
+## root can explicitly push that snapshot to $StatusPanelView the moment the
+## Stride resolves -- closing the gap where the status bar's Actions/Spent
+## readout went stale after a Stride (regression coverage: tests/gut/
+## test_status_bar_verb_flow_regression.gd).
 func _verb_bar_stride_execute(selection) -> Dictionary:
+	var actor_id: String = round_session.current_actor().get("combatant_id", "") if round_session != null else ""
+	var action_economy = _verb_bar_current_action_economy()
+
 	var result: Dictionary = movement_input_controller.stride_to(selection)
 	if result.get("ok", false):
 		_after_successful_move()
+		if status_panel_view != null and actor_id != "" and action_economy != null:
+			status_panel_view.on_verb_action_budget_changed(
+				actor_id, action_economy.get_remaining(), action_economy.is_spent()
+			)
 	return result
 
 

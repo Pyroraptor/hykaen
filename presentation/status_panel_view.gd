@@ -264,6 +264,38 @@ func update_action_budget(actor_id: String, event) -> void:
 	_create_or_update_label(actor_id)
 
 
+## on_verb_action_budget_changed(actor_id, remaining, spent) → void —
+## FEAT-178 (US-014 / FR-014, ADR-003): pushes a CALLER-SUPPLIED
+## {remaining, spent} snapshot onto actor_id's displayed row -- a thin,
+## explicit-argument wrapper over update_action_budget() (reusing its
+## Dictionary-shape contract rather than forking a second mutation path,
+## ADR-002), so callers with a plain (remaining: int, spent: bool) pair in
+## hand (rather than an event-shaped Dictionary/Object) have a direct entry
+## point. Exactly like update_action_budget(), StatusPanelView never
+## queries or recomputes the budget itself here -- it only renders values
+## the CALLER already queried/computed elsewhere (ADR-003's read-only-
+## projection discipline, enforced by a dedicated source-inspection guard
+## suite that this file must keep passing).
+##
+## Exists because Iteration E routed Strike/Step/Stride through the new
+## two-layer verb flow (Layer 1 VerbBarView -> Layer 2 SelectionOverlay ->
+## `_verb_registry`.execute()), but only Strike carries an AttackEvent for
+## on_attack_event() to relay to update_action_budget() automatically. A
+## Stride (core/rules/movement.gd Movement.stride()) also spends one action
+## from the same shared per-round budget but emits no such event at all --
+## so the composition root (MainScene.gd) reads its own live budget
+## collaborator (a Presentation-layer responsibility per that collaborator's
+## own doc) and calls THIS method immediately after a Stride resolves. A
+## Step never spends an action (core/rules/movement.gd's file-level doc)
+## and therefore never calls this method -- see tests/gut/
+## test_status_bar_verb_flow_regression.gd for the regression coverage
+## pinning all three verbs' status-bar behavior.
+func on_verb_action_budget_changed(actor_id: String, remaining: int, spent: bool) -> void:
+	update_action_budget(actor_id, {
+		"actor_updated_action_budget": {"remaining": remaining, "spent": spent}
+	})
+
+
 # ── Internal helpers ─────────────────────────────────────────────────────
 
 func _default_for_field(field: String):

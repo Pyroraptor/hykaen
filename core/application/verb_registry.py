@@ -37,7 +37,7 @@ not exist yet and is deliberately NOT stubbed here.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Dict, List, Optional, Protocol
 
 
@@ -74,7 +74,21 @@ class SelectionDescriptor:
 class ResolutionResult:
     """Result-typed outcome of VerbDescriptor.execute_fn — never an
     exception for expected domain-rule violations (see error_handling:
-    Result-typed at the port boundary, not exception-typed)."""
+    Result-typed at the port boundary, not exception-typed).
+
+    actions_remaining (FEAT-178 / US-014 / FR-014): the acting combatant's
+    GameStatePort.get_remaining_actions() count taken immediately AFTER the
+    underlying port call this verb dispatches to (see
+    build_default_registry() below) — the exact value a status-bar/status-
+    panel presentation surface needs to refresh its Actions/Spent counter.
+    Carrying it directly on the SAME ResolutionResult every verb's
+    execute() already returns (rather than requiring a second, separate
+    GameStatePort query) is what "routes status bar Actions/Spent updates
+    through the [existing] two-layer flow" for Strike/Step/Stride uniformly
+    — Step's value is always unchanged (it never spends an action); Strike/
+    Stride's value decrements by exactly one on success. None when the verb
+    has no notion of a per-combatant action budget at all (e.g. End Turn, or
+    a failed dispatch that never reached a combatant_id)."""
 
     verb_id: str
     success: bool
@@ -82,6 +96,7 @@ class ResolutionResult:
     new_position: Optional[Any] = None
     resolved_target_id: Optional[Any] = None
     error: Optional[str] = None
+    actions_remaining: Optional[int] = None
 
 
 # ── Ports reused (Protocol classes) ────────────────────────────────────────
@@ -235,7 +250,13 @@ def build_default_registry(
 
     def strike_execute(target_id: Any) -> ResolutionResult:
         combatant_id = game_state.get_active_combatant()
-        return action_resolver.select_target(combatant_id, target_id)
+        result = action_resolver.select_target(combatant_id, target_id)
+        # FEAT-178 (US-014/FR-014): stamp the FRESH post-resolution actions-
+        # remaining count onto the result every verb's execute() returns, so
+        # a status-bar/status-panel consumer can refresh its Actions/Spent
+        # counter directly from THIS call's return value (see
+        # ResolutionResult.actions_remaining's docstring).
+        return replace(result, actions_remaining=game_state.get_remaining_actions(combatant_id))
 
     registry.register(
         VerbDescriptor(STRIKE, strike_availability, strike_enter_selection, strike_execute)
@@ -255,7 +276,13 @@ def build_default_registry(
 
     def step_execute(destination: Any) -> ResolutionResult:
         combatant_id = game_state.get_active_combatant()
-        return movement.move_token(combatant_id, destination, spend_action=False)
+        result = movement.move_token(combatant_id, destination, spend_action=False)
+        # FEAT-178: a Step never spends an action (spend_action=False above)
+        # — this stamped value must therefore always equal the pre-Step
+        # count, proving the status bar's Actions/Spent readout is left
+        # unchanged by a Step (see ResolutionResult.actions_remaining's
+        # docstring).
+        return replace(result, actions_remaining=game_state.get_remaining_actions(combatant_id))
 
     registry.register(
         VerbDescriptor(STEP, step_availability, step_enter_selection, step_execute)
@@ -278,7 +305,14 @@ def build_default_registry(
 
     def stride_execute(destination: Any) -> ResolutionResult:
         combatant_id = game_state.get_active_combatant()
-        return movement.move_token(combatant_id, destination, spend_action=True)
+        result = movement.move_token(combatant_id, destination, spend_action=True)
+        # FEAT-178: a Stride spends exactly one action (spend_action=True
+        # above) — this stamped value reflects that spend immediately,
+        # closing the gap where a Stride's post-resolution action-budget
+        # snapshot had no way to reach a status-bar consumer through
+        # execute()'s own return value (see
+        # ResolutionResult.actions_remaining's docstring).
+        return replace(result, actions_remaining=game_state.get_remaining_actions(combatant_id))
 
     registry.register(
         VerbDescriptor(STRIDE, stride_availability, stride_enter_selection, stride_execute)
