@@ -1,9 +1,0 @@
-[gd_scene load_steps=3 format=3 uid="uid://hykaen_hexbattlefield"]
-
-[ext_resource type="Script" path="res://scenes/battlefield/HexBattlefield.gd" id="1_hexbattlefield"]
-[ext_resource type="PackedScene" path="res://scenes/battlefield/TurnOrderWidget.tscn" id="2_turnorderwidget"]
-
-[node name="HexBattlefield" type="Node2D"]
-script = ExtResource("1_hexbattlefield")
-
-[node name="TurnOrderWidget" parent="." instance=ExtResource("2_turnorderwidget")]
