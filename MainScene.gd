@@ -142,7 +142,14 @@ extends Node
 ##      now driven solely through `_verb_registry`'s STEP/STRIDE entries,
 ##      re-gated by the SAME $VerbBarView.refresh_availability() every other
 ##      verb already relies on -- there is no separate visible-affordance
-##      Control left needing its own lock() call.
+##      Control left needing its own lock() call. FEAT-177 (US-013 /
+##      FR-013): `verb_bar_view`/`selection_overlay` are additionally
+##      injected (fifth/sixth arguments) so lock_all_controls() ALSO locks
+##      the Layer 1 verb bar (VerbBarView.lock()) and any open Layer 2
+##      selection (SelectionOverlay.lock()) -- extending the SAME lock
+##      mechanism rather than reimplementing it, closing the steel thread's
+##      exit-point guarantee that "controls lock post-resolution" across
+##      every remaining interactive surface.
 ##
 ## No new ports or use cases are introduced here beyond the ADR-007-declared
 ## RoundSession stepwise API RunRoundUseCase already exposes (ADR-002 / CR-001
@@ -624,7 +631,12 @@ func _ready() -> void:
 		# FEAT-007 (this iteration): no move_action_control node exists
 		# anymore either -- its fourth (optional, default-null) argument is
 		# likewise simply omitted; see this file's FEAT-007 doc above.
-		result_screen_view.configure(null, end_turn_control, movement_input_controller)
+		# FEAT-177 (US-013 / FR-013): `verb_bar_view`/`selection_overlay` are
+		# additionally injected (fifth/sixth arguments) so lock_all_controls()
+		# uniformly locks the Layer 1 verb bar and any open Layer 2 selection
+		# the moment EncounterResultEvent fires -- see this file's #11 doc
+		# above and presentation/result_screen_view.gd.
+		result_screen_view.configure(null, end_turn_control, movement_input_controller, null, verb_bar_view, selection_overlay)
 
 	if turn_controller != null:
 		turn_controller.active_actor_changed.connect(_on_active_actor_changed)

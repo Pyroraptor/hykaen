@@ -70,6 +70,21 @@
 ## controls are OPTIONAL (configure() accepts any/all as null) so this view
 ## can be unit-tested in isolation from any of them.
 ##
+## FEAT-177 (US-013 / FR-013): lock_all_controls() additionally locks two
+## OPTIONAL presentation collaborators via their OWN lock()/is_locked()
+## contract (no new lock surface invented here, same ADR-002/CR-001
+## discipline as the four controls above):
+##   VerbBarView (presentation/verb_bar_view.gd) — lock() permanently
+##     disables every rendered verb button and permanently rejects press()
+##     from that point on.
+##   SelectionOverlay (presentation/selection_overlay.gd) — lock()
+##     immediately discards any in-progress Layer 2 selection (clearing the
+##     HexGridView highlight) and permanently rejects activate()/hex_clicked
+##     dispatch from that point on, so a pending Strike/Step/Stride pick can
+##     never resolve post-resolution.
+## This is the steel thread's exit-point guarantee: "controls lock
+## post-resolution" — see tests/gut/test_post_resolution_lock_regression.gd.
+##
 ## lock_all_controls() (FEAT-005) is the single, idempotent operation that
 ## performs this uniform lock -- called once from on_encounter_result_event()
 ## when EncounterResolved (EncounterResultEvent) fires, but also exposed as a
@@ -137,6 +152,21 @@ var _movement_input_controller = null
 ## Optional, same no-op-if-null behavior as the other controls above.
 var _move_action_control = null
 
+## The injected VerbBarView (presentation/verb_bar_view.gd, FEAT-177 /
+## US-013) this view locks once an EncounterResultEvent is received —
+## extends the SAME lock mechanism to the Layer 1 verb bar so no verb
+## button remains interactive post-resolution. Optional, same
+## no-op-if-null behavior as the other controls above.
+var _verb_bar_view = null
+
+## The injected SelectionOverlay (presentation/selection_overlay.gd,
+## FEAT-177 / US-013) this view locks once an EncounterResultEvent is
+## received — extends the SAME lock mechanism to any open Layer 2
+## selection so a pending Strike/Step/Stride target/hex pick can never
+## resolve post-resolution. Optional, same no-op-if-null behavior as the
+## other controls above.
+var _selection_overlay = null
+
 ## True once an EncounterResultEvent has been processed and the result is
 ## being displayed.
 var _shown: bool = false
@@ -155,21 +185,25 @@ func _ready() -> void:
 
 
 ## configure(strike_action_control, end_turn_control, movement_input_controller,
-##           move_action_control) -> void
+##           move_action_control, verb_bar_view, selection_overlay) -> void
 ## — injects the combat input controls this view disables once shown
 ## (US-012; movement_input_controller added by FEAT-005 / US-005;
-## move_action_control added by FEAT-167). All four parameters are OPTIONAL
-## (default null); passing null for any simply means this view will not
-## attempt to lock that control. Safe to call repeatedly (e.g. once per
-## turn, mirroring the other controls' configure() contracts) with no
-## leaked state. `movement_input_controller`/`move_action_control` are
-## appended as the LAST parameters, in the order they were introduced, so
-## pre-existing two/three-argument callers/tests are unaffected.
-func configure(strike_action_control = null, end_turn_control = null, movement_input_controller = null, move_action_control = null) -> void:
+## move_action_control added by FEAT-167; verb_bar_view/selection_overlay
+## added by FEAT-177 / US-013). All six parameters are OPTIONAL (default
+## null); passing null for any simply means this view will not attempt to
+## lock that control. Safe to call repeatedly (e.g. once per turn,
+## mirroring the other controls' configure() contracts) with no leaked
+## state. `movement_input_controller`/`move_action_control`/
+## `verb_bar_view`/`selection_overlay` are appended as the LAST parameters,
+## in the order they were introduced, so pre-existing callers/tests using
+## fewer arguments are unaffected.
+func configure(strike_action_control = null, end_turn_control = null, movement_input_controller = null, move_action_control = null, verb_bar_view = null, selection_overlay = null) -> void:
 	_strike_action_control = strike_action_control
 	_end_turn_control = end_turn_control
 	_movement_input_controller = movement_input_controller
 	_move_action_control = move_action_control
+	_verb_bar_view = verb_bar_view
+	_selection_overlay = selection_overlay
 
 
 ## is_shown() -> bool — true once an EncounterResultEvent has been processed.
@@ -245,6 +279,10 @@ func lock_all_controls() -> void:
 		_movement_input_controller.lock()
 	if _move_action_control != null:
 		_move_action_control.lock()
+	if _verb_bar_view != null:
+		_verb_bar_view.lock()
+	if _selection_overlay != null:
+		_selection_overlay.lock()
 
 
 # ── Internal helpers ─────────────────────────────────────────────────────

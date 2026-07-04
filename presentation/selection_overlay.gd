@@ -34,6 +34,17 @@
 ## here rather than inventing a second highlight mechanism (ADR-002 /
 ## CR-001 guardrail).
 ##
+## Post-resolution lock (FEAT-177 / US-013, extending the EXISTING
+## presentation/result_screen_view.gd lock mechanism -- not a new one):
+## lock() immediately discards any in-progress Layer 2 selection (clearing
+## the HexGridView highlight, exactly like clear()) and permanently rejects
+## both activate() (a stray verb_selection_entered re-fire can never
+## re-enter Layer 2) and any further hex_clicked dispatch (a click already
+## queued/dispatched at the moment of resolution can never reach
+## registry.execute()) from that point on. Sticky, mirroring presentation/
+## movement_input_controller.gd's/presentation/verb_bar_view.gd's lock()
+## contract exactly.
+##
 ## Resolving a click: subscribes to the injected hex_grid_view's existing
 ## hex_clicked(hex_coord) signal (presentation/hex_grid_view.gd) — left
 ## unconnected by the composition root since FEAT-007 removed the legacy
@@ -103,6 +114,11 @@ var _candidate_hexes: Array = []
 ## hex_grid_view.get_token(target_id).hex_coord.
 var _target_hex_by_id: Dictionary = {}
 
+## True once lock() has been called (FEAT-177 / US-013) — permanently
+## rejects activate() and any further hex_clicked dispatch from that point
+## on.
+var _locked: bool = false
+
 
 ## configure(registry, hex_grid_view) -> void — injects both collaborators
 ## and subscribes to hex_grid_view.hex_clicked exactly once (idempotent —
@@ -118,6 +134,25 @@ func configure(registry, hex_grid_view) -> void:
 ## is_active() -> bool — true while a Layer 2 selection is in progress.
 func is_active() -> bool:
 	return _active_verb_id != ""
+
+
+## is_locked() -> bool — true once lock() has been called (FEAT-177 /
+## US-013).
+func is_locked() -> bool:
+	return _locked
+
+
+## lock() -> void — FEAT-177 (US-013 / FR-013): the post-resolution guard
+## extending the EXISTING presentation/result_screen_view.gd lock mechanism
+## to any open Layer 2 SelectionOverlay. Immediately discards any
+## in-progress selection via clear() (so no stale highlight/candidate set
+## survives) and permanently rejects activate()/hex_clicked dispatch from
+## this point on — no registry.execute() call is reachable through this
+## overlay once locked. Idempotent and sticky: safe to call more than once,
+## and no later activate() call may ever re-enter Layer 2.
+func lock() -> void:
+	_locked = true
+	clear()
 
 
 ## get_active_verb_id() -> String — the verb currently in Layer 2, or "".
@@ -147,6 +182,8 @@ func get_highlighted_hexes() -> Array:
 ## Highlights the union of any direct candidate_hexes and every resolvable
 ## candidate_target's current hex.
 func activate(verb_id: String, selection) -> void:
+	if _locked:
+		return
 	_active_verb_id = verb_id
 	_candidate_hexes = _extract(selection, "candidate_hexes")
 	_target_hex_by_id = _resolve_target_hexes(_extract(selection, "candidate_targets"))
@@ -230,6 +267,8 @@ func _refresh_highlight() -> void:
 
 
 func _on_hex_clicked(hex_coord) -> void:
+	if _locked:
+		return
 	if not is_active():
 		return
 

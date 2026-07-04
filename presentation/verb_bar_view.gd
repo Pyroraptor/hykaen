@@ -47,6 +47,19 @@
 ## notes: "queries availability() each frame/turn-start to gate enabled
 ## state") so a stale-availability button is never left clickable after the
 ## game state that determined it has changed.
+##
+## Post-resolution lock (FEAT-177 / US-013, extending the EXISTING
+## presentation/result_screen_view.gd lock mechanism -- not a new one):
+## lock() permanently disables every rendered verb button and permanently
+## rejects press() from that point on, mirroring presentation/
+## movement_input_controller.gd's/presentation/end_turn_control.gd's
+## sticky lock()/is_locked() contract EXACTLY, including the SAME
+## ERR_ENCOUNTER_ALREADY_RESOLVED error code. Sticky: neither a later
+## configure() (rebuild) nor refresh_availability() may ever re-enable a
+## button once locked -- a stray active_actor_changed/turn_started re-fire
+## after the encounter has concluded must not resurrect a clickable verb
+## button (the same DEF-004/DEF-001 class of regression the other three
+## controls already guard against).
 
 class_name VerbBarView
 extends Control
@@ -57,6 +70,11 @@ extends Control
 ## impossible from GDScript / would violate ADR-001's engine-purity split)
 ## so this file's single special case is explicit and greppable.
 const END_TURN: String = "END_TURN"
+
+## The SAME sticky post-resolution error code presentation/
+## movement_input_controller.gd / presentation/end_turn_control.gd already
+## use (FEAT-177 / US-013).
+const ERR_ENCOUNTER_ALREADY_RESOLVED: String = "ENCOUNTER_ALREADY_RESOLVED"
 
 ## verb_selection_entered(verb_id, selection) — emitted after press()
 ## invokes registry.enter_selection(verb_id) for any non-END_TURN verb,
@@ -82,6 +100,11 @@ var _buttons: Dictionary = {}
 ## presentation/strike_action_control.gd's _selectable_targets ordering
 ## convention (list order preserved end to end).
 var _verb_ids: Array = []
+
+## True once lock() has been called (FEAT-177 / US-013) — permanently
+## disables every rendered button and permanently rejects press(), sticky
+## across any later configure()/refresh_availability() call.
+var _locked: bool = false
 
 @onready var _buttons_container: HBoxContainer = $ButtonsContainer
 
@@ -120,14 +143,39 @@ func get_button(verb_id: String) -> Button:
 ## WITHOUT rebuilding the button set (no flicker/no lost button identity).
 ## Intended to be called once per turn-start / after any action resolves
 ## (design notes' observability note), so gating never goes stale. No-op
-## before any configure() call.
+## before any configure() call. Sticky post-resolution (FEAT-177 / US-013):
+## once locked, this is a no-op — a stray call must never re-enable a
+## button.
 func refresh_availability() -> void:
 	if _registry == null:
+		return
+	if _locked:
 		return
 	for verb_id in _verb_ids:
 		var button: Button = _buttons.get(verb_id, null)
 		if button != null:
 			button.disabled = not _registry.is_available(verb_id)
+
+
+## lock() -> void — FEAT-177 (US-013 / FR-013): the post-resolution guard
+## extending the EXISTING presentation/result_screen_view.gd lock mechanism
+## to the Layer 1 verb bar. Permanently disables every currently rendered
+## button and permanently rejects press() (returning
+## {"ok": false, "error": ERR_ENCOUNTER_ALREADY_RESOLVED}) from this point
+## on — no registry method (enter_selection()/execute()) is reachable
+## through press() once locked. Idempotent and sticky: safe to call more
+## than once, and neither a later configure() nor refresh_availability()
+## call may ever undo it (mirrors presentation/movement_input_controller.gd
+## / presentation/end_turn_control.gd's lock() contract exactly).
+func lock() -> void:
+	_locked = true
+	for button in _buttons.values():
+		button.disabled = true
+
+
+## is_locked() -> bool — true once lock() has been called.
+func is_locked() -> bool:
+	return _locked
 
 
 ## press(verb_id) -> Variant — the player's chosen verb.
@@ -144,6 +192,8 @@ func refresh_availability() -> void:
 ##     Layer 2 selection mode, NEVER executing immediately — emits
 ##     verb_selection_entered, and returns that call's result verbatim.
 func press(verb_id: String):
+	if _locked:
+		return {"ok": false, "error": ERR_ENCOUNTER_ALREADY_RESOLVED}
 	if _registry == null:
 		return {"ok": false, "error": "ERR_NO_REGISTRY"}
 	if not _buttons.has(verb_id):
@@ -186,7 +236,7 @@ func _rebuild_buttons() -> void:
 		var button := Button.new()
 		button.name = "Verb_%s" % verb_id
 		button.text = descriptor.get("label", verb_id)
-		button.disabled = not _registry.is_available(verb_id)
+		button.disabled = _locked or not _registry.is_available(verb_id)
 		if _buttons_container != null:
 			_buttons_container.add_child(button)
 		button.pressed.connect(_on_verb_button_pressed.bind(verb_id))
