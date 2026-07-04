@@ -148,6 +148,7 @@ const FlankingClass                    = preload("res://core/rules/flanking.gd")
 const CoordinateTransformClass         = preload("res://presentation/infrastructure/coordinate_transform.gd")
 const HexGridViewClass                 = preload("res://presentation/hex_grid_view.gd")
 const HexCoordClass                    = preload("res://core/geometry/hex_coord.gd")
+const VerbBarViewClass                 = preload("res://presentation/verb_bar_view.gd")
 
 ## The steel-thread's entry_point: the one encounter this composition root boots into.
 const PROLOGUE_ENCOUNTER_PATH: String = "res://data/encounters/prologue_encounter.tres"
@@ -236,6 +237,57 @@ class InMemoryRoundHistoryAdapter:
 
 	func get_history() -> Array:
 		return _entries
+
+
+## _VerbBarRegistryAdapter — the presentation/verb_bar_view.gd VerbBarView
+## registry contract (FEAT-004 / US-004/FR-001), realized here as a small,
+## GENERIC, data-driven dispatch table exactly mirroring the shape/discipline
+## of core/application/verb_registry.py's pytest-only VerbRegistry (ADR-004):
+## register() is the ONLY way a verb enters `_descriptors`, and
+## list_verbs()/is_available()/enter_selection()/execute() are plain dict
+## lookups followed by a delegate Callable.call() — there is deliberately NO
+## verb-name branching in ANY of those four methods, so a hypothetical fifth
+## verb could be registered here without touching this class (the SAME
+## extensibility guarantee the Python VerbRegistry proves at the pytest
+## layer). The only place verb-specific wiring exists is where this
+## composition root calls register() below (MainScene._ready()), via small
+## Callables bound to this file's own _verb_bar_*_availability/
+## _verb_bar_*_enter_selection/_verb_bar_*_execute helper methods — those
+## helpers, in turn, introduce NO new domain/application logic of their own;
+## each simply forwards to the SAME already-instantiated, already-tested
+## presentation control (strike_action_control / movement_input_controller /
+## end_turn_control) this composition root wires elsewhere (ADR-002/CR-001:
+## no duplicate action/movement/turn-ending path).
+class _VerbBarRegistryAdapter:
+	var _availability_fns: Dictionary = {}
+	var _enter_selection_fns: Dictionary = {}
+	var _execute_fns: Dictionary = {}
+	var _order: Array = []
+
+	## register(verb_id, availability_fn, enter_selection_fn, execute_fn) —
+	## the ONLY method that special-cases a verb_id; every dispatch method
+	## below is a generic dict lookup over whatever has been register()ed.
+	func register(verb_id: String, availability_fn: Callable, enter_selection_fn: Callable, execute_fn: Callable) -> void:
+		if not _availability_fns.has(verb_id):
+			_order.append(verb_id)
+		_availability_fns[verb_id] = availability_fn
+		_enter_selection_fns[verb_id] = enter_selection_fn
+		_execute_fns[verb_id] = execute_fn
+
+	func list_verbs() -> Array:
+		var descriptors: Array = []
+		for verb_id in _order:
+			descriptors.append({"verb_id": verb_id})
+		return descriptors
+
+	func is_available(verb_id: String) -> bool:
+		return bool(_availability_fns[verb_id].call())
+
+	func enter_selection(verb_id: String):
+		return _enter_selection_fns[verb_id].call()
+
+	func execute(verb_id: String, selection = null):
+		return _execute_fns[verb_id].call(selection)
 
 
 ## seed_override — in-process injectable seed policy (FEAT-002 / US-002;
@@ -382,6 +434,22 @@ var movement_input_controller = MovementInputControllerClass.new()
 ## instanced in MainScene.tscn (FEAT-110, US-010).
 @onready var end_turn_control = $EndTurnControl
 
+## verb_bar_view — the VerbBarView (presentation/verb_bar_view.gd) instanced
+## in MainScene.tscn (FEAT-004 / US-004/FR-001): the Layer 1 verb bar,
+## rendered generically from `_verb_registry` below (one button per
+## registered verb -- Strike/Step/Stride/End Turn -- no hardcoded per-verb
+## UI). Configured once `_verb_registry` is built in _ready() (see
+## _build_verb_registry()), and re-gated (refresh_availability()) every time
+## _on_active_actor_changed()/_on_round_over() fires, so a stale-availability
+## button is never left clickable after the game state that determined it
+## has changed.
+@onready var verb_bar_view = $VerbBarView
+
+## _verb_registry — the _VerbBarRegistryAdapter instance this composition
+## root builds in _ready() (see _build_verb_registry()) and hands to
+## verb_bar_view.configure(). Exposed for verification.
+var _verb_registry = null
+
 ## result_screen_view — the ResultScreenView (presentation/
 ## result_screen_view.gd) instanced in MainScene.tscn (FEAT-112, US-012).
 ## This is the ONE result screen this composition root wires (FEAT-001 /
@@ -515,6 +583,15 @@ func _ready() -> void:
 	if turn_controller != null:
 		turn_controller.set_session(round_session, end_turn_control, strike_action_control)
 
+	# ── FEAT-004 / US-004/FR-001: build the Layer 1 verb registry and hand it
+	# to $VerbBarView (see _build_verb_registry()'s doc). Built AFTER
+	# set_session() above so the initial is_available() gating already
+	# reflects whichever actor/targets/hexes that first active_actor_changed
+	# settled on. ────────────────────────────────────────────────────────────
+	_verb_registry = _build_verb_registry()
+	if verb_bar_view != null:
+		verb_bar_view.configure(_verb_registry)
+
 	# ── FEAT-013 / US-013: wire the interactive Step destination-picking UI --
 	# clicking a hex highlighted by movement_input_controller performs a Step
 	# on the currently active combatant. ────────────────────────────────────
@@ -607,6 +684,130 @@ func _presentation_event_subscribers() -> Array:
 	return subscribers
 
 
+## _build_verb_registry() -> _VerbBarRegistryAdapter — FEAT-004 (US-004/
+## FR-001): composes the four in-scope verb entries (Strike/Step/Stride/End
+## Turn — the SAME four US-003 scoped in core/application/verb_registry.py's
+## build_default_registry(), mirrored here for the Godot runtime, which
+## cannot reach that pytest-only Python module directly, ADR-001) over the
+## ALREADY-INSTANTIATED, already-tested presentation controls this
+## composition root wires elsewhere. This is the ONE place verb-specific
+## wiring exists (mirroring build_default_registry()'s own file-level doc);
+## _VerbBarRegistryAdapter itself stays completely verb-agnostic.
+##
+## No new domain/application logic is introduced here (ADR-002/CR-001): each
+## availability/enter_selection/execute closure below is a thin forward to
+## strike_action_control.get_selectable_target_ids()/select_target(),
+## movement_input_controller.get_selectable_step_hexes()/step_to()/
+## get_selectable_stride_hexes()/stride_to(), or end_turn_control.press() --
+## the SAME reach/movement/turn-ending paths those controls already expose
+## and this file already relies on elsewhere.
+func _build_verb_registry() -> _VerbBarRegistryAdapter:
+	var registry := _VerbBarRegistryAdapter.new()
+
+	registry.register(
+		"STRIKE",
+		Callable(self, "_verb_bar_strike_availability"),
+		Callable(self, "_verb_bar_strike_enter_selection"),
+		Callable(self, "_verb_bar_strike_execute"),
+	)
+	registry.register(
+		"STEP",
+		Callable(self, "_verb_bar_step_availability"),
+		Callable(self, "_verb_bar_step_enter_selection"),
+		Callable(self, "_verb_bar_step_execute"),
+	)
+	registry.register(
+		"STRIDE",
+		Callable(self, "_verb_bar_stride_availability"),
+		Callable(self, "_verb_bar_stride_enter_selection"),
+		Callable(self, "_verb_bar_stride_execute"),
+	)
+	registry.register(
+		"END_TURN",
+		Callable(self, "_verb_bar_end_turn_availability"),
+		Callable(self, "_verb_bar_end_turn_enter_selection"),
+		Callable(self, "_verb_bar_end_turn_execute"),
+	)
+
+	return registry
+
+
+## _verb_bar_current_action_economy() -> ActionEconomy or null — the SAME
+## live ActionEconomy round_session.current_action_economy() already exposes
+## elsewhere in this file, read here only for its get_remaining() count (US-
+## 004's "an action remains" gate for Strike/Stride availability, mirroring
+## core/application/verb_registry.py's build_default_registry() strike_
+## availability()/stride_availability() closures exactly).
+func _verb_bar_current_action_economy():
+	if round_session == null:
+		return null
+	return round_session.current_action_economy()
+
+
+func _verb_bar_strike_availability() -> bool:
+	if strike_action_control == null:
+		return false
+	var action_economy = _verb_bar_current_action_economy()
+	var remaining: int = action_economy.get_remaining() if action_economy != null else 0
+	return remaining > 0 and strike_action_control.get_selectable_target_ids().size() > 0
+
+
+func _verb_bar_strike_enter_selection() -> Dictionary:
+	var candidate_targets: Array = strike_action_control.get_selectable_target_ids() if strike_action_control != null else []
+	return {"verb_id": "STRIKE", "candidate_targets": candidate_targets, "candidate_hexes": []}
+
+
+func _verb_bar_strike_execute(selection) -> Dictionary:
+	if strike_action_control == null:
+		return {"ok": false}
+	return strike_action_control.select_target(selection)
+
+
+func _verb_bar_step_availability() -> bool:
+	return movement_input_controller.get_selectable_step_hexes().size() > 0
+
+
+func _verb_bar_step_enter_selection() -> Dictionary:
+	return {"verb_id": "STEP", "candidate_hexes": movement_input_controller.get_selectable_step_hexes(), "candidate_targets": []}
+
+
+func _verb_bar_step_execute(selection) -> Dictionary:
+	return movement_input_controller.step_to(selection)
+
+
+func _verb_bar_stride_availability() -> bool:
+	var action_economy = _verb_bar_current_action_economy()
+	var remaining: int = action_economy.get_remaining() if action_economy != null else 0
+	return remaining > 0 and movement_input_controller.get_selectable_stride_hexes().size() > 0
+
+
+func _verb_bar_stride_enter_selection() -> Dictionary:
+	return {"verb_id": "STRIDE", "candidate_hexes": movement_input_controller.get_selectable_stride_hexes(), "candidate_targets": []}
+
+
+func _verb_bar_stride_execute(selection) -> Dictionary:
+	return movement_input_controller.stride_to(selection)
+
+
+func _verb_bar_end_turn_availability() -> bool:
+	return true
+
+
+## End Turn has no Layer 2 (design notes: "no Layer 2, per spec") -- this
+## closure exists only so the generic dispatch contract is uniform across
+## every verb; VerbBarView.press() calls execute() directly for END_TURN and
+## never enter_selection() in practice (mirrors core/application/
+## verb_registry.py's end_turn_enter_selection() doc exactly).
+func _verb_bar_end_turn_enter_selection() -> Dictionary:
+	return {"verb_id": "END_TURN", "candidate_hexes": [], "candidate_targets": []}
+
+
+func _verb_bar_end_turn_execute(_selection = null) -> Dictionary:
+	if end_turn_control == null:
+		return {"ok": false}
+	return end_turn_control.press()
+
+
 ## _on_active_actor_changed(combatant) -> void — TurnController
 ## (presentation/turn_controller.gd) emits this once it settles on a new
 ## (player) current actor, whether at boot or after auto-driving a run of
@@ -642,6 +843,13 @@ func _on_active_actor_changed(combatant: Dictionary) -> void:
 	)
 
 	_highlight_legal_moves(combatant, active_combatant_id)
+
+	# FEAT-004 / US-004/FR-001: re-gate the Layer 1 verb bar for whoever the
+	# turn now belongs to -- strike_action_control/movement_input_controller
+	# above are now configured for the NEW actor, so is_available() reflects
+	# their live state, never a stale prior-actor's gating.
+	if verb_bar_view != null:
+		verb_bar_view.refresh_availability()
 
 
 ## _highlight_legal_moves(combatant, active_combatant_id) -> void — FEAT-006 /
@@ -750,6 +958,11 @@ func _on_round_over() -> void:
 	if move_action_control != null:
 		move_action_control.configure([])
 	movement_input_controller.configure({}, [])
+	# FEAT-004 / US-004/FR-001: re-gate the verb bar now that no actor/targets
+	# remain configured (Strike/Step/Stride all become unavailable; End Turn
+	# stays always-available per its own availability closure).
+	if verb_bar_view != null:
+		verb_bar_view.refresh_availability()
 
 
 ## _on_end_turn_control_turn_ended(_result) -> void — $EndTurnControl's own

@@ -1,0 +1,17 @@
+[gd_scene load_steps=2 format=3 uid="uid://hykaen_verbbarview"]
+
+[ext_resource type="Script" path="res://presentation/verb_bar_view.gd" id="1_verbbarview"]
+
+[node name="VerbBarView" type="Control"]
+layout_mode = 3
+anchors_preset = 0
+offset_left = 260.0
+offset_top = 768.0
+offset_right = 772.0
+offset_bottom = 808.0
+script = ExtResource("1_verbbarview")
+
+[node name="ButtonsContainer" type="HBoxContainer" parent="."]
+layout_mode = 2
+offset_right = 512.0
+offset_bottom = 32.0
