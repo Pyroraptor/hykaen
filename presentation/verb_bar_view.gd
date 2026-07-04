@@ -235,7 +235,11 @@ func _rebuild_buttons() -> void:
 
 		var button := Button.new()
 		button.name = "Verb_%s" % verb_id
-		button.text = descriptor.get("label", verb_id)
+		# A verb's raw id is an ALL-CAPS token (STRIKE / STEP / STRIDE / END_TURN).
+		# When the registry descriptor carries no explicit "label", fall back to a
+		# human-readable form via String.capitalize() (underscores -> spaces, Title
+		# Case) so the button reads "End Turn", not "END_TURN".
+		button.text = descriptor.get("label", verb_id.capitalize())
 		button.disabled = _locked or not _registry.is_available(verb_id)
 		if _buttons_container != null:
 			_buttons_container.add_child(button)

@@ -61,6 +61,18 @@ var _labels: Array = []
 @onready var _rows_container: VBoxContainer = $RowsContainer
 
 
+## BUGFIX (post-iteration-E): this read-only projection panel is a full-width
+## Control across the lower battlefield. With the Control default
+## MOUSE_FILTER_STOP it swallowed clicks on hexes (e.g. far Stride destinations)
+## drawn beneath it, so only hexes in the clear central area were selectable.
+## Make the panel and its row container transparent to mouse input (row Labels
+## are set IGNORE at creation) so those clicks reach HexGridView's _unhandled_input.
+func _ready() -> void:
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if _rows_container != null:
+		_rows_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+
 ## get_entry_count() → int — number of entries currently in the log.
 func get_entry_count() -> int:
 	return _entries.size()
@@ -190,6 +202,7 @@ func _append_entry(round_number: int, text: String) -> void:
 
 	var label := Label.new()
 	label.name = "Entry_%d" % sequence_number
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	label.text = text
 	if _rows_container != null:
 		_rows_container.add_child(label)

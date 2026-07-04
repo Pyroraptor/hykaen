@@ -76,6 +76,18 @@ var _defeated: Dictionary = {}
 @onready var _rows_container: VBoxContainer = $RowsContainer
 
 
+## BUGFIX (post-iteration-E): this read-only projection panel is a Control on the
+## right side of the battlefield. With the Control default MOUSE_FILTER_STOP it
+## swallowed clicks on hexes (e.g. far Stride destinations) drawn beneath it, so
+## only hexes in the clear central area were selectable. Make the panel and its
+## row container transparent to mouse input (row Labels are set IGNORE at
+## creation) so those clicks reach HexGridView's _unhandled_input.
+func _ready() -> void:
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if _rows_container != null:
+		_rows_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+
 ## load_combatants(view_models) → void — (re)populates the list from an
 ## initial snapshot, sorted descending by `initiative_order`. Each entry of
 ## `view_models` is a duck-typed Dictionary with keys:
@@ -242,6 +254,7 @@ func _rebuild_labels() -> void:
 		var combatant_id: String = _order[position]
 		var label := Label.new()
 		label.name = "Row_%s" % combatant_id
+		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		if _rows_container != null:
 			_rows_container.add_child(label)
 		_labels[combatant_id] = label

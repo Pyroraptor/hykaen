@@ -644,6 +644,13 @@ func _ready() -> void:
 
 	if end_turn_control != null:
 		end_turn_control.turn_ended.connect(_on_end_turn_control_turn_ended)
+		# BUGFIX (post-iteration-E): End Turn is now a first-class verb in the
+		# Layer 1 verb bar (registry END_TURN entry, whose execute() delegates to
+		# end_turn_control.press()). EndTurnControl is retained ONLY as that
+		# headless logic delegate (press()/turn_ended + TurnController-managed
+		# enabled state), so its own on-screen Button is hidden to avoid a second,
+		# duplicate "End Turn" control alongside the verb-bar button.
+		end_turn_control.visible = false
 
 	if turn_controller != null:
 		# FEAT-006: strike_action_control no longer exists; set_session()'s
