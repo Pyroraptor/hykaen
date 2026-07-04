@@ -51,7 +51,13 @@ extends GutTest
 ## tests/e2e/test_prologue_encounter_e2e_smoke.gd, so no MainScene-booting
 ## coverage was lost by its removal.
 ##
-## Satisfies: DEF-005, US-011, FEAT-141, FEAT-159, FEAT-001.
+## FEAT-180 (DEF-005 continuation): tests/gut/test_steel_thread_e2e.gd was
+## added to this allow-list for the same reason — it is the mandatory
+## steel-thread end-to-end integration suite consolidating Strike/Step/
+## Stride/End Turn/verb-gating/cancel coverage in one file (US-015/FR-015),
+## and it, too, genuinely instantiates/boots res://MainScene.tscn.
+##
+## Satisfies: DEF-005, US-011, FEAT-141, FEAT-159, FEAT-001, FEAT-180.
 ##
 ## ══════════════════════════════════════════════════════════════════════════
 ## FEAT-171 (DEF-003): the guard above only ever inspected FILENAMES. That
@@ -80,6 +86,7 @@ const ALLOWED_STEEL_THREAD_PATHS: Array = [
 	"res://tests/e2e/test_steel_thread_post_remediation_smoke.gd",
 	"res://tests/unit/test_steel_thread_prologue_encounter.gd",
 	"res://tests/e2e/test_full_steel_thread_e2e.gd",
+	"res://tests/gut/test_steel_thread_e2e.gd",
 ]
 
 ## Path-fragment/identifier substrings from the removed duplicate
