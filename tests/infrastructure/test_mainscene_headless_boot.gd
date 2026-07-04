@@ -61,7 +61,7 @@ func test_mainscene_boots_headlessly_with_zero_errors_after_battlefield_removal(
 	assert_not_null(instance.status_panel_view, "MainScene.status_panel_view must remain wired (the kept stack, FEAT-001)")
 	assert_not_null(instance.initiative_view, "MainScene.initiative_view must remain wired (the kept stack, FEAT-001)")
 	assert_not_null(instance.event_log_view, "MainScene.event_log_view must remain wired (the kept stack, FEAT-001)")
-	assert_not_null(instance.strike_action_control, "MainScene.strike_action_control must remain wired (the kept stack, FEAT-001)")
+	assert_not_null(instance._verb_registry, "MainScene._verb_registry must remain wired -- FEAT-006 (US-006) drives Strike solely through it, no dedicated strike_action_control node remains")
 	assert_not_null(instance.end_turn_control, "MainScene.end_turn_control must remain wired (the kept stack, FEAT-001)")
 	assert_not_null(instance.result_screen_view, "MainScene.result_screen_view must remain wired (the kept stack, FEAT-001)")
 	assert_not_null(instance.turn_controller, "MainScene.turn_controller must remain wired (the kept stack, FEAT-001)")

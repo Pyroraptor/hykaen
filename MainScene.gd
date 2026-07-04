@@ -1,7 +1,7 @@
 extends Node
 ## MainScene.gd — project composition root (ADR-006 / US-004 / FEAT-005;
 ## FEAT-123 / US-004,009,010,011,012, FIND-120; FEAT-001/US-001 UI
-## consolidation, iteration D)
+## consolidation, iteration D; FEAT-006 / US-006, iteration E)
 ##
 ## This is the SINGLE place Infrastructure adapters are wired to Application
 ## ports for the whole game (manual DI via the scene tree — no DI framework,
@@ -11,12 +11,27 @@ extends Node
 ##
 ## Iteration D / FEAT-001 (US-001, ADR-002 single composition root): this
 ## composition root now wires EXACTLY ONE presentation stack — HexGridView,
-## StatusPanelView, InitiativeView, EventLogView, StrikeActionControl,
-## EndTurnControl, TurnController, ResultScreenView, and the
-## movement_input_controller. The earlier, duplicate widget stack this file
-## used to also instantiate alongside it has been removed entirely — no
-## parallel hex grid, status readout, turn/initiative tracker, or result
-## screen remains wired here.
+## StatusPanelView, InitiativeView, EventLogView, EndTurnControl,
+## TurnController, ResultScreenView, and the movement_input_controller. The
+## earlier, duplicate widget stack this file used to also instantiate
+## alongside it has been removed entirely — no parallel hex grid, status
+## readout, turn/initiative tracker, or result screen remains wired here.
+##
+## Iteration E / FEAT-006 (US-006, FR-009): the legacy immediate-resolve-on-
+## click StrikeActionControl node/script (presentation/strike_action_control.gd)
+## has been REMOVED entirely -- it rendered one Button per in-reach enemy and
+## resolved a Strike the instant that button was pressed, competing with the
+## Layer 1 (verb bar) / Layer 2 (target selection) flow FEAT-003/004/005
+## introduced. Strike is now driven SOLELY through `_verb_registry`'s STRIKE
+## entry (_verb_bar_strike_availability()/_enter_selection()/_execute() below),
+## which computes the same in-reach target filter (mirroring
+## resolve_action_use_case.gd's own reach precondition, ADR-001) directly
+## against the LIVE round_session.current_actor()/`_enemies`, and forwards a
+## chosen target_id straight to the SAME, REUSED resolve_action_use_case
+## (ADR-002/CR-001: no duplicate action path, no new port/use case) — there is
+## now exactly ONE Strike code path for a future Layer 2 SelectionOverlay /
+## post-resolution lock to hook into (design notes' stated purpose of this
+## feature), rather than two competing ones.
 ##
 ## Wiring performed in _ready():
 ##   1. ResourceEncounterRepository (infrastructure/resource_encounter_repository.gd)
@@ -89,17 +104,16 @@ extends Node
 ##      a human drives one turn at a time, exposed on this node as
 ##      `round_session` for verification.
 ##   9. TurnController ($TurnController, presentation/turn_controller.gd) is
-##      handed the RoundSession plus the already-instantiated
-##      $EndTurnControl/$StrikeActionControl child controls via set_session()
-##      (US-010/US-011): it immediately auto-drives any leading Enemy turns
-##      and configures $EndTurnControl's enabled state for whoever the
-##      session now sits on. This node subscribes to TurnController's
-##      active_actor_changed/round_over signals (FIND-120) to reconfigure
-##      $StrikeActionControl's live targets for the new active player
-##      combatant and to clear it once the round is over — TurnController
-##      itself has no live-target data of its own to re-derive that from
-##      (see presentation/turn_controller.gd's documented division of
-##      responsibility).
+##      handed the RoundSession plus the already-instantiated $EndTurnControl
+##      child control via set_session() (US-010/US-011): it immediately
+##      auto-drives any leading Enemy turns and configures $EndTurnControl's
+##      enabled state for whoever the session now sits on. This node
+##      subscribes to TurnController's active_actor_changed/round_over
+##      signals (FIND-120) to refresh `_verb_registry`'s STRIKE availability
+##      (FEAT-006) for the new active player combatant and to re-gate it once
+##      the round is over — TurnController itself has no live-target data of
+##      its own to re-derive that from (see presentation/turn_controller.gd's
+##      documented division of responsibility).
 ##  10. $EndTurnControl's own turn_ended signal (emitted after its press()
 ##      forwards directly to RoundSession.end_current_turn(), US-010) is
 ##      subscribed here so this composition root can re-invoke
@@ -112,8 +126,10 @@ extends Node
 ##      public API on either control (ADR-002/CR-001 guardrail).
 ##  11. $ResultScreenView (presentation/result_screen_view.gd, US-012;
 ##      FEAT-005 / US-005 / FR-011 / ADR-005; FEAT-167) is configured with
-##      $StrikeActionControl/$EndTurnControl/movement_input_controller/
-##      $MoveActionControl so that once the EncounterResultEvent this
+##      $EndTurnControl/movement_input_controller/$MoveActionControl (its
+##      first, strike_action_control, argument is no longer supplied --
+##      FEAT-006 removed that node; see this file's FEAT-006 doc above) so
+##      that once the EncounterResultEvent this
 ##      pipeline emits reaches it (via the SAME event-sink forwarding every
 ##      other projection uses), it renders Win/Loss and uniformly locks all
 ##      four combat/movement input controls via lock_all_controls()
@@ -148,6 +164,7 @@ const FlankingClass                    = preload("res://core/rules/flanking.gd")
 const CoordinateTransformClass         = preload("res://presentation/infrastructure/coordinate_transform.gd")
 const HexGridViewClass                 = preload("res://presentation/hex_grid_view.gd")
 const HexCoordClass                    = preload("res://core/geometry/hex_coord.gd")
+const HexMathClass                     = preload("res://core/geometry/hex_math.gd")
 const VerbBarViewClass                 = preload("res://presentation/verb_bar_view.gd")
 
 ## The steel-thread's entry_point: the one encounter this composition root boots into.
@@ -171,6 +188,13 @@ const DEFAULT_ENEMY_AC: int = 12
 ## continuation (calling begin_round() again once a round ends without a
 ## decided outcome) is out of this feature's scope.
 const ROUND_NUMBER: int = 1
+
+## ACTION_NAME_STRIKE — FEAT-006: the action name passed to
+## resolve_action_use_case.resolve() for a Strike, mirroring the removed
+## presentation/strike_action_control.gd's identically-valued ACTION_NAME
+## constant ("Strike" is the one melee action that exists in the current
+## ruleset).
+const ACTION_NAME_STRIKE: String = "Strike"
 
 
 ## ConsoleEventSinkAdapter — concrete EventSinkPort adapter (ADR-006):
@@ -389,13 +413,6 @@ var outcome: String = ""
 ## encounter.
 @onready var event_log_view = $EventLogView
 
-## strike_action_control — the StrikeActionControl (presentation/
-## strike_action_control.gd) instanced in MainScene.tscn (FEAT-109 /
-## US-009). Reconfigured with the live active player combatant/targets by
-## this composition root every time TurnController's active_actor_changed
-## signal fires (FEAT-123 / FIND-120).
-@onready var strike_action_control = $StrikeActionControl
-
 ## move_action_control — the MoveActionControl (presentation/
 ## MoveActionControl.gd) instanced in MainScene.tscn (FEAT-007 / US-007 /
 ## FR-002). A visible Move affordance, sibling to strike_action_control,
@@ -571,7 +588,10 @@ func _ready() -> void:
 	round_session = run_round_use_case.begin_round(ROUND_NUMBER, _party, _enemies)
 
 	if result_screen_view != null:
-		result_screen_view.configure(strike_action_control, end_turn_control, movement_input_controller, move_action_control)
+		# FEAT-006: no strike_action_control node exists anymore -- its
+		# first (optional, default-null) argument is simply omitted; see
+		# this file's FEAT-006 doc above and presentation/result_screen_view.gd.
+		result_screen_view.configure(null, end_turn_control, movement_input_controller, move_action_control)
 
 	if turn_controller != null:
 		turn_controller.active_actor_changed.connect(_on_active_actor_changed)
@@ -581,7 +601,9 @@ func _ready() -> void:
 		end_turn_control.turn_ended.connect(_on_end_turn_control_turn_ended)
 
 	if turn_controller != null:
-		turn_controller.set_session(round_session, end_turn_control, strike_action_control)
+		# FEAT-006: strike_action_control no longer exists; set_session()'s
+		# third argument is optional (default null) and simply omitted.
+		turn_controller.set_session(round_session, end_turn_control)
 
 	# ── FEAT-004 / US-004/FR-001: build the Layer 1 verb registry and hand it
 	# to $VerbBarView (see _build_verb_registry()'s doc). Built AFTER
@@ -696,8 +718,11 @@ func _presentation_event_subscribers() -> Array:
 ##
 ## No new domain/application logic is introduced here (ADR-002/CR-001): each
 ## availability/enter_selection/execute closure below is a thin forward to
-## strike_action_control.get_selectable_target_ids()/select_target(),
-## movement_input_controller.get_selectable_step_hexes()/step_to()/
+## _strike_reachable_target_ids()/_find_strike_reachable_target() +
+## resolve_action_use_case.resolve() (FEAT-006 -- see this file's FEAT-006
+## doc: the removed strike_action_control.gd's reach-filter UX mirror lives
+## here now, since Strike has no dedicated presentation control of its own
+## anymore), movement_input_controller.get_selectable_step_hexes()/step_to()/
 ## get_selectable_stride_hexes()/stride_to(), or end_turn_control.press() --
 ## the SAME reach/movement/turn-ending paths those controls already expose
 ## and this file already relies on elsewhere.
@@ -745,22 +770,117 @@ func _verb_bar_current_action_economy():
 
 
 func _verb_bar_strike_availability() -> bool:
-	if strike_action_control == null:
-		return false
 	var action_economy = _verb_bar_current_action_economy()
 	var remaining: int = action_economy.get_remaining() if action_economy != null else 0
-	return remaining > 0 and strike_action_control.get_selectable_target_ids().size() > 0
+	return remaining > 0 and _strike_reachable_target_ids().size() > 0
 
 
 func _verb_bar_strike_enter_selection() -> Dictionary:
-	var candidate_targets: Array = strike_action_control.get_selectable_target_ids() if strike_action_control != null else []
-	return {"verb_id": "STRIKE", "candidate_targets": candidate_targets, "candidate_hexes": []}
+	return {"verb_id": "STRIKE", "candidate_targets": _strike_reachable_target_ids(), "candidate_hexes": []}
 
 
+## _verb_bar_strike_execute(selection) -> Dictionary — FEAT-006: `selection`
+## is the chosen target's id (String, the SAME "combatant_id" falling back to
+## "name" convention _strike_target_id() below uses). Rejects HERE, before
+## ever reaching resolve_action_use_case, when selection does not name a
+## currently in-reach target -- including a stale/spoofed id -- exactly as
+## the removed strike_action_control.gd's select_target() used to (no
+## action-budget spend, no event emission, no use-case call at all).
 func _verb_bar_strike_execute(selection) -> Dictionary:
-	if strike_action_control == null:
+	if round_session == null or resolve_action_use_case == null:
 		return {"ok": false}
-	return strike_action_control.select_target(selection)
+
+	var target: Dictionary = _find_strike_reachable_target(str(selection))
+	if target.is_empty():
+		return {"ok": false, "resolved": false, "error": "ERR_TARGET_NOT_SELECTABLE"}
+
+	var actor: Dictionary = round_session.current_actor()
+	var action_economy = round_session.current_action_economy()
+	return resolve_action_use_case.resolve(actor, action_economy, target, ACTION_NAME_STRIKE, ROUND_NUMBER, 0)
+
+
+## _strike_reachable_targets() -> Array — FEAT-006 (US-006): the in-reach
+## target filter the now-removed presentation/strike_action_control.gd used
+## to compute (a UX mirror of resolve_action_use_case.gd's OWN reach
+## precondition, never a re-derived domain rule, ADR-001), relocated here
+## since Strike no longer has a dedicated presentation control. Computed
+## fresh from the LIVE round_session.current_actor()/`_enemies` on every
+## call -- never a cached snapshot from a prior configure()-style call -- so
+## this can never go stale between turns/moves.
+##
+## Mirrors resolve_action_use_case.gd's _is_ranged_weapon()/_is_in_range()
+## branch exactly: an actor whose "weapon" Dictionary carries "range_hexes"
+## reaches by HexMath.hex_distance() <= range_hexes; every other (melee)
+## actor reaches by HexMath.hex_neighbors() membership.
+func _strike_reachable_targets() -> Array:
+	if round_session == null:
+		return []
+
+	var actor: Dictionary = round_session.current_actor()
+	var actor_hex = actor.get("hex_coord", null)
+	if actor_hex == null:
+		return []
+
+	var candidates: Array = _living_combatants(_enemies)
+	var in_reach: Array = []
+
+	if _strike_actor_is_ranged(actor):
+		var range_hexes: int = actor.get("weapon", {}).get("range_hexes", 1)
+		for target in candidates:
+			var target_hex = target.get("hex_coord", null)
+			if target_hex != null and HexMathClass.hex_distance(actor_hex, target_hex) <= range_hexes:
+				in_reach.append(target)
+		return in_reach
+
+	var neighbors: Array = HexMathClass.hex_neighbors(actor_hex)
+	for target in candidates:
+		var target_hex = target.get("hex_coord", null)
+		if target_hex == null:
+			continue
+		for neighbor in neighbors:
+			if neighbor.equals(target_hex):
+				in_reach.append(target)
+				break
+	return in_reach
+
+
+## _strike_actor_is_ranged(actor) -> bool -- mirrors the removed
+## strike_action_control.gd's/resolve_action_use_case.gd's identically-
+## behaved _is_ranged_weapon() helper exactly.
+func _strike_actor_is_ranged(actor: Dictionary) -> bool:
+	return actor.get("weapon", {}).has("range_hexes")
+
+
+## _strike_target_id(target) -> String -- the SAME "combatant_id" falling
+## back to "name" identity convention used throughout this file/
+## resolve_action_use_case.gd.
+func _strike_target_id(target: Dictionary) -> String:
+	return target.get("combatant_id", target.get("name", ""))
+
+
+## _strike_reachable_target_ids() -> Array[String] -- the target_id of every
+## currently in-reach Strike target, in the same order _strike_reachable_targets()
+## returns them.
+func _strike_reachable_target_ids() -> Array:
+	var ids: Array = []
+	for target in _strike_reachable_targets():
+		ids.append(_strike_target_id(target))
+	return ids
+
+
+## _find_strike_reachable_target(target_id) -> Dictionary -- looks up
+## target_id ONLY among the currently in-reach targets, never the wider
+## `_enemies` list -- the enforcement point ensuring a non-reachable target
+## can never be selected, even by id (mirrors the removed
+## strike_action_control.gd's _find_selectable_target()). Returns an empty
+## Dictionary (never null) when not found, matching this file's existing
+## "empty Dictionary == not found" convention (e.g. resolve_action_use_case.gd's
+## _is_target_invalid()).
+func _find_strike_reachable_target(target_id: String) -> Dictionary:
+	for target in _strike_reachable_targets():
+		if _strike_target_id(target) == target_id:
+			return target
+	return {}
 
 
 func _verb_bar_step_availability() -> bool:
@@ -811,28 +931,23 @@ func _verb_bar_end_turn_execute(_selection = null) -> Dictionary:
 ## _on_active_actor_changed(combatant) -> void — TurnController
 ## (presentation/turn_controller.gd) emits this once it settles on a new
 ## (player) current actor, whether at boot or after auto-driving a run of
-## Enemy turns (FEAT-123 / FIND-120). Reconfigures $StrikeActionControl with
-## the live actor/action-economy/live-target data TurnController itself does
-## not own (see turn_controller.gd's documented division of responsibility),
-## and reconfigures movement_input_controller with that SAME data so its
-## Step/Stride affordance stays live for whichever combatant's turn it now
-## is -- no separate data path of its own.
+## Enemy turns (FEAT-123 / FIND-120). Reconfigures movement_input_controller
+## with the live actor/action-economy/live-target data TurnController itself
+## does not own (see turn_controller.gd's documented division of
+## responsibility) so its Step/Stride affordance stays live for whichever
+## combatant's turn it now is -- no separate data path of its own.
+##
+## FEAT-006: this no longer also reconfigures a strike_action_control (that
+## node was removed) -- STRIKE's availability/candidate-target closures
+## (_verb_bar_strike_availability()/_verb_bar_strike_enter_selection()/
+## _verb_bar_strike_execute()) read round_session.current_actor()/`_enemies`
+## directly and fresh on every call instead, so there is no per-turn snapshot
+## to (re)push here at all.
 func _on_active_actor_changed(combatant: Dictionary) -> void:
 	if round_session == null:
 		return
 	var action_economy = round_session.current_action_economy()
-	var living_enemies: Array = _living_combatants(_enemies)
 	var active_combatant_id: String = combatant.get("combatant_id", combatant.get("name", ""))
-
-	if strike_action_control != null:
-		strike_action_control.configure(
-			combatant,
-			action_economy,
-			resolve_action_use_case,
-			living_enemies,
-			ROUND_NUMBER,
-			0
-		)
 
 	movement_input_controller.configure(
 		combatant,
@@ -845,9 +960,10 @@ func _on_active_actor_changed(combatant: Dictionary) -> void:
 	_highlight_legal_moves(combatant, active_combatant_id)
 
 	# FEAT-004 / US-004/FR-001: re-gate the Layer 1 verb bar for whoever the
-	# turn now belongs to -- strike_action_control/movement_input_controller
-	# above are now configured for the NEW actor, so is_available() reflects
-	# their live state, never a stale prior-actor's gating.
+	# turn now belongs to -- movement_input_controller above is now configured
+	# for the NEW actor, and STRIKE's closures read round_session/`_enemies`
+	# live, so is_available() reflects current state, never a stale
+	# prior-actor's gating.
 	if verb_bar_view != null:
 		verb_bar_view.refresh_availability()
 
@@ -945,16 +1061,21 @@ func _union_hexes(step_hexes: Array, stride_hexes: Array) -> Array:
 
 ## _on_round_over() -> void — TurnController emits this once the held
 ## RoundSession reports is_round_over(). Refreshes `outcome` and defensively
-## clears $StrikeActionControl (no acting combatant, no selectable targets)
-## even for the case where the round ends without a decided
-## EncounterResultEvent (ResultScreenView only reacts to that terminal
-## event; this is a defensive backstop for that gap, FEAT-123). Also clears
-## movement_input_controller's selectable destinations the same way.
+## clears movement_input_controller's selectable destinations (no acting
+## combatant, no selectable targets) even for the case where the round ends
+## without a decided EncounterResultEvent (ResultScreenView only reacts to
+## that terminal event; this is a defensive backstop for that gap,
+## FEAT-123).
+##
+## FEAT-006: no longer also clears a strike_action_control (that node was
+## removed) -- once round_session.is_round_over() is true,
+## round_session.current_actor() returns {} (see core/application/
+## round_session.gd), so _strike_reachable_targets() (and therefore STRIKE's
+## availability/enter_selection/execute closures) already naturally report
+## no actor/no targets with zero extra bookkeeping here.
 func _on_round_over() -> void:
 	if round_session != null:
 		outcome = round_session.outcome()
-	if strike_action_control != null:
-		strike_action_control.configure({}, null, null, [])
 	if move_action_control != null:
 		move_action_control.configure([])
 	movement_input_controller.configure({}, [])

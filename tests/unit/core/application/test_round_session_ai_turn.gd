@@ -18,8 +18,8 @@ extends GutTest
 ## to for a player-driven Strike (mirrors
 ## tests/unit/presentation/test_strike_action_control.gd's criterion 3).
 ## Also proves presentation/turn_controller.gd's US-011 responsibility of
-## disabling player input controls (StrikeActionControl, EndTurnControl)
-## while it is driving an Enemy's turn.
+## disabling player input controls (the injected Strike control,
+## EndTurnControl) while it is driving an Enemy's turn.
 ##
 ## Verifies (test_criteria):
 ##   1. Unit: for an Enemy current_actor(), RoundSession.advance_ai_turn()
@@ -33,9 +33,10 @@ extends GutTest
 ##   3. Integration: an AI-driven AttackEvent renders through
 ##      HexGridView/StatusPanelView/EventLogView via the exact same signal
 ##      path as a player-driven AttackEvent.
-##   4. Player input controls (StrikeActionControl, EndTurnControl) are
-##      disabled by the turn-driver (presentation/turn_controller.gd) while
-##      an Enemy combatant is/was the current_actor() being auto-driven.
+##   4. Player input controls (the injected Strike control, EndTurnControl)
+##      are disabled by the turn-driver (presentation/turn_controller.gd)
+##      while an Enemy combatant is/was the current_actor() being
+##      auto-driven.
 
 const RunRoundUseCaseClass         = preload("res://core/application/run_round_use_case.gd")
 const ResolveActionUseCaseClass    = preload("res://core/application/resolve_action_use_case.gd")
@@ -47,7 +48,6 @@ const AIClass                      = preload("res://core/combat/ai.gd")
 const TurnControllerClass          = preload("res://presentation/turn_controller.gd")
 
 const EndTurnControlScene: PackedScene      = preload("res://presentation/end_turn_control.tscn")
-const StrikeActionControlScene: PackedScene = preload("res://presentation/strike_action_control.tscn")
 const HexGridViewScene: PackedScene         = preload("res://presentation/hex_grid_view.tscn")
 const StatusPanelViewScene: PackedScene     = preload("res://presentation/status_panel_view.tscn")
 const EventLogViewScene: PackedScene        = preload("res://presentation/event_log_view.tscn")
@@ -103,10 +103,37 @@ class BrokenAIDecisionPort:
 		return {}
 
 
-## ScriptedRandomNumberPort — deterministic rolls, mirrors
-## tests/unit/presentation/test_strike_action_control.gd's double, used so
-## criterion 3's rendered AttackEvent text/damage is exactly known (a
-## guaranteed hit) rather than relying on statistical luck from a seed.
+## FakeStrikeActionControl — a duck-typed double standing in for the
+## presentation-layer "player Strike control" TurnController.set_session()
+## accepts (FEAT-006 / US-006: the real, immediate-resolve-on-click
+## presentation/strike_action_control.gd was removed; TurnController's
+## `strike_action_control` parameter remains generic/duck-typed, so any
+## object exposing this same configure()/get_button_count()/
+## get_selectable_target_ids() contract works here). Criterion 4 only proves
+## TurnController.set_session()/_drive() call configure({}, null, null, [])
+## to disable it while auto-driving an Enemy turn — it does not need real
+## reach-filtering logic, only to faithfully record what it was configured
+## with.
+class FakeStrikeActionControl:
+	extends RefCounted
+
+	var _selectable_target_ids: Array = []
+
+	func configure(_actor: Dictionary, _action_economy, _resolve_action_use_case, candidate_targets: Array, _round_number: int = 1, _cycle_index: int = 0) -> void:
+		_selectable_target_ids = []
+		for target in candidate_targets:
+			_selectable_target_ids.append(target.get("combatant_id", target.get("name", "")))
+
+	func get_button_count() -> int:
+		return _selectable_target_ids.size()
+
+	func get_selectable_target_ids() -> Array:
+		return _selectable_target_ids
+
+
+## ScriptedRandomNumberPort — deterministic rolls, used so criterion 3's
+## rendered AttackEvent text/damage is exactly known (a guaranteed hit)
+## rather than relying on statistical luck from a seed.
 class ScriptedRandomNumberPort:
 	extends "res://core/rules/random_port.gd"
 
@@ -311,9 +338,10 @@ func test_ai_driven_attack_event_renders_through_hex_grid_status_panel_and_event
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Criterion 4: player input controls (StrikeActionControl, EndTurnControl)
-# are disabled by the turn-driver (presentation/turn_controller.gd) while an
-# Enemy combatant is the current_actor() being auto-driven.
+# Criterion 4: player input controls (the injected Strike control,
+# EndTurnControl) are disabled by the turn-driver
+# (presentation/turn_controller.gd) while an Enemy combatant is the
+# current_actor() being auto-driven.
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_turn_controller_disables_strike_action_control_and_end_turn_control_while_driving_enemy_turn() -> void:
@@ -329,13 +357,12 @@ func test_turn_controller_disables_strike_action_control_and_end_turn_control_wh
 
 	var end_turn_control = EndTurnControlScene.instantiate()
 	add_child_autofree(end_turn_control)
-	var strike_action_control = StrikeActionControlScene.instantiate()
-	add_child_autofree(strike_action_control)
+	var strike_action_control := FakeStrikeActionControl.new()
 
-	# Simulate a StrikeActionControl left configured/enabled from a prior
-	# state (e.g. a previous player's turn) — the turn-driver must actively
-	# disable it while it is driving an Enemy turn, not merely rely on it
-	# having never been configured.
+	# Simulate a Strike control left configured/enabled from a prior state
+	# (e.g. a previous player's turn) — the turn-driver must actively disable
+	# it while it is driving an Enemy turn, not merely rely on it having
+	# never been configured.
 	var origin := HexCoordClass.new(0, 0)
 	var stale_actor: Dictionary = {
 		"name": "Titus", "strength": 3, "hex_coord": origin,
@@ -343,7 +370,7 @@ func test_turn_controller_disables_strike_action_control_and_end_turn_control_wh
 	}
 	var stale_enemy: Dictionary = {"combatant_id": "stale", "name": "Stale", "hp_current": 20, "ac": 10, "hex_coord": HexCoordClass.new(1, 0)}
 	strike_action_control.configure(stale_actor, ActionEconomyClass.new(), rig["resolve_action_use_case"], [stale_enemy])
-	assert_eq(strike_action_control.get_button_count(), 1, "fixture assumption: StrikeActionControl starts out enabled/configured")
+	assert_eq(strike_action_control.get_button_count(), 1, "fixture assumption: the Strike control starts out enabled/configured")
 
 	var turn_controller = TurnControllerClass.new()
 	add_child_autofree(turn_controller)
@@ -351,7 +378,7 @@ func test_turn_controller_disables_strike_action_control_and_end_turn_control_wh
 
 	assert_eq(
 		strike_action_control.get_button_count(), 0,
-		"TurnController must disable StrikeActionControl (no selectable targets) while driving an Enemy's turn"
+		"TurnController must disable the injected Strike control (no selectable targets) while driving an Enemy's turn"
 	)
 	assert_eq(strike_action_control.get_selectable_target_ids(), [])
 
@@ -359,11 +386,11 @@ func test_turn_controller_disables_strike_action_control_and_end_turn_control_wh
 	# (the player) — EndTurnControl re-derives its own enabled state from
 	# the RoundSession every time (already covered by
 	# tests/unit/presentation/test_end_turn_control.gd), so it becomes
-	# enabled again once the driver settles on the player; StrikeActionControl
-	# has no such live-target data to re-derive from and stays disabled
-	# until whichever composition-root code owns the player's turn setup
+	# enabled again once the driver settles on the player; the Strike control
+	# has no such live-target data to re-derive from and stays disabled until
+	# whichever composition-root code owns the player's turn setup
 	# reconfigures it (out of this feature's scope, mirroring
 	# presentation/turn_controller.gd's documented division of responsibility).
 	assert_eq(session.current_actor().get("name", ""), "Titus")
 	assert_true(end_turn_control.is_enabled(), "EndTurnControl must be enabled once the driver settles on the player's turn")
-	assert_eq(strike_action_control.get_button_count(), 0, "StrikeActionControl must remain disabled (no leaked stale targets) after the driver settles")
+	assert_eq(strike_action_control.get_button_count(), 0, "the Strike control must remain disabled (no leaked stale targets) after the driver settles")

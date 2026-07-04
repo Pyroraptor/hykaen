@@ -83,7 +83,6 @@ func before_each() -> void:
 	_instance = MainSceneClass.new()
 	_hex_grid_view = SpyHexGridView.new()
 	_instance.hex_grid_view = _hex_grid_view
-	_instance.strike_action_control = null
 	_instance.round_session = FakeRoundSession.new(ActionEconomyClass.new())
 
 

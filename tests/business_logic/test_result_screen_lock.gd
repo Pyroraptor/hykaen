@@ -7,16 +7,30 @@ extends GutTest
 ## logic) into the kept presentation/result_screen_view.gd. Where the
 ## removed ResultScreen locked scenes/battlefield/*'s StrikeInputController /
 ## EndTurnController / MovementInputController as one bundle,
-## ResultScreenView now uniformly locks the presentation/* stack's
-## StrikeActionControl, EndTurnControl, AND (newly, this feature)
-## MovementInputController via a single public lock_all_controls()
-## operation, called once EncounterResolved (EncounterResultEvent) fires
-## through the SAME EventSinkPort pipeline every other Presentation
-## projection subscribes to (ADR-003).
+## ResultScreenView now uniformly locks whatever combat input controls are
+## injected via configure() — EndTurnControl, MovementInputController, and
+## (this suite's FakeLockableStrikeControl standing in for a real
+## lock()-capable Strike control, see that class's doc) — via a single
+## public lock_all_controls() operation, called once EncounterResolved
+## (EncounterResultEvent) fires through the SAME EventSinkPort pipeline
+## every other Presentation projection subscribes to (ADR-003).
+##
+## FEAT-006 (US-006): the real presentation/strike_action_control.gd this
+## suite originally exercised was removed (its immediate-resolve-on-click
+## UI competed with the new Layer 1/Layer 2 Strike flow). ResultScreenView's
+## lock_all_controls() itself is duck-typed/generic — it locks whatever
+## object was injected via its first (optional) `strike_action_control`
+## parameter, calling nothing but that object's own lock()/is_locked()
+## contract — so this suite continues to exercise that generic mechanism
+## via FakeLockableStrikeControl below rather than losing coverage of it.
+## A future feature is expected to wire a real lock()-capable Strike
+## collaborator back into this same, unchanged ResultScreenView contract
+## (design notes: "Clears the way for ... post-resolution lock to have a
+## single Strike code path").
 ##
 ## Verifies (test_criteria):
-##   1. StrikeActionControl and EndTurnControl are disabled (zero selectable
-##      targets / not pressable) once EncounterResolved fires.
+##   1. The injected Strike control and EndTurnControl are disabled (zero
+##      selectable targets / not pressable) once EncounterResolved fires.
 ##   2. Movement highlight cannot be re-triggered — set_selectable_hexes()
 ##      stays empty on an injected HexGridView collaborator — even if the
 ##      active-actor-changed/turn-started flow that would normally
@@ -30,7 +44,6 @@ extends GutTest
 ##      this suite adds Movement coverage without altering that contract.
 
 const ResultScreenViewScene: PackedScene    = preload("res://presentation/result_screen_view.tscn")
-const StrikeActionControlScene: PackedScene = preload("res://presentation/strike_action_control.tscn")
 const EndTurnControlScene: PackedScene      = preload("res://presentation/end_turn_control.tscn")
 
 const ResolveActionUseCaseClass    = preload("res://core/application/resolve_action_use_case.gd")
@@ -73,6 +86,50 @@ class ScriptedRandomNumberPort:
 		var v = _values[_index]
 		_index += 1
 		return v
+
+
+## FakeLockableStrikeControl — a duck-typed double standing in for a
+## lock()-capable presentation Strike control (FEAT-006: the real
+## presentation/strike_action_control.gd was removed; ResultScreenView's
+## `strike_action_control` parameter is generic/duck-typed, so any object
+## implementing this same configure()/get_button_count()/lock()/
+## is_locked()/select_target() contract exercises lock_all_controls()
+## identically — see file-level doc).
+class FakeLockableStrikeControl:
+	extends RefCounted
+
+	var _selectable_target_ids: Array = []
+	var _actor: Dictionary = {}
+	var _action_economy = null
+	var _resolve_action_use_case = null
+	var _locked: bool = false
+
+	func configure(actor: Dictionary, action_economy, resolve_action_use_case, candidate_targets: Array, _round_number: int = 1, _cycle_index: int = 0) -> void:
+		_actor = actor
+		_action_economy = action_economy
+		_resolve_action_use_case = resolve_action_use_case
+		_selectable_target_ids = []
+		if _locked:
+			return
+		for target in candidate_targets:
+			_selectable_target_ids.append(target.get("combatant_id", target.get("name", "")))
+
+	func get_button_count() -> int:
+		return _selectable_target_ids.size()
+
+	func lock() -> void:
+		_locked = true
+		_selectable_target_ids = []
+
+	func is_locked() -> bool:
+		return _locked
+
+	func select_target(target_id: String) -> Dictionary:
+		if _locked:
+			return {"ok": false, "resolved": false, "error": "ENCOUNTER_ALREADY_RESOLVED"}
+		if not _selectable_target_ids.has(target_id):
+			return {"ok": false, "resolved": false, "error": "ERR_TARGET_NOT_SELECTABLE"}
+		return _resolve_action_use_case.resolve(_actor, _action_economy, {"combatant_id": target_id}, "Strike", 1, 0)
 
 
 ## FakeRoundSession — minimal stand-in for core/application/round_session.gd's
@@ -143,7 +200,7 @@ func _make_use_case(scripted_values: Array) -> Dictionary:
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Criterion 1: StrikeActionControl.disabled == true and
+# Criterion 1: the injected Strike control.disabled == true and
 # EndTurnControl.disabled == true after EncounterResolved fires.
 # ══════════════════════════════════════════════════════════════════════════
 
@@ -151,14 +208,13 @@ func test_strike_and_end_turn_controls_disabled_after_encounter_resolved() -> vo
 	var origin := HexCoordClass.new(0, 0)
 	var adjacent_enemy: Dictionary = _enemy("Skeleton", HexCoordClass.new(1, 0))
 
-	var strike_control = StrikeActionControlScene.instantiate()
-	add_child_autofree(strike_control)
+	var strike_control := FakeLockableStrikeControl.new()
 	var end_turn_control = EndTurnControlScene.instantiate()
 	add_child_autofree(end_turn_control)
 
 	var rig: Dictionary = _make_use_case([12, 4])
 	strike_control.configure(_actor(origin), ActionEconomyClass.new(), rig["use_case"], [adjacent_enemy])
-	assert_eq(strike_control.get_button_count(), 1, "sanity check: StrikeActionControl starts with one selectable target")
+	assert_eq(strike_control.get_button_count(), 1, "sanity check: the Strike control starts with one selectable target")
 
 	var session := FakeRoundSession.new({"name": "Titus", "_is_enemy": false})
 	end_turn_control.configure(session)
@@ -167,13 +223,13 @@ func test_strike_and_end_turn_controls_disabled_after_encounter_resolved() -> vo
 	_view.configure(strike_control, end_turn_control)
 	_view.on_round_event({"round": 1, "outcome": "won"})
 
-	assert_eq(strike_control.get_button_count(), 0, "StrikeActionControl must be disabled (zero selectable targets) once EncounterResolved fires")
-	assert_true(strike_control.is_locked(), "StrikeActionControl must be locked once EncounterResolved fires")
+	assert_eq(strike_control.get_button_count(), 0, "the injected Strike control must be disabled (zero selectable targets) once EncounterResolved fires")
+	assert_true(strike_control.is_locked(), "the injected Strike control must be locked once EncounterResolved fires")
 	assert_false(end_turn_control.is_enabled(), "EndTurnControl must be disabled once EncounterResolved fires")
 	assert_true(end_turn_control.is_locked(), "EndTurnControl must be locked once EncounterResolved fires")
 
 	var strike_result: Dictionary = strike_control.select_target("skeleton")
-	assert_false(strike_result.get("ok", true), "a locked StrikeActionControl must reject select_target()")
+	assert_false(strike_result.get("ok", true), "a locked Strike control must reject select_target()")
 
 	var press_result: Dictionary = end_turn_control.press()
 	assert_false(press_result.get("ok", true), "a locked EndTurnControl must reject press()")
@@ -241,8 +297,7 @@ func test_lock_all_controls_is_idempotent_across_all_three_controls() -> void:
 	var origin := HexCoordClass.new(0, 0)
 	var adjacent_enemy: Dictionary = _enemy("Skeleton", HexCoordClass.new(1, 0))
 
-	var strike_control = StrikeActionControlScene.instantiate()
-	add_child_autofree(strike_control)
+	var strike_control := FakeLockableStrikeControl.new()
 	var end_turn_control = EndTurnControlScene.instantiate()
 	add_child_autofree(end_turn_control)
 
@@ -275,7 +330,7 @@ func test_lock_all_controls_is_idempotent_across_all_three_controls() -> void:
 	_view.lock_all_controls()
 	_view.lock_all_controls()
 
-	assert_true(strike_control.is_locked(), "a repeated lock_all_controls() call must leave StrikeActionControl locked")
+	assert_true(strike_control.is_locked(), "a repeated lock_all_controls() call must leave the Strike control locked")
 	assert_true(end_turn_control.is_locked(), "a repeated lock_all_controls() call must leave EndTurnControl locked")
 	assert_true(movement_input_controller.is_locked(), "a repeated lock_all_controls() call must leave MovementInputController locked")
 

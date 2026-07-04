@@ -10,8 +10,15 @@ extends GutTest
 ##      with outcome == 'won' (the party's winning side, per
 ##      determine_outcome_use_case.classify()'s contract) and 'Loss' for
 ##      outcome == 'lost'.
-##   2. StrikeActionControl and EndTurnControl are disabled immediately after
-##      an EncounterResultEvent is received by ResultScreenView.
+##   2. The injected Strike control and EndTurnControl are disabled
+##      immediately after an EncounterResultEvent is received by
+##      ResultScreenView. FEAT-006 (US-006) removed the real
+##      presentation/strike_action_control.gd (its immediate-resolve-on-click
+##      UI competed with the new Layer 1/Layer 2 Strike flow);
+##      ResultScreenView's `strike_action_control` parameter/lock_all_controls()
+##      remain generic/duck-typed (calling only lock()/is_locked()/
+##      get_button_count()), so FakeLockableStrikeControl below continues to
+##      exercise that same mechanism.
 ##   3. The displayed outcome matches determine_outcome_use_case.classify()
 ##      (+ build_event()) for an equivalent encounter state — no divergent
 ##      classification between the real use case and this view.
@@ -21,7 +28,6 @@ extends GutTest
 ##      case (read-only terminal projection).
 
 const ResultScreenViewScene: PackedScene    = preload("res://presentation/result_screen_view.tscn")
-const StrikeActionControlScene: PackedScene = preload("res://presentation/strike_action_control.tscn")
 const EndTurnControlScene: PackedScene      = preload("res://presentation/end_turn_control.tscn")
 
 const ResolveActionUseCaseClass    = preload("res://core/application/resolve_action_use_case.gd")

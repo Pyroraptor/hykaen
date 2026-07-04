@@ -9,20 +9,25 @@ extends GutTest
 ## proves the SURVIVING presentation/* stack is not merely "not the
 ## battlefield stack" but is EXACTLY the expected composition —
 ##   1. MainScene's direct children are EXACTLY HexGridView, StatusPanelView,
-##      InitiativeView, EventLogView, StrikeActionControl, MoveActionControl
-##      (FEAT-007 / US-007), TurnController, EndTurnControl, ResultScreenView
-##      — no more, no less (movement_input_controller is a further
-##      presentation/* component, but a plain RefCounted adapter, not a scene
-##      Node, so it deliberately does not appear as a child — see
-##      test_mainscene_wires_movement_input_controller below).
+##      InitiativeView, EventLogView, MoveActionControl (FEAT-007 / US-007),
+##      TurnController, EndTurnControl, VerbBarView, ResultScreenView — no
+##      more, no less (movement_input_controller is a further presentation/*
+##      component, but a plain RefCounted adapter, not a scene Node, so it
+##      deliberately does not appear as a child — see
+##      test_mainscene_wires_movement_input_controller below). FEAT-006
+##      (US-006) removed the earlier StrikeActionControl child -- Strike is
+##      now driven solely through MainScene's `_verb_registry` STRIKE entry
+##      (see test_strike_verb_is_wired_to_the_presentation_stack_and_resolves_a_strike
+##      below), never a dedicated presentation/* node of its own.
 ##   2. Every player-facing interaction signal — hex_clicked (US-013 Step/
 ##      Stride), TurnController's "turn started" signal (active_actor_changed
 ##      — the design notes' API contract #1's turn_started, realized under
-##      that name in this codebase), EndTurnControl's turn_ended, a Strike
-##      button press, and an End Turn button press — is connected exclusively
-##      to a handler that is either a presentation/* component's own method or
-##      this composition root's (MainScene.gd's) forwarding method, never a
-##      scenes/battlefield/* handler.
+##      that name in this codebase), EndTurnControl's turn_ended, and an End
+##      Turn button press — is connected exclusively to a handler that is
+##      either a presentation/* component's own method or this composition
+##      root's (MainScene.gd's) forwarding method, never a
+##      scenes/battlefield/* handler; a Strike verb-registry execute() also
+##      resolves through the SAME, REUSED resolve_action_use_case.
 ##   3. MainScene.tscn still boots headlessly with zero compile/runtime
 ##      errors after this feature's re-verification (a fast regression signal
 ##      local to this suite, mirroring test_mainscene_headless_boot.gd's
@@ -34,7 +39,6 @@ const HexGridViewClass             = preload("res://presentation/hex_grid_view.g
 const StatusPanelViewClass         = preload("res://presentation/status_panel_view.gd")
 const InitiativeViewClass          = preload("res://presentation/initiative_view.gd")
 const EventLogViewClass            = preload("res://presentation/event_log_view.gd")
-const StrikeActionControlClass     = preload("res://presentation/strike_action_control.gd")
 const MoveActionControlClass       = preload("res://presentation/MoveActionControl.gd")
 const EndTurnControlClass          = preload("res://presentation/end_turn_control.gd")
 const ResultScreenViewClass        = preload("res://presentation/result_screen_view.gd")
@@ -65,7 +69,6 @@ const _EXPECTED_CHILDREN: Dictionary = {
 	"StatusPanelView":     StatusPanelViewClass,
 	"InitiativeView":      InitiativeViewClass,
 	"EventLogView":        EventLogViewClass,
-	"StrikeActionControl": StrikeActionControlClass,
 	"MoveActionControl":   MoveActionControlClass,
 	"TurnController":      TurnControllerClass,
 	"EndTurnControl":      EndTurnControlClass,
@@ -216,30 +219,40 @@ func test_turn_ended_signal_is_connected_to_the_presentation_stack() -> void:
 	)
 
 
-## "strike pressed" -- proven both statically (the rendered target Button's
-## own `pressed` signal is wired to a presentation/* handler --
-## StrikeActionControl._on_target_button_pressed) and behaviorally (emitting
-## that signal genuinely resolves a real Strike through the injected
-## resolve_action_use_case, exactly as a real player click would, so this is
-## proven to be a LIVE connection, not merely a same-named but dead one).
-func test_strike_pressed_is_wired_to_the_presentation_stack_and_resolves_a_strike() -> void:
+## "strike pressed" -- FEAT-006 (US-006) removed the old immediate-click
+## StrikeActionControl (and its rendered per-target Button) entirely; Strike
+## is now driven exclusively through $VerbBarView pressing "STRIKE" (entering
+## Layer 2 selection) followed by `_verb_registry.execute("STRIKE",
+## target_id)` -- proven here both statically (VerbBarView's own rendered
+## "STRIKE" Button.pressed is wired to a presentation/* handler --
+## VerbBarView._on_verb_button_pressed) and behaviorally (driving the full
+## verb-bar-press -> registry.execute() path genuinely resolves a real Strike
+## through the injected resolve_action_use_case, exactly as a real player
+## interaction would, so this is proven to be a LIVE connection, not merely a
+## same-named but dead one).
+func test_strike_verb_is_wired_to_the_presentation_stack_and_resolves_a_strike() -> void:
 	var instance = _boot_main_scene()
 
-	var target_ids: Array = instance.strike_action_control.get_selectable_target_ids()
-	assert_true(target_ids.size() > 0, "fixture assumption: the prologue's first actor has at least one in-reach target at boot")
+	assert_true(
+		instance._verb_registry.is_available("STRIKE"),
+		"fixture assumption: the prologue's first actor has at least one in-reach target at boot"
+	)
 
-	var targets_container: Node = instance.strike_action_control.get_node("TargetsContainer")
-	assert_eq(targets_container.get_child_count(), target_ids.size(), "one rendered Button per selectable target")
-	var button: Button = targets_container.get_child(0)
+	var button: Button = instance.verb_bar_view.get_button("STRIKE")
+	assert_not_null(button, "VerbBarView must render a STRIKE button when the verb is available")
+	_assert_signal_connected_to_presentation_stack(button, "pressed", "VerbBarView's rendered STRIKE Button.pressed (strike pressed)")
 
-	_assert_signal_connected_to_presentation_stack(button, "pressed", "StrikeActionControl's rendered target Button.pressed (strike pressed)")
+	var selection: Dictionary = instance.verb_bar_view.press("STRIKE")
+	var target_ids: Array = selection.get("candidate_targets", [])
+	assert_true(target_ids.size() > 0, "entering STRIKE's Layer 2 selection must surface at least one in-reach target")
 
-	assert_eq(instance.event_log_view.get_entry_count(), 0, "fixture assumption: no events logged yet before the simulated press")
-	button.pressed.emit()
+	assert_eq(instance.event_log_view.get_entry_count(), 0, "fixture assumption: no events logged yet before the simulated Strike")
+	var result: Dictionary = instance._verb_registry.execute("STRIKE", target_ids[0])
+	assert_true(result.get("ok", false), "executing STRIKE against the selected target must resolve a real Strike")
 
 	assert_true(
 		instance.event_log_view.get_entry_count() >= 1,
-		"emitting the target Button's pressed signal must flow through the presentation/* handler and resolve a real Strike, observable via EventLogView"
+		"resolving STRIKE through the verb registry must flow through the presentation/* handler and resolve a real Strike, observable via EventLogView"
 	)
 
 

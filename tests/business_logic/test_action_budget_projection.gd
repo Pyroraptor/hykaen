@@ -201,8 +201,11 @@ func test_action_budget_remaining_and_spent_true_after_seventh_strike() -> void:
 
 # ══════════════════════════════════════════════════════════════════════════
 # Criterion 1b: full MainScene.gd boot — a real Strike via
-# $StrikeActionControl.select_target() pushes an updated action-budget
-# snapshot into $StatusPanelView through the real composition-root wiring.
+# `_verb_registry.execute("STRIKE", target_id)` pushes an updated
+# action-budget snapshot into $StatusPanelView through the real
+# composition-root wiring (FEAT-006: Strike no longer has a dedicated
+# strike_action_control node -- it is driven solely through the verb
+# registry now).
 # ══════════════════════════════════════════════════════════════════════════
 
 func _boot_main_scene():
@@ -224,10 +227,10 @@ func test_main_scene_pushes_updated_action_budget_into_status_panel_view_after_s
 	var before_remaining: int = before_status.get("action_budget_remaining", -1)
 	assert_eq(before_remaining, 7, "fixture assumption: the acting combatant starts with a full 7-action budget")
 
-	var target_ids: Array = instance.strike_action_control.get_selectable_target_ids()
+	var target_ids: Array = instance._verb_registry.enter_selection("STRIKE").get("candidate_targets", [])
 	assert_true(target_ids.size() > 0, "fixture assumption: the prologue's first actor has at least one in-reach target")
 
-	var result: Dictionary = instance.strike_action_control.select_target(target_ids[0])
+	var result: Dictionary = instance._verb_registry.execute("STRIKE", target_ids[0])
 	assert_true(result.get("resolved", false), "the real resolve_action_use_case must resolve the Strike")
 
 	var after_status: Dictionary = instance.status_panel_view.get_status(actor_id)

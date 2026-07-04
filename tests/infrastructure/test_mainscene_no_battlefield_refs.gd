@@ -143,7 +143,7 @@ func test_result_screen_not_view_pattern_matches_bare_result_screen_only() -> vo
 
 func test_mainscene_gd_still_wires_the_kept_presentation_stack() -> void:
 	var content: String = _read_file(MAIN_SCENE_SCRIPT_PATH)
-	for kept_term in ["hex_grid_view", "status_panel_view", "initiative_view", "event_log_view", "strike_action_control", "end_turn_control", "result_screen_view", "movement_input_controller", "turn_controller"]:
+	for kept_term in ["hex_grid_view", "status_panel_view", "initiative_view", "event_log_view", "end_turn_control", "result_screen_view", "movement_input_controller", "turn_controller"]:
 		assert_true(
 			content.contains(kept_term),
 			"MainScene.gd must still wire the kept presentation/* identifier '%s' -- this feature only removes the duplicate stack, not the surviving one" % kept_term
@@ -152,7 +152,7 @@ func test_mainscene_gd_still_wires_the_kept_presentation_stack() -> void:
 
 func test_mainscene_tscn_still_instances_the_kept_presentation_stack() -> void:
 	var content: String = _read_file(MAIN_SCENE_TSCN_PATH)
-	for kept_term in ["HexGridView", "StatusPanelView", "InitiativeView", "EventLogView", "StrikeActionControl", "TurnController", "EndTurnControl", "ResultScreenView"]:
+	for kept_term in ["HexGridView", "StatusPanelView", "InitiativeView", "EventLogView", "TurnController", "EndTurnControl", "ResultScreenView"]:
 		assert_true(
 			content.contains(kept_term),
 			"MainScene.tscn must still instance the kept presentation/* node '%s' -- this feature only removes the duplicate stack, not the surviving one" % kept_term
