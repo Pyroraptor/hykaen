@@ -310,6 +310,44 @@ class TestGenericDispatch:
                 )
 
 
+# ── FEAT-008 (US-008/FR-003): Strike Layer 2 target-highlight contract ────
+
+
+class TestStrikeEnterSelectionEnemyOnlyTargeting:
+    """Pins the exact FEAT-008 test_criteria wording: 'Strike
+    enter_selection() returns a SelectionDescriptor containing only
+    in-reach enemy target ids.' VerbRegistry itself has no notion of
+    ally/enemy — that filtering is GameStatePort.get_reachable_targets()'s
+    contract (see build_default_registry()'s strike_enter_selection()
+    docstring) — so this suite proves the descriptor is EXACTLY whatever
+    that port reports, with no VerbRegistry-side re-filtering/re-ordering/
+    duplication, using a fixture where an ally id is deliberately present
+    in the wider combatant roster but absent from get_reachable_targets()'s
+    return value (mirroring how the real Godot adapter, MainScene.gd's
+    _strike_reachable_target_ids(), only ever iterates `_enemies`)."""
+
+    def test_candidate_targets_contains_only_the_reachable_enemy_ids(self, game_state, action_resolver, movement, turn):
+        # A living ally ("marigold") exists in this encounter but must never
+        # be a reachable Strike target — game_state.reachable_targets only
+        # ever names enemies (the real adapter's contract), so it is simply
+        # never added here.
+        game_state.reachable_targets["titus"] = ["skeleton_1", "skeleton_2"]
+        registry = build_default_registry(game_state, action_resolver, movement, turn)
+
+        selection = registry.enter_selection(STRIKE)
+
+        assert selection.candidate_targets == ["skeleton_1", "skeleton_2"]
+        assert "marigold" not in selection.candidate_targets
+
+    def test_candidate_targets_is_empty_when_no_enemy_is_in_reach(self, game_state, action_resolver, movement, turn):
+        game_state.reachable_targets["titus"] = []
+        registry = build_default_registry(game_state, action_resolver, movement, turn)
+
+        selection = registry.enter_selection(STRIKE)
+
+        assert selection.candidate_targets == []
+
+
 # ── Criterion 3: extensibility — a hypothetical fifth verb ────────────────
 
 

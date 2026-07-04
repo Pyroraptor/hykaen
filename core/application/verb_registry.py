@@ -214,6 +214,18 @@ def build_default_registry(
         )
 
     def strike_enter_selection() -> SelectionDescriptor:
+        # FEAT-008 (US-008/FR-003): the returned candidate_targets is
+        # exactly game_state.get_reachable_targets(combatant_id) — the
+        # SAME in-reach ENEMY filter GameStatePort's own contract documents
+        # (api_contracts: "get_reachable_targets(combatant_id) ->
+        # List[Combatant] # used by Strike.availability()/enter_selection()").
+        # VerbRegistry never re-derives or re-filters that list itself (no
+        # ally ever appears here, no out-of-reach enemy ever appears here) —
+        # a presentation-layer SelectionOverlay (this iteration's Godot
+        # runtime realization, presentation/selection_overlay.gd) highlights
+        # PURELY from this descriptor, so "only in-reach enemy targets are
+        # highlighted" is guaranteed by construction, not by any UI-side
+        # re-filtering.
         combatant_id = game_state.get_active_combatant()
         return SelectionDescriptor(
             verb_id=STRIKE,

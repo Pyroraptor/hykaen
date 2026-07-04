@@ -167,6 +167,7 @@ const HexGridViewClass                 = preload("res://presentation/hex_grid_vi
 const HexCoordClass                    = preload("res://core/geometry/hex_coord.gd")
 const HexMathClass                     = preload("res://core/geometry/hex_math.gd")
 const VerbBarViewClass                 = preload("res://presentation/verb_bar_view.gd")
+const SelectionOverlayClass            = preload("res://presentation/selection_overlay.gd")
 
 ## The steel-thread's entry_point: the one encounter this composition root boots into.
 const PROLOGUE_ENCOUNTER_PATH: String = "res://data/encounters/prologue_encounter.tres"
@@ -468,6 +469,18 @@ var movement_input_controller = MovementInputControllerClass.new()
 ## verb_bar_view.configure(). Exposed for verification.
 var _verb_registry = null
 
+## selection_overlay — the SelectionOverlay (presentation/selection_overlay.gd,
+## FEAT-008 / US-008) instantiated directly (code-only, no companion .tscn —
+## mirrors movement_input_controller's precedent). Configured in _ready()
+## (see _build_verb_registry()'s caller below) with `_verb_registry` and
+## `hex_grid_view`, and wired to $VerbBarView.verb_selection_entered so
+## EVERY Layer 1 verb press's Layer 2 selection (Strike this feature; Step/
+## Stride generically, with zero forked logic of this file's own — see
+## selection_overlay.gd's file-level doc) highlights its candidates and
+## resolves a click straight through `_verb_registry.execute()`. Exposed for
+## verification.
+var selection_overlay = SelectionOverlayClass.new()
+
 ## result_screen_view — the ResultScreenView (presentation/
 ## result_screen_view.gd) instanced in MainScene.tscn (FEAT-112, US-012).
 ## This is the ONE result screen this composition root wires (FEAT-001 /
@@ -618,16 +631,20 @@ func _ready() -> void:
 	if verb_bar_view != null:
 		verb_bar_view.configure(_verb_registry)
 
-	# FEAT-007 (this iteration's US-007/FR-010): hex_grid_view.hex_clicked is
-	# deliberately left unconnected here -- the legacy "click any highlighted
-	# hex to auto Step-or-Stride" affordance (and its passive
-	# presentation/MoveActionControl.gd "Move" indicator) has been removed;
-	# Step/Stride are now driven exclusively through `_verb_registry`'s
-	# STEP/STRIDE entries (_verb_bar_step_execute()/_verb_bar_stride_execute()
-	# below), the SAME Layer 1 (verb bar) -> Layer 2 (selection) path STRIKE
-	# already uses. HexGridView.hex_clicked itself is untouched (a future
-	# Layer 2 SelectionOverlay may subscribe to it) -- only this composition
-	# root's own subscription is removed.
+	# ── FEAT-008 / US-008 (FR-003, ADR-002): wire the generic Layer 2
+	# SelectionOverlay (presentation/selection_overlay.gd) over the SAME
+	# `_verb_registry` and `hex_grid_view` this composition root already
+	# built/wires above -- no new port, no forked resolution logic. This is
+	# the SAME hex_grid_view.hex_clicked signal FEAT-007's doc (immediately
+	# below, historically) noted "a future Layer 2 SelectionOverlay may
+	# subscribe to it" -- this is that subscriber, connected generically to
+	# EVERY non-END_TURN verb's Layer 2 entry (VerbBarView.verb_selection_entered)
+	# rather than special-cased to STRIKE, mirroring VerbBarView's/
+	# verb_registry.py's own verb-agnostic dispatch discipline. ─────────────
+	selection_overlay.configure(_verb_registry, hex_grid_view)
+	if verb_bar_view != null:
+		verb_bar_view.verb_selection_entered.connect(_on_verb_bar_selection_entered)
+	selection_overlay.selection_resolved.connect(_on_selection_overlay_resolved)
 
 	outcome = round_session.outcome()
 
@@ -953,6 +970,38 @@ func _verb_bar_end_turn_execute(_selection = null) -> Dictionary:
 	if end_turn_control == null:
 		return {"ok": false}
 	return end_turn_control.press()
+
+
+## _on_verb_bar_selection_entered(verb_id, selection) -> void — FEAT-008 /
+## US-008: forwards VerbBarView's own verb_selection_entered signal
+## (emitted immediately after registry.enter_selection(verb_id) inside
+## VerbBarView.press(), see presentation/verb_bar_view.gd's file-level doc)
+## straight to selection_overlay.activate() -- this composition root never
+## re-derives or re-queries the descriptor itself, and never special-cases
+## verb_id here (ADR-002/CR-001: no forked Layer 2 wiring per verb).
+func _on_verb_bar_selection_entered(verb_id: String, selection) -> void:
+	selection_overlay.activate(verb_id, selection)
+
+
+## _on_selection_overlay_resolved(_verb_id, _result) -> void — FEAT-008 /
+## US-008: fires once selection_overlay resolves a highlighted target/hex
+## click through `_verb_registry.execute()` (whichever verb it was -- this
+## handler is generic, mirroring selection_overlay.gd's own verb-agnostic
+## discipline). Re-gates $VerbBarView (a Strike/Stride spends an action,
+## which may flip STRIKE/STRIDE availability) via the SAME
+## refresh_availability() every other verb-state change already relies on,
+## and re-derives the Layer 1 Step/Stride highlight for whoever the current
+## actor now is via the SAME _highlight_legal_moves() helper
+## _on_active_actor_changed()/_after_successful_move() already call -- a
+## resolved Strike does not itself move anyone, so nothing else already
+## re-pushes that highlight after selection_overlay.clear() blanks it.
+func _on_selection_overlay_resolved(_verb_id: String, _result) -> void:
+	if verb_bar_view != null:
+		verb_bar_view.refresh_availability()
+	if round_session != null:
+		var actor: Dictionary = round_session.current_actor()
+		var actor_id: String = actor.get("combatant_id", actor.get("name", ""))
+		_highlight_legal_moves(actor, actor_id)
 
 
 ## _on_active_actor_changed(combatant) -> void — TurnController

@@ -34,11 +34,14 @@ extends GutTest
 ##      forwarding method, never a scenes/battlefield/* handler; a Strike/
 ##      Step/Stride verb-registry execute() also resolves through the SAME,
 ##      REUSED resolve_action_use_case / movement_input_controller. FEAT-007
-##      (this iteration): HexGridView.hex_clicked is deliberately no longer
-##      wired to any MainScene handler at all (the legacy "click a highlighted
-##      hex to auto Step-or-Stride" affordance has been removed) — see
-##      test_hex_clicked_signal_is_no_longer_wired_to_the_composition_root
-##      below.
+##      removed HexGridView.hex_clicked's earlier legacy "click a
+##      highlighted hex to auto Step-or-Stride" wiring, deliberately leaving
+##      it unconnected for "a future Layer 2 SelectionOverlay" to subscribe
+##      to. FEAT-008 (US-008) is that feature: hex_clicked is now connected
+##      to exactly one handler — presentation/selection_overlay.gd
+##      SelectionOverlay's own internal click resolver, wired by
+##      MainScene.gd — see
+##      test_hex_clicked_signal_is_wired_to_the_selection_overlay below.
 ##   3. MainScene.tscn still boots headlessly with zero compile/runtime
 ##      errors after this feature's re-verification (a fast regression signal
 ##      local to this suite, mirroring test_mainscene_headless_boot.gd's
@@ -204,23 +207,34 @@ func test_mainscene_wires_movement_input_controller_as_the_sole_movement_pathway
 # exclusively to a presentation/*-or-composition-root handler.
 # ══════════════════════════════════════════════════════════════════════════
 
-## FEAT-007 (this iteration's US-007/FR-010): the legacy "click any
-## highlighted hex to auto Step-or-Stride" affordance has been deleted --
-## HexGridView.hex_clicked is no longer connected to ANY handler from this
-## composition root (a future Layer 2 SelectionOverlay may subscribe to it,
-## but that is out of this feature's scope). Step/Stride are now driven
-## exclusively through the verb registry -- see
+## FEAT-007 (iteration D) deleted the legacy "click any highlighted hex to
+## auto Step-or-Stride" affordance, deliberately leaving HexGridView.
+## hex_clicked unconnected from the composition root for "a future Layer 2
+## SelectionOverlay" to subscribe to. FEAT-008 (US-008, this iteration) is
+## that feature: hex_clicked is now connected to exactly ONE handler --
+## presentation/selection_overlay.gd SelectionOverlay's own internal click
+## resolver (_on_hex_clicked), wired by MainScene.gd's composition root via
+## selection_overlay.configure() -- never a re-introduction of the deleted
+## auto-move handler itself. Step/Stride still resolve exclusively through
+## the verb registry (SelectionOverlay.execute()-dispatches into it, no
+## forked path) -- see
 ## test_step_and_stride_verbs_are_wired_to_the_presentation_stack_and_move_the_token
 ## below.
-func test_hex_clicked_signal_is_no_longer_wired_to_the_composition_root() -> void:
+func test_hex_clicked_signal_is_wired_to_the_selection_overlay() -> void:
 	var instance = _boot_main_scene()
 
-	assert_true(instance.hex_grid_view.has_signal("hex_clicked"), "HexGridView must still declare the hex_clicked signal (a future Layer 2 SelectionOverlay may use it)")
+	assert_true(instance.hex_grid_view.has_signal("hex_clicked"), "HexGridView must still declare the hex_clicked signal")
 	var connections: Array = instance.hex_grid_view.get_signal_connection_list("hex_clicked")
 	assert_eq(
-		connections.size(), 0,
-		"HexGridView.hex_clicked must carry NO connections from this composition root -- the legacy auto Step-or-Stride click behavior has been removed (FEAT-007)"
+		connections.size(), 1,
+		"HexGridView.hex_clicked must carry EXACTLY ONE connection from this composition root -- the FEAT-008 SelectionOverlay subscriber, never the deleted legacy auto Step-or-Stride handler"
 	)
+	if connections.size() > 0:
+		var target: Object = connections[0].get("callable").get_object()
+		assert_eq(
+			target, instance.selection_overlay,
+			"HexGridView.hex_clicked's sole connection must target MainScene's own selection_overlay (presentation/selection_overlay.gd), not a re-introduced legacy handler"
+		)
 
 
 ## "Step"/"Stride" verb-registry wiring -- FEAT-007 (this iteration's
