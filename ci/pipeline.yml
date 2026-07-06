@@ -1,5 +1,6 @@
-# ci/pipeline.yml — FEAT-133 / FEAT-136 / US-011 (NFR-004, NFR-006, NFR-008,
-# NFR-009; DEF-002, DEF-003)
+# ci/pipeline.yml — FEAT-133 / FEAT-136 / FEAT-009 / US-011 / US-009
+# (NFR-001, NFR-002, NFR-004, NFR-006, NFR-007, NFR-008, NFR-009; DEF-002,
+# DEF-003)
 #
 # Canonical pipeline manifest for Hykaen's automated quality gate. This
 # declares (rather than duplicates) the stages that scripts/test_command.sh
@@ -18,6 +19,25 @@
 #
 # Process-level sign-off/findings tracking (e.g. V&V/PQA review gates) is
 # out of scope here and is handled by downstream steps, not this file.
+#
+# FEAT-009 (US-009, NFR-001/002/006/007): two additional, standalone,
+# independently-invokable architecture-compliance static-check gates are
+# declared below —
+#   - domain_purity_check      -> ci/check_domain_purity.sh   (ADR-001: no
+#     Node/Control-descendant Godot inheritance anywhere under core/)
+#   - no_duplicate_seams_check -> ci/check_no_duplicate_seams.sh
+#     (ADR-002/ADR-006: exactly one _movement_used gate implementation and
+#     exactly one concrete AI decision/token-reposition call path exist in
+#     the codebase — no new/duplicate ports, use-cases, or seams).
+# Both scripts already run as inline grep steps embedded directly in
+# .github/workflows/test.yml's YAML ("Lint — domain purity (ADR-001)"),
+# but that inline form cannot be run locally, unit-tested on its own, or
+# reused by another gate. Extracting the same checks into real,
+# independently-testable ci/*.sh artifacts (see
+# tests/ci/test_static_checks.gd for the executable proof each one both
+# passes against the real repository AND catches a deliberately injected
+# violation) lets them be wired here as their own named, REQUIRED,
+# non-optional stages, exactly like every other stage in this file.
 
 name: hykaen-quality-gate
 
@@ -123,6 +143,39 @@ stages:
       godot --headless -s addons/gut/gut_cmdln.gd
       -gselect=test_full_steel_thread_e2e.gd
       -gdir=res://tests/e2e -gexit
+    required: true
+    optional: false
+    allow_failure: false
+
+  - id: domain_purity_check
+    name: Domain purity static check (FEAT-009 / US-009, ADR-001)
+    description: >
+      Standalone, independently-invokable gate asserting core/ contains
+      zero bare 'extends Node'/'extends Control' Godot scene-tree
+      inheritance (ADR-001 domain purity). Extracted from
+      .github/workflows/test.yml's inline "Lint — domain purity" grep step
+      into a real, unit-tested artifact (see
+      tests/ci/test_static_checks.gd, which proves this script both
+      passes against the real core/ tree and catches a deliberately
+      injected violation).
+    command: ci/check_domain_purity.sh core
+    required: true
+    optional: false
+    allow_failure: false
+
+  - id: no_duplicate_seams_check
+    name: No duplicate ports/use-cases/seams check (FEAT-009 / US-009, ADR-002/ADR-006)
+    description: >
+      Standalone, independently-invokable gate confirming exactly one
+      _movement_used gate implementation (core/rules/action_economy.gd)
+      and exactly one concrete AI decision (decide_action) and
+      token-reposition (move_token) call path exist across core/,
+      presentation/, and infrastructure/ — no new/duplicate port,
+      use-case, or seam has been introduced (ADR-002/ADR-006). See
+      tests/ci/test_static_checks.gd for the executable proof this script
+      passes against the real repository and catches each kind of
+      injected duplicate.
+    command: ci/check_no_duplicate_seams.sh
     required: true
     optional: false
     allow_failure: false
