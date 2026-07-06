@@ -299,6 +299,18 @@ func test_full_journey_strike_pass_ai_turn_and_result_screen_stays_locked_throug
 # _on_active_actor_changed() does it). The original "HexBattlefield and
 # HexGridView agree" comparison (FEAT-138/DEF-006) is retired along with the
 # removed $HexBattlefield node -- see this file's header doc.
+#
+# FEAT-002 (US-002 / FR-003 / FR-004; Iteration F P0-1): Step and Stride now
+# share the SAME per-turn Movement-trait gate (core/rules/action_economy.gd
+# ActionEconomy.can_take_movement_action()) -- a Step, though free, locks out
+# a Stride for the REST OF THAT TURN, and vice versa. To keep exercising
+# BOTH movement verbs' token-resync behavior in one continuous playthrough
+# (this file's own "same continuous playthrough wherever test_criteria
+# allow" convention, see header doc), the turn boundary between the Step and
+# the Stride is simulated via the EXISTING, already-tested
+# start_of_turn() reset (core/rules/action_economy.gd, core/rules/
+# test_movement_lockout.gd's own regression pin) rather than by asserting
+# something the domain rule now correctly forbids.
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_hex_grid_view_resyncs_token_position_after_step_and_stride() -> void:
@@ -332,6 +344,18 @@ func test_hex_grid_view_resyncs_token_position_after_step_and_stride() -> void:
 		grid_token.position, expected_position_after_step, Vector2(0.01, 0.01),
 		"HexGridView's token must resync to the combatant's new hex position after a Step via the real composition-root wiring"
 	)
+
+	# FEAT-002: the Step just taken above tripped this turn's Movement-trait
+	# gate -- simulate the actor's next turn beginning via the existing
+	# start_of_turn() reset so the Stride below is legal again, exactly as it
+	# would be once TurnController actually advances the turn.
+	var action_economy = instance.round_session.current_action_economy()
+	assert_not_null(action_economy, "fixture assumption: the active actor carries a live domain ActionEconomy")
+	assert_false(
+		action_economy.can_take_movement_action(),
+		"fixture assumption: the Step just taken must have tripped the Movement-trait gate (FEAT-002)"
+	)
+	action_economy.start_of_turn()
 
 	# From (-1,0), Stride to (-4,0) -- hex_distance 3, within Speed (4) and unoccupied.
 	var stride_destination := HexCoordClass.new(-4, 0)

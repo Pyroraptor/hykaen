@@ -289,7 +289,12 @@ func get_last_error_message() -> String:
 ##
 ## When destination_hex names a currently selectable destination, forwards
 ## directly to core/rules/movement.gd Movement.step() (ADR-002: no duplicate
-## movement path) and returns its result Dictionary verbatim.
+## movement path), passing the SAME `_action_economy` collaborator
+## configure() was handed, so a successful Step trips the Movement-trait gate
+## (FEAT-001/FEAT-002 -- US-002/FR-003/FR-004: a FREE Step must still lock
+## out a subsequent Step/Stride this turn, mirroring stride_to()'s own
+## `_action_economy` pass-through below), and returns Movement.step()'s
+## result Dictionary verbatim.
 ##   - On success: repositions the actor's token on `_hex_grid_view` (if
 ##     supplied), re-derives `_selectable_destinations` from the actor's NEW
 ##     position (a Step can be followed by an immediate Strike whose reach
@@ -314,7 +319,7 @@ func step_to(destination_hex) -> Dictionary:
 	if _find_selectable(destination_hex) == null:
 		return _fail(ERR_DESTINATION_NOT_SELECTABLE)
 
-	var result: Dictionary = MovementClass.step(_actor, destination_hex, _other_combatants)
+	var result: Dictionary = MovementClass.step(_actor, destination_hex, _other_combatants, _action_economy)
 
 	if not result.get("ok", false):
 		return _fail(result.get("error", ""))

@@ -973,7 +973,18 @@ func _find_strike_reachable_target(target_id: String) -> Dictionary:
 	return {}
 
 
+## _verb_bar_step_availability() -> bool -- FEAT-002 (US-002 / FR-003 /
+## FR-004; Iteration F P0-1): additionally queries the active actor's live
+## ActionEconomy.can_take_movement_action() (core/rules/action_economy.gd,
+## read-only, ADR-003) -- STEP is unavailable once EITHER Step or Stride has
+## already been taken this turn (the SAME Movement-trait gate FEAT-001 wired
+## into core/rules/movement.gd), in addition to the pre-existing "at least
+## one legal Step destination" check. This function only READS
+## can_take_movement_action(); it never mutates the domain gate itself.
 func _verb_bar_step_availability() -> bool:
+	var action_economy = _verb_bar_current_action_economy()
+	if action_economy != null and not action_economy.can_take_movement_action():
+		return false
 	return movement_input_controller.get_selectable_step_hexes().size() > 0
 
 
@@ -996,8 +1007,19 @@ func _verb_bar_step_execute(selection) -> Dictionary:
 	return result
 
 
+## _verb_bar_stride_availability() -> bool -- FEAT-002 (US-002 / FR-003 /
+## FR-004; Iteration F P0-1): additionally queries the active actor's live
+## ActionEconomy.can_take_movement_action() (read-only, ADR-003) -- STRIDE is
+## unavailable once EITHER Step or Stride has already been taken this turn
+## (the SAME Movement-trait gate Stride's own action_economy.spend_action()
+## call already trips), in addition to the pre-existing "an action remains
+## AND at least one legal Stride destination" checks. This function only
+## READS can_take_movement_action(); it never mutates the domain gate
+## itself.
 func _verb_bar_stride_availability() -> bool:
 	var action_economy = _verb_bar_current_action_economy()
+	if action_economy != null and not action_economy.can_take_movement_action():
+		return false
 	var remaining: int = action_economy.get_remaining() if action_economy != null else 0
 	return remaining > 0 and movement_input_controller.get_selectable_stride_hexes().size() > 0
 
