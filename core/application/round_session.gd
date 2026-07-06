@@ -68,6 +68,23 @@ var _round_history_port           ## RoundHistoryPort — injected
 ## over (no living, un-Spent actor remains, or the outcome was decided).
 var _cursor: int = -1
 
+## _token_reposition_fn — OPTIONAL (FEAT-008 / US-008 / FR-012, ADR-006): an
+## injected, duck-typed Callable(combatant_id: String, new_hex_coord)
+## advance_ai_turn() invokes immediately after an AI-issued Stride, so the
+## enemy's on-screen token repositions through the EXACT SAME function
+## presentation/movement_input_controller.gd's _resync_token_renderers()
+## already calls for a player-driven Step/Stride — presentation/
+## hex_grid_view.gd HexGridView.move_token() — never a second, parallel
+## reposition implementation. RoundSession never imports/depends on
+## HexGridView or any other Presentation type (ADR-001/ADR-002): it only
+## calls whichever Callable the composition root (MainScene.gd) injects via
+## set_token_reposition_fn(). Left as an invalid (unbound) Callable — the
+## default — for every pre-existing caller/test double, including the
+## autonomous run_autonomous_to_completion() path, which never sets one; a
+## rendering-only concern is entirely optional and never required for the
+## domain/application cycle logic to function correctly.
+var _token_reposition_fn: Callable = Callable()
+
 ## _cycle_index — the AC-4 interleave cycle pass the CURRENT actor's action
 ## belongs to (0-based), stamped on resolve_action_use_case calls made via
 ## advance_ai_turn(). Incremented whenever the cursor wraps back around
@@ -124,6 +141,23 @@ func _init(
 	_cursor = _find_first_actionable_index()
 	if _cursor == -1:
 		_round_over = true
+
+
+## set_token_reposition_fn(fn) -> void — FEAT-008 (US-008 / FR-012, ADR-006):
+## injects the Callable advance_ai_turn() invokes to visually reposition an
+## AI-Stride actor's on-screen token. `fn` is expected to accept
+## (combatant_id: String, new_hex_coord) — the exact signature of
+## presentation/hex_grid_view.gd HexGridView.move_token(), the SAME function
+## the player Step/Stride path (presentation/movement_input_controller.gd)
+## already calls. Intended to be called once by the composition root
+## (MainScene.gd) right after obtaining this RoundSession from
+## RunRoundUseCase.begin_round(), e.g.:
+##   round_session.set_token_reposition_fn(Callable(hex_grid_view, "move_token"))
+## Never calling this method (every pre-existing caller/test double) leaves
+## advance_ai_turn()'s behavior completely unchanged — see
+## _reposition_token_after_ai_stride()'s no-op guard below.
+func set_token_reposition_fn(fn: Callable) -> void:
+	_token_reposition_fn = fn
 
 
 # ── Interactive stepwise API (US-010/US-011) ───────────────────────────────
@@ -207,6 +241,7 @@ func advance_ai_turn() -> Dictionary:
 		# The Stride itself already happened inside decide_action() (see
 		# file-level doc above) — nothing further to resolve for it here.
 		any_action_taken = true
+		_reposition_token_after_ai_stride(combatant, ai_decision)
 		if will_strike and not target.is_empty():
 			var strike_result: Dictionary = _resolve_action_use_case.resolve(
 				combatant, action_economy, target, "Strike", _round_number, _cycle_index
@@ -254,6 +289,29 @@ func _decide_ai_action(combatant: Dictionary, action_economy) -> Dictionary:
 			other_combatants.append(enemy)
 
 	return decide_callable.call(combatant, _party, action_economy, other_combatants)
+
+
+## _reposition_token_after_ai_stride(combatant, ai_decision) -> void —
+## FEAT-008 (US-008 / FR-012, ADR-006): invokes the injected
+## `_token_reposition_fn` (see set_token_reposition_fn()'s doc) with the
+## acting combatant's id and the Stride's destination hex — the EXACT SAME
+## call presentation/movement_input_controller.gd's _resync_token_renderers()
+## already makes for a player-driven Stride
+## (hex_grid_view.move_token(actor_id, destination_hex)): same function, same
+## call shape, only the actor_id/destination differ. A no-op when no
+## reposition fn was injected (every headless test/the autonomous
+## run_autonomous_to_completion() path never calls
+## set_token_reposition_fn()) or when the decision carries no destination
+## (defensive — decide_action() always supplies one for action_type
+## "Stride", but this guards regardless of caller shape).
+func _reposition_token_after_ai_stride(combatant: Dictionary, ai_decision: Dictionary) -> void:
+	if not _token_reposition_fn.is_valid():
+		return
+	var destination = ai_decision.get("destination", null)
+	if destination == null:
+		return
+	var actor_id: String = combatant.get("combatant_id", combatant.get("name", ""))
+	_token_reposition_fn.call(actor_id, destination)
 
 
 ## end_current_turn() -> Dictionary — ends the current (player) actor's

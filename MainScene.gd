@@ -624,6 +624,17 @@ func _ready() -> void:
 
 	round_session = run_round_use_case.begin_round(ROUND_NUMBER, _party, _enemies)
 
+	# ── FEAT-008 (US-008 / FR-012, ADR-006): wire RoundSession's execution of
+	# an AI-issued Stride to the SAME hex_grid_view.move_token() reposition
+	# function the player Step/Stride path already calls (via
+	# movement_input_controller.gd's _resync_token_renderers()) -- same call
+	# site, different actor_id/destination, no parallel reposition
+	# implementation. RoundSession itself never imports/depends on
+	# HexGridView (ADR-001/ADR-002); it only invokes whichever Callable this
+	# composition root injects here. ────────────────────────────────────────
+	if round_session != null and hex_grid_view != null:
+		round_session.set_token_reposition_fn(Callable(hex_grid_view, "move_token"))
+
 	if result_screen_view != null:
 		# FEAT-006: no strike_action_control node exists anymore -- its
 		# first (optional, default-null) argument is simply omitted; see
