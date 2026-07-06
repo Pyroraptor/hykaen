@@ -1,0 +1,97 @@
+#+TITLE: Iteration F — Movement-Trait Lockout Fix + Enemy AI Movement (AUTHORITATIVE)
+#+DATE: 2026-07-06
+
+* Context (why this sprint exists)
+
+Iteration E delivered the two-layer verb→target player action UX. Two things next,
+found in real play + as the natural completion of the movement arc (the movement
+DOMAIN — core/rules/movement.gd Step/Stride — is DONE and tested; C/D/E wired it into
+the player UI):
+
+1. MOVEMENT-TRAIT LOCKOUT IS BROKEN. Step and Stride both carry the "Movement" trait
+   and are meant to be MUTUALLY EXCLUSIVE within a turn (one Move-trait action per
+   turn). core/rules/action_economy.gd ALREADY models this: it tracks `_movement_used`
+   and gates any "Movement"-trait action once one has been taken. But (a) Step is a
+   FREE action — core/rules/movement.gd step() "never touches an ActionEconomy
+   instance at all", so it never trips that gate; and (b) the verb-availability gates
+   ignore it entirely: _verb_bar_step_availability() only checks "are there step
+   hexes", _verb_bar_stride_availability() only checks "action remaining + stride
+   hexes". So a player can Step AND Stride in the same turn — which is illegal.
+2. ENEMIES NEVER MOVE. core/combat/ai.gd decide_action() is v0 "always Strike the
+   first living target" with no movement — so an out-of-reach enemy does nothing
+   effective. Enemies should close distance (Stride toward the player) and attack.
+
+* THE ONLY SCOPE FOR THIS SPRINT — both P0 / MUST / NON-DEFERRABLE
+
+Do NOT defer either item. P0-1 (the lockout fix) is item 1 and lands FIRST — the
+correct action economy is the foundation the AI movement in P0-2 also relies on.
+
+** P0-1: Movement-trait lockout — Step and Stride mutually exclusive per turn
+- REUSE core/rules/action_economy.gd's EXISTING `_movement_used` Movement-trait gate
+  (do NOT fork a second movement-lockout mechanism).
+- A Step, though FREE (spends no action), must MARK movement as used for the turn so a
+  subsequent Stride (or any Movement-trait action) is unavailable — and vice versa
+  (after a Stride, Step is unavailable). Add the minimal hook so step() records the
+  Movement-trait use against the actor's ActionEconomy WITHOUT spending an action
+  (Step stays free; it only sets the per-turn Movement gate).
+- Both _verb_bar_step_availability() AND _verb_bar_stride_availability() (MainScene.gd)
+  must return false once the actor has taken a Movement-trait action this turn (gate on
+  the SAME `_movement_used`/ActionEconomy state) — so the verb bar greys out the other
+  movement verb after one is used.
+- Resets at the turn/round boundary exactly as the existing gate already does.
+- TESTS: after a Step, Stride is unavailable that turn (verb + domain); after a Stride,
+  Step is unavailable; both become available again on the actor's next turn; a Strike
+  (non-Movement) is unaffected.
+
+** P0-2: Enemy AI movement — close distance, then attack
+- Extend core/combat/ai.gd decide_action() (the SAME AIDecisionPort RoundSession.
+  advance_ai_turn() already drives — do NOT fork a parallel AI path) so an enemy:
+  - if a living target is already in reach (melee = adjacency; ranged = listed range),
+    Strikes it (existing behaviour, unchanged); else
+  - STRIDES toward the best target: choose the legal Stride destination (≤Speed,
+    unoccupied — from the SAME core/rules/movement.gd Movement.get_stride_destinations())
+    that MINIMISES hex distance (core/geometry hex_distance) to the nearest living
+    target, spending one action + marking the Movement trait; then if now in reach,
+    Strike (subject to remaining actions).
+- Respect the EXISTING action economy AND the P0-1 Movement lockout: an enemy never
+  takes two Movement-trait actions in a turn, and never exceeds its action budget.
+- Domain-first (ADR-001): all target-selection / distance-closing / destination-choice
+  logic lives in core/ (ai.gd + movement/geometry), zero Node/Control. RoundSession /
+  RunRoundUseCase execute whatever the decision returns.
+- Deterministic: AI choices (target, destination tie-breaks) MUST be deterministic
+  under a pinned seed (HYKAEN_SEED / seed_override) so the determinism/steel-thread
+  tests stay green — break ties by a stable rule (e.g. lowest (q,r)), not RNG.
+- The moved enemy's token must VISIBLY reposition on the hex grid (reuse the SAME
+  move-token path the player Step/Stride uses — no new reposition path).
+- TESTS: an enemy starting OUT of reach Strides toward the player (token moves closer,
+  distance decreases) and attacks when in reach; an enemy already in reach just Strikes
+  (no wasted move); an enemy respects the action economy + Movement lockout (no double
+  Stride, no move-then-move); the full steel thread stays deterministic at a pinned seed.
+
+* Out of scope (do NOT touch / build)
+- No spellcasting, Channel, Cast a Spell, or any new player/enemy verbs beyond wiring
+  Stride into the existing AI (the verb registry is ready for future verbs — do NOT
+  build them here).
+- No pathfinding around obstacles/terrain beyond simple shortest-distance closing
+  (v0: pick the legal Stride hex that most reduces distance to the target); no difficult
+  terrain / elevation / line-of-sight / opportunity attacks / reactions.
+- No changes to the combat resolution, RNG/seed policy, or the movement/flanking DOMAIN
+  rules beyond the additive P0-1 Movement-gate hook and P0-2 AI logic (ADR-002).
+- No new ports/use-cases (reuse AIDecisionPort, ResolveActionUseCase, RoundSession).
+
+* PRESERVE (must not regress) — green as of Iteration E + the two hand-fixes (HEAD 3a6af4e)
+- Two-layer verb→target action UX (verb bar Strike/Step/Stride/End Turn + Layer 2),
+  single labelled End Turn, mouse-transparent display panels (battlefield clicks reach
+  the grid), centered hex grid, token-moves-on-Step/Stride.
+- Single presentation/* UI stack (no scenes/battlefield/*); flanking Off-Guard +2 in
+  live resolution; ranged reach+selection; play-seed randomize + override; status bar
+  Actions/Spent decrements; post-resolution lock covers all player controls.
+
+* Verification (gate must be green)
+- Full GUT suite + pytest green; determinism / N-run steel-thread tests still pass at a
+  pinned seed; MainScene boots headless with no errors.
+- P0-1 lockout tests (Step↔Stride mutual exclusion, verb + domain, resets per turn).
+- P0-2 enemy-movement tests (out-of-reach enemy Strides toward + attacks; in-reach
+  enemy just attacks; action-economy + lockout respected; deterministic).
+- Static: no Node/Control in core/ (ADR-001); no new ports/use-cases (ADR-002); no new
+  duplicate UI; no Cast/Channel stubs.
