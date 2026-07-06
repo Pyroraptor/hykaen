@@ -30,22 +30,37 @@ extends GutTest
 const ResultScreenViewScene: PackedScene    = preload("res://presentation/result_screen_view.tscn")
 const EndTurnControlScene: PackedScene      = preload("res://presentation/end_turn_control.tscn")
 
-const ResolveActionUseCaseClass    = preload("res://core/application/resolve_action_use_case.gd")
 const DetermineOutcomeUseCaseClass = preload("res://core/application/determine_outcome_use_case.gd")
-const ActionEconomyClass           = preload("res://core/rules/action_economy.gd")
 const RoundEventsClass             = preload("res://core/rules/round_events.gd")
-const HexCoordClass                = preload("res://core/geometry/hex_coord.gd")
 
 const RESULT_SCREEN_VIEW_PATH: String = "res://presentation/result_screen_view.gd"
 
 
-class FakeEventSinkPort:
-	extends "res://core/application/event_sink_port.gd"
+## FakeLockableStrikeControl — FEAT-188 (DEF-001): FEAT-006 (US-006) deleted
+## the real presentation/strike_action_control.gd (its immediate-resolve-
+## on-click UI competed with the new Layer 1/Layer 2 Strike flow), which left
+## this suite's criterion-2 coverage preloading/instantiating a scene that no
+## longer exists. ResultScreenView's `strike_action_control` parameter/
+## lock_all_controls() were always generic/duck-typed -- calling only
+## lock()/is_locked()/get_button_count() on whatever is injected (see
+## presentation/result_screen_view.gd's file-level doc) -- so this small,
+## stateful fake exercises that SAME mechanism directly instead of standing
+## up the deleted control (mirroring the retargeting already applied to
+## sibling suites in FEAT-181/182, which favor a minimal real-contract fake/
+## the current verb-bar composition over reconstructing removed UI).
+class FakeLockableStrikeControl:
+	var _locked: bool = false
+	var _button_count: int = 1
 
-	var events: Array = []
+	func lock() -> void:
+		_locked = true
+		_button_count = 0
 
-	func emit(event) -> void:
-		events.append(event)
+	func is_locked() -> bool:
+		return _locked
+
+	func get_button_count() -> int:
+		return _button_count
 
 
 class FakeRoundHistoryPort:
@@ -58,21 +73,6 @@ class FakeRoundHistoryPort:
 
 	func get_history() -> Array:
 		return entries
-
-
-class ScriptedRandomNumberPort:
-	extends "res://core/rules/random_port.gd"
-
-	var _values: Array
-	var _index: int = 0
-
-	func _init(values: Array) -> void:
-		_values = values
-
-	func roll(dice_spec: Dictionary) -> int:
-		var v = _values[_index]
-		_index += 1
-		return v
 
 
 ## FakeRoundSession — minimal stand-in for core/application/round_session.gd's
@@ -151,43 +151,16 @@ func test_result_shown_signal_emits_with_result_text() -> void:
 # immediately after EncounterResultEvent is received.
 # ══════════════════════════════════════════════════════════════════════════
 
-func _actor(hex_coord) -> Dictionary:
-	return {
-		"name": "Titus",
-		"strength": 3,
-		"hex_coord": hex_coord,
-		"weapon": {
-			"damage_modifier_attribute": "strength",
-			"proficiency_bonus": 2,
-			"damage_die": 6,
-		},
-	}
-
-
-func _enemy(name: String, hex_coord, hp: int = 20, ac: int = 10) -> Dictionary:
-	return {"combatant_id": name.to_lower(), "name": name, "hp_current": hp, "ac": ac, "hex_coord": hex_coord}
-
-
 func test_strike_action_control_disabled_after_encounter_result_event() -> void:
-	var strike_control = StrikeActionControlScene.instantiate()
-	add_child_autofree(strike_control)
-
-	var origin := HexCoordClass.new(0, 0)
-	var adjacent_enemy: Dictionary = _enemy("Skeleton", HexCoordClass.new(1, 0))
-
-	var rng_port   = ScriptedRandomNumberPort.new([12, 4])
-	var event_sink = FakeEventSinkPort.new()
-	var history    = FakeRoundHistoryPort.new()
-	var use_case   = ResolveActionUseCaseClass.new(rng_port, event_sink, history)
-
-	strike_control.configure(_actor(origin), ActionEconomyClass.new(), use_case, [adjacent_enemy])
-	assert_eq(strike_control.get_button_count(), 1, "sanity check: StrikeActionControl starts with one selectable target")
+	var strike_control := FakeLockableStrikeControl.new()
+	assert_eq(strike_control.get_button_count(), 1, "sanity check: FakeLockableStrikeControl starts with one selectable target")
+	assert_false(strike_control.is_locked(), "sanity check: FakeLockableStrikeControl starts unlocked")
 
 	_view.configure(strike_control, null)
 	_view.on_round_event({"round": 1, "outcome": "won"})
 
-	assert_eq(strike_control.get_button_count(), 0, "StrikeActionControl must be disabled (zero selectable targets) once the result screen is shown")
-	assert_eq(strike_control.get_selectable_target_ids(), [])
+	assert_true(strike_control.is_locked(), "the injected strike control must be lock()ed once the result screen is shown")
+	assert_eq(strike_control.get_button_count(), 0, "the injected strike control must be disabled (zero selectable targets) once the result screen is shown")
 
 
 func test_end_turn_control_disabled_after_encounter_result_event() -> void:
@@ -205,18 +178,9 @@ func test_end_turn_control_disabled_after_encounter_result_event() -> void:
 
 
 func test_both_controls_disabled_together_after_encounter_result_event() -> void:
-	var strike_control = StrikeActionControlScene.instantiate()
-	add_child_autofree(strike_control)
+	var strike_control := FakeLockableStrikeControl.new()
 	var end_turn_control = EndTurnControlScene.instantiate()
 	add_child_autofree(end_turn_control)
-
-	var origin := HexCoordClass.new(0, 0)
-	var adjacent_enemy: Dictionary = _enemy("Skeleton", HexCoordClass.new(1, 0))
-	var rng_port   = ScriptedRandomNumberPort.new([12, 4])
-	var event_sink = FakeEventSinkPort.new()
-	var history    = FakeRoundHistoryPort.new()
-	var use_case   = ResolveActionUseCaseClass.new(rng_port, event_sink, history)
-	strike_control.configure(_actor(origin), ActionEconomyClass.new(), use_case, [adjacent_enemy])
 
 	var session = FakeRoundSession.new({"name": "Titus", "_is_enemy": false})
 	end_turn_control.configure(session)
@@ -224,6 +188,7 @@ func test_both_controls_disabled_together_after_encounter_result_event() -> void
 	_view.configure(strike_control, end_turn_control)
 	_view.on_round_event({"round": 1, "outcome": "won"})
 
+	assert_true(strike_control.is_locked())
 	assert_eq(strike_control.get_button_count(), 0)
 	assert_false(end_turn_control.is_enabled())
 

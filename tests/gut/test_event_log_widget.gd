@@ -194,10 +194,18 @@ func test_widget_receives_a_real_attack_event_through_the_live_composition_root(
 		"fixture assumption: no events logged yet before any Strike"
 	)
 
-	var target_ids: Array = instance.strike_action_control.get_selectable_target_ids()
+	# FEAT-188 (DEF-001): FEAT-006 (US-006) removed the legacy
+	# immediate-resolve-on-click Strike control this test originally drove
+	# directly -- Strike is now driven SOLELY through the Layer 1 verb bar
+	# ($VerbBarView, presentation/verb_bar_view.gd) -> `_verb_registry`'s
+	# STRIKE entry, entered via the real `verb_bar_view.press("STRIKE")` and
+	# resolved via the real `_verb_registry.execute("STRIKE", ...)`, mirroring
+	# the retargeting already applied to sibling suites in FEAT-181/182.
+	var selection: Dictionary = instance.verb_bar_view.press("STRIKE")
+	var target_ids: Array = selection.get("candidate_targets", [])
 	assert_true(target_ids.size() > 0, "fixture assumption: the prologue's first actor has at least one in-reach target")
 
-	var result: Dictionary = instance.strike_action_control.select_target(target_ids[0])
+	var result: Dictionary = instance._verb_registry.execute("STRIKE", target_ids[0])
 	assert_true(result.get("resolved", false), "the real resolve_action_use_case must resolve the Strike")
 
 	assert_true(

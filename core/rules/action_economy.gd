@@ -203,7 +203,33 @@ func _spend_success_result() -> Dictionary:
 ## use_step() — marks movement as used this turn (free action; no budget cost).
 ## Subsequent spend_action calls with the "Movement" trait will fail.
 func use_step() -> void:
+	mark_movement_used()
+
+
+## mark_movement_used() — FEAT-001 (US-001 / FR-001 / FR-002 / ADR-003): trips
+## the SAME per-turn Movement-trait gate (_movement_used) that
+## spend_action({"traits": ["Movement"]}) already trips for Stride, WITHOUT
+## decrementing budget_remaining or touching is_spent. This is the hook
+## core/rules/movement.gd's step() calls so a Step and a Stride share exactly
+## one gate: once either has been taken this turn, the other is locked out
+## until the next start_of_turn() (no new flag/state machine is introduced —
+## this reuses _movement_used and start_of_turn()'s existing clearing of it).
+## Idempotent: calling it again while already tripped is a no-op observable
+## from the outside.
+func mark_movement_used() -> void:
 	_movement_used = true
+
+
+## can_take_movement_action() → bool
+##
+## Pure query, no side effects (FEAT-001 / ADR-003): true iff no
+## Movement-trait action (Step via mark_movement_used()/use_step(), or Stride
+## via spend_action({"traits": ["Movement"]})) has been taken yet this turn.
+## This is the SINGLE SOURCE OF TRUTH later UI (verb-bar availability) and AI
+## decision logic (ai.gd's pre-Stride check) are intended to read from,
+## rather than re-deriving the gate's state independently.
+func can_take_movement_action() -> bool:
+	return not _movement_used
 
 
 # ── Conditions ────────────────────────────────────────────────────────────────

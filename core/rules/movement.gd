@@ -108,6 +108,15 @@ const ERR_DESTINATION_NOT_ADJACENT: String = "ERR_DESTINATION_NOT_ADJACENT"
 ## occupied by another (living) combatant in `other_combatants`.
 const ERR_DESTINATION_OCCUPIED: String = "ERR_DESTINATION_OCCUPIED"
 
+## Typed error code returned by step() when an `action_economy` collaborator
+## was supplied and it reports action_economy.can_take_movement_action() ==
+## false — i.e. a Movement-trait action (a prior Step OR a prior Stride) has
+## already been taken this turn (FEAT-001 / US-001 / FR-001 / FR-002 /
+## ADR-003). The gate is the SAME _movement_used flag Stride's
+## spend_action({"traits": ["Movement"]}) call already trips — there is no
+## separate lockout state for Step.
+const ERR_MOVEMENT_LOCKED: String = "ERR_MOVEMENT_LOCKED"
+
 ## Default Stride distance (FR-013 / US-014): the maximum number of hexes a
 ## Stride may move in a single action, absent a per-combatant Speed
 ## attribute (not yet modeled as its own domain field — Speed is currently a
@@ -130,7 +139,7 @@ const ERR_DESTINATION_EXCEEDS_SPEED: String = "ERR_DESTINATION_EXCEEDS_SPEED"
 const ERR_ACTION_UNAVAILABLE: String = "ERR_ACTION_UNAVAILABLE"
 
 
-## step(combatant, destination_hex, other_combatants) -> Dictionary
+## step(combatant, destination_hex, other_combatants, action_economy) -> Dictionary
 ##
 ## combatant         — the mover; a Combatant instance or a Dictionary
 ##                      carrying "hex_coord" (see file-level doc).
@@ -140,24 +149,44 @@ const ERR_ACTION_UNAVAILABLE: String = "ERR_ACTION_UNAVAILABLE"
 ##                      (Combatant instances and/or "hex_coord"-carrying
 ##                      Dictionaries, may be mixed) used for the occupancy
 ##                      check. The mover itself must NOT be included.
+## action_economy     — OPTIONAL (FEAT-001 / US-001 / FR-001 / FR-002 /
+##                      ADR-003) the mover's core/rules/action_economy.gd
+##                      ActionEconomy instance for this round. When supplied:
+##                      a Step is rejected with ERR_MOVEMENT_LOCKED if a
+##                      Movement-trait action (a prior Step OR a prior Stride)
+##                      was already taken this turn, and a successful Step
+##                      trips that SAME gate for the rest of the turn (via
+##                      action_economy.mark_movement_used()) so a SUBSEQUENT
+##                      Stride is locked out too. Step still NEVER decrements
+##                      actions_remaining/budget_remaining and NEVER calls
+##                      spend_reaction() — the "free"/"no reaction" file-level
+##                      doc above is unaffected; this parameter only wires
+##                      Step into the existing per-turn Movement-trait gate,
+##                      it does not make Step cost an action. Callers that
+##                      omit this parameter (or pass null) get the EXACT
+##                      pre-FEAT-001 behavior: Step never touches an
+##                      ActionEconomy at all.
 ##
 ## Preconditions are checked in this order, with NO side effects on failure
-## (combatant.hex_coord is left completely untouched):
+## (combatant.hex_coord and action_economy are left completely untouched):
 ##   1. combatant must carry hex_coord data (else ERR_ORIGIN_MISSING)
 ##   2. destination_hex must be one of combatant's 6 flat-top axial
 ##      neighbors (else ERR_DESTINATION_NOT_ADJACENT)
 ##   3. destination_hex must not be occupied by any entry of
 ##      other_combatants (else ERR_DESTINATION_OCCUPIED)
+##   4. IF action_economy was supplied, it must report
+##      can_take_movement_action() == true (else ERR_MOVEMENT_LOCKED)
 ##
 ## On success, mutates `combatant`'s position in place (via move_to() for a
 ## Combatant instance, or the "hex_coord" key for a Dictionary — Dictionaries
 ## are reference types in GDScript, so every other holder of the SAME
-## Dictionary instance observes the update immediately) and returns
+## Dictionary instance observes the update immediately), marks
+## action_economy's Movement gate used (if supplied), and returns
 ## {ok: true, resolved: true, hex_coord: destination_hex}.
 ##
-## step() NEVER reads or writes an ActionEconomy instance and NEVER calls
+## step() NEVER decrements an ActionEconomy's budget and NEVER calls
 ## spend_reaction() — see the "free"/"no reaction" file-level doc above.
-static func step(combatant, destination_hex, other_combatants: Array) -> Dictionary:
+static func step(combatant, destination_hex, other_combatants: Array, action_economy = null) -> Dictionary:
 	var origin = _hex_of(combatant)
 	if origin == null:
 		return {"ok": false, "resolved": false, "error": ERR_ORIGIN_MISSING}
@@ -168,7 +197,14 @@ static func step(combatant, destination_hex, other_combatants: Array) -> Diction
 	if _is_occupied(destination_hex, other_combatants):
 		return {"ok": false, "resolved": false, "error": ERR_DESTINATION_OCCUPIED}
 
+	if action_economy != null and not action_economy.can_take_movement_action():
+		return {"ok": false, "resolved": false, "error": ERR_MOVEMENT_LOCKED}
+
 	_set_hex(combatant, destination_hex)
+
+	if action_economy != null:
+		action_economy.mark_movement_used()
+
 	return {"ok": true, "resolved": true, "hex_coord": destination_hex}
 
 
