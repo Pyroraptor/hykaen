@@ -62,11 +62,36 @@ extends GutTest
 ## No production Application/Domain code is modified for this feature —
 ## ADR-001: no file gains a Node/Control import it didn't already have,
 ## nothing re-implements any rule.
+##
+## FEAT-198 (DEF-QA-001): this file's original continuous playthrough above
+## exercises the PLAYER leg of the steel thread in detail but, before this
+## feature, asserted NOTHING about the enemy AI leg — no checks for AI
+## Stride-toward-nearest-target, hex-distance reduction, conditional Strike,
+## action-economy/lockout compliance, or on-screen token reposition for the
+## enemy actor. Against THIS fixture (seed=42, prologue_encounter.tres),
+## Titus's own Layer 1 STRIKE verb (Step 3 above) lands a critical hit that
+## defeats the sole Skeleton enemy before the encounter is ever handed back
+## to it — round_session.advance_ai_turn() is never even reached by the
+## continuous playthrough, which is exactly the documented DEF-QA-001
+## coverage gap. The two suites appended at the bottom of this file close
+## that gap by driving the SAME real, unmodified res://MainScene.tscn
+## composition root (no new test file, no duplicate steel-thread
+## playthrough) with the enemy's pre-turn position relocated (via the SAME
+## "hex_coord" Dictionary-key mutation point core/rules/movement.gd's own
+## _set_hex() uses) so the real AI (core/combat/ai.gd) actually reaches its
+## Stride / Stride-then-Strike / Stride-with-no-action-remaining branches
+## this run, through the EXACT SAME advance_ai_turn()/move_token() call path
+## already exercised (for the "already in reach" branch) by the continuous
+## playthrough above. No production Application/Domain/Presentation code is
+## modified by this feature either — only this test file gains assertions.
 
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 
 const HexGridViewClass    = preload("res://presentation/hex_grid_view.gd")
 const RoundEventsClass    = preload("res://core/rules/round_events.gd")
+const HexMathClass        = preload("res://core/geometry/hex_math.gd")
+const HexCoordClass       = preload("res://core/geometry/hex_coord.gd")
+const ActionEconomyClass  = preload("res://core/rules/action_economy.gd")
 
 ## The pinned deterministic-test fixture seed (matches
 ## data/encounters/prologue_encounter.tres' own `seed` field, 42) — injected
@@ -109,6 +134,24 @@ func _find_combatant_by_id(instance, combatant_id: String) -> Dictionary:
 		if combatant.get("combatant_id", "") == combatant_id:
 			return combatant
 	return {}
+
+
+## _find_action_economy_by_id(instance, combatant_id) -> ActionEconomy or
+## null — FEAT-198 (DEF-QA-001): looks up the live ActionEconomy paired with
+## `combatant_id` in the real, booted RoundSession's own turn-order entries
+## (`_entries`, the SAME per-actor {combatant, action_economy} pairing
+## RoundSession.advance_ai_turn()/current_action_economy() already read from
+## — see core/application/round_session.gd). Read directly off the
+## underscore-prefixed field, mirroring the established non-invasive
+## observation convention this suite already uses for `hex_grid_view.
+## _selectable_hexes` and tests/integration/test_ai_token_reposition.gd's
+## `round_session._token_reposition_fn` inspection — never a mock/stub, just
+## reading state off the real, unmodified production RoundSession instance.
+func _find_action_economy_by_id(instance, combatant_id: String):
+	for entry in instance.round_session._entries:
+		if entry.get("combatant", {}).get("combatant_id", "") == combatant_id:
+			return entry.get("action_economy")
+	return null
 
 
 ## _as_key_set(hexes) -> Dictionary — a "q,r" -> true set built from an
@@ -386,3 +429,201 @@ func test_full_steel_thread_from_turn_start_to_post_resolution_lock() -> void:
 	assert_false(instance._verb_registry.is_available("STRIKE"), "the STRIKE verb must remain unavailable after the rejected post-resolution execute()")
 	assert_false(instance._verb_registry.is_available("STEP"), "the STEP verb must remain unavailable after the rejected post-resolution execute()")
 	assert_false(instance.end_turn_control.is_enabled(), "EndTurnControl must remain disabled after the rejected post-resolution press()")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# FEAT-198 (DEF-QA-001) — the enemy AI leg, driven through the SAME real,
+# unmodified res://MainScene.tscn composition root the continuous
+# playthrough above drives (no new test file, no duplicate steel-thread
+# playthrough). See the file-level doc's FEAT-198 note for why the
+# continuous playthrough above never actually reaches
+# round_session.advance_ai_turn() against this fixture (Titus's own Step 3
+# critical hit defeats the sole Skeleton before its turn ever comes up) --
+# these two suites relocate the enemy's pre-turn position so the real AI
+# (core/combat/ai.gd) actually reaches its Stride / Stride-then-Strike /
+# Stride-with-no-action-remaining branches, through the EXACT SAME
+# EndTurnControl.press() -> TurnController -> RoundSession.advance_ai_turn()
+# -> HexGridView.move_token() call path already exercised (for the
+# "already in reach, zero Stride" branch) by the continuous playthrough.
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_enemy_ai_leg_strides_toward_nearest_target_then_strikes_when_an_action_remains() -> void:
+	var instance = _boot_main_scene_with_seed(SEED)
+	await get_tree().process_frame
+
+	assert_eq(instance._enemies.size(), 1, "fixture assumption: the prologue encounter has exactly one enemy")
+	var enemy: Dictionary = instance._enemies[0]
+	var enemy_id: String = enemy.get("combatant_id", "")
+	assert_ne(enemy_id, "", "fixture assumption: the enemy combatant carries a non-empty combatant_id")
+
+	var player: Dictionary = instance._party[0]
+	var player_hex = player.get("hex_coord")
+	assert_not_null(player_hex, "fixture assumption: the player combatant carries positional hex_coord data")
+
+	assert_false(
+		instance.round_session.current_actor().get("_is_enemy", true),
+		"fixture assumption: the player still acts first, before the enemy's own turn"
+	)
+
+	# Relocate the enemy out of melee reach of the player -- neither Titus's
+	# longsword nor the Skeleton's own weapon carry a "range_hexes" key
+	# (data/characters/titus.tres / data/enemies/skeleton.tres), so reach for
+	# BOTH sides is the SAME adjacency-only rule (core/geometry/hex_math.gd
+	# HexMath.hex_neighbors()) -- but within a single Stride's reach
+	# (core/rules/movement.gd Movement.DEFAULT_SPEED == 4 hexes). This
+	# mutates the SAME "hex_coord" Dictionary key core/rules/movement.gd's
+	# own _set_hex() writes, then resyncs the on-screen token via the SAME
+	# hex_grid_view.move_token() call the AI-Stride path itself invokes
+	# (ADR-006), so the pre-turn domain state and rendered token agree
+	# before the real AI turn runs below.
+	var far_hex = HexCoordClass.new(player_hex.q + 3, player_hex.r)
+	var pre_distance: int = HexMathClass.hex_distance(far_hex, player_hex)
+	assert_true(pre_distance > 1, "sanity check: the relocated enemy must start OUT of melee reach of the nearest living target")
+	assert_true(pre_distance <= 4, "sanity check: the relocated enemy must remain within a single Stride's reach")
+
+	enemy["hex_coord"] = far_hex
+	instance.hex_grid_view.move_token(enemy_id, far_hex)
+
+	var token_before = instance.hex_grid_view.get_token(enemy_id)
+	assert_not_null(token_before, "fixture setup: the real HexGridView must still carry a token for the relocated enemy")
+	assert_true(token_before.hex_coord.equals(far_hex), "fixture setup: the enemy's on-screen token must be relocated before its turn runs")
+
+	var enemy_action_economy = _find_action_economy_by_id(instance, enemy_id)
+	assert_not_null(enemy_action_economy, "fixture assumption: the enemy carries a live domain ActionEconomy")
+	assert_true(enemy_action_economy.can_take_movement_action(), "sanity check: the enemy has not used its per-turn Movement action yet")
+
+	var attack_events_before: int = instance.event_sink.log.filter(
+		func(e): return e is RoundEventsClass.AttackEvent and e.attacker_name == enemy.get("name", "")
+	).size()
+
+	# End the player's turn WITHOUT acting -- this suite isolates the enemy
+	# AI leg only. $EndTurnControl.press() is the SAME real control node the
+	# continuous playthrough above drives; MainScene's own turn_ended wiring
+	# then re-invokes the real $TurnController, which auto-resolves the
+	# enemy's turn via RoundSession.advance_ai_turn() -- no direct
+	# advance_ai_turn()/AI call is made by this test.
+	var end_turn_result: Dictionary = instance.end_turn_control.press()
+	assert_true(end_turn_result.get("ok", false), "ending the player's turn (no action taken) must succeed")
+
+	# ── Stride toward the nearest living target (US-004) ────────────────────
+	var moved_hex = enemy.get("hex_coord")
+	assert_false(
+		moved_hex.equals(far_hex),
+		"the enemy's hex position after its AI turn must differ from its pre-turn position when the nearest target started out of reach"
+	)
+	var post_distance: int = HexMathClass.hex_distance(moved_hex, player_hex)
+	assert_true(post_distance < pre_distance, "hex_distance(enemy, nearest_target) must strictly decrease after the AI's Stride")
+	assert_eq(post_distance, 1, "sanity check: a legal Stride destination adjacent to the nearest target must have been available and chosen")
+
+	# ── ActionEconomy.movement_used gate (US-006) ───────────────────────────
+	assert_false(
+		enemy_action_economy.can_take_movement_action(),
+		"ActionEconomy.movement_used must be true after the AI's Stride within the same turn"
+	)
+
+	# ── Strike outcome recorded once reach is satisfied post-Stride and an
+	# action remains (US-005) ────────────────────────────────────────────────
+	var attack_events_after: int = instance.event_sink.log.filter(
+		func(e): return e is RoundEventsClass.AttackEvent and e.attacker_name == enemy.get("name", "")
+	).size()
+	assert_true(
+		attack_events_after > attack_events_before,
+		"a Strike outcome must be recorded against the nearest living target once reach is satisfied after the Stride and an action remains"
+	)
+	assert_true(
+		enemy_action_economy.get_remaining() < ActionEconomyClass.MAX_BUDGET - 1,
+		"the enemy must have spent BOTH the Stride action and the Strike action from its per-round budget this turn"
+	)
+
+	# ── The enemy token's on-screen hex position matches the AIDecision's
+	# destination, via the SAME move_token() path player movement uses
+	# (US-008) ───────────────────────────────────────────────────────────────
+	var token_after = instance.hex_grid_view.get_token(enemy_id)
+	assert_not_null(token_after, "the real HexGridView must still carry a token for the moved enemy")
+	assert_true(
+		token_after.hex_coord.equals(moved_hex),
+		"the enemy token's on-screen hex position must resync to the AI Stride destination"
+	)
+	assert_eq(
+		token_after.position, instance.hex_grid_view.axial_to_pixel_with_offset(moved_hex),
+		"the enemy token's rendered screen position must resync to the AI Stride destination's axial-to-pixel projection -- the SAME move_token() path player movement uses"
+	)
+
+
+func test_enemy_ai_leg_strides_but_does_not_strike_when_no_action_remains_after_the_stride() -> void:
+	var instance = _boot_main_scene_with_seed(SEED)
+	await get_tree().process_frame
+
+	assert_eq(instance._enemies.size(), 1, "fixture assumption: the prologue encounter has exactly one enemy")
+	var enemy: Dictionary = instance._enemies[0]
+	var enemy_id: String = enemy.get("combatant_id", "")
+	assert_ne(enemy_id, "", "fixture assumption: the enemy combatant carries a non-empty combatant_id")
+
+	var player: Dictionary = instance._party[0]
+	var player_hex = player.get("hex_coord")
+
+	# Same out-of-reach-but-Stride-reachable relocation as the sibling suite
+	# above.
+	var far_hex = HexCoordClass.new(player_hex.q + 3, player_hex.r)
+	var pre_distance: int = HexMathClass.hex_distance(far_hex, player_hex)
+	assert_true(pre_distance > 1 and pre_distance <= 4, "sanity check: the relocated enemy starts out of melee reach but within a single Stride's reach")
+
+	enemy["hex_coord"] = far_hex
+	instance.hex_grid_view.move_token(enemy_id, far_hex)
+
+	var enemy_action_economy = _find_action_economy_by_id(instance, enemy_id)
+	assert_not_null(enemy_action_economy, "fixture assumption: the enemy carries a live domain ActionEconomy")
+
+	# Drain the enemy's per-ROUND action budget down to exactly ONE action
+	# remaining -- via the SAME Result-style spend_action() API
+	# core/rules/movement.gd's own stride() spends through (untagged with
+	# the "Movement" trait, so the per-turn Movement gate this suite means to
+	# exercise via the AI's OWN Stride stays untouched by this setup step) --
+	# so the Stride the AI is about to issue is the LAST action available
+	# this round; no action remains afterward for the composite
+	# Stride-then-Strike branch (core/combat/ai.gd's FEAT-005 extension) to
+	# fire.
+	for i in range(ActionEconomyClass.MAX_BUDGET - 1):
+		var drain_result: Dictionary = enemy_action_economy.spend_action({})
+		assert_true(drain_result.get("success", false), "fixture setup: draining the enemy's action budget must succeed")
+	assert_eq(enemy_action_economy.get_remaining(), 1, "fixture setup: exactly one action must remain before the enemy's AI turn")
+	assert_true(enemy_action_economy.can_take_movement_action(), "fixture setup: draining the budget must not itself trip the Movement gate")
+
+	var attack_events_before: int = instance.event_sink.log.filter(
+		func(e): return e is RoundEventsClass.AttackEvent and e.attacker_name == enemy.get("name", "")
+	).size()
+
+	assert_false(instance.round_session.current_actor().get("_is_enemy", true), "fixture assumption: the player still acts first")
+	var end_turn_result: Dictionary = instance.end_turn_control.press()
+	assert_true(end_turn_result.get("ok", false), "ending the player's turn (no action taken) must succeed")
+
+	# The AI must still issue its Stride with the one remaining action...
+	var moved_hex = enemy.get("hex_coord")
+	assert_false(moved_hex.equals(far_hex), "the AI must still issue its Stride toward the nearest living target with its one remaining action")
+	assert_eq(HexMathClass.hex_distance(moved_hex, player_hex), 1, "sanity check: the Stride must have closed into melee reach")
+	assert_false(enemy_action_economy.can_take_movement_action(), "ActionEconomy.movement_used must be true after the AI's Stride")
+	assert_eq(enemy_action_economy.get_remaining(), 0, "sanity check: the Stride must have spent the enemy's LAST remaining action this round")
+	assert_true(enemy_action_economy.is_spent(), "sanity check: the enemy must be Spent once its last action is spent on the Stride")
+
+	# ...but with NO action remaining, no Strike may be attempted/recorded,
+	# even though reach is now satisfied.
+	var attack_events_after: int = instance.event_sink.log.filter(
+		func(e): return e is RoundEventsClass.AttackEvent and e.attacker_name == enemy.get("name", "")
+	).size()
+	assert_eq(
+		attack_events_after, attack_events_before,
+		"no Strike may be attempted/recorded against the nearest living target when no action remains after the AI's Stride"
+	)
+
+	# The token reposition path itself is unaffected by whether a Strike
+	# follows the Stride.
+	var token_after = instance.hex_grid_view.get_token(enemy_id)
+	assert_not_null(token_after, "the real HexGridView must still carry a token for the moved enemy")
+	assert_true(
+		token_after.hex_coord.equals(moved_hex),
+		"the enemy token's on-screen hex position must resync to the AI Stride destination even when no Strike follows"
+	)
+	assert_eq(
+		token_after.position, instance.hex_grid_view.axial_to_pixel_with_offset(moved_hex),
+		"the enemy token's rendered screen position must resync to the AI Stride destination's axial-to-pixel projection"
+	)
