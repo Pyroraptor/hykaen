@@ -19,48 +19,107 @@
 ## executes it always agree on what counts as "in reach". When the chosen
 ## target is already in reach, decide_action() reports
 ## {destination: null, will_strike: true} and issues ZERO Stride — this is
-## the baseline AI decision path movement/closing-distance logic (a later
-## feature) will be layered on top of. Exactly like the reach precondition
-## in resolve_action_use_case.gd, this check is a no-op (always "in reach")
+## the baseline AI decision path FEAT-004's movement/closing-distance logic
+## is layered on top of. Exactly like the reach precondition in
+## resolve_action_use_case.gd, this check is a no-op (always "in reach")
 ## when either the acting combatant or the chosen target lacks "hex_coord"
 ## data — preserving the pre-FEAT-003 "always Strike the first/nearest
 ## living target" contract for every legacy caller.
+##
+## FEAT-004 (US-004 / FR-008, ADR-005 groundwork): when the nearest living
+## target is OUT of reach, decide_action() optionally closes distance by
+## Striding toward it. This is opt-in via two NEW optional parameters
+## (`action_economy`, `other_combatants`) appended AFTER the pre-existing
+## (combatant, targets) signature — every legacy 2-argument call site
+## (tests/unit/test_ai.gd, tests/unit/core/combat/test_ai_reach_strike.gd,
+## core/application/round_session.gd, etc.) is completely unaffected and
+## keeps the exact FEAT-003 "no Stride issued" contract, since the new
+## movement logic below is gated entirely behind `action_economy != null`.
+##
+## When an `action_economy` IS supplied and the chosen target is out of
+## reach, decide_action():
+##   1. Sources the legal candidate destinations from the SAME
+##      core/rules/movement.gd Movement.get_stride_destinations() the
+##      player's own Stride affordance uses (ADR-001 — one shared domain
+##      rule, never re-derived).
+##   2. Selects the destination that MINIMISES HexMath.hex_distance() to the
+##      chosen (nearest living) target, breaking ties by the SAME stable
+##      lowest-(q,r) rule _select_target() already uses (deterministic — no
+##      RNG, US-007).
+##   3. Only Strides if the best candidate STRICTLY reduces the distance to
+##      the target versus the actor's current position — an enemy already as
+##      close as any legal Stride can get it never moves pointlessly.
+##   4. Executes the chosen Stride via Movement.stride(), which spends
+##      exactly one action from `action_economy` and marks its Movement
+##      trait (the SAME per-turn gate FEAT-001's Step hook trips) — the
+##      identical ActionEconomy gate a player-driven Stride goes through.
+## decide_action() itself never re-checks reach and issues a Strike in the
+## same call after a Stride — that composite "Stride-then-Strike" behaviour
+## is explicitly OUT of scope for FEAT-004 (ADR-005 groundwork only) and is
+## layered on by a later feature.
 
 class_name AI
 
 const HexMathClass = preload("res://core/geometry/hex_math.gd")
+const MovementClass = preload("res://core/rules/movement.gd")
 
 
-## decide_action(combatant: Dictionary, targets: Array) → Dictionary
+## decide_action(combatant: Dictionary, targets: Array, action_economy = null, other_combatants: Array = []) → Dictionary
 ##
 ## Selects the best action for the given combatant from the available target pool.
 ##
 ## Parameters:
-##   combatant — A combatant Dictionary (name, hp_current, weapon, …). MAY
-##               carry a "hex_coord" key (a core/geometry/hex_coord.gd
-##               HexCoord instance) — see the reach check below. Must have
-##               hp_current > 0 for a valid action to be returned.
-##   targets   — Array of combatant Dictionaries on the opposing side. Each
-##               MAY also carry a "hex_coord" key.
+##   combatant        — A combatant Dictionary (name, hp_current, weapon, …).
+##                       MAY carry a "hex_coord" key (a
+##                       core/geometry/hex_coord.gd HexCoord instance) — see
+##                       the reach check below. Must have hp_current > 0 for
+##                       a valid action to be returned.
+##   targets          — Array of combatant Dictionaries on the opposing
+##                       side. Each MAY also carry a "hex_coord" key. Also
+##                       used (FEAT-004) as part of the Stride-destination
+##                       occupancy check — a living OR dead target's hex is
+##                       never a legal Stride destination.
+##   action_economy   — OPTIONAL (FEAT-004 / US-004 / FR-008). The acting
+##                       combatant's core/rules/action_economy.gd instance
+##                       for this round. Omitted (null, the default): the
+##                       exact FEAT-003 no-Stride contract is preserved for
+##                       every legacy caller. Supplied: an out-of-reach
+##                       nearest living target triggers the Stride-closing
+##                       logic documented at file level.
+##   other_combatants — OPTIONAL (FEAT-004). Every OTHER combatant on the
+##                       battlefield (e.g. allies) besides `combatant` and
+##                       `targets`, folded into the SAME occupancy check
+##                       core/rules/movement.gd already performs. Defaults
+##                       to an empty Array (no additional occupants beyond
+##                       `targets`).
 ##
 ## Returns a Dictionary with at minimum:
-##   action_type: String — the action to perform ('Strike'), or '' if no
-##                          action is available this decision (no living
-##                          target, or the nearest living target is not yet
-##                          in reach — FEAT-003 issues no Stride itself).
+##   action_type: String — the action to perform ('Strike' or, FEAT-004,
+##                          'Stride'), or '' if no action is available this
+##                          decision (no living target; the nearest living
+##                          target is out of reach and either no
+##                          `action_economy` was supplied, no legal Stride
+##                          destination exists, no candidate destination
+##                          improves distance, or the Stride's ActionEconomy
+##                          spend was rejected).
 ##   target:      Dictionary — the chosen target combatant dict, or {} if
-##                          none is available.
-##   destination: HexCoord or null — FEAT-003: always null (no movement
-##                          logic exists yet in this decision path).
-##   will_strike: bool — FEAT-003: true iff the chosen target is already in
-##                          reach (melee-adjacent, or within a ranged
-##                          weapon's range_hexes) and a Strike should be
-##                          issued immediately, with zero Stride.
+##                          none is available/no action was taken.
+##   destination: HexCoord or null — null unless a Stride was actually
+##                          issued (FEAT-004), in which case it is the hex
+##                          `combatant` just moved into.
+##   will_strike: bool — true iff the chosen target is already in reach
+##                          (melee-adjacent, or within a ranged weapon's
+##                          range_hexes) and a Strike should be issued
+##                          immediately, with zero Stride. FEAT-004: always
+##                          false when a Stride was issued this decision —
+##                          re-checking reach and Striking in the SAME call
+##                          after closing distance is a later feature
+##                          (ADR-005 groundwork only).
 ##
 ## v0 behaviour (unchanged): the target pool is searched in order and the
 ## first living target found is chosen when no positional (hex_coord) data
 ## is available. Future iterations may weight by hp or conditions.
-func decide_action(combatant: Dictionary, targets: Array) -> Dictionary:
+func decide_action(combatant: Dictionary, targets: Array, action_economy = null, other_combatants: Array = []) -> Dictionary:
 	var chosen_target: Dictionary = _select_target(combatant, targets)
 
 	# No living target — return a null-action sentinel
@@ -68,13 +127,65 @@ func decide_action(combatant: Dictionary, targets: Array) -> Dictionary:
 		return {"action_type": "", "target": {}, "destination": null, "will_strike": false}
 
 	var in_reach: bool = _is_in_reach(combatant, chosen_target)
-	if not in_reach:
-		# FEAT-003 establishes only the "already in reach" baseline path —
-		# closing distance via Stride is layered on by a later feature.
+	if in_reach:
+		# Already in reach: Strike immediately, zero Stride issued.
+		return {"action_type": "Strike", "target": chosen_target, "destination": null, "will_strike": true}
+
+	# Out of reach. Without an ActionEconomy collaborator, FEAT-004's
+	# Stride-closing logic cannot run — preserve the exact FEAT-003 no-op
+	# contract for every legacy (2-argument) caller.
+	if action_economy == null:
 		return {"action_type": "", "target": {}, "destination": null, "will_strike": false}
 
-	# Already in reach: Strike immediately, zero Stride issued.
-	return {"action_type": "Strike", "target": chosen_target, "destination": null, "will_strike": true}
+	return _stride_toward_target(combatant, chosen_target, targets, action_economy, other_combatants)
+
+
+## _stride_toward_target(combatant, chosen_target, targets, action_economy,
+## other_combatants) -> Dictionary — FEAT-004 (US-004 / FR-008): selects the
+## legal Stride destination (Movement.get_stride_destinations()) that
+## minimises hex_distance to `chosen_target`, breaking ties by the SAME
+## stable lowest-(q,r) rule _select_target() uses, then executes it via
+## Movement.stride() (spending one action + marking the Movement trait
+## through `action_economy` — the SAME gate a player-driven Stride uses).
+## Never Strides if no legal destination improves distance versus the
+## actor's CURRENT position, or if Movement.stride() itself rejects the
+## spend (e.g. ERR_MOVEMENT_LOCKED, ERR_ACTION_UNAVAILABLE) — either case
+## falls back to the same null-action sentinel decide_action() already
+## returns for "no action available".
+func _stride_toward_target(
+	combatant: Dictionary,
+	chosen_target: Dictionary,
+	targets: Array,
+	action_economy,
+	other_combatants: Array
+) -> Dictionary:
+	var origin = combatant.get("hex_coord", null)
+	var target_hex = chosen_target.get("hex_coord", null)
+	var occupancy: Array = targets + other_combatants
+
+	var destinations: Array = MovementClass.get_stride_destinations(combatant, occupancy)
+	if destinations.is_empty():
+		return {"action_type": "", "target": {}, "destination": null, "will_strike": false}
+
+	var current_distance: int = HexMathClass.hex_distance(origin, target_hex)
+	var best_destination = null
+	var best_distance: int = -1
+	for candidate in destinations:
+		var distance: int = HexMathClass.hex_distance(candidate, target_hex)
+		if best_destination == null or distance < best_distance or (distance == best_distance and _is_lower_coord(candidate, best_destination)):
+			best_destination = candidate
+			best_distance = distance
+
+	if best_distance >= current_distance:
+		# No legal Stride destination gets any closer — do not move
+		# pointlessly (and never spend the action for a no-op move).
+		return {"action_type": "", "target": {}, "destination": null, "will_strike": false}
+
+	var stride_result: Dictionary = MovementClass.stride(combatant, best_destination, action_economy, occupancy)
+	if not stride_result.get("ok", false):
+		return {"action_type": "", "target": {}, "destination": null, "will_strike": false}
+
+	return {"action_type": "Stride", "target": chosen_target, "destination": best_destination, "will_strike": false}
 
 
 ## _select_target(combatant, targets) -> Dictionary — chooses the target this

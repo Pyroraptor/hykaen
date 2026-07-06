@@ -25,12 +25,14 @@ Verifies:
      test_resolve_action_ranged_reach.gd [FEAT-140],
      test_resolve_action_off_guard.gd [FEAT-153],
      test_movement_lockout.gd [FEAT-001],
-     test_ai_reach_strike.gd [FEAT-003]),
+     test_ai_reach_strike.gd [FEAT-003],
+     test_ai_target_selection.gd [FEAT-004, US-004: enemy AI Stride-toward-
+     nearest-living-target closing-distance logic]),
      with should_exit true so the exit code is forwarded correctly in
      CI/headless runs.
   4. Actually running `godot --headless -- -gconfig=res://tests/.gutconfig.json
      --gut-run-all` (skipped if no `godot` binary is on PATH) passes and
-     reports all thirteen consolidated domain test files.
+     reports all fourteen consolidated domain test files.
   5. Running the full `test_command` script end-to-end (skipped if no
      `godot` binary is on PATH) exits 0.
 
@@ -339,6 +341,20 @@ class TestConsolidatedGutConfig:
 # not 12; the assertions below were updated accordingly so this guard still
 # catches the ORIGINAL regression it targets without falsely flagging this
 # expected, intentional growth from 12 to 13 scripts.
+#
+# FEAT-004 (US-004 / FR-008) note: tests/unit/core/combat/test_ai_target_selection.gd
+# (the enemy-AI Stride-toward-nearest-living-target suite -- core/combat/ai.gd's
+# decide_action() now, when an ActionEconomy is supplied and the nearest
+# living target is out of reach, Strides to the legal destination
+# (core/rules/movement.gd Movement.get_stride_destinations()) that
+# minimises hex_distance to that target, spending one action and marking
+# the Movement trait via the SAME ActionEconomy gate FEAT-001's Step hook
+# and a player-driven Stride both use) was added under
+# tests/unit/core/combat/ by the identical established convention. The
+# consolidated domain suite therefore now legitimately collects 14 scripts,
+# not 13; the assertions below were updated accordingly so this guard still
+# catches the ORIGINAL regression it targets without falsely flagging this
+# expected, intentional growth from 13 to 14 scripts.
 
 # FEAT-136 / DEF-002 / DEF-003: the domain-suite command is now extracted
 # from scripts/test_command.sh (the canonical script), not from the
@@ -393,6 +409,7 @@ class TestConsolidatedDomainSuiteReallyPasses:
             "test_resolve_action_off_guard",
             "test_movement_lockout",
             "test_ai_reach_strike",
+            "test_ai_target_selection",
         ):
             assert expected in output, (
                 f"Consolidated GUT run output must mention {expected}.gd"
@@ -402,8 +419,8 @@ class TestConsolidatedDomainSuiteReallyPasses:
         self, repo_root, canonical_script_text
     ):
         """US-014's consolidated domain suite must actually be SCOPED to the
-        domain/application test scripts under tests/unit/core (13, as of
-        FEAT-003 -- see the module-level note above), not silently fall back
+        domain/application test scripts under tests/unit/core (14, as of
+        FEAT-004 -- see the module-level note above), not silently fall back
         to running the whole project's ~46 GUT scripts. This guards against
         the -gconfig-ignored regression described above."""
         result = self._run(repo_root, canonical_script_text)
@@ -411,8 +428,8 @@ class TestConsolidatedDomainSuiteReallyPasses:
         match = re.search(r"Scripts\s+(\d+)", output)
         assert match, f"Could not find a 'Scripts  N' summary line. Output:\n{output}"
         scripts_run = int(match.group(1))
-        assert scripts_run == 13, (
-            "The consolidated domain GUT suite stage must run exactly the 13 "
+        assert scripts_run == 14, (
+            "The consolidated domain GUT suite stage must run exactly the 14 "
             f"domain/application test scripts under tests/unit/core, but ran "
             f"{scripts_run}. This means scripts/test_command.sh's domain "
             f"suite stage is not actually scoped via tests/.gutconfig.json."
