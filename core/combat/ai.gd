@@ -84,6 +84,23 @@
 ## turn never even computes/considers a Stride destination, guaranteeing it
 ## can never issue two Strides (no move-then-move) or exceed its per-turn
 ## action budget across any number of decide_action() calls/simulated turns.
+##
+## FEAT-007 (US-007 / FR-011, ADR-005): formalizes, as its own feature, the
+## determinism guarantee _select_target() and _stride_toward_target() were
+## already built on as FEAT-004 groundwork: BOTH nearest-target selection and
+## Stride-destination selection break ties by the SAME stable lowest-(q,r)
+## lexicographic rule (_is_lower_coord() below) whenever more than one
+## candidate is equidistant. Every comparison in that tie-break path is a
+## pure integer comparison over (q, r) — there is NO RNG call site, NO
+## randomness-generating/randomness-port collaborator, and NO seed parameter
+## anywhere in ai.gd (verified statically by
+## tests/unit/core/combat/test_ai_determinism.gd's
+## test_ai_gd_contains_no_rng_call_sites()). Consequently, decide_action()'s
+## resulting AIDecision (target/destination/will_strike) is guaranteed
+## byte-identical across any number of repeated invocations against an
+## identical battlefield_state, completely independent of whichever seed is
+## active via HYKAEN_SEED/seed_override (infrastructure/seed_policy.gd) —
+## the tie-break path simply never consults it.
 
 class_name AI
 
