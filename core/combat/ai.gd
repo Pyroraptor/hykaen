@@ -53,10 +53,22 @@
 ##      exactly one action from `action_economy` and marks its Movement
 ##      trait (the SAME per-turn gate FEAT-001's Step hook trips) — the
 ##      identical ActionEconomy gate a player-driven Stride goes through.
-## decide_action() itself never re-checks reach and issues a Strike in the
-## same call after a Stride — that composite "Stride-then-Strike" behaviour
-## is explicitly OUT of scope for FEAT-004 (ADR-005 groundwork only) and is
-## layered on by a later feature.
+##
+## FEAT-005 (US-005 / FR-009, ADR-004): immediately after the Stride executed
+## above, decide_action() re-checks reach in the SAME decision cycle — the
+## IDENTICAL _is_in_reach() check FEAT-003 already performs at the top of
+## decide_action(), now re-evaluated against the combatant's POST-Stride
+## position (Movement.stride() already repositioned it in place). When the
+## target is now in reach AND `action_economy` still reports at least one
+## action remaining (action_economy.get_remaining() > 0 — the Stride's own
+## spend_action() call already accounted for the action it consumed), the
+## returned AIDecision reports will_strike: true alongside the Stride's own
+## action_type/destination — a single composite "Stride-then-Strike" decision
+## for RoundSession/ResolveActionUseCase to execute sequentially (the Strike
+## itself is never resolved here — ai.gd is domain-layer and has no RNG/event
+## collaborators; only resolve_action_use_case.resolve() actually applies
+## damage). will_strike remains false when the target is still out of reach
+## after the Stride, or when no action remains to spend on a Strike.
 
 class_name AI
 
@@ -107,14 +119,19 @@ const MovementClass = preload("res://core/rules/movement.gd")
 ##   destination: HexCoord or null — null unless a Stride was actually
 ##                          issued (FEAT-004), in which case it is the hex
 ##                          `combatant` just moved into.
-##   will_strike: bool — true iff the chosen target is already in reach
-##                          (melee-adjacent, or within a ranged weapon's
-##                          range_hexes) and a Strike should be issued
-##                          immediately, with zero Stride. FEAT-004: always
-##                          false when a Stride was issued this decision —
-##                          re-checking reach and Striking in the SAME call
-##                          after closing distance is a later feature
-##                          (ADR-005 groundwork only).
+##   will_strike: bool — true iff the chosen target is in reach (melee-
+##                          adjacent, or within a ranged weapon's
+##                          range_hexes) and a Strike should be issued this
+##                          decision. True with zero Stride issued when the
+##                          target was ALREADY in reach. FEAT-005: also true
+##                          when a Stride WAS issued this decision, the
+##                          target is in reach from the combatant's new
+##                          (post-Stride) position, AND `action_economy`
+##                          reports an action remains after the Stride's own
+##                          spend — a composite Stride-then-Strike decision.
+##                          False when a Stride was issued but the target
+##                          remains out of reach afterward, or no action
+##                          remains to spend on a Strike.
 ##
 ## v0 behaviour (unchanged): the target pool is searched in order and the
 ## first living target found is chosen when no positional (hex_coord) data
@@ -152,6 +169,12 @@ func decide_action(combatant: Dictionary, targets: Array, action_economy = null,
 ## spend (e.g. ERR_MOVEMENT_LOCKED, ERR_ACTION_UNAVAILABLE) — either case
 ## falls back to the same null-action sentinel decide_action() already
 ## returns for "no action available".
+##
+## FEAT-005 (US-005 / FR-009, ADR-004): on a SUCCESSFUL Stride, re-checks
+## reach (_is_in_reach()) against the combatant's new (post-Stride) position
+## and reports will_strike: true iff the target is now in reach AND
+## `action_economy` still has an action remaining (get_remaining() > 0) after
+## the Stride's own spend — the single composite Stride-then-Strike decision.
 func _stride_toward_target(
 	combatant: Dictionary,
 	chosen_target: Dictionary,
@@ -185,7 +208,12 @@ func _stride_toward_target(
 	if not stride_result.get("ok", false):
 		return {"action_type": "", "target": {}, "destination": null, "will_strike": false}
 
-	return {"action_type": "Stride", "target": chosen_target, "destination": best_destination, "will_strike": false}
+	# FEAT-005: re-check reach from the combatant's NEW (post-Stride)
+	# position, in the SAME decision cycle. An action must also remain
+	# (the Stride above already spent one) before reporting will_strike.
+	var will_strike: bool = action_economy.get_remaining() > 0 and _is_in_reach(combatant, chosen_target)
+
+	return {"action_type": "Stride", "target": chosen_target, "destination": best_destination, "will_strike": will_strike}
 
 
 ## _select_target(combatant, targets) -> Dictionary — chooses the target this
