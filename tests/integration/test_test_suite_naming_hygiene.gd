@@ -57,7 +57,17 @@ extends GutTest
 ## Stride/End Turn/verb-gating/cancel coverage in one file (US-015/FR-015),
 ## and it, too, genuinely instantiates/boots res://MainScene.tscn.
 ##
-## Satisfies: DEF-005, US-011, FEAT-141, FEAT-159, FEAT-001, FEAT-180.
+## FEAT-010 (Iteration F steel-thread capstone, DEF-005 continuation):
+## tests/integration/test_steel_thread_e2e.gd was added to this allow-list —
+## its named P0-1 tests genuinely instantiate/boot res://MainScene.tscn (via
+## the SAME `_boot_main_scene_with_seed()` convention every other allow-listed
+## suite uses); its P0-2/compliance/determinism tests drive a fully-wired
+## real RunRoundUseCase/RoundSession + a real presentation/hex_grid_view.gd
+## directly instead (mirroring tests/integration/test_ai_token_reposition.gd's
+## established rig), never re-deriving the "steel thread" label without
+## MainScene involvement anywhere in the file.
+##
+## Satisfies: DEF-005, US-011, FEAT-141, FEAT-159, FEAT-001, FEAT-180, FEAT-010.
 ##
 ## ══════════════════════════════════════════════════════════════════════════
 ## FEAT-171 (DEF-003): the guard above only ever inspected FILENAMES. That
@@ -87,6 +97,7 @@ const ALLOWED_STEEL_THREAD_PATHS: Array = [
 	"res://tests/unit/test_steel_thread_prologue_encounter.gd",
 	"res://tests/e2e/test_full_steel_thread_e2e.gd",
 	"res://tests/gut/test_steel_thread_e2e.gd",
+	"res://tests/integration/test_steel_thread_e2e.gd",
 ]
 
 ## Path-fragment/identifier substrings from the removed duplicate
