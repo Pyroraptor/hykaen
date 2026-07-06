@@ -69,6 +69,21 @@
 ## collaborators; only resolve_action_use_case.resolve() actually applies
 ## damage). will_strike remains false when the target is still out of reach
 ## after the Stride, or when no action remains to spend on a Strike.
+##
+## FEAT-006 (US-006 / FR-010, ADR-002): before EVER attempting to Stride,
+## _stride_toward_target() now explicitly checks
+## action_economy.can_take_movement_action() (the SAME per-turn
+## Movement-trait gate core/rules/movement.gd's stride()/step() already
+## share, ADR-003's single source of truth) and
+## action_economy.get_remaining() > 0 (the SAME per-round budget stride()'s
+## own spend_action() call already enforces). Movement.stride() already
+## rejects a locked-out/over-budget Stride internally (ERR_ACTION_UNAVAILABLE
+## / MOVEMENT_ALREADY_USED / ALREADY_SPENT) — this is a fail-fast, no-side-
+## effect MIRROR of that same rule at the decision layer itself (never a
+## second/parallel gate), so an enemy already out of movement or actions this
+## turn never even computes/considers a Stride destination, guaranteeing it
+## can never issue two Strides (no move-then-move) or exceed its per-turn
+## action budget across any number of decide_action() calls/simulated turns.
 
 class_name AI
 
@@ -182,6 +197,16 @@ func _stride_toward_target(
 	action_economy,
 	other_combatants: Array
 ) -> Dictionary:
+	# FEAT-006 (US-006 / FR-010, ADR-002): explicit, fail-fast guard —
+	# checked BEFORE any Stride destination is even computed — mirroring the
+	# SAME action-economy budget/Movement-trait rules Movement.stride()
+	# itself enforces (single source of truth, ADR-003). Guarantees the AI
+	# never attempts a second Movement-trait action within the same turn
+	# (no move-then-move) and never attempts to spend an action it does not
+	# have, across any number of decide_action() calls in a turn/round.
+	if action_economy.get_remaining() <= 0 or not action_economy.can_take_movement_action():
+		return {"action_type": "", "target": {}, "destination": null, "will_strike": false}
+
 	var origin = combatant.get("hex_coord", null)
 	var target_hex = chosen_target.get("hex_coord", null)
 	var occupancy: Array = targets + other_combatants

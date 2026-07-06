@@ -169,6 +169,21 @@ func outcome() -> String:
 ## cursor is STILL advanced, so the loop can never stall/deadlock. Calling
 ## this after is_round_over(), or when the current actor is not on the Enemy
 ## team, is a no-op returning {"ok": false}.
+##
+## FEAT-006 (US-006 / FR-010, ADR-002): the AIDecision obtained via
+## _decide_ai_action() below MAY now be a composite "Stride-then-Strike"
+## decision (core/combat/ai.gd's FEAT-004/005 extension) — action_type
+## "Stride" with will_strike true/false. core/combat/ai.gd's decide_action()
+## already EXECUTED the Stride itself (repositioning `combatant` and
+## spending its ActionEconomy's Movement-trait action directly through
+## core/rules/movement.gd, the SAME domain path a player-driven Stride uses)
+## as part of building that decision — ai.gd is the single mover for both
+## paths (ADR-001), so this method never re-spends or re-resolves the Stride
+## half. Only when will_strike is true does this method resolve the Strike
+## half via _resolve_action_use_case.resolve() — the IDENTICAL pipeline a
+## Stride-free AI Strike (and the player's own Strike) already goes through.
+## No new port or use-case is introduced (ADR-002): the extended decision
+## flows through the existing AIDecisionPort/ResolveActionUseCase contracts.
 func advance_ai_turn() -> Dictionary:
 	if _round_over or _cursor == -1:
 		return {"ok": false}
@@ -181,17 +196,29 @@ func advance_ai_turn() -> Dictionary:
 	var action_economy = entry["action_economy"]
 	action_economy.start_of_turn()
 
-	var ai_decision: Dictionary = _ai_decision_port.decide_action(combatant, _party)
+	var ai_decision: Dictionary = _decide_ai_action(combatant, action_economy)
 	var action_name: String = ai_decision.get("action_type", "")
 	var target: Dictionary = ai_decision.get("target", {})
+	var will_strike: bool = ai_decision.get("will_strike", false)
 
-	var resolve_result: Dictionary = {}
-	if action_name != "" and not target.is_empty():
-		resolve_result = _resolve_action_use_case.resolve(
+	var any_action_taken: bool = false
+
+	if action_name == "Stride":
+		# The Stride itself already happened inside decide_action() (see
+		# file-level doc above) — nothing further to resolve for it here.
+		any_action_taken = true
+		if will_strike and not target.is_empty():
+			var strike_result: Dictionary = _resolve_action_use_case.resolve(
+				combatant, action_economy, target, "Strike", _round_number, _cycle_index
+			)
+			any_action_taken = strike_result.get("resolved", false) or any_action_taken
+	elif action_name != "" and not target.is_empty():
+		var resolve_result: Dictionary = _resolve_action_use_case.resolve(
 			combatant, action_economy, target, action_name, _round_number, _cycle_index
 		)
+		any_action_taken = resolve_result.get("resolved", false)
 
-	if not resolve_result.get("resolved", false):
+	if not any_action_taken:
 		push_warning(
 			"RoundSession.advance_ai_turn: no action resolved for '%s'; advancing turn regardless (CWE-835 guard)"
 			% combatant.get("name", "")
@@ -200,6 +227,33 @@ func advance_ai_turn() -> Dictionary:
 		return {"ok": true, "resolved": false}
 
 	return _after_action_resolved()
+
+
+## _decide_ai_action(combatant, action_economy) -> Dictionary — FEAT-006
+## (US-006 / FR-010, ADR-002): drives the injected AIDecisionPort's
+## decide_action(). Every pre-existing 2-argument adapter/test-double
+## (core/application/ai_decision_port.gd's documented contract:
+## decide_action(combatant, targets) -> Dictionary — e.g. this suite's own
+## FakeAIDecisionPort/BrokenAIDecisionPort doubles) is called EXACTLY as
+## before. When the injected port is the REAL core/combat/ai.gd — whose
+## decide_action() additionally accepts the FEAT-004/005 OPTIONAL
+## (action_economy, other_combatants) parameters — the extended 4-argument
+## call is used instead, so the Stride-closing / Stride-then-Strike decision
+## flow can actually execute through this orchestration. Which shape to call
+## is determined via Callable.get_argument_count() (reflection over the
+## port's own declared method signature), never a new static port/use-case
+## type — no new port or use-case class is introduced by this feature.
+func _decide_ai_action(combatant: Dictionary, action_economy) -> Dictionary:
+	var decide_callable := Callable(_ai_decision_port, "decide_action")
+	if decide_callable.get_argument_count() < 4:
+		return decide_callable.call(combatant, _party)
+
+	var other_combatants: Array = []
+	for enemy in _enemies:
+		if not is_same(enemy, combatant):
+			other_combatants.append(enemy)
+
+	return decide_callable.call(combatant, _party, action_economy, other_combatants)
 
 
 ## end_current_turn() -> Dictionary — ends the current (player) actor's
