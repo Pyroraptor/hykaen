@@ -25,6 +25,22 @@
 ##     StrikeActionControl with the next player's real targets remains the
 ##     composition root's responsibility (via active_actor_changed), exactly
 ##     as before this feature.
+##   - FEAT-009 (US-009 / FR-004): an OPTIONAL, injected VerbBarView
+##     (presentation/verb_bar_view.gd) is refreshed (refresh_availability())
+##     TWICE per _drive() call — once immediately (whichever actor,
+##     Player or Enemy, is current at that moment) and once more after the
+##     Enemy-turn auto-drive loop settles (on the next Player, or the round
+##     being over). This proves the SAME live ActionEconomy.can_take_action()/
+##     can_take_movement_action() queries MainScene.gd's Strike/Stride/Step
+##     availability closures read from (ADR-003) are safe to invoke whether
+##     the round's current actor is Player- or AI-controlled — the steel
+##     thread's exit criterion (Strike/Stride visibly greying out) must never
+##     throw or leave a stale gate mid-AI-drive. Purely a refresh — TurnController
+##     never re-derives availability itself, it only re-queries the SAME
+##     injected registry $VerbBarView already holds (ADR-002/CR-001: no
+##     parallel gating logic). A no-op wherever no VerbBarView was injected
+##     (every pre-existing caller/test double), exactly like
+##     `_strike_action_control` above.
 ##
 ## TurnController never mutates domain state directly, never constructs a
 ## RoundSession itself, and never reaches into Infrastructure — it is handed
@@ -62,22 +78,33 @@ var _end_turn_control = null
 ## sees no behavior change.
 var _strike_action_control = null
 
+## The injected VerbBarView (presentation/verb_bar_view.gd, FEAT-009 / US-009
+## / FR-004) this driver refreshes (refresh_availability()) across every
+## _drive() call — see file-level FEAT-009 doc above. Optional — a caller
+## that never passes one (e.g. every pre-existing FEAT-110/111 test) sees no
+## behavior change.
+var _verb_bar_view = null
 
-## set_session(round_session, end_turn_control, strike_action_control) ->
-## void — injects the current round's RoundSession, the EndTurnControl this
-## driver manages, and (optionally, US-011) the StrikeActionControl this
-## driver disables while auto-driving Enemy turns. Immediately drives any
-## leading Enemy turns and refreshes end_turn_control's enabled state (and
-## strike_action_control's disabled state) for whatever actor the round now
-## sits on. Safe to call again for a new round (e.g. once RunRoundUseCase.
-## begin_round() is called again), with no leaked state from the prior
-## RoundSession.
-func set_session(round_session, end_turn_control = null, strike_action_control = null) -> void:
+
+## set_session(round_session, end_turn_control, strike_action_control,
+##             verb_bar_view) -> void — injects the current round's
+## RoundSession, the EndTurnControl this driver manages, and (optionally,
+## US-011) the StrikeActionControl this driver disables while auto-driving
+## Enemy turns, and (optionally, FEAT-009 / US-009) the VerbBarView this
+## driver refreshes across the drive. Immediately drives any leading Enemy
+## turns and refreshes end_turn_control's enabled state (and
+## strike_action_control's disabled state / verb_bar_view's availability)
+## for whatever actor the round now sits on. Safe to call again for a new
+## round (e.g. once RunRoundUseCase.begin_round() is called again), with no
+## leaked state from the prior RoundSession.
+func set_session(round_session, end_turn_control = null, strike_action_control = null, verb_bar_view = null) -> void:
 	_round_session = round_session
 	if end_turn_control != null:
 		_end_turn_control = end_turn_control
 	if strike_action_control != null:
 		_strike_action_control = strike_action_control
+	if verb_bar_view != null:
+		_verb_bar_view = verb_bar_view
 	_drive()
 
 
@@ -115,6 +142,16 @@ func _drive() -> void:
 
 	_disable_strike_action_control()
 
+	# FEAT-009 (US-009 / FR-004): refresh BEFORE the auto-drive loop below —
+	# whichever actor (Player or Enemy) is current_actor() at THIS moment
+	# (e.g. an Enemy the cursor already sits on when set_session() is
+	# re-invoked after end_current_turn(), see MainScene.gd's
+	# _on_end_turn_control_turn_ended()) — proving the injected VerbBarView's
+	# is_available() queries (MainScene.gd's Strike/Stride/Step closures,
+	# reading ActionEconomy.can_take_action()/can_take_movement_action()) are
+	# safe to invoke for an AI-controlled actor's turn, not only a Player's.
+	_refresh_verb_bar_availability()
+
 	var guard: int = 0
 	while not _round_session.is_round_over() and guard < _MAX_AI_TURNS_PER_DRIVE:
 		var actor: Dictionary = _round_session.current_actor()
@@ -125,6 +162,11 @@ func _drive() -> void:
 
 	if _end_turn_control != null:
 		_end_turn_control.configure(_round_session)
+
+	# FEAT-009: refresh AGAIN once the auto-drive loop above has settled (the
+	# next Player, or the round being over) — so Strike/Stride/Step never
+	# render a stale, pre-drive availability once control yields back.
+	_refresh_verb_bar_availability()
 
 	if _round_session.is_round_over():
 		round_over.emit()
@@ -141,3 +183,15 @@ func _drive() -> void:
 func _disable_strike_action_control() -> void:
 	if _strike_action_control != null:
 		_strike_action_control.configure({}, null, null, [])
+
+
+## _refresh_verb_bar_availability() -> void — FEAT-009 (US-009 / FR-004):
+## re-queries the injected VerbBarView's registry (via
+## VerbBarView.refresh_availability(), the SAME mechanism MainScene.gd's own
+## active_actor_changed/round_over handlers already rely on) WITHOUT
+## rebuilding its button set or introducing any new gating logic of
+## TurnController's own (ADR-002/CR-001) — a pure pass-through. A no-op when
+## no VerbBarView was injected (see `_verb_bar_view`'s doc above).
+func _refresh_verb_bar_availability() -> void:
+	if _verb_bar_view != null:
+		_verb_bar_view.refresh_availability()

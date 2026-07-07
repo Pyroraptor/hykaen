@@ -661,7 +661,14 @@ func _ready() -> void:
 	if turn_controller != null:
 		# FEAT-006: strike_action_control no longer exists; set_session()'s
 		# third argument is optional (default null) and simply omitted.
-		turn_controller.set_session(round_session, end_turn_control)
+		# FEAT-009 (US-009 / FR-004): `verb_bar_view` (fourth argument) is
+		# ALSO handed here so TurnController can refresh its Strike/Stride/Step
+		# availability the moment it drives a turn (see turn_controller.gd's
+		# FEAT-009 doc) -- a harmless no-op this early, since $VerbBarView is
+		# not yet configure()d (that happens immediately below); it becomes
+		# effective from the very next call site (_on_end_turn_control_
+		# turn_ended()) onward.
+		turn_controller.set_session(round_session, end_turn_control, null, verb_bar_view)
 
 	# ── FEAT-004 / US-004/FR-001: build the Layer 1 verb registry and hand it
 	# to $VerbBarView (see _build_verb_registry()'s doc). Built AFTER
@@ -865,10 +872,24 @@ func _verb_bar_current_action_economy():
 	return round_session.current_action_economy()
 
 
+## _verb_bar_strike_availability() -> bool — FEAT-009 (US-009 / FR-004):
+## gates on the active actor's live ActionEconomy.can_take_action()
+## (core/rules/action_economy.gd, read-only, ADR-003) rather than the
+## coarser "an action point remains" (get_remaining() > 0) check this used to
+## perform. The two are NOT equivalent: can_take_action() additionally
+## reports false the instant this turn's ONE action has been spent, even
+## though the shared 7-action round budget may still have several points
+## left (e.g. immediately after a Strike, remaining could still be 6) — this
+## is the "one action per turn" gate the steel thread's exit criterion (the
+## verb bar visibly greying Strike/Stride until the actor's NEXT turn) is
+## built on, mirroring can_take_action()'s own file-level doc ("the SINGLE
+## SOURCE OF TRUTH ... presentation ... is intended to read from"). This
+## function only READS can_take_action(); it never mutates the domain gate
+## itself.
 func _verb_bar_strike_availability() -> bool:
 	var action_economy = _verb_bar_current_action_economy()
-	var remaining: int = action_economy.get_remaining() if action_economy != null else 0
-	return remaining > 0 and _strike_reachable_target_ids().size() > 0
+	var can_act: bool = action_economy.can_take_action() if action_economy != null else false
+	return can_act and _strike_reachable_target_ids().size() > 0
 
 
 func _verb_bar_strike_enter_selection() -> Dictionary:
@@ -1018,16 +1039,23 @@ func _verb_bar_step_execute(selection) -> Dictionary:
 ## ActionEconomy.can_take_movement_action() (read-only, ADR-003) -- STRIDE is
 ## unavailable once EITHER Step or Stride has already been taken this turn
 ## (the SAME Movement-trait gate Stride's own action_economy.spend_action()
-## call already trips), in addition to the pre-existing "an action remains
-## AND at least one legal Stride destination" checks. This function only
-## READS can_take_movement_action(); it never mutates the domain gate
-## itself.
+## call already trips), in addition to the "an action remains AND at least
+## one legal Stride destination" checks below.
+##
+## FEAT-009 (US-009 / FR-004): the "an action remains" half of that check is
+## now can_take_action() (mirrors _verb_bar_strike_availability()'s identical
+## FEAT-009 change, see its doc above) rather than the coarser
+## get_remaining() > 0 -- STRIDE must grey out the instant this turn's ONE
+## action has been spent (e.g. by a Strike), even while the shared 7-action
+## round budget still has points left, exactly like STRIKE. This function
+## only READS can_take_movement_action()/can_take_action(); it never mutates
+## either domain gate itself.
 func _verb_bar_stride_availability() -> bool:
 	var action_economy = _verb_bar_current_action_economy()
 	if action_economy != null and not action_economy.can_take_movement_action():
 		return false
-	var remaining: int = action_economy.get_remaining() if action_economy != null else 0
-	return remaining > 0 and movement_input_controller.get_selectable_stride_hexes().size() > 0
+	var can_act: bool = action_economy.can_take_action() if action_economy != null else false
+	return can_act and movement_input_controller.get_selectable_stride_hexes().size() > 0
 
 
 func _verb_bar_stride_enter_selection() -> Dictionary:
@@ -1284,12 +1312,22 @@ func _on_round_over() -> void:
 ## (US-011) — the single, non-duplicated entry point for "player passes ->
 ## AI turns resolve" (FEAT-123 / FIND-120), without introducing any new
 ## public API on either control (ADR-002/CR-001 guardrail).
+##
+## FEAT-009 (US-009 / FR-004): `verb_bar_view` (fourth argument) is ALSO
+## re-passed here -- the cursor has already advanced past the player onto
+## whichever Enemy turn(s) `_round_session.end_current_turn()` above just
+## uncovered, so this is the real, effective call site: TurnController's own
+## _drive() (see its FEAT-009 doc) refreshes $VerbBarView.refresh_availability()
+## BOTH immediately (while an Enemy is still the current actor) AND once the
+## auto-drive settles back on the player (or the round ends), so Strike/
+## Stride never render a stale (pre-AI-turn) grey/enabled state for even one
+## frame once control returns to the player.
 func _on_end_turn_control_turn_ended(_result: Dictionary) -> void:
 	if turn_controller == null or round_session == null:
 		return
 	if round_session.is_round_over():
 		return
-	turn_controller.set_session(round_session)
+	turn_controller.set_session(round_session, null, null, verb_bar_view)
 
 
 ## _after_successful_move() -> void — FEAT-007 (this iteration's US-007/
