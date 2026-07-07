@@ -16,6 +16,16 @@
 ##   dex     — dexterity attribute score
 ##   weapon  — Dictionary with keys: die (int), proficiency_bonus (int), attribute (String)
 ##
+## Defense and attribute fields (FEAT-001 / US-001 / FR-006 / ADR-104):
+##   ac, fortitude, reflex, will               — AUTHORED defense scores.
+##       These are pinned integers set directly on the .tres asset; they
+##       are NEVER derived/recomputed from attributes at load time (see
+##       ADR-104 / ADR-004) so balancing can tweak a defense directly
+##       without touching attributes.
+##   constitution, intuition, willpower,
+##   social, intellect                          — remaining attribute
+##       scores (alongside str/dex above), also authored, plain data.
+##
 ## Usage:
 ##   var enemy = ResourceLoader.load("res://data/enemies/skeleton.tres")
 ##   print(enemy.name)                    # "Skeleton"
@@ -42,3 +52,31 @@ extends Resource
 ##   proficiency_bonus (int)   — flat bonus added to attack rolls when proficient
 ##   attribute        (String) — attribute driving damage modifier: 'str' or 'dex'
 @export var weapon: Dictionary = {}
+
+## Armor Class — authored defense score (ADR-104). Static read, never
+## recomputed from attributes at load time.
+@export var ac: int = 0
+
+## Fortitude defense — authored defense score (ADR-104).
+@export var fortitude: int = 0
+
+## Reflex defense — authored defense score (ADR-104).
+@export var reflex: int = 0
+
+## Will defense — authored defense score (ADR-104).
+@export var will: int = 0
+
+## Constitution attribute score.
+@export var constitution: int = 0
+
+## Intuition attribute score.
+@export var intuition: int = 0
+
+## Willpower attribute score.
+@export var willpower: int = 0
+
+## Social attribute score.
+@export var social: int = 0
+
+## Intellect attribute score.
+@export var intellect: int = 0
