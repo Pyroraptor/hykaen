@@ -1,0 +1,212 @@
+#+TITLE: Iteration G — Per-Turn Action Economy Correctness + Enemy Defense Data (AUTHORITATIVE)
+#+DATE: 2026-07-07
+
+* Context (why this sprint exists)
+
+Iteration F shipped the Movement-trait lockout (Step↔Stride mutual exclusion within a
+turn) and enemy AI stride-toward-then-strike. Real play since then surfaced TWO
+game-logic defects, both rooted in the SAME place — the turn boundary is not being
+honoured for the interactive player path — plus the long-queued enemy-defense data gap.
+
+1. MOVEMENT LOCKOUT NEVER CLEARS BETWEEN TURNS (P0). An actor that Strides once cannot
+   Stride again for the REST of the round. The lockout is meant to last exactly ONE
+   turn. core/rules/action_economy.gd is correct — start_of_turn() clears the per-turn
+   `_movement_used` flag (action_economy.gd:53-57). The defect is that start_of_turn()
+   is NEVER CALLED for a player's turn. RoundSession only calls it inside
+   advance_ai_turn() (round_session.gd:231, enemy-only) and the autonomous sim path
+   (round_session.gd:387). On a PLAYER turn, TurnController just enables EndTurnControl
+   (presentation/turn_controller.gd), and end_current_turn()/_advance_cursor()
+   (round_session.gd:324, 465) move the cursor to the next actor WITHOUT calling
+   start_of_turn() on it. So a player's `_movement_used`, set by their first Stride
+   (action_economy.gd:143-144), is never reset → Stride is locked out for the whole
+   round.
+
+2. AN ACTOR CAN SPEND TWO ACTIONS IN ONE TURN (P0). e.g. Stride THEN Strike on the same
+   turn. The rule is ONE action per turn (Stride OR Strike — no combinations, which are
+   not implemented). The defect: core/rules/action_economy.gd has NO per-turn "one
+   action" gate at all. spend_action() (action_economy.gd:127-149) enforces only the
+   per-ROUND 7-action budget (`_is_spent`) and the Movement-trait gate. So a Stride
+   (Movement.stride() → spend_action Movement, movement.gd:284) followed by a Strike
+   (resolve_action_use_case.gd:243 → spend_action, empty traits) BOTH succeed — nothing
+   stops the second action. This applies to the enemy AI too: its FEAT-005/006 decision
+   deliberately does Stride-then-Strike inside ONE advance_ai_turn (round_session.gd:
+   240-249; ai.gd `will_strike`) — which is itself an instance of this same illegal
+   two-actions-per-turn behaviour and MUST change (see P0-2 below).
+
+3. ENEMY DEFENSE IS HARD-CODED AND MISMATCHED (P1, long-queued). data/enemies/
+   enemy_resource.gd carries NO defense fields. MainScene hard-codes DEFAULT_ENEMY_AC
+   = 12 (MainScene.gd:195, 1480) while the balance sim uses ac = 14 (core/sim/
+   simulator.gd:110, 127). The player therefore fights AC-12 enemies, but balance was
+   validated (N=1000) at AC-14 — enemies are meaningfully easier to hit in the real game
+   than in the sim that signed off on balance. The other three passive defenses —
+   Fortitude/Reflex/Will — are not modelled on the enemy at all. In THIS system these
+   are DEFENSES (always-on target numbers the attacker rolls against), NOT saving throws
+   (docs/brief.org:257-263, 315).
+
+* Root-cause summary (where the logic deviates from the intended rules)
+
+| # | Intended rule                          | Where it deviates (file:line)                          |
+|---+----------------------------------------+--------------------------------------------------------|
+| 1 | Movement lockout lasts ONE turn        | start_of_turn() never called on player turns —          |
+|   |                                        | round_session.gd 231/387 only (enemy + sim);           |
+|   |                                        | _advance_cursor() (465) / end_current_turn() (324)     |
+|   |                                        | advance the cursor without it                          |
+| 2 | ONE action per turn (Stride OR Strike) | action_economy.spend_action() (127-149) has no         |
+|   |                                        | per-turn action gate — only _is_spent (per-round) +    |
+|   |                                        | the Movement gate. AI composite compounds it           |
+|   |                                        | (round_session.gd 240-249, ai.gd will_strike)          |
+| 3 | Enemy defenses are data, single source | EnemyResource has no defense fields; MainScene 12       |
+|   |                                        | (MainScene.gd:195,1480) vs sim 14 (simulator.gd 110,   |
+|   |                                        | 127)                                                    |
+
+* THE SCOPE FOR THIS SPRINT
+
+P0-1 and P0-2 are MUST / NON-DEFERRABLE and land FIRST (P0-1 before P0-2 — the
+one-action-per-turn gate is the foundation the AI rework in P0-2 depends on). P1 is the
+queued data-gap fix; do it after P0 if time allows, but it is independent and low-risk.
+
+** P0-1: Action economy is per-turn correct — start_of_turn honoured + one-action gate
+- WIRE start_of_turn() FOR EVERY ACTOR'S TURN, not just enemies. The cleanest fix is to
+  call action_economy.start_of_turn() from the SINGLE point the cursor lands on a new
+  actor — core/application/round_session.gd _advance_cursor() (and the initial cursor
+  set in _init) — so player and enemy turns both get it. advance_ai_turn()'s own
+  start_of_turn() (round_session.gd:231) then becomes redundant; keep it a no-op-safe
+  call OR remove it (start_of_turn() is idempotent w.r.t. per-turn flags — do NOT let it
+  touch budget/is_spent; that contract is already correct, action_economy.gd:41-46). Do
+  NOT introduce a parallel per-turn reset — reuse the existing start_of_turn().
+- ADD A PER-TURN ONE-ACTION GATE to core/rules/action_economy.gd:
+  - New per-turn flag (e.g. `_action_used`), cleared by start_of_turn() and
+    _reset_round_state() alongside `_movement_used` (action_economy.gd:57, 95).
+  - spend_action() sets it and REJECTS a second in-turn action with a typed Result
+    (e.g. {success:false, ok:false, reason:"ACTION_ALREADY_USED"}), checked BEFORE
+    decrementing budget — so no budget is consumed on rejection (mirror the existing
+    MOVEMENT_ALREADY_USED shape, action_economy.gd:132-138).
+  - spend_reaction() DOES NOT set or check this gate — reactions are out-of-turn and
+    remain governed solely by the per-round budget (action_economy.gd:164-173). Only a
+    combatant's own on-turn action is one-per-turn.
+  - KEEP the Movement-trait gate (`_movement_used`) — it is orthogonal and still needed:
+    Step is FREE (never calls spend_action), so only the Movement gate stops
+    free-Step-then-Stride. One-action gate stops Stride-then-Strike. Both coexist.
+  - Add a pure query can_take_action() → bool (true iff not `_action_used` and not
+    is_spent()) as the SINGLE source of truth the verb bar reads.
+- WIRE THE VERB BAR to the new gate: after the actor spends their one action this turn,
+  ALL action verbs (Strike AND Stride; Step remains free/allowed unless movement-locked)
+  grey out until the actor's next turn — gate on can_take_action() (MainScene.gd verb
+  availability callbacks), the same way F gated the movement verbs on `_movement_used`.
+  (Step is free and does not consume the turn's action; it remains available subject only
+  to the Movement gate — so Step-then-Strike stays legal; Stride-then-Strike does not.)
+- TESTS:
+  - After a Stride, Strike is unavailable that turn (domain: spend_action rejected;
+    verb: greyed); after a Strike, Stride is unavailable that turn.
+  - On the actor's NEXT turn in the SAME round, they can act again (movement lockout AND
+    the one-action gate both reset) — this is the direct regression test for defect #1.
+  - Reactions still fire out-of-turn against the per-round budget regardless of the
+    on-turn action gate.
+  - Per-round 7-action budget across interleaved turns is unchanged (CR-001 preserved).
+
+** P0-2: Enemy AI takes exactly ONE action per turn (rework the F composite)
+- CONSEQUENCE OF P0-1, not optional. The enemy AI's Stride-then-Strike-in-one-turn
+  (ai.gd `will_strike` composite; executed round_session.gd:240-249) is now illegal —
+  the Strike half would be rejected by the one-action gate. Rework so decide_action()
+  returns EXACTLY ONE action for the turn:
+  - If a living target is already in reach → Strike (one action).
+  - Else → Stride toward the best target (one action), reusing the SAME
+    Movement.get_stride_destinations() distance-minimising logic F already added.
+  - REMOVE the composite `will_strike` path from ai.gd and its handling in
+    round_session.advance_ai_turn() (round_session.gd:236, 245-249). The Strike now
+    happens on the enemy's NEXT interleaved turn once it is adjacent — which the
+    per-round interleave already provides (each combatant gets multiple turns/round until
+    Spent). Do NOT fork a parallel AI path (reuse AIDecisionPort/ResolveActionUseCase).
+- Determinism preserved: target + Stride-destination tie-breaks stay deterministic under
+  a pinned seed (stable lowest-(q,r) rule, as F established). The moved enemy token still
+  visibly repositions via the SAME move-token path (round_session.gd:307-314).
+- TESTS:
+  - An out-of-reach enemy Strides on its turn (token moves closer, distance decreases)
+    and spends NO further action that turn; it Strikes on a LATER turn once adjacent.
+  - An in-reach enemy just Strikes (one action, no wasted move).
+  - An enemy never spends two actions in one turn (no Stride-then-Strike); action budget
+    + Movement lockout respected; steel-thread stays deterministic at a pinned seed.
+
+** P1: Enemy defenses are data on EnemyResource (single source of truth)
+In this system the four passive defenses — AC, Fortitude, Reflex, Will — are always-on
+target numbers the attacker rolls against (docs/brief.org:257-263, 315). They are
+DEFENSES, not saving throws. All four belong on the enemy data resource, exactly as AC
+already conceptually does.
+- ADD to data/enemies/enemy_resource.gd: the four passive-defense @export int fields
+  `ac`, `fortitude`, `reflex`, `will`, PLUS the five attribute @export int fields needed
+  for the full attribute block — `constitution`, `intuition`, `willpower`, `social`,
+  and `intellect` (alongside the existing `str`/`dex`). The non-armor defense formulas
+  consume Con/Int(uition)/Willpower/Social; `intellect` has NO consumer yet (Skills-known
+  formula is unbuilt) but is added so skeleton.tres is a COMPLETE-attribute template for
+  future NPCs. Populate all of them on data/enemies/skeleton.tres.
+- MainScene _build_enemy_combatant() reads enemy.ac (and carries fortitude/reflex/will
+  onto the combatant Dictionary) instead of hard-coding — remove DEFAULT_ENEMY_AC
+  (MainScene.gd:195, 1480); at most keep a resource-level default on the @export.
+- AC VALUE = 14 (DECIDED): the sim validated balance at ac=14 (simulator.gd:110,127)
+  while the game shipped 12. Adopt 14 as canonical — set skeleton.tres ac=14 so the
+  player fights the enemy the sim actually balanced. The 12/14 disagreement is the whole
+  point of this fix; both sim and game now read the single EnemyResource value.
+- SKELETON VALUES (PINNED — v0 starting point; tweak later when balancing the non-armor
+  defenses). Attributes: str=2, dex=1 (unchanged) plus constitution=1, intuition=1,
+  willpower=1, social=1, and intellect=0 (no consumer yet — carried for template
+  completeness). Defenses authored as data numbers, derived once from the ruleset
+  formulas (docs/brief.org:261-263) at those attributes:
+    ac        = 14   (balance-validated authored value — NOT the 10+armor+Dex formula)
+    fortitude = 13   (10 + Constitution 1 + Strength 2)
+    reflex    = 12   (10 + Dexterity 1 + Intuition 1)
+    will      = 12   (10 + Willpower 1 + Social 1)
+  Store the four defenses as resolved authored numbers (the same way ac is stored, not
+  recomputed at load) so balancing can tweak a defense directly; the attributes are
+  carried for reference / future derivation.
+- CONSUMER NOTE: live resolution currently rolls attacks vs AC only. Populating
+  Fortitude/Reflex/Will now supplies the always-on target numbers the future
+  active+passive defense pipeline (Dodge/Block/Parry/Steel, docs/brief.org:315-323) will
+  read — this sprint adds the DATA and carries it onto the combatant, but wires NO new
+  defense-resolution against Fort/Reflex/Will (that is a separate feature).
+- TESTS: MainScene builds an enemy whose ac/fortitude/reflex/will equal the resource's
+  values (no constants); a load/round-trip test that skeleton.tres carries all four
+  defenses; the AC the sim uses and the AC MainScene uses come from the SAME source (or
+  are asserted equal at 14).
+
+* Out of scope (do NOT touch / build)
+- No new player/enemy verbs; no action COMBINATIONS (explicitly deferred — one action
+  per turn is the whole point). No spellcasting/Channel/Cast a Spell.
+- No new defense-RESOLUTION mechanic — attacks still roll vs AC only this sprint. P1
+  populates Fortitude/Reflex/Will as passive-defense DATA (target numbers) and carries
+  them onto the combatant, but wires NO resolution against them. Active defenses
+  (Dodge/Block/Parry/Steel) stay out.
+- No changes to the per-round 7-action budget model, RNG/seed policy, hex geometry, or
+  the movement/flanking DOMAIN rules beyond the additive one-action gate + start_of_turn
+  wiring (P0-1) and the AI one-action rework (P0-2).
+- No new ports/use-cases (reuse ActionEconomy, RoundSession, AIDecisionPort,
+  ResolveActionUseCase, EnemyResource).
+- No pathfinding/terrain/LoS/opportunity-attack changes.
+
+* PRESERVE (must not regress) — green as of Iteration F (HEAD ca90a4e)
+- Per-ROUND 7-action budget shared across a combatant's interleaved turns + reactions
+  (CR-001 / ADR-006); reactions draw from the same pool out-of-turn.
+- Movement-trait lockout (Step↔Stride mutual exclusion within a turn) from F.
+- Two-layer verb→target action UX; single labelled End Turn; mouse-transparent display
+  panels; centered hex grid; token-moves-on-Step/Stride and on AI Stride.
+- Flanking Off-Guard +2; ranged reach+selection; play-seed randomize+override; status
+  bar Actions/Spent decrements; post-resolution input lock.
+- Autonomous balance sim (run_autonomous_to_completion) — note it already resolves ONE
+  action per combatant per cycle pass, so the one-action gate must NOT regress it.
+
+* Verification (gate must be green)
+- Full GUT suite + pytest green; determinism / N-run steel-thread tests pass at a pinned
+  seed; MainScene boots headless with no errors.
+- P0-1: movement lockout AND one-action gate reset on the actor's next turn (defect #1
+  + #2 regression tests); Stride-then-Strike rejected in one turn; reactions unaffected.
+- P0-2: enemy Strides then Strikes across SEPARATE turns; never two actions in one turn;
+  deterministic at a pinned seed.
+- P1: all four passive defenses (AC/Fortitude/Reflex/Will) sourced from EnemyResource;
+  AC=14; sim and game agree on the AC value from the single source.
+- Static: no Node/Control in core/ (ADR-001); no new ports/use-cases (ADR-002); no
+  action-combination or new defense-resolution introduced.
+
+* Known-good baseline / notes for the AEF run
+- HEAD ca90a4e (Iteration F): GUT 1208/1208 + pytest 316.
+- KNOWN PRE-EXISTING TECH DEBT (do NOT treat as a regression): tests/
+  test_encounter_round_loop.gd fails to LOAD under GUT and is silently skipped (since
+  FEAT-100). "All passed" excludes it. Leave it unless trivially fixable in passing.
