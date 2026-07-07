@@ -76,10 +76,18 @@ const MAX_ROUNDS_GUARD: int = 50
 ## carry the stats and damage dice the simulation depends on. Any edit to
 ## these files changes their hash and fails test_production_files_unmodified()
 ## below — the "assertion/diff check in the test setup" required by FEAT-106.
+##
+## FEAT-002 (iteration-G P1, FR-007) intentionally re-pins the
+## skeleton.tres hash below: that iteration's design explicitly authors
+## pinned attribute/defense values onto skeleton.tres (ac 12->14 plus the
+## new constitution/intuition/willpower/social/intellect attribute fields
+## from FEAT-001), so the CR-001/US-008-era "must stay byte-identical"
+## baseline is updated to the new, intentionally-authored content rather
+## than treated as a violation of this guard's scope.
 const _EXPECTED_HASHES: Dictionary = {
 	"res://core/sim/simulator.gd":      "b74aba990b9f326b608727353d71d77f",
 	"res://data/characters/titus.tres": "7b08e7c3460930c2a2262b32aa80d179",
-	"res://data/enemies/skeleton.tres": "3cbfc66c597811f7a61c7264c7c57b5c",
+	"res://data/enemies/skeleton.tres": "b39f5afcf86749209eff4c99ef278bc7",
 	"res://data/weapons/longsword.tres": "248339f6e3f256d6cdc6a943ca824587",
 	"res://data/armor/chain_shirt.tres": "6be0c7c1b55b7a91233bca0f62fadd16",
 	"res://data/armor/scale_mail.tres":  "7c724303a7db4ad78a7341bc9e7f46f1",
