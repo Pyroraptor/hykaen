@@ -1528,7 +1528,7 @@ func _build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String 
 		"will":       enemy.will,
 		"strength":   enemy.str,
 		"dexterity":  enemy.dex,
-		"intuition":  0,
+		"intuition":  enemy.intuition,
 		"weapon": {
 			"damage_modifier_attribute": weapon_attribute,
 			"proficiency_bonus":         enemy.weapon.get("proficiency_bonus", 1),

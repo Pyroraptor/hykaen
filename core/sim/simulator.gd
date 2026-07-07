@@ -190,7 +190,7 @@ func _build_skeleton_combatant(skeleton_res, skel_weapon_attr: String) -> Dictio
 		"will":       skeleton_res.will,
 		"strength":   skeleton_res.str,
 		"dexterity":  skeleton_res.dex,
-		"intuition":  1,
+		"intuition":  skeleton_res.intuition,
 		"weapon": {
 			"damage_modifier_attribute": skel_weapon_attr,
 			"proficiency_bonus":         skeleton_res.weapon.get("proficiency_bonus", 1),

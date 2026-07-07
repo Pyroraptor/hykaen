@@ -12,7 +12,18 @@ func _boot_main_scene_with_seed(seed_value: int):
 	add_child_autofree(instance)
 	return instance
 
-func test_probe_real_depletion(seed_value = use_parameters([1106, 13269])) -> void:
+## Seed 1106 (formerly pinned here) is no longer usable as of FEAT-201: fixing
+## the intuition-hardcoding bug (MainScene._build_enemy_combatant() /
+## Simulator._build_skeleton_combatant() now read enemy.intuition off
+## EnemyResource instead of a hardcoded literal) changed the Skeleton's
+## initiative roll (d20+intuition+dexterity, core/combat/encounter.gd),
+## which flipped turn order for that specific seed (the enemy now wins
+## initiative and acts first, consuming an extra roll off the shared
+## random_port stream before this probe's loop begins). Reselected to seed
+## 959, under which Titus still wins initiative and the same real-budget-
+## depletion scenario this probe exercises holds under the CORRECTED
+## initiative computation.
+func test_probe_real_depletion(seed_value = use_parameters([959, 13269])) -> void:
 	var instance = _boot_main_scene_with_seed(seed_value)
 	await get_tree().process_frame
 

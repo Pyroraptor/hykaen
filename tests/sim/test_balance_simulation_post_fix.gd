@@ -92,8 +92,17 @@ const MAX_ROUNDS_GUARD: int = 50
 ## instead of the previous hard-coded "ac": 14 inline literal, closing the
 ## sim/game defense-source parity gap this CR's guard was never meant to
 ## block a deliberately-authorized future feature from making.
+##
+## FEAT-201 (US-008, ADR-106) likewise intentionally re-pins the
+## simulator.gd hash below: fixes the same class of defect for `intuition`
+## that FEAT-008 fixed for ac/fortitude/reflex/will —
+## _build_skeleton_combatant() now reads `intuition` directly off the
+## loaded skeleton EnemyResource instead of a hard-coded "intuition": 1
+## literal (a value that happened to match skeleton.tres' authored
+## intuition=1 by coincidence, masking the same sim/game divergence risk
+## ADR-106 targets). See tests/gut/test_intuition_defense_source_parity.gd.
 const _EXPECTED_HASHES: Dictionary = {
-	"res://core/sim/simulator.gd":      "fbf022c110c89bed12d2d0cd18b558ec",
+	"res://core/sim/simulator.gd":      "a0caa3aa612bd7532187d4074d49b4ab",
 	"res://data/characters/titus.tres": "7b08e7c3460930c2a2262b32aa80d179",
 	"res://data/enemies/skeleton.tres": "b39f5afcf86749209eff4c99ef278bc7",
 	"res://data/weapons/longsword.tres": "248339f6e3f256d6cdc6a943ca824587",
