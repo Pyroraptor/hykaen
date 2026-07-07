@@ -117,6 +117,21 @@ var _forced_draw: bool = false
 ## none exists). Callers MUST have already granted each entry's
 ## ActionEconomy its start-of-round budget (RunRoundUseCase.begin_round()
 ## does this) — the constructor itself grants no budget.
+##
+## ADR-101/ADR-102/FEAT-004: this initial cursor assignment is one of the TWO
+## call sites (the other being _advance_cursor() below) that together form
+## the SINGLE authoritative seam for ActionEconomy.start_of_turn() — for
+## BOTH player and AI actors alike. start_of_turn() is invoked exactly once
+## here, immediately after the cursor is positioned on the first living,
+## un-Spent combatant, so that combatant's per-turn flags
+## (movement_used_this_turn/action_used_this_turn) are guaranteed clear
+## before anything (Presentation's verb bar, an AI decision) ever inspects
+## them. Closes the P0-1 movement-lockout defect for the very first actor of
+## a round, which the pre-FEAT-004 code never cleared for a Player actor at
+## all. start_of_turn() itself is documented as idempotent and
+## budget/is_spent-neutral (ADR-102), so this call is always safe even
+## though RunRoundUseCase.begin_round() already called start_of_round() on
+## every entry moments earlier.
 func _init(
 	entries: Array,
 	party: Array,
@@ -141,6 +156,8 @@ func _init(
 	_cursor = _find_first_actionable_index()
 	if _cursor == -1:
 		_round_over = true
+	else:
+		_entries[_cursor]["action_economy"].start_of_turn()
 
 
 ## set_token_reposition_fn(fn) -> void — FEAT-008 (US-008 / FR-012, ADR-006):
@@ -228,8 +245,13 @@ func advance_ai_turn() -> Dictionary:
 		return {"ok": false, "error": "ERR_NOT_ENEMY_TURN"}
 
 	var action_economy = entry["action_economy"]
-	action_economy.start_of_turn()
-
+	# ADR-101/ADR-102/FEAT-004: start_of_turn() for this actor was already
+	# invoked exactly once by whichever cursor-positioning call site (_init,
+	# or the prior _advance_cursor()) made this actor the current_actor() —
+	# see the file-level and _advance_cursor() doc comments. Calling it again
+	# here would be a redundant second call site for the SAME turn boundary,
+	# which is exactly the P0-1/duplication defect this feature closes; the
+	# call is intentionally NOT repeated here.
 	var ai_decision: Dictionary = _decide_ai_action(combatant, action_economy)
 	var action_name: String = ai_decision.get("action_type", "")
 	var target: Dictionary = ai_decision.get("target", {})
@@ -462,6 +484,21 @@ func _after_action_resolved() -> Dictionary:
 ## _cycle_index, mirroring one AC-4 "cycle pass"). Emits a
 ## RoundEvents.TurnAdvancedEvent for the new current actor. When no living,
 ## un-Spent entry remains, marks the round over instead.
+##
+## ADR-101/ADR-102/FEAT-004: together with the initial cursor assignment in
+## _init() above, this is the SINGLE authoritative call site for
+## ActionEconomy.start_of_turn() — for BOTH player and AI actors, with no
+## distinction between the two. Every cursor movement (whether driven by a
+## player's end_current_turn() or an AI's advance_ai_turn()) funnels through
+## this one method, so start_of_turn() is invoked here EXACTLY ONCE per
+## cursor advance, immediately after `_cursor` is updated to the new actor
+## and before the TurnAdvancedEvent is emitted — replacing the previous,
+## redundant, enemy-only call that used to live directly inside
+## advance_ai_turn() (which never fired for a Player actor at all, the
+## P0-1 movement-lockout defect this feature closes). start_of_turn() only
+## clears the two per-turn flags (movement_used_this_turn/
+## action_used_this_turn) and is documented as idempotent/budget-neutral
+## (ADR-102) — it never mutates actions_remaining or is_spent.
 func _advance_cursor() -> void:
 	var next_index: int = _find_next_actionable_index(_cursor)
 	if next_index == -1:
@@ -472,6 +509,8 @@ func _advance_cursor() -> void:
 	if next_index <= _cursor:
 		_cycle_index += 1
 	_cursor = next_index
+
+	_entries[_cursor]["action_economy"].start_of_turn()
 
 	var combatant: Dictionary = _entries[_cursor]["combatant"]
 	_event_sink_port.emit(RoundEventsClass.TurnAdvancedEvent.new(
