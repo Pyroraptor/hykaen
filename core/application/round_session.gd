@@ -221,20 +221,26 @@ func outcome() -> String:
 ## this after is_round_over(), or when the current actor is not on the Enemy
 ## team, is a no-op returning {"ok": false}.
 ##
-## FEAT-006 (US-006 / FR-010, ADR-002): the AIDecision obtained via
-## _decide_ai_action() below MAY now be a composite "Stride-then-Strike"
-## decision (core/combat/ai.gd's FEAT-004/005 extension) — action_type
-## "Stride" with will_strike true/false. core/combat/ai.gd's decide_action()
-## already EXECUTED the Stride itself (repositioning `combatant` and
-## spending its ActionEconomy's Movement-trait action directly through
-## core/rules/movement.gd, the SAME domain path a player-driven Stride uses)
-## as part of building that decision — ai.gd is the single mover for both
-## paths (ADR-001), so this method never re-spends or re-resolves the Stride
-## half. Only when will_strike is true does this method resolve the Strike
-## half via _resolve_action_use_case.resolve() — the IDENTICAL pipeline a
-## Stride-free AI Strike (and the player's own Strike) already goes through.
-## No new port or use-case is introduced (ADR-002): the extended decision
-## flows through the existing AIDecisionPort/ResolveActionUseCase contracts.
+## FEAT-007 (US-007 / FR-005, ADR-105): the AIDecision obtained via
+## _decide_ai_action() below carries EXACTLY ONE action — "Strike" or
+## "Stride", never both (core/combat/ai.gd's FEAT-005 composite
+## "Stride-then-Strike" path, and its will_strike-driven handling here, are
+## REMOVED). When action_type is "Stride", core/combat/ai.gd's
+## decide_action() has already EXECUTED the Stride itself (repositioning
+## `combatant` and spending its ActionEconomy's Movement-trait action
+## directly through core/rules/movement.gd, the SAME domain path a
+## player-driven Stride uses) as part of building that decision — ai.gd is
+## the single mover for both paths (ADR-001), so this method never re-spends
+## or re-resolves the Stride half, and never attempts a same-turn Strike
+## after it (any Strike the Stride enabled is decided on the enemy's NEXT
+## turn). When action_type is "Strike", this method resolves it via
+## _resolve_action_use_case.resolve() — the IDENTICAL pipeline the player's
+## own Strike already goes through. No new port or use-case is introduced
+## (ADR-002): the decision flows through the existing
+## AIDecisionPort/ResolveActionUseCase contracts. Together with
+## core/combat/ai.gd's one-decision-per-call contract, this guarantees
+## advance_ai_turn() triggers at most ONE ActionEconomy.spend_action() call
+## per AI turn — the same one-action gate the player is bound to.
 func advance_ai_turn() -> Dictionary:
 	if _round_over or _cursor == -1:
 		return {"ok": false}
@@ -255,20 +261,16 @@ func advance_ai_turn() -> Dictionary:
 	var ai_decision: Dictionary = _decide_ai_action(combatant, action_economy)
 	var action_name: String = ai_decision.get("action_type", "")
 	var target: Dictionary = ai_decision.get("target", {})
-	var will_strike: bool = ai_decision.get("will_strike", false)
 
 	var any_action_taken: bool = false
 
 	if action_name == "Stride":
 		# The Stride itself already happened inside decide_action() (see
 		# file-level doc above) — nothing further to resolve for it here.
+		# FEAT-007: never a composite — the Strike half (if any) is decided
+		# on this combatant's next turn, never resolved in this same call.
 		any_action_taken = true
 		_reposition_token_after_ai_stride(combatant, ai_decision)
-		if will_strike and not target.is_empty():
-			var strike_result: Dictionary = _resolve_action_use_case.resolve(
-				combatant, action_economy, target, "Strike", _round_number, _cycle_index
-			)
-			any_action_taken = strike_result.get("resolved", false) or any_action_taken
 	elif action_name != "" and not target.is_empty():
 		var resolve_result: Dictionary = _resolve_action_use_case.resolve(
 			combatant, action_economy, target, action_name, _round_number, _cycle_index
