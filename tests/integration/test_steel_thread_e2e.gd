@@ -1,216 +1,92 @@
 extends GutTest
-## tests/integration/test_steel_thread_e2e.gd — FEAT-010 (US-010; NFR-003/
-## NFR-004/NFR-005), Iteration F steel-thread capstone integration +
-## regression suite.
+## tests/integration/test_steel_thread_e2e.gd — FEAT-010 (US-010; the
+## capstone integration/E2E test for this iteration's steel thread).
 ##
-## THE named, final smoke suite for the two P0 defects/features this
-## iteration closes end-to-end:
+## Drives the REAL, shipped res://MainScene.tscn composition root (no
+## test-local resolver/use-case graph, no mocked Application-layer port)
+## through the complete steel thread this iteration (FEAT-001..FEAT-009)
+## built, entry to exit:
 ##
-##   P0-1 (FEAT-001/FEAT-002, US-001/US-002, FR-001..FR-006, ADR-003) — a
-##   Movement-trait Step and Stride share ONE per-turn lockout gate
-##   (core/rules/action_economy.gd's `_movement_used`, read via
-##   can_take_movement_action()): once either is taken, the OTHER (and
-##   itself) is locked out for the rest of that turn, the Layer 1 verb bar
-##   ($VerbBarView, driven by MainScene.gd's _verb_bar_step_availability()/
-##   _verb_bar_stride_availability()) visibly disables the locked-out
-##   button, and the gate resets at the next turn boundary via the SAME
-##   existing ActionEconomy.start_of_turn() reset (no new flag/state
-##   machine, per this feature's design notes).
+##   entry_point:  RoundSession's cursor advances to a combatant's turn
+##                 (either the initial cursor set in RoundSession._init(),
+##                 or a later _advance_cursor()) -> that combatant's
+##                 core/rules/action_economy.gd ActionEconomy.start_of_turn()
+##                 fires -> can_take_action() reports true -> the Layer 1
+##                 verb bar ($VerbBarView) renders Strike/Stride enabled.
+##   exit_point:    the acting combatant performs exactly ONE Strike/Stride
+##                  this turn (core/rules/action_economy.gd's per-turn
+##                  action-used gate, FEAT-003) -> $VerbBarView greys
+##                  Strike/Stride until that combatant's NEXT start_of_turn()
+##                  -> an enemy Strike (core/combat/ai.gd, FEAT-007's
+##                  single-action-per-decision AI) rolls against an AC
+##                  sourced from data/enemies/skeleton.tres via
+##                  data/enemies/enemy_resource.gd's EnemyResource --
+##                  never a hard-coded constant (FEAT-001/FEAT-008).
 ##
-##   P0-2 (FEAT-003..FEAT-006, US-003..US-006, FR-007..FR-011, ADR-002/
-##   ADR-004..ADR-006) — core/combat/ai.gd's decide_action(), invoked on the
-##   enemy's turn, Strides toward the nearest living target when out of
-##   reach (spending exactly one action through the SAME ActionEconomy gate
-##   a player-driven Stride uses) and re-checks reach in the SAME decision
-##   cycle to Strike immediately if an action remains -- with the enemy's
-##   on-screen HexGridView token visibly repositioned via the SAME
-##   move_token() call the player's own Step/Stride path uses (ADR-006, no
-##   duplicate reposition implementation). An enemy already in reach Strikes
-##   immediately with ZERO Stride issued.
-##
-## Every named test below drives EITHER the real, shipped res://MainScene.tscn
-## composition root (P0-1 -- the player-facing verb bar entry point) OR a
-## fully-wired, REAL RunRoundUseCase/RoundSession + a REAL, instantiated
-## presentation/hex_grid_view.gd (P0-2 -- the enemy-AI-turn entry point,
-## mirroring tests/integration/test_ai_token_reposition.gd's established
-## rig) -- never a test-local re-derivation of the Movement/ActionEconomy/AI
-## rules themselves (ADR-001/ADR-002/CR-001). This file introduces NO new
-## production code (files_to_modify is empty for this feature): every
-## collaborator driven below is the exact, already-implemented, already
-## individually-tested production object (core/rules/action_economy.gd,
-## core/rules/movement.gd, core/combat/ai.gd, core/application/
-## round_session.gd, presentation/hex_grid_view.gd, presentation/
-## verb_bar_view.gd, MainScene.gd) -- this suite's sole job is proving they
-## ALL still compose correctly together, end to end, at the steel thread's
-## two named entry points.
+## Every collaborator driven below (`_verb_registry`, `verb_bar_view`,
+## `round_session`, `hex_grid_view`, `selection_overlay`, `end_turn_control`,
+## `turn_controller`) is the exact, unmodified, REUSED production instance
+## MainScene.gd's own _ready() wires (ADR-002/CR-001: no forked resolution
+## logic anywhere in this file) -- this feature introduces NO new production
+## code (files_to_modify is empty); its sole job is proving FEAT-001..009
+## all still compose correctly together, end to end, through the real
+## wiring.
 ##
 ## This suite does NOT re-test (and therefore does not duplicate) the
 ## individual unit-level proofs already established by:
-##   tests/unit/core/rules/test_movement_lockout.gd (domain-level lockout)
-##   tests/unit/presentation/test_verb_bar_lockout.gd (verb-bar-level lockout)
-##   tests/unit/core/combat/test_ai_stride_then_strike.gd (Stride-then-Strike
-##     decision logic)
-##   tests/unit/core/combat/test_ai_reach_strike.gd / test_ai_target_selection.gd
-##     (reach-check / nearest-target selection)
-##   tests/unit/core/combat/test_ai_action_budget.gd (AI never double-spends)
-##   tests/unit/core/combat/test_ai_determinism.gd (tie-break determinism)
-##   tests/integration/test_ai_token_reposition.gd (AI-Stride token reposition)
-## Nor the rest of Iteration E's regression surface (verb->target UX, End
-## Turn, panels, hex grid, token move, flanking Off-Guard +2, ranged reach,
-## seed randomize, status bar, control lock) -- ALL of that is exercised by
-## its own already-existing, individually-named GUT suite and is picked up
-## automatically, alongside this file, by scripts/test_command.sh stage 7
-## (`godot --headless -- --gut-run-all`, tests/.gutconfig.json's
-## `res://tests`+include_subdirs=true) -- this project's whole-project
-## regression gate (ADR-002/CR-001: no re-derived/duplicate coverage).
+##   tests/unit/test_action_economy_gate.gd / test_action_economy_can_take_action.gd
+##     (the domain-level per-turn one-action gate in isolation)
+##   tests/unit/test_verb_bar_availability.gd (verb-bar greying against a
+##     directly-manipulated ActionEconomy, not a real cursor advance)
+##   tests/unit/core/combat/test_ai_action_budget.gd / test_ai_reach_strike.gd /
+##     test_ai_stride_then_strike.gd (AI single-action decision logic in
+##     isolation)
+##   tests/unit/test_build_enemy_combatant_defenses.gd / test_enemy_resource_fields.gd
+##     (EnemyResource -> Combatant.ac field-sourcing in isolation)
+##   tests/integration/test_headless_boot.gd (the exhaustive real-subprocess
+##     zero-error/zero-warning headless-boot gate)
+## -- this file's job is proving all of that machinery composes correctly
+## TOGETHER, through the real cursor-advance seam (core/application/
+## round_session.gd's single start_of_turn() call site, FEAT-004) and the
+## real $VerbBarView/AI wiring, never a re-derived rule of its own.
 ##
 ## test_criteria satisfied by this file:
-##   - Named P0-1 lockout test: verb bar + domain gate, both Step-blocks-
-##     Stride and Stride-blocks-Step directions, and turn-boundary reset.
-##   - Named P0-2 AI movement test: out-of-reach enemy strides then strikes
-##     the nearest living target, with token visibly repositioned on-screen.
-##   - Named P0-2 in-reach test: enemy strikes only, with zero Stride issued.
-##   - action-economy/lockout compliance and determinism tests across
-##     multiple simulated turns and repeated pinned-seed runs.
-## (Full existing GUT UI regression suite / headless-boot-zero-error gate /
-## multi-run CI flakiness are satisfied by tests/integration/
-## test_headless_boot.gd, this file's sibling, plus the pre-existing
-## whole-project `--gut-run-all` gate.)
+##   1. Cursor advances to player actor's turn -> start_of_turn() fires ->
+##      can_take_action() true -> verb bar shows Strike/Stride enabled.
+##   2. Player performs Strike -> spend_action() succeeds -> can_take_action()
+##      false -> verb bar greys Strike/Stride -> a second same-turn action
+##      attempt returns ACTION_ALREADY_USED.
+##   3. Cursor advances to the next actor's turn (through a real enemy
+##      activation) and back -> verb bar Strike/Stride re-enable for the
+##      returning current actor.
+##   4. Cursor advances to the AI-controlled Skeleton's turn -> the AI takes
+##      exactly one action (Strike if in reach, else Stride -- never both);
+##      the AC used by a Strike against the Skeleton is sourced from
+##      skeleton.tres via EnemyResource, not a hard-coded constant.
+##   5. A headless MainScene boot completes without error with the full
+##      wiring (verb-bar callbacks, RoundSession, ActionEconomy, AI,
+##      EnemyResource) active.
 
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
+const SKELETON_TRES_PATH: String = "res://data/enemies/skeleton.tres"
 
-const RunRoundUseCaseClass         = preload("res://core/application/run_round_use_case.gd")
-const ResolveActionUseCaseClass    = preload("res://core/application/resolve_action_use_case.gd")
-const DetermineOutcomeUseCaseClass = preload("res://core/application/determine_outcome_use_case.gd")
-const ActionEconomyClass           = preload("res://core/rules/action_economy.gd")
-const AIClass                      = preload("res://core/combat/ai.gd")
-const HexCoordClass                = preload("res://core/geometry/hex_coord.gd")
-const CombatantClass               = preload("res://core/domain/combatant.gd")
+const HexCoordClass = preload("res://core/geometry/hex_coord.gd")
+const RoundEventsClass = preload("res://core/rules/round_events.gd")
+const ActionEconomyClass = preload("res://core/rules/action_economy.gd")
 
-const HexGridViewScene: PackedScene = preload("res://presentation/hex_grid_view.tscn")
-
-## The pinned deterministic-test fixture seed (matches
-## data/encounters/prologue_encounter.tres' own `seed` field, 42) -- this
-## codebase's established integration/E2E convention.
+## The pinned deterministic-test fixture seed (matches data/encounters/
+## prologue_encounter.tres' own `seed` field, 42) -- this codebase's
+## established integration/E2E test convention (injected in-process via
+## MainScene's `seed_override` contract, ADR-004 top precedence).
 const SEED: int = 42
 
-## Safety bound on any drive/cycle loop below (CWE-835 "never loop
-## unbounded" guard, mirroring this codebase's established `_MAX_*`
-## convention, e.g. tests/e2e/test_full_steel_thread_e2e.gd's
-## `_MAX_DRIVE_ITERATIONS`).
-const _MAX_CYCLES: int = 20
-
-## Number of independent MainScene boots exercised by the multi-run
-## determinism check below (the design notes' "repeated pinned-seed runs" /
-## "zero flakiness across multiple consecutive CI runs" criteria).
-const _DETERMINISM_RUN_COUNT: int = 5
-
 
 # ══════════════════════════════════════════════════════════════════════════
-# Shared fixture/double collaborators -- mirrors tests/integration/
-# test_ai_token_reposition.gd's / tests/unit/core/application/
-# test_round_session_ai_turn.gd's identically-named/-shaped rig exactly, so
-# this suite drives the SAME RunRoundUseCase/RoundSession wiring every other
-# AI-turn integration suite in this codebase already uses.
+# Shared fixture -- mirrors this codebase's established
+# `_boot_main_scene_with_seed()` convention (tests/unit/
+# test_verb_bar_availability.gd, tests/e2e/test_full_steel_thread_e2e.gd).
 # ══════════════════════════════════════════════════════════════════════════
 
-class FakeTurnOrderPort:
-	extends "res://core/application/turn_order_port.gd"
-
-	var _entries: Array
-
-	func _init(entries: Array) -> void:
-		_entries = entries
-
-	func get_turn_order() -> Array:
-		return _entries
-
-
-class FakeEventSinkPort:
-	extends "res://core/application/event_sink_port.gd"
-
-	var events: Array = []
-
-	func emit(event) -> void:
-		events.append(event)
-
-
-class FakeRoundHistoryPort:
-	extends "res://core/application/round_history_port.gd"
-
-	var entries: Array = []
-
-	func append(entry: Dictionary) -> void:
-		entries.append(entry)
-
-	func get_history() -> Array:
-		return entries
-
-
-## ScriptedRandomNumberPort -- deterministic, hand-scripted dice rolls (never
-## a real seeded RNG) so a resolved Strike's hit/damage outcome is exactly
-## known, mirroring tests/unit/core/application/test_round_session_ai_turn.gd's
-## identically-named double.
-class ScriptedRandomNumberPort:
-	extends "res://core/rules/random_port.gd"
-
-	var _values: Array
-	var _index: int = 0
-
-	func _init(values: Array) -> void:
-		_values = values
-
-	func roll(_dice_spec: Dictionary) -> int:
-		var v = _values[_index]
-		_index += 1
-		return v
-
-
-func _entry(combatant: Dictionary) -> Dictionary:
-	return {"combatant": combatant, "action_economy": ActionEconomyClass.new()}
-
-
-## Builds a fully-wired, REAL RunRoundUseCase plus fake ports -- mirrors
-## tests/integration/test_ai_token_reposition.gd's identically-named helper.
-func _make_use_case(entries: Array, ai_port, random_number_port, event_sink_port) -> Dictionary:
-	var turn_order_port    = FakeTurnOrderPort.new(entries)
-	var round_history_port = FakeRoundHistoryPort.new()
-
-	var resolve_action_use_case = ResolveActionUseCaseClass.new(
-		random_number_port, event_sink_port, round_history_port
-	)
-	var determine_outcome_use_case = DetermineOutcomeUseCaseClass.new()
-	var run_round_use_case = RunRoundUseCaseClass.new(
-		turn_order_port, event_sink_port, round_history_port, ai_port,
-		resolve_action_use_case, determine_outcome_use_case
-	)
-
-	return {"use_case": run_round_use_case, "history": round_history_port}
-
-
-## _melee_enemy(hex_coord, hp) -> Dictionary -- mirrors tests/unit/core/
-## combat/test_ai_stride_then_strike.gd's `_melee_combatant()` fixture
-## exactly, so this suite's Stride-distance/reach math matches an
-## already-proven fixture rather than a newly-invented one.
-func _melee_enemy(combatant_id: String, hex_coord, hp: int = 8) -> Dictionary:
-	return {
-		"name": "Goblin", "combatant_id": combatant_id, "hp_current": hp, "ac": 12,
-		"strength": 2, "hex_coord": hex_coord, "_is_enemy": true,
-		"weapon": {"damage_modifier_attribute": "strength", "proficiency_bonus": 1, "damage_die": 6},
-	}
-
-
-func _player_target(combatant_id: String, hex_coord, hp: int = 20) -> Dictionary:
-	return {
-		"name": "Titus", "combatant_id": combatant_id, "hp_current": hp, "ac": 14,
-		"strength": 5, "hex_coord": hex_coord, "_is_enemy": false,
-	}
-
-
-## _boot_main_scene_with_seed(seed_value) -> Node -- instantiates the REAL,
-## shipped res://MainScene.tscn composition root, pinned to a deterministic
-## seed_override, mirroring this codebase's established convention (tests/
-## unit/presentation/test_verb_bar_lockout.gd, tests/gut/test_steel_thread_e2e.gd).
 func _boot_main_scene_with_seed(seed_value: int):
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn (the real project.godot run/main_scene target) must load as a PackedScene")
@@ -220,344 +96,302 @@ func _boot_main_scene_with_seed(seed_value: int):
 	return instance
 
 
+## _resolve_strike_via_full_click_flow(instance, target_id) -> Variant --
+## resolves a Strike through the SAME player-facing path a real click
+## drives: VerbBarView.press("STRIKE") enters Layer 2 selection, then a left
+## click on the target's own on-screen hex (hex_grid_view.hex_clicked, the
+## real signal presentation/selection_overlay.gd is subscribed to) resolves
+## it through selection_overlay -> `_verb_registry.execute()` ->
+## resolve_action_use_case.resolve() -- never a direct
+## `_verb_registry.execute()` shortcut, so the full Layer1->Layer2->Layer1
+## UI transition (including the post-resolution refresh_availability() call)
+## is exercised exactly as the real game drives it.
+func _resolve_strike_via_full_click_flow(instance, target_id: String) -> void:
+	var target_token = instance.hex_grid_view.get_token(target_id)
+	assert_not_null(target_token, "fixture assumption: the chosen Strike target has a rendered HexGridView token")
+	instance.hex_grid_view.hex_clicked.emit(target_token.hex_coord)
+
+
+func _last_attack_event_by(instance, attacker_name: String):
+	var events: Array = instance.event_sink.log
+	for i in range(events.size() - 1, -1, -1):
+		var event = events[i]
+		if event is RoundEventsClass.AttackEvent and event.attacker_name == attacker_name:
+			return event
+	return null
+
+
 # ══════════════════════════════════════════════════════════════════════════
-# Named P0-1 test: verb bar + domain gate lockout -- Step-blocks-Stride,
-# Stride-blocks-Step, and turn-boundary reset.
+# Criterion 1 (entry_point) -- cursor advance to the player actor's turn ->
+# start_of_turn() fires -> can_take_action() true -> verb bar shows
+# Strike/Stride enabled.
 # ══════════════════════════════════════════════════════════════════════════
 
-func test_p0_1_step_blocks_stride_via_verb_bar_and_domain_gate() -> void:
+func test_criterion1_cursor_advance_to_player_turn_fires_start_of_turn_and_verb_bar_shows_strike_stride_enabled() -> void:
 	var instance = _boot_main_scene_with_seed(SEED)
 	await get_tree().process_frame
-
-	assert_true(instance._verb_registry.is_available("STEP"), "fixture assumption: STEP is available at seed=42 before any Movement-trait action")
-	assert_true(instance._verb_registry.is_available("STRIDE"), "fixture assumption: STRIDE is available at seed=42 before any Movement-trait action")
-
-	var action_economy = instance.round_session.current_action_economy()
-	assert_not_null(action_economy, "fixture assumption: the active actor carries a live domain ActionEconomy")
-
-	var step_hexes: Array = instance.movement_input_controller.get_selectable_step_hexes()
-	assert_true(step_hexes.size() > 0, "fixture assumption: at least one legal Step destination exists")
-
-	var step_result: Dictionary = instance._verb_registry.execute("STEP", step_hexes[0])
-	assert_true(step_result.get("ok", false), "fixture assumption: the Step itself must succeed")
-
-	# Domain gate: the SAME ActionEconomy the verb bar reads from is tripped.
-	assert_false(action_economy.can_take_movement_action(), "a resolved Step must trip the domain Movement-trait gate for the rest of this turn")
-
-	# Verb bar: STRIDE (the OTHER Movement-trait verb) is now unavailable and
-	# its rendered button is visibly disabled for the rest of the turn.
-	assert_false(instance._verb_registry.is_available("STRIDE"), "STRIDE must be locked out for the rest of the turn once a Step has been taken")
-	assert_true(instance.verb_bar_view.get_button("STRIDE").disabled, "the Layer 1 verb bar's rendered STRIDE button must be visibly disabled once locked out")
-
-	# Self-lockout: STEP is also disabled (a Movement-trait action locks out
-	# FURTHER Movement-trait actions, including itself).
-	assert_false(instance._verb_registry.is_available("STEP"), "STEP must also be locked out after itself -- the shared gate blocks any further Movement-trait action")
-	assert_true(instance.verb_bar_view.get_button("STEP").disabled, "the Layer 1 verb bar's rendered STEP button must be visibly disabled once locked out")
-
-
-func test_p0_1_stride_blocks_step_via_verb_bar_and_domain_gate() -> void:
-	var instance = _boot_main_scene_with_seed(SEED)
-	await get_tree().process_frame
-
-	assert_true(instance._verb_registry.is_available("STEP"), "fixture assumption: STEP is available at seed=42 before any Movement-trait action")
-	assert_true(instance._verb_registry.is_available("STRIDE"), "fixture assumption: STRIDE is available at seed=42 before any Movement-trait action")
-
-	var action_economy = instance.round_session.current_action_economy()
-	assert_not_null(action_economy, "fixture assumption: the active actor carries a live domain ActionEconomy")
-	var remaining_before: int = action_economy.get_remaining()
-
-	var stride_hexes: Array = instance.movement_input_controller.get_selectable_stride_hexes()
-	assert_true(stride_hexes.size() > 0, "fixture assumption: at least one legal Stride destination exists")
-
-	var stride_result: Dictionary = instance._verb_registry.execute("STRIDE", stride_hexes[0])
-	assert_true(stride_result.get("ok", false), "fixture assumption: the Stride itself must succeed")
-	assert_eq(action_economy.get_remaining(), remaining_before - 1, "a Stride must spend exactly one action")
-
-	# Domain gate tripped.
-	assert_false(action_economy.can_take_movement_action(), "a resolved Stride must trip the domain Movement-trait gate for the rest of this turn")
-
-	# Verb bar: STEP (the OTHER Movement-trait verb) is now unavailable and
-	# its rendered button is visibly disabled for the rest of the turn.
-	assert_false(instance._verb_registry.is_available("STEP"), "STEP must be locked out for the rest of the turn once a Stride has been taken")
-	assert_true(instance.verb_bar_view.get_button("STEP").disabled, "the Layer 1 verb bar's rendered STEP button must be visibly disabled once locked out")
-
-	# STRIKE remains a wholly separate concern, gated only by reach/budget --
-	# never by the Movement-trait lockout (already proven in isolation by
-	# tests/unit/presentation/test_verb_bar_lockout.gd's own regression guard;
-	# not re-asserted here since an arbitrary chosen Stride destination may
-	# legitimately move the actor OUT of melee reach of the fixture's enemy,
-	# which would be a reach-driven unavailability, not a lockout regression).
-
-
-## test_p0_1_movement_lockout_resets_at_the_next_turn_boundary_via_the_real_advance_ai_turn_path()
-##
-## Proves the "turn-boundary reset" half of P0-1 through the REAL production
-## call path that actually invokes ActionEconomy.start_of_turn() today --
-## core/application/round_session.gd's advance_ai_turn() (called once per
-## Enemy activation) -- rather than re-deriving the reset via a bare,
-## test-local ActionEconomy.start_of_turn() call (already covered in
-## isolation by tests/unit/core/rules/test_movement_lockout.gd). The
-## interactive player-facing path (MainScene.gd) never itself calls
-## start_of_turn() for the player mid-round (a player's ActionEconomy is
-## granted fresh only at round start, per RunRoundUseCase.begin_round()) --
-## so this suite proves the reset through the ONE actor/path that DOES
-## re-invoke it every activation within a round: the enemy's own repeated
-## turns, driven by the SAME advance_ai_turn() a real MainScene boot uses.
-func test_p0_1_movement_lockout_resets_at_the_next_turn_boundary_via_the_real_advance_ai_turn_path() -> void:
-	var enemy_hex := HexCoordClass.new(0, 0)
-	# Far enough that even TWO full Speed-4 Strides toward it never close
-	# into melee reach -- isolates this test to proving the movement gate's
-	# reset behavior across turns, never depending on a Strike being resolved.
-	var target_hex := HexCoordClass.new(20, 0)
-
-	var enemy: Dictionary = _melee_enemy("goblin", enemy_hex)
-	var titus: Dictionary = _player_target("titus", target_hex, 2000)
-	var entries: Array = [_entry(enemy), _entry(titus)]
-
-	var event_sink_port    = FakeEventSinkPort.new()
-	var random_number_port = ScriptedRandomNumberPort.new([])
-	var rig: Dictionary = _make_use_case(entries, AIClass.new(), random_number_port, event_sink_port)
-	var session = rig["use_case"].begin_round(1, [titus], [enemy])
-
-	assert_eq(session.current_actor().get("name", ""), "Goblin", "fixture assumption: the out-of-reach Enemy must act first")
-	var enemy_action_economy = session.current_action_economy()
-	var budget_before_any_turn: int = enemy_action_economy.get_remaining()
-
-	# ── Enemy turn 1: Strides, tripping the Movement gate. ──────────────────
-	var result_1: Dictionary = session.advance_ai_turn()
-	assert_true(result_1.get("ok", false))
-	var position_after_turn_1 = enemy.get("hex_coord")
-	assert_false(position_after_turn_1.equals(enemy_hex), "fixture assumption: turn 1 must actually Stride the enemy toward the far-off target")
-	assert_false(enemy_action_economy.can_take_movement_action(), "the Movement gate must be tripped immediately after turn 1's Stride")
-	assert_eq(enemy_action_economy.get_remaining(), budget_before_any_turn - 1, "turn 1's Stride must spend exactly one action")
-
-	assert_eq(session.current_actor().get("name", ""), "Titus", "the cursor must advance to the player after the enemy's turn 1")
-	var end_turn_result: Dictionary = session.end_current_turn()
-	assert_true(end_turn_result.get("ok", false))
-
-	# ── Enemy turn 2 (same round, next activation): the gate must have reset,
-	# allowing a SECOND Stride to actually occur -- the observable proof that
-	# advance_ai_turn()'s action_economy.start_of_turn() call reset the
-	# per-turn Movement lockout at this turn boundary. ──────────────────────
-	assert_eq(session.current_actor().get("name", ""), "Goblin", "the cursor must return to the Enemy for its second turn this round")
-	var result_2: Dictionary = session.advance_ai_turn()
-	assert_true(result_2.get("ok", false))
-	var position_after_turn_2 = enemy.get("hex_coord")
 
 	assert_false(
-		position_after_turn_2.equals(position_after_turn_1),
-		"turn 2 must Stride the enemy FURTHER toward the target -- only possible if the Movement gate reset at the turn boundary; "
-		+ "if the lockout had incorrectly persisted, ai.gd's own can_take_movement_action() guard would have refused to move it a second time"
+		instance.round_session.current_actor().get("_is_enemy", true),
+		"fixture assumption: RoundSession._init()'s cursor must settle on the living player combatant (Titus) at seed=42"
 	)
-	assert_false(enemy_action_economy.can_take_movement_action(), "the freshly re-tripped gate must again be locked immediately after turn 2's Stride")
-	assert_eq(enemy_action_economy.get_remaining(), budget_before_any_turn - 2, "turn 2's Stride must spend exactly one more action from the SAME shared round budget")
+
+	var action_economy = instance.round_session.current_action_economy()
+	assert_not_null(action_economy, "fixture assumption: the active actor carries a live domain ActionEconomy")
+	assert_true(
+		action_economy.can_take_action(),
+		"start_of_turn() must already have fired for the initial cursor position (RoundSession._init()) -- can_take_action() must report true before any spend"
+	)
+
+	assert_not_null(instance.verb_bar_view, "MainScene must wire a real $VerbBarView (Layer 1 entry point)")
+	assert_true(instance._verb_registry.is_available("STRIKE"), "STRIKE must be available at the entry point (Skeleton starts adjacent to Titus per the prologue fixture)")
+	assert_true(instance._verb_registry.is_available("STRIDE"), "STRIDE must be available at the entry point (can_take_action() true and a legal Stride destination exists)")
+
+	assert_false(instance.verb_bar_view.get_button("STRIKE").disabled, "the rendered STRIKE button must be enabled at the entry point")
+	assert_false(instance.verb_bar_view.get_button("STRIDE").disabled, "the rendered STRIDE button must be enabled at the entry point")
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Named P0-2 tests: enemy AI decide_action() movement, driven through the
-# real RunRoundUseCase/RoundSession + a REAL HexGridView (mirrors tests/
-# integration/test_ai_token_reposition.gd's established rig).
+# Criterion 2 (exit_point, half 1) -- a player Strike spends the turn's one
+# action, greys Strike/Stride on the real verb bar, and a second same-turn
+# action attempt is rejected with ACTION_ALREADY_USED.
 # ══════════════════════════════════════════════════════════════════════════
 
-func test_p0_2_out_of_reach_enemy_strides_toward_target_but_does_not_strike_same_turn_with_token_repositioned_on_screen() -> void:
-	var enemy_hex := HexCoordClass.new(0, 0)
-	# hex_distance 4 -- out of melee reach initially, but within a single
-	# Speed-4 Stride's reach of landing adjacent (mirrors tests/unit/core/
-	# combat/test_ai_stride_then_strike.gd's own proven fixture exactly).
-	var titus_hex := HexCoordClass.new(4, 0)
+func test_criterion2_player_strike_spends_the_one_action_and_greys_strike_and_stride_on_the_real_verb_bar() -> void:
+	var instance = _boot_main_scene_with_seed(SEED)
+	await get_tree().process_frame
 
-	var goblin: Dictionary = _melee_enemy("goblin", enemy_hex)
-	var titus: Dictionary  = _player_target("titus", titus_hex, 20)
-	var entries: Array = [_entry(goblin), _entry(titus)]
+	assert_true(instance._verb_registry.is_available("STRIKE"), "fixture assumption: STRIKE is available at seed=42 before any spend")
 
-	var hex_grid_view = HexGridViewScene.instantiate()
-	add_child_autofree(hex_grid_view)
-	hex_grid_view.load_combatants([
-		CombatantClass.new("goblin", "Goblin", "Enemy", HexCoordClass.new(enemy_hex.q, enemy_hex.r)),
-		CombatantClass.new("titus", "Titus", "Player", HexCoordClass.new(titus_hex.q, titus_hex.r)),
-	])
+	var action_economy = instance.round_session.current_action_economy()
+	assert_not_null(action_economy, "fixture assumption: the active actor carries a live domain ActionEconomy")
+	assert_true(action_economy.can_take_action(), "fixture assumption: can_take_action() is true before any spend")
 
-	var token_before = hex_grid_view.get_token("goblin")
-	assert_not_null(token_before, "fixture assumption: HexGridView must already carry a token for the Enemy actor")
-	assert_true(token_before.hex_coord.equals(enemy_hex), "fixture assumption: the token starts at the Enemy's pre-Stride hex")
+	var selection: Dictionary = instance.verb_bar_view.press("STRIKE")
+	assert_true(instance.selection_overlay.is_active(), "STRIKE must enter Layer 2 (SelectionOverlay active)")
+	var target_ids: Array = selection.get("candidate_targets", [])
+	assert_true(target_ids.size() > 0, "entering STRIKE's Layer 2 selection must surface at least one in-reach target")
+	var target_id: String = target_ids[0]
 
-	var event_sink_port = FakeEventSinkPort.new()
-	# raw=12 -> roll_total = 12 + strength(2) + proficiency(1) = 15 vs ac=14 -> hit;
-	# damage raw=4 -> 4 + strength(2) = 6 damage.
-	var random_number_port = ScriptedRandomNumberPort.new([12, 4])
-	var rig: Dictionary = _make_use_case(entries, AIClass.new(), random_number_port, event_sink_port)
-	var session = rig["use_case"].begin_round(1, [titus], [goblin])
-	session.set_token_reposition_fn(Callable(hex_grid_view, "move_token"))
+	_resolve_strike_via_full_click_flow(instance, target_id)
 
-	assert_eq(session.current_actor().get("name", ""), "Goblin", "fixture assumption: the out-of-reach Enemy must act first")
-	var hp_before: int = titus.get("hp_current", 0)
+	assert_false(action_economy.can_take_action(), "ActionEconomy.spend_action() must succeed and can_take_action() must report false immediately after the real Strike resolves")
 
-	var result: Dictionary = session.advance_ai_turn()
-	assert_true(result.get("ok", false))
+	assert_false(instance._verb_registry.is_available("STRIKE"), "STRIKE must become unavailable immediately after this turn's one action has been spent")
+	assert_false(instance._verb_registry.is_available("STRIDE"), "STRIDE must become unavailable immediately after this turn's one action has been spent")
+	assert_true(instance.verb_bar_view.get_button("STRIKE").disabled, "the real, rendered STRIKE button must be visibly greyed (disabled) after the Strike resolves")
+	assert_true(instance.verb_bar_view.get_button("STRIDE").disabled, "the real, rendered STRIDE button must be visibly greyed (disabled) after the Strike resolves")
 
-	# The enemy actually Strode (domain state moved and is now adjacent).
-	var moved_hex = goblin.get("hex_coord")
-	assert_false(moved_hex.equals(enemy_hex), "the out-of-reach AI must Stride toward its target rather than standing still")
-
-	# FEAT-003 (ADR-103): the per-turn one-action gate means the Stride
-	# already spent this turn's ONE action -- core/combat/ai.gd still reports
-	# a composite will_strike:true decision (it has no visibility into the
-	# new _action_used gate), but resolve_action_use_case.resolve()'s own
-	# spend_action() call is rejected with ACTION_ALREADY_USED, so no Strike
-	# resolves (no history entry, no damage) in the SAME turn as the Stride.
-	assert_eq(rig["history"].entries.size(), 0, "no Strike may resolve in the same turn as the Stride -- only one action is permitted per turn (FEAT-003)")
-	assert_eq(titus.get("hp_current", -1), hp_before, "the target must be undamaged -- the Strike attempt must not resolve in the same turn as the Stride")
-
-	# The enemy's on-screen token must be visibly repositioned to match.
-	var token_after = hex_grid_view.get_token("goblin")
-	assert_not_null(token_after, "the Enemy's token must still be on record after the AI Stride")
-	assert_true(token_after.hex_coord.equals(moved_hex), "the enemy token's on-screen hex position must update to the AI Stride's destination hex")
+	# A second same-turn action attempt against the SAME live ActionEconomy
+	# `_verb_registry`'s closures already read from must be rejected with the
+	# domain gate's documented ACTION_ALREADY_USED reason code (core/rules/
+	# action_economy.gd's spend_action() contract), checked BEFORE any further
+	# budget mutation.
+	var remaining_before_rejected_attempt: int = action_economy.get_remaining()
+	var second_attempt: Dictionary = action_economy.spend_action({})
+	assert_false(second_attempt.get("success", true), "a second same-turn spend_action() call must be rejected")
+	assert_eq(second_attempt.get("reason", ""), "ACTION_ALREADY_USED", "a second same-turn action attempt must be rejected with reason ACTION_ALREADY_USED")
 	assert_eq(
-		token_after.position, hex_grid_view.axial_to_pixel_with_offset(moved_hex),
-		"the enemy token's rendered screen position must resync to the AI Stride destination's axial-to-pixel projection"
+		action_economy.get_remaining(), remaining_before_rejected_attempt,
+		"a rejected ACTION_ALREADY_USED attempt must never decrement the shared per-round action budget"
 	)
 
 
-func test_p0_2_in_reach_enemy_strikes_only_with_zero_stride_issued_and_token_unmoved() -> void:
-	var enemy_hex := HexCoordClass.new(0, 0)
-	var titus_hex := HexCoordClass.new(1, 0)  # hex_distance 1 -- already adjacent/in melee reach
-
-	var goblin: Dictionary = _melee_enemy("goblin", enemy_hex)
-	var titus: Dictionary  = _player_target("titus", titus_hex, 20)
-	var entries: Array = [_entry(goblin), _entry(titus)]
-
-	var hex_grid_view = HexGridViewScene.instantiate()
-	add_child_autofree(hex_grid_view)
-	hex_grid_view.load_combatants([
-		CombatantClass.new("goblin", "Goblin", "Enemy", HexCoordClass.new(enemy_hex.q, enemy_hex.r)),
-		CombatantClass.new("titus", "Titus", "Player", HexCoordClass.new(titus_hex.q, titus_hex.r)),
-	])
-
-	var token_before = hex_grid_view.get_token("goblin")
-	var position_before = token_before.position
-
-	var event_sink_port = FakeEventSinkPort.new()
-	var random_number_port = ScriptedRandomNumberPort.new([12, 4])
-	var rig: Dictionary = _make_use_case(entries, AIClass.new(), random_number_port, event_sink_port)
-	var session = rig["use_case"].begin_round(1, [titus], [goblin])
-	session.set_token_reposition_fn(Callable(hex_grid_view, "move_token"))
-
-	assert_eq(session.current_actor().get("name", ""), "Goblin", "fixture assumption: the in-reach Enemy must still act first")
-	var enemy_action_economy = session.current_action_economy()
-	var budget_before: int = enemy_action_economy.get_remaining()
-	var hp_before: int = titus.get("hp_current", 0)
-
-	var result: Dictionary = session.advance_ai_turn()
-	assert_true(result.get("ok", false))
-
-	# Zero Stride issued: the domain hex_coord never changed, and the
-	# ActionEconomy's Movement gate was never touched.
-	assert_true(goblin.get("hex_coord").equals(enemy_hex), "an already-in-reach enemy must issue ZERO Stride -- its position must be completely unchanged")
-	assert_true(enemy_action_economy.can_take_movement_action(), "zero Stride issued means the Movement-trait gate must remain untouched (still available)")
-
-	# Exactly one Strike resolved, spending exactly one action (never two).
-	assert_eq(rig["history"].entries.size(), 1, "exactly one Strike must resolve -- no Stride action was taken alongside it")
-	assert_eq(enemy_action_economy.get_remaining(), budget_before - 1, "only the Strike's own action may be spent -- zero additional action for a Stride that never happened")
-	assert_eq(titus.get("hp_current", -1), hp_before - 6, "the immediate Strike must still damage the target for the exact scripted amount")
-
-	# The enemy's on-screen token must remain exactly where it started.
-	var token_after = hex_grid_view.get_token("goblin")
-	assert_true(token_after.hex_coord.equals(enemy_hex), "the enemy token's on-screen hex must be completely unchanged when zero Stride was issued")
-	assert_eq(token_after.position, position_before, "the enemy token's rendered screen position must be completely unchanged when zero Stride was issued")
-
-
 # ══════════════════════════════════════════════════════════════════════════
-# Action-economy/lockout compliance across multiple simulated turns.
+# Criterion 2 (exit_point, half 2) -- the AC a Strike resolves against the
+# Skeleton with is sourced from data/enemies/skeleton.tres via EnemyResource,
+# never a hard-coded constant.
 # ══════════════════════════════════════════════════════════════════════════
 
-## Extends the turn-boundary-reset proof above across several MORE
-## activations (four full enemy turns within one round), asserting the
-## shared per-round action budget decrements by EXACTLY one per Stride with
-## no drift/double-spend, and that the Movement gate is correctly
-## tripped-then-reset on every single cycle -- a compliance guard against
-## any regression that might only manifest after several repeated
-## activations (e.g. an accidental double-decrement or a gate that fails to
-## reset after the second-or-later turn).
-func test_action_economy_and_lockout_compliance_across_multiple_simulated_enemy_turns() -> void:
-	var enemy_hex := HexCoordClass.new(0, 0)
-	var target_hex := HexCoordClass.new(30, 0)  # far enough that no number of Strides within budget ever closes into reach
+func test_criterion2_strike_against_the_skeleton_uses_the_ac_sourced_from_its_own_enemy_resource() -> void:
+	# Load the SAME .tres fixture MainScene.gd's own _build_enemy_combatant()
+	# reads at boot, and read its `ac` field fresh -- never assert against a
+	# bare literal `14` alone, so this test fails loudly if the resource's
+	# authored value ever changes instead of silently passing against a
+	# stale hard-coded expectation.
+	var skeleton_resource = ResourceLoader.load(SKELETON_TRES_PATH)
+	assert_not_null(skeleton_resource, "fixture assumption: skeleton.tres must load as an EnemyResource")
+	var expected_ac: int = skeleton_resource.ac
+	assert_eq(expected_ac, 14, "fixture assumption: skeleton.tres' own authored ac field is 14")
 
-	var enemy: Dictionary = _melee_enemy("goblin", enemy_hex)
-	var titus: Dictionary = _player_target("titus", target_hex, 2000)
-	var entries: Array = [_entry(enemy), _entry(titus)]
+	var instance = _boot_main_scene_with_seed(SEED)
+	await get_tree().process_frame
 
-	var event_sink_port    = FakeEventSinkPort.new()
-	var random_number_port = ScriptedRandomNumberPort.new([])
-	var rig: Dictionary = _make_use_case(entries, AIClass.new(), random_number_port, event_sink_port)
-	var session = rig["use_case"].begin_round(1, [titus], [enemy])
+	var selection: Dictionary = instance.verb_bar_view.press("STRIKE")
+	var target_ids: Array = selection.get("candidate_targets", [])
+	assert_true(target_ids.size() > 0, "fixture assumption: the Skeleton is in reach at the entry point")
+	var target_id: String = target_ids[0]
 
-	var enemy_action_economy = session.current_action_economy()
-	var expected_remaining: int = enemy_action_economy.get_remaining()
+	_resolve_strike_via_full_click_flow(instance, target_id)
 
-	var cycles: int = 0
-	var enemy_turns_taken: int = 0
-
-	while enemy_turns_taken < 4 and cycles < _MAX_CYCLES:
-		cycles += 1
-		if session.current_actor().get("name", "") != "Goblin":
-			session.end_current_turn()
-			continue
-
-		var before_this_turn_position = enemy.get("hex_coord")
-		var result: Dictionary = session.advance_ai_turn()
-		assert_true(result.get("ok", false), "cycle %d: advance_ai_turn() must never fail/stall (CWE-835 guard)" % cycles)
-
-		enemy_turns_taken += 1
-		expected_remaining -= 1
-
-		assert_eq(
-			enemy_action_economy.get_remaining(), expected_remaining,
-			"enemy turn %d: the shared per-round action budget must decrement by EXACTLY one per Stride, with no drift across repeated activations" % enemy_turns_taken
-		)
-		assert_false(
-			enemy_action_economy.can_take_movement_action(),
-			"enemy turn %d: the Movement gate must be tripped immediately after this turn's Stride" % enemy_turns_taken
-		)
-		assert_false(
-			enemy.get("hex_coord").equals(before_this_turn_position),
-			"enemy turn %d: each activation must actually Stride further -- proving the gate reset correctly on every single prior turn boundary" % enemy_turns_taken
-		)
-
-	assert_eq(enemy_turns_taken, 4, "fixture assumption: exactly four enemy activations must have been driven within the safety bound")
+	var attack_event = _last_attack_event_by(instance, "Titus")
+	assert_not_null(attack_event, "resolving the player's Strike must emit a real AttackEvent via the SAME EventSinkPort broadcast every other round event uses")
 	assert_eq(
-		enemy_action_economy.get_remaining(), ActionEconomyClass.MAX_BUDGET - 4,
-		"after four Strides, the shared round budget must reflect EXACTLY four spent actions -- no double-spend, no under-spend"
+		attack_event.defense_value, expected_ac,
+		"the Strike must roll against the Skeleton's AC as read DIRECTLY off skeleton.tres via EnemyResource "
+		+ "(MainScene.gd's _build_enemy_combatant(), FEAT-008) -- not a hard-coded fallback constant"
 	)
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Determinism across repeated pinned-seed runs (zero flakiness).
+# Criterion 3 -- the cursor advances through a real enemy activation and back
+# -> Strike/Stride re-enable for the returning current actor.
 # ══════════════════════════════════════════════════════════════════════════
 
-## Extends tests/regression/test_seed_determinism.gd's two-boot diff to
-## _DETERMINISM_RUN_COUNT (5) independent, freshly-instantiated real
-## MainScene.tscn boots at the SAME pinned seed=42 -- proving the full
-## interactive steel thread's event sequence at boot is byte-identical
-## across many repeated runs, not merely two (the design notes'/test
-## criteria's "zero flakiness observed across multiple consecutive CI runs
-## at the pinned seed").
-func test_ai_decision_and_event_sequence_determinism_across_repeated_pinned_seed_mainscene_boots() -> void:
-	var logs: Array = []
+func test_criterion3_cursor_advances_through_an_enemy_turn_and_back_reenabling_strike_and_stride() -> void:
+	var instance = _boot_main_scene_with_seed(SEED)
+	await get_tree().process_frame
 
-	for i in range(_DETERMINISM_RUN_COUNT):
-		var instance = _boot_main_scene_with_seed(SEED)
-		await get_tree().process_frame
-		assert_eq(instance.resolved_seed, SEED, "run %d: seed_override must resolve to the pinned seed" % i)
-		logs.append(instance.event_sink.log)
+	assert_false(instance.round_session.current_actor().get("_is_enemy", true), "fixture assumption: Titus acts first at seed=42")
+	assert_true(instance._verb_registry.is_available("STRIKE"), "fixture assumption: STRIKE is available at the entry point")
+	assert_true(instance._verb_registry.is_available("STRIDE"), "fixture assumption: STRIDE is available at the entry point")
 
-	for i in range(1, logs.size()):
-		assert_eq(
-			logs[i].size(), logs[0].size(),
-			"run %d: every independent boot at the pinned seed must emit the same NUMBER of events as run 0" % i
-		)
-		var count: int = mini(logs[0].size(), logs[i].size())
-		for j in range(count):
-			assert_eq(
-				logs[i][j].to_dict(), logs[0][j].to_dict(),
-				"run %d: event[%d] must be byte-identical to run 0's event[%d] -- zero flakiness across repeated pinned-seed runs" % [i, j, j]
-			)
+	# End the player's turn WITHOUT acting (US-010: End Turn is ALWAYS
+	# available) -- the SAME real $EndTurnControl.press() the verb bar's
+	# END_TURN entry itself delegates to. MainScene's own turn_ended wiring
+	# re-invokes the real $TurnController, which auto-resolves the Skeleton's
+	# turn via RoundSession.advance_ai_turn() (it starts adjacent to Titus, so
+	# it Strikes immediately) before the cursor returns to Titus for his
+	# SECOND turn this round.
+	var end_turn_result: Dictionary = instance.end_turn_control.press()
+	assert_true(end_turn_result.get("ok", false), "ending the player's turn (no action taken) must succeed")
+
+	assert_false(instance.round_session.is_round_over(), "fixture assumption: neither combatant is defeated by this exchange -- the round must still be ongoing")
+	assert_false(
+		instance.round_session.current_actor().get("_is_enemy", true),
+		"the cursor must have advanced through the Skeleton's own turn and landed back on the living player combatant (Titus)"
+	)
+
+	var action_economy = instance.round_session.current_action_economy()
+	assert_not_null(action_economy, "fixture assumption: the returning current actor carries a live domain ActionEconomy")
+	assert_true(
+		action_economy.can_take_action(),
+		"the returning actor's NEW turn must have had start_of_turn() invoked by the SAME single cursor-advance call site (RoundSession._advance_cursor(), FEAT-004) -- can_take_action() must report true again"
+	)
+
+	assert_true(instance._verb_registry.is_available("STRIKE"), "STRIKE must re-enable for the returning current actor's fresh turn")
+	assert_true(instance._verb_registry.is_available("STRIDE"), "STRIDE must re-enable for the returning current actor's fresh turn")
+	assert_false(instance.verb_bar_view.get_button("STRIKE").disabled, "the real, rendered STRIKE button must be visibly re-enabled for the returning current actor")
+	assert_false(instance.verb_bar_view.get_button("STRIDE").disabled, "the real, rendered STRIDE button must be visibly re-enabled for the returning current actor")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Criterion 4 -- the AI-controlled Skeleton takes EXACTLY ONE action per
+# turn (Strike if in reach, else Stride -- never both), driven through the
+# real RoundSession.advance_ai_turn() seam.
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_criterion4_ai_controlled_skeleton_strikes_immediately_with_exactly_one_action_when_already_in_reach() -> void:
+	var instance = _boot_main_scene_with_seed(SEED)
+	await get_tree().process_frame
+
+	# End the player's turn without acting so the cursor lands on the
+	# Skeleton, which starts adjacent to Titus per the prologue fixture --
+	# the "Strike if in reach" branch.
+	var end_turn_result: Dictionary = instance.end_turn_control.press()
+	assert_true(end_turn_result.get("ok", false), "ending the player's turn (no action taken) must succeed")
+
+	var attack_event = _last_attack_event_by(instance, "Skeleton")
+	assert_not_null(attack_event, "the already-in-reach Skeleton must Strike on its own turn -- no AttackEvent authored by the Skeleton was found")
+
+	# Exactly one action was spent this turn -- never a composite
+	# Stride-then-Strike (FEAT-007 removed that composite path).
+	assert_eq(
+		attack_event.actor_updated_action_budget.get("remaining", -1), ActionEconomyClass.MAX_BUDGET - 1,
+		"the Skeleton's own ActionEconomy must reflect EXACTLY one action spent this turn (the Strike itself), never two"
+	)
+
+
+func test_criterion4_ai_controlled_skeleton_strides_toward_target_and_does_not_strike_the_same_turn_when_out_of_reach() -> void:
+	var instance = _boot_main_scene_with_seed(SEED)
+	await get_tree().process_frame
+
+	assert_eq(instance._enemies.size(), 1, "fixture assumption: the prologue encounter has exactly one enemy")
+	var enemy: Dictionary = instance._enemies[0]
+	var enemy_id: String = enemy.get("combatant_id", "")
+	assert_ne(enemy_id, "", "fixture assumption: the enemy combatant carries a non-empty combatant_id")
+
+	var player: Dictionary = instance._party[0]
+	var player_hex = player.get("hex_coord")
+	assert_not_null(player_hex, "fixture assumption: the player combatant carries positional hex_coord data")
+
+	# Relocate the Skeleton out of melee reach, but within a single Stride's
+	# reach (Movement.DEFAULT_SPEED == 4 hexes) -- mirrors the SAME
+	# "hex_coord" Dictionary-key mutation point core/rules/movement.gd's own
+	# _set_hex() writes, then resyncs the on-screen token via the SAME
+	# hex_grid_view.move_token() call the AI-Stride path itself invokes, so
+	# domain state and the rendered token agree before the real AI turn below.
+	var far_hex := HexCoordClass.new(player_hex.q + 3, player_hex.r)
+	enemy["hex_coord"] = far_hex
+	instance.hex_grid_view.move_token(enemy_id, far_hex)
+
+	var attack_events_before: int = instance.event_sink.log.filter(
+		func(e): return e is RoundEventsClass.AttackEvent and e.attacker_name == "Skeleton"
+	).size()
+
+	var end_turn_result: Dictionary = instance.end_turn_control.press()
+	assert_true(end_turn_result.get("ok", false), "ending the player's turn (no action taken) must succeed")
+
+	# The Skeleton must have Strode toward Titus (its hex position changed)...
+	assert_false(enemy.get("hex_coord").equals(far_hex), "the out-of-reach Skeleton must Stride toward Titus rather than standing still")
+
+	# ...and issued ZERO Strike in the SAME turn as the Stride (FEAT-007: one
+	# action per decision, never a composite).
+	var attack_events_after: int = instance.event_sink.log.filter(
+		func(e): return e is RoundEventsClass.AttackEvent and e.attacker_name == "Skeleton"
+	).size()
+	assert_eq(attack_events_after, attack_events_before, "no Strike may resolve in the same turn as the Stride -- the AI issues exactly ONE action per decision")
+
+	var enemy_action_economy = null
+	for entry in instance.round_session._entries:
+		if entry.get("combatant", {}).get("combatant_id", "") == enemy_id:
+			enemy_action_economy = entry.get("action_economy")
+	assert_not_null(enemy_action_economy, "fixture assumption: the Skeleton carries a live domain ActionEconomy")
+	assert_false(enemy_action_economy.can_take_movement_action(), "the Skeleton's Stride must trip the per-turn Movement-trait gate")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Criterion 5 -- a headless MainScene boot completes without error with the
+# full wiring (verb-bar callbacks, RoundSession, ActionEconomy, AI,
+# EnemyResource) active. In-process complement to tests/integration/
+# test_headless_boot.gd's exhaustive real-subprocess console-output gate --
+# mirrors this codebase's established "every composition-root field resolves
+# non-null after a real frame" proxy (tests/infrastructure/
+# test_mainscene_headless_boot.gd, tests/gut/test_smoke_boot.gd) rather than
+# re-deriving a second subprocess-spawning mechanism.
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_criterion5_headless_mainscene_boot_completes_without_error_with_the_full_steel_thread_wiring_active() -> void:
+	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
+	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
+	if packed == null:
+		return
+
+	var instance = packed.instantiate()
+	assert_not_null(instance, "MainScene.tscn must instantiate with no manual setup")
+	if instance == null:
+		return
+
+	instance.seed_override = SEED
+	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	# RoundSession / ActionEconomy.
+	assert_not_null(instance.round_session, "MainScene.round_session must be a real RoundSession after first frame")
+	assert_false(instance.round_session.is_round_over(), "the freshly-begun RoundSession must not already be over with no player input")
+	assert_not_null(instance.round_session.current_action_economy(), "the active actor must carry a live domain ActionEconomy after boot")
+
+	# Verb-bar callbacks (the entry_point's Layer 1 surface).
+	assert_not_null(instance.verb_bar_view, "MainScene.verb_bar_view must be wired to a real $VerbBarView node")
+	assert_not_null(instance._verb_registry, "MainScene._verb_registry must be wired -- Strike/Step/Stride/End Turn are driven solely through it")
+	assert_gt(instance.verb_bar_view.get_button_count(), 0, "the verb bar must render at least one verb button after boot")
+	assert_true(typeof(instance._verb_registry.is_available("STRIKE")) == TYPE_BOOL, "is_available('STRIKE') must resolve to a bool without throwing")
+	assert_true(typeof(instance._verb_registry.is_available("STRIDE")) == TYPE_BOOL, "is_available('STRIDE') must resolve to a bool without throwing")
+
+	# AI / EnemyResource-sourced defenses.
+	assert_eq(instance._enemies.size(), 1, "fixture assumption: the prologue encounter has exactly one EnemyResource-backed enemy")
+	assert_eq(instance._enemies[0].get("ac", -1), 14, "the booted Skeleton combatant's AC must already be sourced from its EnemyResource (skeleton.tres) at boot, not a hard-coded constant")
+
+	# Driving one full turn cycle (through the real AI wiring) must not throw.
+	var end_turn_result: Dictionary = instance.end_turn_control.press()
+	assert_true(typeof(end_turn_result) == TYPE_DICTIONARY, "driving one full player-end-turn -> AI-turn cycle through the real composition root must not throw")
