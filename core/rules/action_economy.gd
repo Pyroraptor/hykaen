@@ -12,6 +12,14 @@
 ##                    persists across turns until the round boundary
 ##   _movement_used — per-TURN flag: true once a Movement action or
 ##                    use_step() is used this turn; cleared by start_of_turn()
+##   _action_used   — per-TURN flag (ADR-103 / FEAT-003): true once
+##                    spend_action() has succeeded this turn; cleared by
+##                    start_of_turn() and _reset_round_state(). Enforces the
+##                    "exactly one action per turn" business rule (FR-002):
+##                    a second in-turn spend_action() call is rejected with
+##                    reason ACTION_ALREADY_USED BEFORE any budget mutation.
+##                    spend_reaction() and Step (use_step()/mark_movement_used())
+##                    are unaffected by this flag.
 ##   _dazed         — persists across rounds; gates action combining
 ##
 ## Usage example:
@@ -29,13 +37,15 @@ const MAX_BUDGET: int = 7
 var _budget: int = MAX_BUDGET
 var _is_spent: bool = false
 var _movement_used: bool = false
+var _action_used: bool = false
 var _dazed: bool = false
 
 
 # ── Turn lifecycle ─────────────────────────────────────────────────────────────
 
 ## start_of_turn(combatant) — clears ONLY per-TURN flags (TurnFlags:
-## _movement_used). Call once at the start of each combatant's turn.
+## _movement_used, _action_used — ADR-103 / FEAT-003). Call once at the
+## start of each combatant's turn.
 ##
 ## CR-001 AC-1: the 7-action budget is a per-ROUND resource, not a per-turn
 ## one. start_of_turn() therefore must NOT refill _budget, must NOT clear
@@ -55,6 +65,7 @@ func start_of_turn(combatant = self) -> void:
 		push_error("start_of_turn called on null combatant")
 		return
 	_movement_used = false
+	_action_used = false
 
 
 ## start_of_round(combatant) / end_of_round(combatant) — the SOLE operations
@@ -93,6 +104,7 @@ func _reset_round_state() -> void:
 	_budget = MAX_BUDGET
 	_is_spent = false
 	_movement_used = false
+	_action_used = false
 
 
 # ── Action spending ────────────────────────────────────────────────────────────
@@ -124,9 +136,32 @@ func _reset_round_state() -> void:
 ##                                                 no further decrement occurs
 ##   {success: false, error: "Movement already used",
 ##    ok: false, reason: "MOVEMENT_ALREADY_USED"} — movement already used
+##   {success: false, error: "Action already used",
+##    ok: false, reason: "ACTION_ALREADY_USED"}   — ADR-103 / FEAT-003: a
+##                                                   spend_action() has
+##                                                   already succeeded this
+##                                                   turn; this gate is
+##                                                   checked BEFORE any
+##                                                   budget mutation, so a
+##                                                   rejected second call
+##                                                   never decrements
+##                                                   actions_remaining
+##                                                   (FR-002). start_of_turn()
+##                                                   clears this gate for the
+##                                                   combatant's next turn.
+##                                                   spend_reaction() is
+##                                                   unaffected by this gate.
 func spend_action(action_metadata: Dictionary) -> Dictionary:
 	if _is_spent:
 		return _already_spent_result()
+
+	if _action_used:
+		return {
+			"success": false,
+			"error": "Action already used",
+			"ok": false,
+			"reason": "ACTION_ALREADY_USED",
+		}
 
 	var traits: Array = action_metadata.get("traits", [])
 	if traits.has("Movement") and _movement_used:
@@ -138,6 +173,7 @@ func spend_action(action_metadata: Dictionary) -> Dictionary:
 		}
 
 	_budget -= 1
+	_action_used = true
 
 	# Movement trait gates subsequent Movement actions this turn.
 	if traits.has("Movement"):

@@ -170,7 +170,13 @@ func test_status_panel_view_spent_value_matches_the_domain_action_economys_spent
 	# -> StatusPanelView.on_attack_event() -> update_action_budget(), see
 	# status_panel_view.gd) would push, proving the projection (not a second
 	# recomputation) is what the panel displays.
+	# FEAT-003 (ADR-103): spend_action() now permits only one success per
+	# turn, so draining the remaining budget must simulate a fresh turn
+	# boundary (start_of_turn()) before each further spend -- exactly the
+	# AC-4 interleaved-turns model the shared per-round budget already
+	# documents, not a same-turn double-spend.
 	while not action_economy.is_spent():
+		action_economy.start_of_turn()
 		action_economy.spend_action({"name": "Strike", "traits": []})
 	assert_true(action_economy.is_spent(), "sanity check: the domain ActionEconomy must report is_spent() once its budget reaches 0")
 

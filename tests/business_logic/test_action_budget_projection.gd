@@ -177,7 +177,11 @@ func test_action_budget_remaining_and_spent_true_after_seventh_strike() -> void:
 
 	var action_economy = ActionEconomyClass.new()
 	var last_event = null
+	# FEAT-003 (ADR-103): only one spend_action() succeeds per turn, so each
+	# of these 7 Strikes simulates its own turn boundary (start_of_turn())
+	# against the same shared per-round budget (AC-4 interleaving).
 	for i in range(7):
+		action_economy.start_of_turn()
 		var rng_port   = ScriptedRandomNumberPort.new([12, 4])
 		var event_sink = FakeEventSinkPort.new()
 		var history    = FakeRoundHistoryPort.new()

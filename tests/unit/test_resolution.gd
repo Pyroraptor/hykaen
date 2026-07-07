@@ -1575,7 +1575,11 @@ func test_active_defense_not_applied_when_budget_exhausted() -> void:
 	## When the action economy is Spent, active defense cannot trigger.
 	## Exhaust budget (7 actions), then attempt Dodge → Budget=0, dodge not applied.
 	var ae = _make_full_ae()
+	# FEAT-003 (ADR-103): only one spend_action() succeeds per turn, so
+	# exhausting the round budget requires a fresh start_of_turn() before
+	# each spend (AC-4 interleaving simulated across MAX_BUDGET turns).
 	for _i in range(7):
+		ae.start_of_turn()
 		ae.spend_action({})
 	assert_true(ae.is_spent(), "AE must be spent before this test")
 

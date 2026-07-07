@@ -754,31 +754,43 @@ func test_budget_and_is_spent_persist_across_turns_then_reset_once_at_round_boun
 	assert_false(ae.is_spent(),
 		"CR-001 AC-2: start_of_round() clears is_spent at the round boundary")
 
-	# ── Turn 1 of the round ────────────────────────────────────────────────
+	# ── Turns 1-2 of the round ──────────────────────────────────────────────
+	# FEAT-003 (ADR-103): only one spend_action() succeeds per turn, so each
+	# individual spend now simulates its OWN turn boundary (start_of_turn())
+	# against the SAME shared per-round budget — the AC-4 interleaving
+	# scenario this suite already documents, just at finer turn granularity.
 	ae.start_of_turn()
 	ae.spend_action({})
+	ae.start_of_turn()
 	ae.spend_action({})
 	assert_eq(ae.get_remaining(), 5,
 		"sanity check: 2 spends from budget=7 leaves 5")
 	assert_false(ae.is_spent(), "is_spent must remain false with budget remaining")
 
-	# ── Turn 2: this combatant's turn comes back around within the SAME
+	# ── Turn 3: this combatant's turn comes back around within the SAME
 	# round (AC-4 interleaving) — start_of_turn() must NOT refill. ─────────
 	ae.start_of_turn()
 	assert_eq(ae.get_remaining(), 5,
-		"CR-001 AC-1: budget_remaining must persist unchanged across the combatant's 2nd turn in the same round (start_of_turn() is a per-turn-flag-only no-op w.r.t. budget)")
+		"CR-001 AC-1: budget_remaining must persist unchanged across the combatant's 3rd turn in the same round (start_of_turn() is a per-turn-flag-only no-op w.r.t. budget)")
+
+	# ── Turns 3-5: 3 more single-action turns. ──────────────────────────────
 	ae.spend_action({})
+	ae.start_of_turn()
 	ae.spend_action({})
+	ae.start_of_turn()
 	ae.spend_action({})
 	assert_eq(ae.get_remaining(), 2,
 		"sanity check: 3 more spends from 5 leaves 2")
 
-	# ── Turn 3: a third pass through the round — budget keeps persisting. ──
+	# ── Turn 6: a further pass through the round — budget keeps persisting. ─
 	ae.start_of_turn()
 	assert_eq(ae.get_remaining(), 2,
-		"CR-001 AC-1: budget_remaining must persist unchanged across the combatant's 3rd turn in the same round")
+		"CR-001 AC-1: budget_remaining must persist unchanged across the combatant's 6th turn in the same round")
 	assert_false(ae.is_spent(), "is_spent must still be false with budget_remaining=2")
+
+	# ── Turns 6-7: final 2 single-action turns exhaust the round budget. ────
 	ae.spend_action({})
+	ae.start_of_turn()
 	ae.spend_action({})
 	assert_eq(ae.get_remaining(), 0,
 		"sanity check: final 2 spends exhaust the 7-action round budget")

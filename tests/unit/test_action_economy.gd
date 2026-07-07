@@ -68,8 +68,12 @@ func test_fresh_round_has_budget_7_and_not_spent_via_start_of_round_not_start_of
 	# Spend the entire per-ROUND budget, then prove start_of_turn() within
 	# the SAME round does NOT refill it — the corrected replacement for the
 	# old (incorrect) assumption that every start_of_turn() call implied a
-	# fresh budget.
+	# fresh budget. FEAT-003 (ADR-103): each spend_action() now succeeds only
+	# once per turn, so exhausting the round budget simulates this
+	# combatant's turn coming around 7 times within the round (AC-4
+	# interleaving), each via its own start_of_turn().
 	for _i in range(7):
+		ae.start_of_turn()
 		ae.spend_action({})
 	assert_true(ae.is_spent(), "sanity check: budget must be exhausted mid-round before the start_of_turn() probe")
 
@@ -87,13 +91,19 @@ func test_fresh_round_has_budget_7_and_not_spent_via_start_of_round_not_start_of
 # ── Criterion 2: 7 spend_action calls exhaust budget ──────────────────────────
 
 func test_seven_spend_actions_exhaust_budget() -> void:
+	# FEAT-003 (ADR-103): only one spend_action() succeeds per turn, so
+	# exhausting the 7-action round budget requires simulating 7 separate
+	# turns for this combatant within the same round (start_of_turn() before
+	# each spend), matching the AC-4 interleaved-turns model.
 	var ae = _make_ae()
 	var result: Dictionary
 	for i in range(6):
+		ae.start_of_turn()
 		result = ae.spend_action({})
 		assert_true(result["success"], "action %d of 7 must succeed" % (i + 1))
 		assert_false(ae.is_spent(), "is_spent must be false after action %d of 7" % (i + 1))
 	# 7th action — exhausts budget
+	ae.start_of_turn()
 	result = ae.spend_action({})
 	assert_true(result["success"], "7th spend_action({}) must succeed")
 	assert_eq(result["remaining"], 0, "remaining must be 0 after 7th action")
@@ -105,6 +115,7 @@ func test_seven_spend_actions_exhaust_budget() -> void:
 func test_spend_action_when_spent_returns_spent_error() -> void:
 	var ae = _make_ae()
 	for _i in range(7):
+		ae.start_of_turn()
 		ae.spend_action({})
 	assert_true(ae.is_spent(), "is_spent must be true before over-spend test")
 	var result: Dictionary = ae.spend_action({})
@@ -128,6 +139,7 @@ func test_spend_reaction_decrements_budget_to_6() -> void:
 func test_end_of_round_resets_after_exhaustion() -> void:
 	var ae = _make_ae()
 	for _i in range(7):
+		ae.start_of_turn()
 		ae.spend_action({})
 	assert_true(ae.is_spent(), "is_spent must be true before end_of_round()")
 	ae.end_of_round()
@@ -152,15 +164,19 @@ func test_use_step_then_movement_action_fails() -> void:
 # ── Criterion 7: First Movement succeeds; second Movement fails ───────────────
 
 func test_first_movement_succeeds_second_movement_fails() -> void:
+	# FEAT-003 (ADR-103): a second spend_action() call in the SAME turn is
+	# now rejected by the one-action-per-turn gate (ACTION_ALREADY_USED)
+	# before the pre-existing Movement-trait gate is ever evaluated -- the
+	# ONLY way to still observe "Movement already used" from spend_action()
+	# is when a PRIOR Step (mark_movement_used(), which never touches
+	# _action_used) already tripped the Movement gate before this turn's
+	# first-and-only spend_action() call.
 	var ae = _make_ae()
-	# First Movement action — no prior use_step
-	var first: Dictionary = ae.spend_action({"traits": ["Movement"]})
-	assert_true(first["success"], "first Movement spend_action must succeed")
-	# Second Movement action — _movement_used is now true
-	var second: Dictionary = ae.spend_action({"traits": ["Movement"]})
-	assert_false(second["success"], "second Movement spend_action must fail")
+	ae.mark_movement_used()  # simulates a prior Step this same turn
+	var result: Dictionary = ae.spend_action({"traits": ["Movement"]})
+	assert_false(result["success"], "Movement spend_action must fail when a prior Step already tripped the Movement gate")
 	assert_eq(
-		second["error"],
+		result["error"],
 		"Movement already used",
 		"error must be 'Movement already used'"
 	)
@@ -294,8 +310,11 @@ func test_dazed_persists_across_end_of_round() -> void:
 
 func test_spend_reaction_exhausting_sets_is_spent() -> void:
 	var ae = _make_ae()
-	# Spend 6 actions first
+	# Spend 6 actions first. FEAT-003 (ADR-103): only one spend_action()
+	# succeeds per turn, so each simulates its own turn boundary (AC-4
+	# interleaving).
 	for _i in range(6):
+		ae.start_of_turn()
 		ae.spend_action({})
 	# Spend the last one via reaction
 	var result: Dictionary = ae.spend_reaction()
@@ -344,7 +363,11 @@ func test_start_of_turn_does_not_modify_budget_remaining() -> void:
 func test_start_of_turn_does_not_modify_is_spent() -> void:
 	var ae = ActionEconomyClass.new()
 	ae.start_of_turn()
+	# FEAT-003 (ADR-103): only one spend_action() succeeds per turn, so
+	# exhausting the round budget requires a fresh start_of_turn() before
+	# each spend (AC-4 interleaving simulated across MAX_BUDGET turns).
 	for _i in range(7):
+		ae.start_of_turn()
 		ae.spend_action({})
 	assert_true(ae.is_spent(), "sanity check: is_spent must be true after exhausting the budget")
 	ae.start_of_turn()
@@ -416,6 +439,7 @@ func test_start_of_round_sets_budget_to_max_and_clears_is_spent() -> void:
 	var ae = ActionEconomyClass.new()
 	ae.start_of_turn()
 	for _i in range(7):
+		ae.start_of_turn()
 		ae.spend_action({})
 	assert_true(ae.is_spent(), "sanity check: is_spent must be true before start_of_round()")
 	ae.start_of_round()
@@ -427,6 +451,7 @@ func test_end_of_round_sets_budget_to_max_and_clears_is_spent() -> void:
 	var ae = ActionEconomyClass.new()
 	ae.start_of_turn()
 	for _i in range(7):
+		ae.start_of_turn()
 		ae.spend_action({})
 	assert_true(ae.is_spent(), "sanity check: is_spent must be true before end_of_round()")
 	ae.end_of_round()
@@ -529,6 +554,7 @@ func test_start_of_round_null_combatant_guard_no_ops() -> void:
 	var ae = ActionEconomyClass.new()
 	ae.start_of_turn()
 	for _i in range(7):
+		ae.start_of_turn()
 		ae.spend_action({})
 	assert_true(ae.is_spent(), "sanity check: is_spent must be true before null-guard call")
 
@@ -549,6 +575,7 @@ func test_end_of_round_null_combatant_guard_no_ops() -> void:
 	var ae = ActionEconomyClass.new()
 	ae.start_of_turn()
 	for _i in range(7):
+		ae.start_of_turn()
 		ae.spend_action({})
 	assert_true(ae.is_spent(), "sanity check: is_spent must be true before null-guard call")
 
@@ -596,6 +623,7 @@ func test_spend_reaction_success_returns_ok_true_and_budget_remaining() -> void:
 func test_spend_action_already_spent_returns_ok_false_reason_already_spent() -> void:
 	var ae = _make_ae()
 	for _i in range(7):
+		ae.start_of_turn()
 		ae.spend_action({})
 	assert_true(ae.is_spent(), "sanity check: combatant must be Spent before over-spend")
 	var result: Dictionary = ae.spend_action({})
@@ -610,6 +638,7 @@ func test_spend_action_already_spent_returns_ok_false_reason_already_spent() -> 
 func test_spend_reaction_already_spent_returns_ok_false_reason_already_spent() -> void:
 	var ae = _make_ae()
 	for _i in range(7):
+		ae.start_of_turn()
 		ae.spend_action({})
 	assert_true(ae.is_spent(), "sanity check: combatant must be Spent before over-spend")
 	var result: Dictionary = ae.spend_reaction()
@@ -624,6 +653,7 @@ func test_spend_reaction_already_spent_returns_ok_false_reason_already_spent() -
 func test_already_spent_combatant_does_not_decrement_further_via_action_or_reaction() -> void:
 	var ae = _make_ae()
 	for _i in range(7):
+		ae.start_of_turn()
 		ae.spend_action({})
 	assert_eq(ae.get_remaining(), 0, "sanity check: budget must be 0 before over-spend attempts")
 
@@ -637,9 +667,13 @@ func test_already_spent_combatant_does_not_decrement_further_via_action_or_react
 
 
 func test_spend_action_and_spend_reaction_share_same_budget_counter() -> void:
+	# FEAT-003 (ADR-103): only one spend_action() succeeds per turn, but
+	# spend_reaction() is unaffected by the gate, so the SECOND spend_action()
+	# below needs its own fresh turn boundary.
 	var ae = _make_ae()
 	ae.spend_action({})
 	ae.spend_reaction()
+	ae.start_of_turn()
 	ae.spend_action({})
 	assert_eq(
 		ae.get_remaining(),
@@ -651,13 +685,19 @@ func test_spend_action_and_spend_reaction_share_same_budget_counter() -> void:
 func test_budget_reaching_zero_via_mixed_action_reaction_calls_sets_is_spent() -> void:
 	var ae = _make_ae()
 	# Mix of 4 actions and 3 reactions = 7 total spends, in interleaved order.
+	# FEAT-003 (ADR-103): only one spend_action() succeeds per turn (never
+	# spend_reaction()), so each spend_action() below gets its own fresh
+	# turn boundary.
 	ae.spend_action({})
 	ae.spend_reaction()
+	ae.start_of_turn()
 	ae.spend_action({})
 	ae.spend_reaction()
+	ae.start_of_turn()
 	ae.spend_action({})
 	ae.spend_reaction()
 	assert_false(ae.is_spent(), "is_spent must be false with budget_remaining==1")
+	ae.start_of_turn()
 	var result: Dictionary = ae.spend_action({})
 	assert_true(result.get("ok"), "final mixed spend must succeed")
 	assert_eq(result.get("budget_remaining"), 0, "budget_remaining must be 0 after 7 mixed spends")

@@ -115,7 +115,11 @@ func _make_use_case(scripted_values: Array) -> Dictionary:
 func test_already_spent_action_economy_returns_unresolved_with_no_side_effects() -> void:
 	var ae = ActionEconomyClass.new()
 	ae.start_of_round()
+	# FEAT-003 (ADR-103): only one spend_action() succeeds per turn, so
+	# exhausting the round budget requires a fresh start_of_turn() before
+	# each spend (AC-4 interleaving simulated across MAX_BUDGET turns).
 	for _i in range(ActionEconomyClass.MAX_BUDGET):
+		ae.start_of_turn()
 		ae.spend_action({})
 	assert_true(ae.is_spent(), "sanity: ActionEconomy must be Spent after MAX_BUDGET spends")
 
@@ -290,6 +294,10 @@ func test_round_history_entry_records_post_spend_budget_and_cycle_index() -> voi
 	var ae = ActionEconomyClass.new()
 	ae.start_of_round()
 	ae.spend_action({})  # pre-spend once: budget 7 -> 6
+	# FEAT-003 (ADR-103): the upcoming resolve() call below spends its own
+	# action, so it needs a fresh turn boundary now that the pre-spend above
+	# already used this turn's one action.
+	ae.start_of_turn()
 
 	var rig: Dictionary = _make_use_case([12, 4])
 	var attacker: Dictionary = _attacker()

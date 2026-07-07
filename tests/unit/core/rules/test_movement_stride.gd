@@ -134,9 +134,11 @@ func test_stride_spends_exactly_one_action_from_the_shared_budget() -> void:
 	assert_eq(result.get("budget_remaining", -1), ae.get_remaining())
 
 
-func test_second_stride_same_turn_fails_via_movement_already_used() -> void:
-	# action_economy.gd's per-turn Movement gate: only one Movement-trait
-	# action (which Stride spends through) is permitted per turn.
+func test_second_stride_same_turn_fails_via_action_already_used() -> void:
+	# FEAT-003 (ADR-103): a Stride spends the combatant's ONE action for the
+	# turn, so a second Stride attempted in the SAME turn is now rejected by
+	# the one-action-per-turn gate (ACTION_ALREADY_USED) before the
+	# pre-existing Movement-trait gate ever gets evaluated.
 	var mover := CombatantClass.new("p1", "Titus", "Player", HexCoordClass.new(0, 0))
 	var ae := ActionEconomyClass.new()
 	ae.start_of_round()
@@ -147,9 +149,9 @@ func test_second_stride_same_turn_fails_via_movement_already_used() -> void:
 	var budget_after_first: int = ae.get_remaining()
 	var second: Dictionary = MovementClass.stride(mover, HexCoordClass.new(1, -1), ae, [])
 
-	assert_false(second.get("ok", true), "a second Movement-trait action in the same turn must be rejected")
+	assert_false(second.get("ok", true), "a second action (Stride) in the same turn must be rejected")
 	assert_eq(second.get("error", ""), MovementClass.ERR_ACTION_UNAVAILABLE)
-	assert_eq(second.get("reason", ""), "MOVEMENT_ALREADY_USED")
+	assert_eq(second.get("reason", ""), "ACTION_ALREADY_USED")
 	assert_eq(ae.get_remaining(), budget_after_first, "a rejected Stride must not spend a second action")
 	assert_true(mover.hex_coord.equals(HexCoordClass.new(1, 0)), "a rejected Stride must not move the combatant")
 
@@ -158,7 +160,12 @@ func test_stride_fails_when_action_budget_already_exhausted() -> void:
 	var mover := CombatantClass.new("p1", "Titus", "Player", HexCoordClass.new(0, 0))
 	var ae := ActionEconomyClass.new()
 	ae.start_of_round()
+	# FEAT-003: exhausting the shared per-ROUND budget now requires a fresh
+	# start_of_turn() before each spend_action() (only one action succeeds
+	# per turn) -- simulating the combatant's turn coming around repeatedly
+	# within the same round (AC-4 interleaving).
 	for i in range(ActionEconomyClass.MAX_BUDGET):
+		ae.start_of_turn()
 		ae.spend_action({"traits": []})
 	assert_true(ae.is_spent(), "fixture assumption: budget fully exhausted")
 
@@ -255,10 +262,13 @@ func test_strike_out_of_reach_becomes_in_reach_after_striding_adjacent() -> void
 	var stride_result: Dictionary = MovementClass.stride(attacker, HexCoordClass.new(3, -2), ae, [target])
 	assert_true(stride_result.get("ok", false), "fixture assumption: (3,-2) must be a legal, unoccupied Stride destination")
 
-	# After striding: the SAME use case, called again, must recompute reach
-	# from the attacker's NEW position and now accept the Strike. Spending
-	# the Stride's action does not itself exhaust the shared budget (default
-	# MAX_BUDGET=7), so the subsequent Strike still has an action to spend.
+	# FEAT-003 (ADR-103): the Stride already spent this turn's ONE action, so
+	# the Strike must wait for the combatant's NEXT turn (start_of_turn())
+	# before it can spend an action of its own -- Stride-then-Strike in the
+	# SAME turn is no longer legal (only Step-then-Strike is). The SAME use
+	# case, called again on the new turn, must recompute reach from the
+	# attacker's NEW position and now accept the Strike.
+	ae.start_of_turn()
 	var after_result: Dictionary = use_case.resolve(attacker, ae, target, "Strike", 1, 0)
 	assert_true(after_result.get("ok", false), "target must now be in reach after Stride brought the attacker adjacent")
 	assert_true(after_result.get("resolved", false))

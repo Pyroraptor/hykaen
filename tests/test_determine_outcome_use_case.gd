@@ -126,7 +126,11 @@ func test_negative_hp_counts_as_dead() -> void:
 func _fully_spent_action_economy() -> ActionEconomyClass:
 	var ae = ActionEconomyClass.new()
 	ae.start_of_round()
+	# FEAT-003 (ADR-103): only one spend_action() succeeds per turn, so
+	# exhausting the round budget requires a fresh start_of_turn() before
+	# each spend (AC-4 interleaving simulated across MAX_BUDGET turns).
 	for _i in range(ActionEconomyClass.MAX_BUDGET):
+		ae.start_of_turn()
 		ae.spend_action({})
 	return ae
 
@@ -177,9 +181,11 @@ func test_spent_state_permutations_never_change_classification_outcome() -> void
 			ae_e.start_of_round()
 			if party_spent:
 				for _i in range(ActionEconomyClass.MAX_BUDGET):
+					ae_p.start_of_turn()
 					ae_p.spend_action({})
 			if enemy_spent:
 				for _i in range(ActionEconomyClass.MAX_BUDGET):
+					ae_e.start_of_turn()
 					ae_e.spend_action({})
 
 			var result: String = use_case.classify(party_alive, enemies_dead)

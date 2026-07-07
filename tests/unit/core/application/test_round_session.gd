@@ -282,7 +282,12 @@ func test_is_round_over_becomes_true_once_every_living_combatant_is_spent() -> v
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 1)
 	var session = rig["use_case"].begin_round(1, [alpha], [bravo])
 
+	# FEAT-003 (ADR-103): only one spend_action() succeeds per turn, so
+	# exhausting each combatant's round budget requires a fresh
+	# start_of_turn() before each spend (AC-4 interleaving simulated across
+	# MAX_BUDGET turns).
 	for i in range(ActionEconomyClass.MAX_BUDGET):
+		entries[0]["action_economy"].start_of_turn()
 		entries[0]["action_economy"].spend_action({"name": "Strike", "traits": []})
 	assert_true(entries[0]["action_economy"].is_spent())
 
@@ -292,6 +297,7 @@ func test_is_round_over_becomes_true_once_every_living_combatant_is_spent() -> v
 	assert_eq(session.current_actor().get("name", ""), "Bravo")
 
 	for i in range(ActionEconomyClass.MAX_BUDGET):
+		entries[1]["action_economy"].start_of_turn()
 		entries[1]["action_economy"].spend_action({"name": "Strike", "traits": []})
 	assert_true(entries[1]["action_economy"].is_spent())
 

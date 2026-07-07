@@ -447,7 +447,7 @@ func test_full_steel_thread_from_turn_start_to_post_resolution_lock() -> void:
 # "already in reach, zero Stride" branch) by the continuous playthrough.
 # ══════════════════════════════════════════════════════════════════════════
 
-func test_enemy_ai_leg_strides_toward_nearest_target_then_strikes_when_an_action_remains() -> void:
+func test_enemy_ai_leg_strides_toward_nearest_target_but_does_not_strike_same_turn() -> void:
 	var instance = _boot_main_scene_with_seed(SEED)
 	await get_tree().process_frame
 
@@ -521,18 +521,24 @@ func test_enemy_ai_leg_strides_toward_nearest_target_then_strikes_when_an_action
 		"ActionEconomy.movement_used must be true after the AI's Stride within the same turn"
 	)
 
-	# ── Strike outcome recorded once reach is satisfied post-Stride and an
-	# action remains (US-005) ────────────────────────────────────────────────
+	# ── FEAT-003 (ADR-103): the per-turn one-action gate means the Stride
+	# already spent this turn's ONE action, so no Strike may be attempted/
+	# recorded in the SAME turn even though reach is now satisfied post-
+	# Stride — core/combat/ai.gd still reports a composite will_strike:true
+	# decision (it has no visibility into the new _action_used gate), but
+	# resolve_action_use_case.resolve()'s own spend_action() call is rejected
+	# with ACTION_ALREADY_USED and the Strike silently does not resolve
+	# (US-005) ────────────────────────────────────────────────────────────────
 	var attack_events_after: int = instance.event_sink.log.filter(
 		func(e): return e is RoundEventsClass.AttackEvent and e.attacker_name == enemy.get("name", "")
 	).size()
-	assert_true(
-		attack_events_after > attack_events_before,
-		"a Strike outcome must be recorded against the nearest living target once reach is satisfied after the Stride and an action remains"
+	assert_eq(
+		attack_events_after, attack_events_before,
+		"no Strike outcome may be recorded in the same turn as the Stride -- only one action is permitted per turn (FEAT-003)"
 	)
-	assert_true(
-		enemy_action_economy.get_remaining() < ActionEconomyClass.MAX_BUDGET - 1,
-		"the enemy must have spent BOTH the Stride action and the Strike action from its per-round budget this turn"
+	assert_eq(
+		enemy_action_economy.get_remaining(), ActionEconomyClass.MAX_BUDGET - 1,
+		"the enemy must have spent ONLY the Stride action from its per-round budget this turn -- the Strike attempt must not decrement it further"
 	)
 
 	# ── The enemy token's on-screen hex position matches the AIDecision's
@@ -582,8 +588,13 @@ func test_enemy_ai_leg_strides_but_does_not_strike_when_no_action_remains_after_
 	# so the Stride the AI is about to issue is the LAST action available
 	# this round; no action remains afterward for the composite
 	# Stride-then-Strike branch (core/combat/ai.gd's FEAT-005 extension) to
-	# fire.
+	# fire. FEAT-003 (ADR-103): only one spend_action() succeeds per turn, so
+	# each drain spend simulates its own turn boundary via start_of_turn()
+	# (AC-4 interleaving) -- the enemy's REAL AI turn below issues its own
+	# start_of_turn() (core/application/round_session.gd advance_ai_turn())
+	# which clears this fixture's per-turn flags again before the Stride.
 	for i in range(ActionEconomyClass.MAX_BUDGET - 1):
+		enemy_action_economy.start_of_turn()
 		var drain_result: Dictionary = enemy_action_economy.spend_action({})
 		assert_true(drain_result.get("success", false), "fixture setup: draining the enemy's action budget must succeed")
 	assert_eq(enemy_action_economy.get_remaining(), 1, "fixture setup: exactly one action must remain before the enemy's AI turn")

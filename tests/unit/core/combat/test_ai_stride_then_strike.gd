@@ -105,10 +105,17 @@ func test_stride_that_closes_into_reach_reports_will_strike_false_when_no_action
 	action_economy.start_of_round()
 
 	# Drain the round budget down to exactly one action remaining, so the
-	# Stride itself consumes the LAST available action.
+	# Stride itself consumes the LAST available action. FEAT-003 (ADR-103):
+	# only one spend_action() succeeds per turn, so each drain spend
+	# simulates its own turn boundary (AC-4 interleaving); the AI's own
+	# decide_action() call below gets its own fresh start_of_turn(), exactly
+	# as core/application/round_session.gd's advance_ai_turn() does in
+	# production.
 	for i in range(ActionEconomyClass.MAX_BUDGET - 1):
+		action_economy.start_of_turn()
 		action_economy.spend_action({"traits": []})
 	assert_eq(action_economy.get_remaining(), 1, "fixture assumption: exactly one action must remain before the Stride")
+	action_economy.start_of_turn()
 
 	var result: Dictionary = ai.decide_action(combatant, [target], action_economy, [])
 

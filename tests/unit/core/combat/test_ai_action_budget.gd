@@ -249,7 +249,7 @@ func test_ai_never_exceeds_its_action_budget_across_multiple_simulated_turns() -
 # no new port or use-case class introduced in core/application/.
 # ══════════════════════════════════════════════════════════════════════════
 
-func test_round_session_advance_ai_turn_executes_stride_then_strike_via_the_existing_pipeline() -> void:
+func test_round_session_advance_ai_turn_executes_stride_but_defers_strike_to_next_turn() -> void:
 	var goblin: Dictionary = _melee_combatant(HexCoordClass.new(0, 0))
 	goblin["_is_enemy"] = true
 	var titus: Dictionary  = _target("Titus", HexCoordClass.new(4, 0), 200)
@@ -273,19 +273,21 @@ func test_round_session_advance_ai_turn_executes_stride_then_strike_via_the_exis
 		HexMathClass.hex_distance(goblin["hex_coord"], titus["hex_coord"]) <= 1,
 		"the enemy must have Strode into melee reach of the target this turn"
 	)
+	# FEAT-003 (ADR-103): the per-turn one-action gate means the Stride
+	# already spent this turn's ONE action -- core/combat/ai.gd still reports
+	# a composite will_strike:true decision (it has no visibility into the
+	# new _action_used gate), but resolve_action_use_case.resolve()'s own
+	# spend_action() call is rejected with ACTION_ALREADY_USED, so no Strike
+	# resolves (no history entry, no damage) in the SAME turn as the Stride.
 	assert_eq(
-		rig["history"].entries.size(), 1,
-		"only the Strike half of the composite decision is resolved via resolve_action_use_case -- the SAME pipeline the player's own Strike uses; the Stride half is executed directly by core/combat/ai.gd and recorded no history entry of its own"
+		rig["history"].entries.size(), 0,
+		"no Strike may resolve in the same turn as the Stride -- only one action is permitted per turn (FEAT-003); the Stride half is executed directly by core/combat/ai.gd and records no history entry of its own"
 	)
 	assert_eq(
-		rig["history"].entries[0]["attacker"].get("name", ""), "Skeleton",
-		"the resolved Strike must belong to the AI-driven actor/target pair"
+		goblin_action_economy.get_remaining(), budget_before - 1,
+		"exactly one action must be spent this turn -- the Stride (core/rules/movement.gd); the Strike attempt must not decrement the budget further"
 	)
-	assert_eq(
-		goblin_action_economy.get_remaining(), budget_before - 2,
-		"exactly two actions must be spent this turn: one for the Stride (core/rules/movement.gd), one for the Strike (resolve_action_use_case)"
-	)
-	assert_eq(titus.get("hp_current", 0), 200 - 6, "the Strike resolved via resolve_action_use_case must have applied its damage")
+	assert_eq(titus.get("hp_current", 0), 200, "the target must be undamaged -- the Strike attempt must not resolve in the same turn as the Stride")
 	assert_eq(session.current_actor().get("name", ""), "Titus", "advance_ai_turn() must still advance the cursor after the composite decision")
 
 

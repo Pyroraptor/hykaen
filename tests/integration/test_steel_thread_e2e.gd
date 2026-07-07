@@ -359,7 +359,7 @@ func test_p0_1_movement_lockout_resets_at_the_next_turn_boundary_via_the_real_ad
 # integration/test_ai_token_reposition.gd's established rig).
 # ══════════════════════════════════════════════════════════════════════════
 
-func test_p0_2_out_of_reach_enemy_strides_then_strikes_nearest_living_target_with_token_repositioned_on_screen() -> void:
+func test_p0_2_out_of_reach_enemy_strides_toward_target_but_does_not_strike_same_turn_with_token_repositioned_on_screen() -> void:
 	var enemy_hex := HexCoordClass.new(0, 0)
 	# hex_distance 4 -- out of melee reach initially, but within a single
 	# Speed-4 Stride's reach of landing adjacent (mirrors tests/unit/core/
@@ -399,9 +399,14 @@ func test_p0_2_out_of_reach_enemy_strides_then_strikes_nearest_living_target_wit
 	var moved_hex = goblin.get("hex_coord")
 	assert_false(moved_hex.equals(enemy_hex), "the out-of-reach AI must Stride toward its target rather than standing still")
 
-	# ...then Struck the nearest living target in the SAME decision cycle.
-	assert_eq(rig["history"].entries.size(), 1, "exactly one Strike must resolve via resolve_action_use_case -- the SAME pipeline the player's own Strike uses")
-	assert_eq(titus.get("hp_current", -1), hp_before - 6, "the Stride-then-Strike must actually damage the nearest living target for the exact scripted amount")
+	# FEAT-003 (ADR-103): the per-turn one-action gate means the Stride
+	# already spent this turn's ONE action -- core/combat/ai.gd still reports
+	# a composite will_strike:true decision (it has no visibility into the
+	# new _action_used gate), but resolve_action_use_case.resolve()'s own
+	# spend_action() call is rejected with ACTION_ALREADY_USED, so no Strike
+	# resolves (no history entry, no damage) in the SAME turn as the Stride.
+	assert_eq(rig["history"].entries.size(), 0, "no Strike may resolve in the same turn as the Stride -- only one action is permitted per turn (FEAT-003)")
+	assert_eq(titus.get("hp_current", -1), hp_before, "the target must be undamaged -- the Strike attempt must not resolve in the same turn as the Stride")
 
 	# The enemy's on-screen token must be visibly repositioned to match.
 	var token_after = hex_grid_view.get_token("goblin")

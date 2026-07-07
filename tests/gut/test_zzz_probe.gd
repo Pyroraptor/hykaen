@@ -25,6 +25,13 @@ func test_probe_real_depletion(seed_value = use_parameters([1106, 13269])) -> vo
 	var action_economy = instance.round_session.current_action_economy()
 
 	for i in range(6):
+		# FEAT-003 (ADR-103): only one spend_action() succeeds per turn, so
+		# each of these repeated real Strikes against the SAME per-round
+		# budget simulates its own turn boundary via start_of_turn() (AC-4
+		# interleaving) directly on the live domain ActionEconomy -- this
+		# probe's actual concern is real per-ROUND budget depletion, not
+		# turn-cycling machinery.
+		action_economy.start_of_turn()
 		assert_true(instance._verb_registry.is_available(STRIKE), "strike should be available at i=%d" % i)
 		var selection = instance.verb_bar_view.press(STRIKE)
 		var target_ids = selection.get("candidate_targets", [])
@@ -46,6 +53,7 @@ func test_probe_real_depletion(seed_value = use_parameters([1106, 13269])) -> vo
 			enemy_hex = e.get("hex_coord")
 			break
 
+	action_economy.start_of_turn()
 	var selection = instance.verb_bar_view.press(STRIDE)
 	var candidates = selection.get("candidate_hexes", [])
 	var dest = null
