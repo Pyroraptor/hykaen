@@ -84,8 +84,16 @@ const MAX_ROUNDS_GUARD: int = 50
 ## from FEAT-001), so the CR-001/US-008-era "must stay byte-identical"
 ## baseline is updated to the new, intentionally-authored content rather
 ## than treated as a violation of this guard's scope.
+##
+## FEAT-008 (iteration-G, US-008 / FR-008, ADR-106) likewise intentionally
+## re-pins the simulator.gd hash below: that feature's explicit, in-scope
+## design change reads ac/fortitude/reflex/will directly off the loaded
+## skeleton EnemyResource (via a new _build_skeleton_combatant() helper)
+## instead of the previous hard-coded "ac": 14 inline literal, closing the
+## sim/game defense-source parity gap this CR's guard was never meant to
+## block a deliberately-authorized future feature from making.
 const _EXPECTED_HASHES: Dictionary = {
-	"res://core/sim/simulator.gd":      "b74aba990b9f326b608727353d71d77f",
+	"res://core/sim/simulator.gd":      "fbf022c110c89bed12d2d0cd18b558ec",
 	"res://data/characters/titus.tres": "7b08e7c3460930c2a2262b32aa80d179",
 	"res://data/enemies/skeleton.tres": "b39f5afcf86749209eff4c99ef278bc7",
 	"res://data/weapons/longsword.tres": "248339f6e3f256d6cdc6a943ca824587",

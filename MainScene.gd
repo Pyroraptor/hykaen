@@ -189,11 +189,6 @@ const PROLOGUE_ENCOUNTER_PATH: String = "res://data/encounters/prologue_encounte
 const DEFAULT_VIEWPORT_WIDTH: int = 1152
 const DEFAULT_VIEWPORT_HEIGHT: int = 648
 
-## EnemyResource carries no AC field in the v0 schema; 12 mirrors the
-## production convention already established for enemies built from
-## EnemyResource data (core/sim/simulator.gd / tests/integration/test_steel_thread_e2e.gd).
-const DEFAULT_ENEMY_AC: int = 12
-
 ## The single round this composition root drives interactively this
 ## iteration (FEAT-123 / ADR-007's RoundSession stepwise API). Multi-round
 ## continuation (calling begin_round() again once a round ends without a
@@ -1465,6 +1460,18 @@ func _build_party_combatant(character_path: String, hex_coord, combatant_id: Str
 ## when present. combatant_id (see _build_party_combatant() above) is
 ## attached so Presentation controls can identify this combatant
 ## consistently with HexGridView's tokens.
+##
+## FEAT-008 (US-008 / FR-008, ADR-106): ac/fortitude/reflex/will are read
+## DIRECTLY from the loaded EnemyResource's own authored fields (data/
+## enemies/enemy_resource.gd, populated e.g. by data/enemies/skeleton.tres —
+## ac=14, fortitude=13, reflex=12, will=12) — never a hard-coded fallback
+## constant. The previous placeholder AC constant this file used to fall
+## back to has been removed entirely: a Strike against an EnemyResource-built
+## target rolls against that resource's OWN authored AC (14 for the
+## Skeleton), closing the steel thread's exit criterion. core/sim/
+## simulator.gd's own combatant-construction path reads these same four
+## fields from the same EnemyResource source (see that file), so the sim
+## and the live game can never silently diverge on enemy defenses.
 func _build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String = "") -> Dictionary:
 	var enemy = ResourceLoader.load(enemy_path)
 
@@ -1477,7 +1484,10 @@ func _build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String 
 		"hp_current": enemy.hp,
 		"hp_max":     enemy.hp,
 		"stamina":    0,
-		"ac":         DEFAULT_ENEMY_AC,
+		"ac":         enemy.ac,
+		"fortitude":  enemy.fortitude,
+		"reflex":     enemy.reflex,
+		"will":       enemy.will,
 		"strength":   enemy.str,
 		"dexterity":  enemy.dex,
 		"intuition":  0,

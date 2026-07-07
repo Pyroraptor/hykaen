@@ -26,8 +26,17 @@
 ## (hp=36, ac=14) to maintain the [0.40, 0.80] invariant at the correct AC.
 ## FEAT-088 (NFR-005 / ADR-003): Skeleton enemy is now loaded from
 ## data/enemies/skeleton.tres via ResourceLoader — no inline hardcoded dict literal.
-## The skeleton resource provides name, str, dex, and weapon stats; hp_current and
-## ac remain balance-tuned simulation parameters not stored in the base resource.
+## The skeleton resource provides name, str, dex, and weapon stats; hp_current
+## remains a balance-tuned simulation parameter not stored in the base resource.
+##
+## FEAT-008 (US-008 / FR-008, ADR-106): ac/fortitude/reflex/will are now read
+## DIRECTLY from the loaded skeleton EnemyResource's own authored fields
+## (ac=14, fortitude=13, reflex=12, will=12) via _build_skeleton_combatant()
+## below — no hard-coded defense literal remains in this file. This is the
+## SAME EnemyResource field-read presentation/../MainScene.gd's
+## _build_enemy_combatant() performs, so the balance simulation and the live
+## interactive game can never silently diverge on enemy defenses (sim/game
+## parity, US-008's exit criterion).
 
 class_name Simulator
 
@@ -72,8 +81,10 @@ func run(battle_count: int = 1000, base_seed: int = 0) -> Dictionary:
 	var weapon_res    = ResourceLoader.load(titus_char.starting_equipment[0])
 
 	# ── Load Skeleton resource once (FEAT-088 / ADR-003 / NFR-005) ────────────
-	# The EnemyResource provides name, str, dex, and weapon base stats.
-	# hp_current=50 and ac=14 remain balance-tuned simulation parameters (FEAT-087).
+	# The EnemyResource provides name, str, dex, weapon base stats, AND (FEAT-008
+	# / ADR-106) ac/fortitude/reflex/will — read directly off the resource by
+	# _build_skeleton_combatant() below. hp_current=50 remains a balance-tuned
+	# simulation parameter not stored on the base resource (FEAT-087).
 	var skeleton_res  = ResourceLoader.load("res://data/enemies/skeleton.tres")
 
 	# Attribute name mapping: EnemyResource uses compact keys ('str', 'dex') while
@@ -119,21 +130,10 @@ func run(battle_count: int = 1000, base_seed: int = 0) -> Dictionary:
 		}
 
 		# Skeleton combatant — FEAT-088: built from skeleton.tres resource (loaded above).
-		# The EnemyResource provides name, str, dex, and weapon base stats.
-		# hp_current=50 and ac=14 are balance-tuned simulation parameters (FEAT-087).
-		var skeleton: Dictionary = {
-			"name":       skeleton_res.name,
-			"hp_current": 50,
-			"ac":         14,
-			"strength":   skeleton_res.str,
-			"dexterity":  skeleton_res.dex,
-			"intuition":  1,
-			"weapon": {
-				"damage_modifier_attribute": skel_weapon_attr,
-				"proficiency_bonus":         skeleton_res.weapon.get("proficiency_bonus", 1),
-				"damage_die":               skeleton_res.weapon.get("die", 8)
-			}
-		}
+		# FEAT-008: ac/fortitude/reflex/will now sourced directly from
+		# skeleton_res (ADR-106) via _build_skeleton_combatant() below —
+		# hp_current=50 remains a balance-tuned simulation parameter (FEAT-087).
+		var skeleton: Dictionary = _build_skeleton_combatant(skeleton_res, skel_weapon_attr)
 
 		# Run one encounter to completion.
 		var enc = EncounterClass.new([titus], [skeleton], battle_rng)
@@ -162,4 +162,38 @@ func run(battle_count: int = 1000, base_seed: int = 0) -> Dictionary:
 		"total_damage_dealt":  total_damage,
 		"total_battles":       battle_count,
 		"confidence_interval": confidence_interval
+	}
+
+
+## _build_skeleton_combatant(skeleton_res, skel_weapon_attr) -> Dictionary
+##
+## FEAT-008 (US-008 / FR-008, ADR-106): builds the per-battle Skeleton
+## combatant Dictionary from the loaded skeleton EnemyResource, reading
+## ac/fortitude/reflex/will DIRECTLY off the resource — the same four
+## authored fields (data/enemies/skeleton.tres: ac=14, fortitude=13,
+## reflex=12, will=12) presentation/../MainScene.gd's
+## _build_enemy_combatant() reads, so this simulator can never silently
+## diverge from the live game on enemy defenses (sim/game parity). Extracted
+## into its own method (rather than left inline in run()'s per-battle loop)
+## so it is independently testable without running a full battle —
+## see tests/unit/test_simulator_defense_source_parity.gd.
+##
+## hp_current=50 remains a balance-tuned simulation parameter, not stored on
+## the base EnemyResource (FEAT-087) — unaffected by this feature.
+func _build_skeleton_combatant(skeleton_res, skel_weapon_attr: String) -> Dictionary:
+	return {
+		"name":       skeleton_res.name,
+		"hp_current": 50,
+		"ac":         skeleton_res.ac,
+		"fortitude":  skeleton_res.fortitude,
+		"reflex":     skeleton_res.reflex,
+		"will":       skeleton_res.will,
+		"strength":   skeleton_res.str,
+		"dexterity":  skeleton_res.dex,
+		"intuition":  1,
+		"weapon": {
+			"damage_modifier_attribute": skel_weapon_attr,
+			"proficiency_bonus":         skeleton_res.weapon.get("proficiency_bonus", 1),
+			"damage_die":               skeleton_res.weapon.get("die", 8)
+		}
 	}
