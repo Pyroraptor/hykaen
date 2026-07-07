@@ -524,11 +524,13 @@ func test_enemy_ai_leg_strides_toward_nearest_target_but_does_not_strike_same_tu
 	# ── FEAT-003 (ADR-103): the per-turn one-action gate means the Stride
 	# already spent this turn's ONE action, so no Strike may be attempted/
 	# recorded in the SAME turn even though reach is now satisfied post-
-	# Stride — core/combat/ai.gd still reports a composite will_strike:true
-	# decision (it has no visibility into the new _action_used gate), but
-	# resolve_action_use_case.resolve()'s own spend_action() call is rejected
-	# with ACTION_ALREADY_USED and the Strike silently does not resolve
-	# (US-005) ────────────────────────────────────────────────────────────────
+	# Stride — core/combat/ai.gd's decide_action() (reworked by FEAT-007/
+	# US-007) returns EXACTLY ONE Strike-or-Stride decision per turn, so this
+	# turn's decision is the Stride alone (will_strike: false, no composite
+	# Stride-then-Strike decision is ever produced); the enemy's NEXT
+	# decide_action() call (its following turn) is what would evaluate
+	# whether the now-adjacent target is in reach for a Strike (US-005)
+	# ────────────────────────────────────────────────────────────────────────
 	var attack_events_after: int = instance.event_sink.log.filter(
 		func(e): return e is RoundEventsClass.AttackEvent and e.attacker_name == enemy.get("name", "")
 	).size()
