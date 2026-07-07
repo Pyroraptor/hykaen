@@ -345,3 +345,18 @@ func get_remaining() -> int:
 ## Returns true if all 7 actions have been consumed this turn.
 func is_spent() -> bool:
 	return _is_spent
+
+
+## can_take_action() → bool
+##
+## Pure query, no side effects (FEAT-005 / FR-003): true iff the combatant
+## has neither already used its one action this turn (_action_used) NOR
+## exhausted its per-round budget (is_spent()):
+##   can_take_action() == (NOT _action_used) AND (NOT is_spent())
+##
+## This is the SINGLE SOURCE OF TRUTH later presentation (verb-bar Strike/
+## Stride availability greying) and AI decision logic are intended to read
+## from, rather than re-deriving the gate's state independently -- mirrors
+## can_take_movement_action()'s role for the Movement-only gate.
+func can_take_action() -> bool:
+	return not _action_used and not is_spent()
