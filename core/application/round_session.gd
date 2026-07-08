@@ -92,20 +92,48 @@ var _token_reposition_fn: Callable = Callable()
 ## _entries (one full pass completed).
 var _cycle_index: int = 0
 
+## _turn_start_budget — FEAT-005 (US-003 / FR-003, ADR-011): the CURRENT
+## actor's ActionEconomy.get_remaining() value snapshotted the moment the
+## cursor landed on it (in _init() for the round's first actor, in
+## _advance_cursor() for every actor after). _advance_cursor() compares this
+## snapshot against the SAME ActionEconomy's remaining budget when that
+## actor's turn ends (regardless of WHERE the spend happened — an AI-resolved
+## Strike/Stride/WAIT via advance_ai_turn(), or a player Strike resolved
+## directly by StrikeActionControl via resolve_action_use_case BEFORE
+## end_current_turn() is called) to determine whether that turn made any
+## progress at all, without RoundSession needing to intercept every possible
+## call site that can spend an action.
+var _turn_start_budget: int = 0
+
+## _interactive_cycle_progress — FEAT-005: true once ANY actor's turn within
+## the CURRENT interactive cycle pass has spent at least one action (budget
+## decreased). Reset to false every time _advance_cursor() completes a full
+## pass (mirrors run_autonomous_to_completion()'s local
+## any_action_resolved_this_cycle, ported onto the interactive cursor path).
+## Never consulted/mutated by the autonomous API — see
+## run_autonomous_to_completion()'s own, separate local backstop tracking.
+var _interactive_cycle_progress: bool = false
+
 ## _outcome — '' | 'won' | 'lost'; NEVER 'DRAW' (mirrors outcome()'s
 ## documented contract — a per-round DRAW is reported only via finish()'s
 ## Dictionary "outcome" key, see _forced_draw below).
 var _outcome: String = ""
 
 ## _round_over — true once every living combatant is Spent, the outcome was
-## decided, or (autonomous path only) the stalled-cycle backstop fired.
+## decided, or the stalled-cycle backstop fired (autonomous path, AND —
+## FEAT-005 / US-003 / FR-003, ADR-011 — the interactive cursor path).
 var _round_over: bool = false
 
-## _forced_draw — true only when run_autonomous_to_completion()'s
-## CWE-835/FIND-095 backstop fired (a full cycle pass resolved zero
-## actions). Never set by the interactive cursor path. Drives finish()'s
-## per-round "outcome": "DRAW" vs "encounter_outcome": "" distinction,
-## exactly matching RunRoundUseCase.execute()'s pre-FEAT-110 contract.
+## _forced_draw — true once EITHER backstop fires: the autonomous
+## run_autonomous_to_completion()'s CWE-835/FIND-095 backstop, OR (FEAT-005 /
+## US-003 / FR-003, ADR-011) the interactive cursor path's own equivalent
+## no-progress backstop in _advance_cursor() below — both mean "a full cycle
+## pass resolved zero actions". Drives finish()'s per-round "outcome": "DRAW"
+## vs "encounter_outcome": "" distinction, exactly matching
+## RunRoundUseCase.execute()'s pre-FEAT-110 contract (and now also the
+## interactive path's, per this steel thread's exit criterion: the 1000-turn
+## guard in presentation/turn_controller.gd must never be what actually
+## terminates a round — this backstop is the true last line of defense).
 var _forced_draw: bool = false
 
 
@@ -159,6 +187,10 @@ func _init(
 		_round_over = true
 	else:
 		_entries[_cursor]["action_economy"].start_of_turn()
+		# FEAT-005 (US-003 / FR-003, ADR-011): snapshot the first actor's
+		# starting budget so _advance_cursor() can detect whether its turn
+		# made any progress — see _turn_start_budget's doc above.
+		_turn_start_budget = _entries[_cursor]["action_economy"].get_remaining()
 
 
 ## set_token_reposition_fn(fn) -> void — FEAT-008 (US-008 / FR-012, ADR-006):
@@ -524,6 +556,21 @@ func _after_action_resolved() -> Dictionary:
 ## RoundEvents.TurnAdvancedEvent for the new current actor. When no living,
 ## un-Spent entry remains, marks the round over instead.
 ##
+## FEAT-005 (US-003 / FR-003, ADR-011): before moving the cursor, records
+## whether the JUST-ENDED actor's turn made any progress (its
+## ActionEconomy.get_remaining() dropped below the _turn_start_budget
+## snapshot taken when the cursor landed on it — see that field's doc). When
+## the cursor is about to wrap back around to complete a full cycle pass
+## AND no actor's turn in that just-completed pass made any progress, this
+## is the SAME "a full cycle pass resolved zero actions" condition
+## run_autonomous_to_completion() already guards against — ported onto this
+## interactive path so a genuinely stalled interactive round (e.g. an
+## all-free-passing turn order, WAIT never reached) resolves to a safe DRAW
+## here too, rather than relying on presentation/turn_controller.gd's
+## 1000-turn guard ever being what actually terminates the round (this
+## steel thread's exit criterion: hitting that guard is a bug signal, never
+## a designed code path).
+##
 ## ADR-101/ADR-102/FEAT-004: together with the initial cursor assignment in
 ## _init() above, this is the SINGLE authoritative call site for
 ## ActionEconomy.start_of_turn() — for BOTH player and AI actors, with no
@@ -539,6 +586,12 @@ func _after_action_resolved() -> Dictionary:
 ## action_used_this_turn) and is documented as idempotent/budget-neutral
 ## (ADR-102) — it never mutates actions_remaining or is_spent.
 func _advance_cursor() -> void:
+	# FEAT-005: did the actor whose turn just ended make any progress?
+	if _cursor != -1:
+		var ending_budget: int = _entries[_cursor]["action_economy"].get_remaining()
+		if ending_budget < _turn_start_budget:
+			_interactive_cycle_progress = true
+
 	var next_index: int = _find_next_actionable_index(_cursor)
 	if next_index == -1:
 		_cursor     = -1
@@ -546,10 +599,16 @@ func _advance_cursor() -> void:
 		return
 
 	if next_index <= _cursor:
+		# A full cycle pass just completed — FEAT-005 no-progress backstop.
+		if not _interactive_cycle_progress:
+			_force_no_progress_draw()
+			return
+		_interactive_cycle_progress = false
 		_cycle_index += 1
 	_cursor = next_index
 
 	_entries[_cursor]["action_economy"].start_of_turn()
+	_turn_start_budget = _entries[_cursor]["action_economy"].get_remaining()
 
 	var combatant: Dictionary = _entries[_cursor]["combatant"]
 	_event_sink_port.emit(RoundEventsClass.TurnAdvancedEvent.new(
@@ -557,6 +616,21 @@ func _advance_cursor() -> void:
 		combatant.get("name", ""),
 		combatant.get("combatant_id", "")
 	))
+
+
+## _force_no_progress_draw() -> void — FEAT-005 (US-003 / FR-003, ADR-011):
+## the interactive-path equivalent of run_autonomous_to_completion()'s
+## force_draw_no_progress branch — forces the round over with a DRAW,
+## reported through the SAME _forced_draw / finish() contract the autonomous
+## path already uses (outcome() itself still never reports 'DRAW' directly —
+## only finish()'s Dictionary "outcome" key does).
+func _force_no_progress_draw() -> void:
+	push_warning(
+		"RoundSession: a full interactive cycle resolved zero actions; forcing a safe DRAW to prevent an unbounded loop"
+	)
+	_forced_draw = true
+	_round_over  = true
+	_cursor      = -1
 
 
 func _find_first_actionable_index() -> int:
