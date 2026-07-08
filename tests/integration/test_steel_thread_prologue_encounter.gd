@@ -417,7 +417,15 @@ func test_enemy_ai_turn_auto_drives_through_identical_pipeline_after_end_turn() 
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_encounter_concludes_with_result_screen_matching_determine_outcome_use_case() -> void:
-	var instance = _boot_main_scene()
+	# Pinned seed (FIX for pre-existing flakiness): this is the only test in
+	# this file that DRIVES the real combat all the way to a decided outcome
+	# within a bounded turn guard. Booting via the unseeded _boot_main_scene()
+	# left the attack/damage RNG random, so an unlucky run of misses could fail
+	# to conclude within _MAX_DRIVE_ITERATIONS -- an intermittent failure
+	# independent of this iteration's work. Seed 42 (this codebase's standard
+	# fixture seed) makes the Titus-vs-Skeleton resolution deterministic so the
+	# round reliably reaches a 'won'/'lost' terminal outcome.
+	var instance = _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	assert_false(instance.result_screen_view.is_shown(), "fixture assumption: no result is shown before any input")
