@@ -41,6 +41,21 @@
 ##     parallel gating logic). A no-op wherever no VerbBarView was injected
 ##     (every pre-existing caller/test double), exactly like
 ##     `_strike_action_control` above.
+##   - FEAT-207 (US-013 / FR-015): configure_reactions()/resolve_reaction()
+##     (below) are the presentation-layer integration point for the
+##     player-facing blocking reaction pop-up (scenes/ui/reaction_prompt_ui.gd
+##     / presentation/player_reaction_chooser.gd). resolve_reaction() drives
+##     an injected core/application/reaction_window.gd ReactionWindow via its
+##     documented split open()/resume() calls (never the
+##     open_and_resolve()/open_and_resolve_attack() convenience methods,
+##     which call a chooser SYNCHRONOUSLY and are for headless/AI choosers
+##     only — see reaction_window.gd's own doc), `await`ing the injected
+##     ReactionChooserPort's choose() directly so the caller genuinely
+##     suspends until the player answers, with no auto-timeout. This is
+##     purely an OPTIONAL capability of this node — nothing in _drive()
+##     itself calls it — exactly like `_verb_bar_view` above, so every
+##     pre-existing caller/test double that never calls
+##     configure_reactions() sees no behavior change whatsoever.
 ##
 ## TurnController never mutates domain state directly, never constructs a
 ## RoundSession itself, and never reaches into Infrastructure — it is handed
@@ -84,6 +99,71 @@ var _strike_action_control = null
 ## that never passes one (e.g. every pre-existing FEAT-110/111 test) sees no
 ## behavior change.
 var _verb_bar_view = null
+
+## The injected ReactionWindow (core/application/reaction_window.gd,
+## FEAT-207 / US-013 / FR-015) resolve_reaction() below drives via its
+## documented split open()/resume() calls. Optional — a caller that never
+## calls configure_reactions() (every pre-existing caller/test double) sees
+## no behavior change; resolve_reaction() itself is simply never invoked by
+## anything in that case.
+var _reaction_window = null
+
+## The injected ReactionChooserPort (core/application/ports/
+## reaction_chooser_port.gd) resolve_reaction() `await`s — in production,
+## presentation/player_reaction_chooser.gd's PlayerReactionChooser (a
+## blocking modal pop-up); in a test/headless context, any chooser
+## implementing the SAME contract (e.g. infrastructure/
+## auto_reaction_chooser.gd's AutoReactionChooser).
+var _reaction_chooser = null
+
+
+## configure_reactions(reaction_window, reaction_chooser) -> void — FEAT-207
+## (US-013 / FR-015): injects the collaborators resolve_reaction() drives.
+## Both are OPTIONAL/duck-typed — TurnController never preloads either
+## concrete class, only calls the documented open()/resume()/choose()
+## methods on whatever is injected (ADR-002 injection, mirrors
+## set_session()'s own discipline). Safe to call any number of times (e.g.
+## once per encounter, mirroring set_session()'s repeated-call contract).
+func configure_reactions(reaction_window, reaction_chooser) -> void:
+	_reaction_window = reaction_window
+	_reaction_chooser = reaction_chooser
+
+
+## resolve_reaction(trigger, resolved_by) -> Dictionary — FEAT-207 (US-013 /
+## FR-015): the live integration point for the player-facing blocking
+## reaction pop-up. Opens `trigger` on the injected ReactionWindow (see
+## core/application/reaction_window.gd's open() doc for `trigger`'s shape),
+## and — ONLY when a window actually opened (the reactor was not already
+## Spent) — `await`s the injected ReactionChooserPort's choose() with the
+## window's own legal_reactions before resume()ing with whatever it
+## answers. This is a genuine coroutine: the caller MUST `await` it, and
+## doing so genuinely suspends until the player (or whichever chooser was
+## injected) answers — no auto-timeout, no engine-thread block (see
+## presentation/player_reaction_chooser.gd's file-level doc for why this is
+## safe). A no-op returning {"ok": false, "error": "ERR_NO_REACTION_WINDOW"}
+## when configure_reactions() was never called, so this method can be
+## called speculatively without every caller needing its own null-guard.
+func resolve_reaction(trigger: Dictionary, resolved_by: String = "player") -> Dictionary:
+	if _reaction_window == null:
+		return {"ok": false, "error": "ERR_NO_REACTION_WINDOW"}
+
+	var opened: Dictionary = _reaction_window.open(trigger)
+	if not opened.get("opened", false):
+		return {
+			"ok": true,
+			"window_id": "",
+			"choice": "none",
+			"opened": false,
+			"reason": opened.get("reason", ""),
+		}
+
+	var legal_reactions: Array = opened.get("legal_reactions", [])
+	var context: Dictionary = trigger.get("attack_context", {})
+	var choice: String = await _reaction_chooser.choose(legal_reactions, context)
+
+	var result: Dictionary = _reaction_window.resume(opened["window_id"], choice, resolved_by)
+	result["opened"] = true
+	return result
 
 
 ## set_session(round_session, end_turn_control, strike_action_control,

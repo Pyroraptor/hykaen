@@ -150,6 +150,15 @@ extends Node
 ##      mechanism rather than reimplementing it, closing the steel thread's
 ##      exit-point guarantee that "controls lock post-resolution" across
 ##      every remaining interactive surface.
+##  12. $ReactionPromptUI (scenes/ui/reaction_prompt_ui.tscn, FEAT-207 /
+##      US-013 / FR-015) — the player-facing blocking reaction pop-up — is
+##      wrapped by a freshly-constructed PlayerReactionChooser
+##      (presentation/player_reaction_chooser.gd), and both it and a
+##      freshly-constructed ReactionWindow (core/application/
+##      reaction_window.gd, wired to the SAME `event_sink` every other use
+##      case emits through) are injected into $TurnController via
+##      configure_reactions() — the live integration point for
+##      presentation/turn_controller.gd's resolve_reaction().
 ##
 ## No new ports or use cases are introduced here beyond the ADR-007-declared
 ## RoundSession stepwise API RunRoundUseCase already exposes (ADR-002 / CR-001
@@ -177,6 +186,8 @@ const HexMathClass                     = preload("res://core/geometry/hex_math.g
 const VerbBarViewClass                 = preload("res://presentation/verb_bar_view.gd")
 const SelectionOverlayClass            = preload("res://presentation/selection_overlay.gd")
 const CancelControllerClass            = preload("res://presentation/cancel_controller.gd")
+const ReactionWindowClass              = preload("res://core/application/reaction_window.gd")
+const PlayerReactionChooserClass       = preload("res://presentation/player_reaction_chooser.gd")
 
 ## The steel-thread's entry_point: the one encounter this composition root boots into.
 const PROLOGUE_ENCOUNTER_PATH: String = "res://data/encounters/prologue_encounter.tres"
@@ -508,6 +519,31 @@ var selection_overlay = SelectionOverlayClass.new()
 ## at the wiring level too. Exposed for verification.
 var cancel_controller = CancelControllerClass.new()
 
+## reaction_prompt_ui — the ReactionPromptUI (scenes/ui/reaction_prompt_ui.gd,
+## FEAT-207 / US-013 / FR-015) instanced in MainScene.tscn — the player-facing
+## blocking reaction pop-up, the steel thread's on-screen entry point for
+## reactions. Hidden (visible = false) until a live reaction trigger's
+## legal_reactions are handed to it via open_prompt() (see
+## presentation/player_reaction_chooser.gd's PlayerReactionChooser, which
+## wraps this node below).
+@onready var reaction_prompt_ui = $ReactionPromptUI
+
+## player_reaction_chooser — the PlayerReactionChooser (presentation/
+## player_reaction_chooser.gd, FEAT-207) this composition root constructs in
+## _ready() around `reaction_prompt_ui`, implementing
+## core/application/ports/reaction_chooser_port.gd's ReactionChooserPort
+## contract. Injected into $TurnController via configure_reactions() so
+## turn_controller.gd's resolve_reaction() can `await` it. Exposed for
+## verification.
+var player_reaction_chooser = null
+
+## reaction_window — the ReactionWindow (core/application/reaction_window.gd,
+## FEAT-009/US-009) this composition root constructs in _ready(), wired to
+## the SAME `event_sink` every other use case emits through (ADR-003 — no
+## second/parallel event-sink adapter). Injected into $TurnController via
+## configure_reactions(). Exposed for verification.
+var reaction_window = null
+
 ## result_screen_view — the ResultScreenView (presentation/
 ## result_screen_view.gd) instanced in MainScene.tscn (FEAT-112, US-012).
 ## This is the ONE result screen this composition root wires (FEAT-001 /
@@ -643,6 +679,18 @@ func _ready() -> void:
 	if turn_controller != null:
 		turn_controller.active_actor_changed.connect(_on_active_actor_changed)
 		turn_controller.round_over.connect(_on_round_over)
+
+	# ── FEAT-207 (US-013 / FR-015): construct the ReactionWindow (wired to
+	# the SAME `event_sink` every other use case emits through, ADR-003) and
+	# the PlayerReactionChooser wrapping `reaction_prompt_ui`, then inject
+	# both into $TurnController via configure_reactions() so its
+	# resolve_reaction() (presentation/turn_controller.gd) can drive the
+	# player-facing blocking reaction pop-up end-to-end. ──────────────────
+	reaction_window = ReactionWindowClass.new(event_sink)
+	if reaction_prompt_ui != null:
+		player_reaction_chooser = PlayerReactionChooserClass.new(reaction_prompt_ui)
+	if turn_controller != null:
+		turn_controller.configure_reactions(reaction_window, player_reaction_chooser)
 
 	if end_turn_control != null:
 		end_turn_control.turn_ended.connect(_on_end_turn_control_turn_ended)

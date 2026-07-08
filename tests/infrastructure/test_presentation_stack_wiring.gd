@@ -58,6 +58,7 @@ const ResultScreenViewClass        = preload("res://presentation/result_screen_v
 const TurnControllerClass          = preload("res://presentation/turn_controller.gd")
 const MovementInputControllerClass = preload("res://presentation/movement_input_controller.gd")
 const VerbBarViewClass             = preload("res://presentation/verb_bar_view.gd")
+const ReactionPromptUIClass        = preload("res://scenes/ui/reaction_prompt_ui.gd")
 
 ## Every path under presentation/* is a legitimate signal-handler home; the
 ## composition root itself (MainScene.gd, res:// root, NOT presentation/*) is
@@ -81,6 +82,15 @@ const _COMPOSITION_ROOT_SCRIPT_PATH: String = "res://MainScene.gd"
 ## this set entirely -- presentation/MoveActionControl.gd (the passive "Move"
 ## indicator) has been deleted; Step/Stride are surfaced solely through
 ## VerbBarView's own STEP/STRIDE buttons now.
+## FEAT-207 (US-013 / FR-015) added ReactionPromptUI here: the player-facing
+## blocking reaction pop-up (scenes/ui/reaction_prompt_ui.gd) is a
+## legitimate, additional presentation/* component (it lives under
+## scenes/ui/, the Presentation layer's scene-tree home for a modal pop-up,
+## mirroring every other *_view.tscn instanced directly on MainScene) — not
+## a re-introduction of the removed scenes/battlefield/* stack this suite
+## guards against. It starts hidden (visible = false) and only becomes
+## visible once a live reaction trigger is opened via
+## presentation/player_reaction_chooser.gd's PlayerReactionChooser.
 const _EXPECTED_CHILDREN: Dictionary = {
 	"HexGridView":         HexGridViewClass,
 	"StatusPanelView":     StatusPanelViewClass,
@@ -90,6 +100,7 @@ const _EXPECTED_CHILDREN: Dictionary = {
 	"EndTurnControl":      EndTurnControlClass,
 	"VerbBarView":         VerbBarViewClass,
 	"ResultScreenView":    ResultScreenViewClass,
+	"ReactionPromptUI":    ReactionPromptUIClass,
 }
 
 
