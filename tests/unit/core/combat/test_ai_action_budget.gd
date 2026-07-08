@@ -295,11 +295,22 @@ func test_application_layer_contains_no_new_port_or_use_case_class() -> void:
 	# ADR-002 enforcement (mirrors this project's CI static-check gate):
 	# FEAT-006 wires the extended AI decision through the EXISTING
 	# AIDecisionPort/ResolveActionUseCase/RoundSession orchestration only --
-	# no new port or use-case file may appear in core/application/.
+	# no new port or use-case file may appear in core/application/ beyond
+	# what a later feature's own explicit spec calls for.
+	#
+	# FEAT-009 (US-009 / FR-005, ADR-014) deliberately extends this
+	# whitelist by ONE file: core/application/reaction_window.gd -- the
+	# pausable reaction-window use case, modeled on RoundSession's own
+	# stepwise/resumable pattern (see that file's own header doc). Its two
+	# NEW ports (ReactionWindowPort/ReactionChooserPort) live under
+	# core/application/ports/ -- a subdirectory this flat, non-recursive
+	# dir.list_dir_begin() scan never descends into -- so they never appear
+	# in actual_files below and this whitelist does not need to name them.
 	var expected_files: Array = [
 		"ai_decision_port.gd",
 		"determine_outcome_use_case.gd",
 		"event_sink_port.gd",
+		"reaction_window.gd",
 		"resolve_action_use_case.gd",
 		"round_history_port.gd",
 		"round_session.gd",

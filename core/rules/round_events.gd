@@ -48,6 +48,20 @@
 ##       combatant Dictionary carries no stable combatant_id at this layer
 ##       (InitiativeView falls back to resolving by active_combatant_name).
 ##
+##   RoundEvents.ReactionWindowOpenedEvent (FEAT-009 / US-009 / FR-005, ADR-014)
+##     round, window_id, trigger_type, reactor_name, legal_reactions
+##     — emitted by core/application/reaction_window.gd's ReactionWindow.open()
+##       every time a pausable reaction window opens for a reactor,
+##       reusing this SAME EventSinkPort/RoundEvents surface rather than a
+##       new port (ADR-reuse).
+##
+##   RoundEvents.ReactionResolvedEvent (FEAT-009 / US-009 / FR-005, ADR-014)
+##     round, window_id, choice, resolved_by
+##     — emitted by ReactionWindow.resume() once a reaction window's choice
+##       has been applied and the window closed. resolved_by is one of
+##       "player" | "ai_policy" | "auto" | "unknown" (the caller-supplied
+##       hint — see reaction_window.gd's resume() doc).
+##
 ## All five classes expose their fields directly (for property-style
 ## inspection/equality in tests) AND a to_dict() method (for Dictionary-
 ## style assertions and easy serialization/logging).
@@ -218,4 +232,72 @@ class TurnAdvancedEvent:
 			"round":                  round,
 			"active_combatant_name":  active_combatant_name,
 			"active_combatant_id":    active_combatant_id,
+		}
+
+
+## ReactionWindowOpenedEvent — FEAT-009 (US-009 / FR-005, ADR-014): value
+## object emitted by core/application/reaction_window.gd's ReactionWindow.
+## open() every time a pausable reaction window opens for a reactor.
+class ReactionWindowOpenedEvent:
+	extends RefCounted
+
+	var round: int
+	var window_id: String
+	var trigger_type: String
+	var reactor_name: String
+	var legal_reactions: Array
+
+	func _init(
+		p_round: int = 0,
+		p_window_id: String = "",
+		p_trigger_type: String = "",
+		p_reactor_name: String = "",
+		p_legal_reactions: Array = []
+	) -> void:
+		round           = p_round
+		window_id       = p_window_id
+		trigger_type    = p_trigger_type
+		reactor_name    = p_reactor_name
+		legal_reactions = p_legal_reactions
+
+	## to_dict() → Dictionary — snapshot of all fields, for assertions/logging.
+	func to_dict() -> Dictionary:
+		return {
+			"round":           round,
+			"window_id":       window_id,
+			"trigger_type":    trigger_type,
+			"reactor_name":    reactor_name,
+			"legal_reactions": legal_reactions,
+		}
+
+
+## ReactionResolvedEvent — FEAT-009 (US-009 / FR-005, ADR-014): value object
+## emitted by core/application/reaction_window.gd's ReactionWindow.resume()
+## once a reaction window's choice has been applied and the window closed.
+class ReactionResolvedEvent:
+	extends RefCounted
+
+	var round: int
+	var window_id: String
+	var choice: String
+	var resolved_by: String
+
+	func _init(
+		p_round: int = 0,
+		p_window_id: String = "",
+		p_choice: String = "",
+		p_resolved_by: String = "unknown"
+	) -> void:
+		round       = p_round
+		window_id   = p_window_id
+		choice      = p_choice
+		resolved_by = p_resolved_by
+
+	## to_dict() → Dictionary — snapshot of all fields, for assertions/logging.
+	func to_dict() -> Dictionary:
+		return {
+			"round":       round,
+			"window_id":   window_id,
+			"choice":      choice,
+			"resolved_by": resolved_by,
 		}

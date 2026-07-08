@@ -16,15 +16,19 @@
 ##     Appends a structured event to the sink, in the order emitted.
 ##     FEAT-099/FIND-096: `event` is one of the TYPED value objects declared
 ##     in core/rules/round_events.gd (RoundEvents.AttackEvent /
-##     RoundEvents.CombatantDefeatedEvent / RoundEvents.EncounterResultEvent)
-##     — never a raw Dictionary. The parameter is intentionally left
-##     untyped (no `: Dictionary` hint) so any of these RefCounted value
-##     objects can be passed without a static-type mismatch; concrete
-##     adapter overrides MUST likewise avoid a `: Dictionary` parameter
-##     type hint. Each typed event's fields mirror the pre-FEAT-099
-##     Dictionary contract exactly (see core/rules/round_events.gd for the
-##     authoritative field list per event type) and each also exposes a
-##     to_dict() method for callers that still want a Dictionary snapshot.
+##     RoundEvents.CombatantDefeatedEvent / RoundEvents.EncounterResultEvent /
+##     RoundEvents.TurnAdvancedEvent / RoundEvents.ReactionWindowOpenedEvent /
+##     RoundEvents.ReactionResolvedEvent — the latter two added by FEAT-009 /
+##     US-009 / FR-005 / ADR-014 for core/application/reaction_window.gd's
+##     pausable reaction-window architecture) — never a raw Dictionary. The
+##     parameter is intentionally left untyped (no `: Dictionary` hint) so
+##     any of these RefCounted value objects can be passed without a
+##     static-type mismatch; concrete adapter overrides MUST likewise avoid
+##     a `: Dictionary` parameter type hint. Each typed event's fields
+##     mirror the pre-FEAT-099 Dictionary contract exactly (see
+##     core/rules/round_events.gd for the authoritative field list per
+##     event type) and each also exposes a to_dict() method for callers
+##     that still want a Dictionary snapshot.
 ##
 ## Domain purity boundary (ADR-001): this file extends RefCounted only — no
 ## Node/Control/SceneTree inheritance — matching the existing port pattern

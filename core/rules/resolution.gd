@@ -313,6 +313,50 @@ func _try_spend_reaction(defense_context: Dictionary) -> bool:
 	return result["success"]
 
 
+## is_dodge_eligible(defense_type, target, defense_context) -> bool —
+## FEAT-009 (US-009 / FR-005, ADR-014): the SAME "is Dodge a legal reaction
+## right now" predicate resolve_weapon_attack() evaluates inline above
+## (defense_type in ["ac","reflex"] AND NOT Immobilized AND open space
+## available), extracted as a pure, side-effect-free, static-callable
+## function so core/application/reaction_window.gd's legal_reactions
+## computation reuses this SAME eligibility rule rather than re-deriving
+## it — avoiding a second, drifting copy of the predicate (CR-001-style
+## hygiene). Never rolls RNG, never mutates defense_context/target.
+static func is_dodge_eligible(defense_type: String, target: Dictionary, defense_context: Dictionary = {}) -> bool:
+	var is_dodge_trigger: bool = (defense_type == "ac" or defense_type == "reflex")
+	var is_immobilized: bool = ("Immobilized" in target.get("conditions", []))
+	var open_space: bool = defense_context.get("open_space_available", true)
+	return is_dodge_trigger and not is_immobilized and open_space
+
+
+## is_steel_eligible(defense_type, target) -> bool — FEAT-009: the SAME
+## "is Steel a legal reaction right now" predicate resolve_weapon_attack()
+## evaluates inline above (defense_type in ["fortitude","will"] AND the
+## target is conscious), extracted as a pure function for
+## reaction_window.gd's reuse — see is_dodge_eligible()'s doc above.
+static func is_steel_eligible(defense_type: String, target: Dictionary) -> bool:
+	var is_steel_trigger: bool = (defense_type == "fortitude" or defense_type == "will")
+	var is_conscious: bool = target.get("conscious", true)
+	return is_steel_trigger and is_conscious
+
+
+## is_parry_eligible(weapon) -> bool — FEAT-009: true iff `weapon` (the
+## reactor's own parrying weapon Dictionary) carries a positive
+## "parry_bonus" — mirrors the Parry post-hit branch's implicit
+## precondition above (a parrying_weapon with parry_bonus 0 can still
+## technically roll, but a reaction window should never OFFER Parry as a
+## legal choice when the reactor's weapon cannot parry at all).
+static func is_parry_eligible(weapon: Dictionary) -> bool:
+	return weapon.get("parry_bonus", 0) > 0
+
+
+## is_block_eligible(weapon) -> bool — FEAT-009: true iff `weapon` (the
+## reactor's own blocking weapon/shield Dictionary) carries a positive
+## "block_value" — mirrors is_parry_eligible()'s role for Block.
+static func is_block_eligible(weapon: Dictionary) -> bool:
+	return weapon.get("block_value", 0) > 0
+
+
 ## _off_guard_defense_reduction(target) -> int — FEAT-015 (US-015 / FR-016):
 ## returns Flanking.OFF_GUARD_BONUS (2) when `target`'s "conditions" list
 ## carries Flanking.OFF_GUARD_CONDITION ("Off-Guard"), else 0. Read-only —
