@@ -16,6 +16,18 @@
 ##   attributes         — Dictionary with seven keys:
 ##                        {strength, constitution, dexterity, willpower,
 ##                         intellect, intuition, social} each int in [1–6]
+##   skills             — Dictionary of arbitrary skill keys (e.g. "mobility",
+##                        "determination") each an int score. Kept SEPARATE
+##                        from `attributes` (independent attribute set — no
+##                        repeating-group violation) so it never perturbs
+##                        Attributes.point_buy_validate()'s REQUIRED_KEYS
+##                        check. Missing keys are NOT an error: read via
+##                        skills.get(key, 0) — the same pattern already used
+##                        to read `attributes` elsewhere in this codebase —
+##                        for a 0 default; this class carries zero business
+##                        logic, so no bespoke accessor method is added here.
+##                        Data-layer prerequisite for skill-based
+##                        reaction/defense checks (FR-007, e.g. Dodge/Steel).
 ##   starting_equipment — Array of Resource paths (WeaponResource / ArmorResource)
 ##   talent_selections  — Array of talent identifiers chosen at character creation
 
@@ -34,6 +46,12 @@ extends Resource
 ## Attribute scores — seven keys, each int in [1, 6].
 ## Keys: strength, constitution, dexterity, willpower, intellect, intuition, social.
 @export var attributes: Dictionary = {}
+
+## Skill scores — arbitrary string keys (e.g. "mobility", "determination"),
+## each an int score. Distinct Dictionary from `attributes`; unknown/missing
+## keys are legal — read via skills.get(key, 0) for a 0 default, never
+## raised as an error.
+@export var skills: Dictionary = {}
 
 ## Array of Resource paths pointing to starting WeaponResource / ArmorResource instances.
 @export var starting_equipment: Array = []

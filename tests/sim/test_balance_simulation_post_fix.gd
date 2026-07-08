@@ -111,10 +111,21 @@ const MAX_ROUNDS_GUARD: int = 50
 ## simulator.gd path exercised by this test, so this data-layer change is
 ## not expected to shift win_rate — see
 ## tests/unit/test_weapon_resource_data.gd for the FEAT-001 data suite.
+##
+## FEAT-002 (iteration-H, US-006 / FR-007) intentionally re-pins the
+## titus.tres and skeleton.tres hashes below: that feature adds a new
+## `skills: Dictionary` field (distinct from `attributes`) to both
+## CharacterResource and EnemyResource, and authors it onto both .tres
+## fixtures (Titus mobility=2/determination=2, skeleton
+## mobility=1/determination=1). `skills` is not read anywhere on the
+## passive-defense-only simulator.gd path exercised by this test (it is a
+## data-layer prerequisite for the future Dodge/Steel check rewiring), so
+## this change is not expected to shift win_rate. See
+## tests/unit/test_skills_dictionary.gd for the FEAT-002 data suite.
 const _EXPECTED_HASHES: Dictionary = {
 	"res://core/sim/simulator.gd":      "a0caa3aa612bd7532187d4074d49b4ab",
-	"res://data/characters/titus.tres": "7b08e7c3460930c2a2262b32aa80d179",
-	"res://data/enemies/skeleton.tres": "b39f5afcf86749209eff4c99ef278bc7",
+	"res://data/characters/titus.tres": "da31ef348d95fd313c1a895ca02e0417",
+	"res://data/enemies/skeleton.tres": "4df46de7d181f7d9273234efef462cd4",
 	"res://data/weapons/longsword.tres": "39a40c5ed6a4a0b5c3372ce0d8b7d280",
 	"res://data/armor/chain_shirt.tres": "6be0c7c1b55b7a91233bca0f62fadd16",
 	"res://data/armor/scale_mail.tres":  "7c724303a7db4ad78a7341bc9e7f46f1",
