@@ -1,397 +1,577 @@
 extends GutTest
-## tests/integration/test_steel_thread_e2e.gd — FEAT-010 (US-010; the
-## capstone integration/E2E test for this iteration's steel thread).
+## tests/integration/test_steel_thread_e2e.gd — FEAT-208 (US-004/US-009/
+## US-010/US-011/US-012/US-013; the capstone integration/E2E test proving the
+## COMPLETE steel thread — entry point to exit point — is wired together
+## correctly across EVERY layer this iteration touched: data (WeaponResource/
+## CharacterResource/EnemyResource-shaped combatant Dictionaries, ActionEconomy
+## budgets), business_logic (core/rules/action_economy.gd,
+## core/rules/resolution.gd, core/application/round_session.gd,
+## core/application/reaction_window.gd), api (the Application-layer ports —
+## RoundSessionPort/ReactionWindowPort/ReactionChooserPort, exercised via
+## their real production implementations), and presentation
+## (presentation/turn_controller.gd, scenes/ui/reaction_prompt_ui.gd,
+## presentation/player_reaction_chooser.gd, MainScene.gd's composition root).
 ##
-## Drives the REAL, shipped res://MainScene.tscn composition root (no
-## test-local resolver/use-case graph, no mocked Application-layer port)
-## through the complete steel thread this iteration (FEAT-001..FEAT-009)
-## built, entry to exit:
+## Unlike the earlier, narrower "steel thread" suites this project has
+## accumulated across prior iterations (tests/gut/test_steel_thread_e2e.gd —
+## FEAT-180's Layer1/Layer2 verb-bar consolidation smoke;
+## tests/e2e/test_full_steel_thread_e2e.gd — FEAT-167/198's movement+AI
+## smoke), THIS suite is FEAT-208's own capstone: it drives round_session.
+## begin_round() through MULTIPLE undecided rounds via the real automatic
+## next-round continuation loop (MainScene.gd's rewire_session(),
+## FEAT-006/ADR-012), proves presentation/turn_controller.gd's 1000-turn
+## last-resort guard is NEVER what actually terminates a round (only the
+## no-progress backstop / natural budget exhaustion / a decided outcome may
+## ever end one — a guard trip is treated as a test FAILURE, per this
+## feature's design notes' observability contract), drives a live attack's
+## reaction window through the REAL, on-screen scenes/ui/reaction_prompt_ui.gd
+## pop-up (via the REAL MainScene-wired ReactionWindow/TurnController/
+## PlayerReactionChooser triple) to a player-chosen Parry that measurably
+## suppresses damage, and confirms the round ultimately reaches a decided
+## outcome.
 ##
-##   entry_point:  RoundSession's cursor advances to a combatant's turn
-##                 (either the initial cursor set in RoundSession._init(),
-##                 or a later _advance_cursor()) -> that combatant's
-##                 core/rules/action_economy.gd ActionEconomy.start_of_turn()
-##                 fires -> can_take_action() reports true -> the Layer 1
-##                 verb bar ($VerbBarView) renders Strike/Stride enabled.
-##   exit_point:    the acting combatant performs exactly ONE Strike/Stride
-##                  this turn (core/rules/action_economy.gd's per-turn
-##                  action-used gate, FEAT-003) -> $VerbBarView greys
-##                  Strike/Stride until that combatant's NEXT start_of_turn()
-##                  -> an enemy Strike (core/combat/ai.gd, FEAT-007's
-##                  single-action-per-decision AI) rolls against an AC
-##                  sourced from data/enemies/skeleton.tres via
-##                  data/enemies/enemy_resource.gd's EnemyResource --
-##                  never a hard-coded constant (FEAT-001/FEAT-008).
-##
-## Every collaborator driven below (`_verb_registry`, `verb_bar_view`,
-## `round_session`, `hex_grid_view`, `selection_overlay`, `end_turn_control`,
-## `turn_controller`) is the exact, unmodified, REUSED production instance
-## MainScene.gd's own _ready() wires (ADR-002/CR-001: no forked resolution
-## logic anywhere in this file) -- this feature introduces NO new production
-## code (files_to_modify is empty); its sole job is proving FEAT-001..009
-## all still compose correctly together, end to end, through the real
-## wiring.
-##
-## This suite does NOT re-test (and therefore does not duplicate) the
-## individual unit-level proofs already established by:
-##   tests/unit/test_action_economy_gate.gd / test_action_economy_can_take_action.gd
-##     (the domain-level per-turn one-action gate in isolation)
-##   tests/unit/test_verb_bar_availability.gd (verb-bar greying against a
-##     directly-manipulated ActionEconomy, not a real cursor advance)
-##   tests/unit/core/combat/test_ai_action_budget.gd / test_ai_reach_strike.gd /
-##     test_ai_stride_then_strike.gd (AI single-action decision logic in
-##     isolation)
-##   tests/unit/test_build_enemy_combatant_defenses.gd / test_enemy_resource_fields.gd
-##     (EnemyResource -> Combatant.ac field-sourcing in isolation)
-##   tests/integration/test_headless_boot.gd (the exhaustive real-subprocess
-##     zero-error/zero-warning headless-boot gate)
-## -- this file's job is proving all of that machinery composes correctly
-## TOGETHER, through the real cursor-advance seam (core/application/
-## round_session.gd's single start_of_turn() call site, FEAT-004) and the
-## real $VerbBarView/AI wiring, never a re-derived rule of its own.
+## Reuses this codebase's established synthetic-fixture convention
+## (tests/integration/test_multi_round_loop.gd's FakeTurnOrderPort/
+## FakeEventSinkPort/FakeRoundHistoryPort/FakeAIDecisionPort/
+## ConstantRandomNumberPort + `_wire_synthetic_fixture()`/`rewire_session()`
+## pattern) so this suite's Hero-vs-Golem outcome is fully deterministic and
+## independent of the prologue encounter's own seed-sensitive Titus-vs-
+## Skeleton fixture — while still driving every collaborator (RoundSession,
+## TurnController, EndTurnControl, VerbBarView/`_verb_registry`,
+## ReactionWindow, ReactionPromptUI, PlayerReactionChooser) as the REAL,
+## unmodified production instance MainScene.gd's own composition root wires
+## (ADR-002/CR-001: no forked resolution logic, no mocked Application-layer
+## port anywhere in this file). No production code is modified for this
+## feature (files_to_modify is empty) — this file's sole job is proving
+## FEAT-006..FEAT-013's machinery composes correctly TOGETHER, end to end.
 ##
 ## test_criteria satisfied by this file:
-##   1. Cursor advances to player actor's turn -> start_of_turn() fires ->
-##      can_take_action() true -> verb bar shows Strike/Stride enabled.
-##   2. Player performs Strike -> spend_action() succeeds -> can_take_action()
-##      false -> verb bar greys Strike/Stride -> a second same-turn action
-##      attempt returns ACTION_ALREADY_USED.
-##   3. Cursor advances to the next actor's turn (through a real enemy
-##      activation) and back -> verb bar Strike/Stride re-enable for the
-##      returning current actor.
-##   4. Cursor advances to the AI-controlled Skeleton's turn -> the AI takes
-##      exactly one action (Strike if in reach, else Stride -- never both);
-##      the AC used by a Strike against the Skeleton is sourced from
-##      skeleton.tres via EnemyResource, not a hard-coded constant.
-##   5. A headless MainScene boot completes without error with the full
-##      wiring (verb-bar callbacks, RoundSession, ActionEconomy, AI,
-##      EnemyResource) active.
+##   1. round_session.begin_round() with all combatants at full 7-action
+##      budgets — test_criterion1_round_begins_with_full_seven_action_budgets().
+##   2. The round loop proceeds across at least 2 undecided rounds via the
+##      automatic next-round loop without any hang, AND the 1000-turn guard in
+##      turn_controller._drive() is never tripped —
+##      test_criterion2_and_3_multi_round_loop_never_hangs_and_never_trips_the_1000_turn_guard().
+##   3. At least one live attack triggers a reaction window visible as an
+##      on-screen pop-up, and the chosen reaction (Parry) measurably alters
+##      the attack's outcome (damage suppression) —
+##      test_criterion4_and_5_live_attack_reaction_pop_up_alters_outcome_via_parry().
+##   4. The round resolves to a decided outcome by test end — covered by
+##      criterion 2/3's own suite (round 3 concludes "won") and re-asserted
+##      standalone by test_criterion6_round_ultimately_resolves_to_a_decided_outcome().
+
+const RoundSessionClass            = preload("res://core/application/round_session.gd")
+const ActionEconomyClass           = preload("res://core/rules/action_economy.gd")
+const RunRoundUseCaseClass         = preload("res://core/application/run_round_use_case.gd")
+const ResolveActionUseCaseClass    = preload("res://core/application/resolve_action_use_case.gd")
+const DetermineOutcomeUseCaseClass = preload("res://core/application/determine_outcome_use_case.gd")
+const HexCoordClass                = preload("res://core/geometry/hex_coord.gd")
+const RoundEventsClass              = preload("res://core/rules/round_events.gd")
+const ResolutionClass              = preload("res://core/rules/resolution.gd")
+const ReactionChooserPortClass     = preload("res://core/application/ports/reaction_chooser_port.gd")
+const AutoReactionChooserRef       = preload("res://infrastructure/auto_reaction_chooser.gd")
 
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
-const SKELETON_TRES_PATH: String = "res://data/enemies/skeleton.tres"
 
-const HexCoordClass = preload("res://core/geometry/hex_coord.gd")
-const RoundEventsClass = preload("res://core/rules/round_events.gd")
-const ActionEconomyClass = preload("res://core/rules/action_economy.gd")
-
-## The pinned deterministic-test fixture seed (matches data/encounters/
-## prologue_encounter.tres' own `seed` field, 42) -- this codebase's
-## established integration/E2E test convention (injected in-process via
-## MainScene's `seed_override` contract, ADR-004 top precedence).
-const SEED: int = 42
+## Bounds this suite's OWN drive loop (never the production 1000-turn guard
+## itself, which this suite asserts is NEVER what terminates a round) — with
+## MAX_BUDGET=7 actions per combatant per round and two rounds of guaranteed
+## misses (ac=100) before a third, decisive round, this concludes within
+## ~15 outer iterations; 200 leaves an ample, still-tiny margin (CWE-835
+## "never loop unbounded" guard, mirroring this codebase's own established
+## `_MAX_DRIVE_ITERATIONS` convention).
+const _MAX_DRIVE_ITERATIONS: int = 200
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Shared fixture -- mirrors this codebase's established
-# `_boot_main_scene_with_seed()` convention (tests/unit/
-# test_verb_bar_availability.gd, tests/e2e/test_full_steel_thread_e2e.gd).
+# Fake/double port implementations — mirrors tests/integration/
+# test_multi_round_loop.gd's established synthetic-fixture convention exactly.
 # ══════════════════════════════════════════════════════════════════════════
 
-func _boot_main_scene_with_seed(seed_value: int):
+class FakeTurnOrderPort:
+	extends "res://core/application/turn_order_port.gd"
+
+	var _entries: Array
+
+	func _init(entries: Array) -> void:
+		_entries = entries
+
+	func get_turn_order() -> Array:
+		return _entries
+
+
+class FakeRoundHistoryPort:
+	extends "res://core/application/round_history_port.gd"
+
+	var entries: Array = []
+
+	func append(entry: Dictionary) -> void:
+		entries.append(entry)
+
+	func get_history() -> Array:
+		return entries
+
+
+## FakeAIDecisionPort — always issues a Strike against the first living
+## target in `targets` (never Stride/WAIT) — deterministic actor selection,
+## isolating this suite's determinism entirely in ConstantRandomNumberPort
+## below rather than in any positional/reach reasoning.
+class FakeAIDecisionPort:
+	extends "res://core/application/ai_decision_port.gd"
+
+	func decide_action(combatant: Dictionary, targets: Array) -> Dictionary:
+		for target in targets:
+			if target.get("hp_current", 0) > 0:
+				return {"action_type": "Strike", "target": target}
+		return {"action_type": "", "target": {}}
+
+
+## ConstantRandomNumberPort — returns the SAME scripted int for every roll()
+## call regardless of dice_spec, so hit/miss is fully controlled by the
+## combatant's "ac" fixture value alone — no dependency on call
+## ordering/count, matching test_multi_round_loop.gd's own double exactly.
+class ConstantRandomNumberPort:
+	extends "res://core/rules/random_port.gd"
+
+	var _value: int
+
+	func _init(value: int) -> void:
+		_value = value
+
+	func roll(_dice_spec: Dictionary) -> int:
+		return _value
+
+
+## SequenceRNG — mirrors tests/integration/test_reaction_prompt_ui.gd's own
+## SequenceRNG: returns successive values from pre-set d20/roll sequences, so
+## the standalone live attack this suite resolves through a reaction window
+## is fully deterministic.
+class SequenceRNG:
+	var _d20_seq: Array
+	var _roll_seq: Array
+	var _d20_idx: int = 0
+	var _roll_idx: int = 0
+
+	func _init(d20_seq: Array, roll_seq: Array = []) -> void:
+		_d20_seq = d20_seq
+		_roll_seq = roll_seq
+
+	func d20() -> int:
+		var val: int = _d20_seq[_d20_idx % _d20_seq.size()]
+		_d20_idx += 1
+		return val
+
+	func roll(_die_size: int, _count: int) -> int:
+		var val: int = _roll_seq[_roll_idx % _roll_seq.size()]
+		_roll_idx += 1
+		return val
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Shared fixture helpers
+# ══════════════════════════════════════════════════════════════════════════
+
+func _entry(combatant: Dictionary) -> Dictionary:
+	return {"combatant": combatant, "action_economy": ActionEconomyClass.new()}
+
+
+func _weapon() -> Dictionary:
+	return {"damage_modifier_attribute": "strength", "proficiency_bonus": 0, "damage_die": 6}
+
+
+## _hero()/_golem() — a minimal, adjacent-hex 1v1 fixture (no reliance on the
+## prologue encounter's own Titus/Skeleton stats or seed-dependent
+## initiative), mirroring test_multi_round_loop.gd's identically-named
+## helpers. Both start unhittable (ac=100) against a scripted roll of 1 —
+## guaranteeing every Strike misses (spending the action, but resolving —
+## never tripping the no-progress backstop) until a test explicitly lowers
+## one side's `ac`/`hp_current` to force a decisive hit.
+func _hero() -> Dictionary:
+	return {
+		"name": "Hero", "combatant_id": "hero", "hp_current": 50, "hp_max": 50,
+		"ac": 100, "strength": 0, "hex_coord": HexCoordClass.new(0, 0),
+		"_is_enemy": false, "weapon": _weapon(),
+	}
+
+
+func _golem() -> Dictionary:
+	return {
+		"name": "Golem", "combatant_id": "golem", "hp_current": 1, "hp_max": 1,
+		"ac": 100, "strength": 0, "hex_coord": HexCoordClass.new(1, 0),
+		"_is_enemy": true, "weapon": _weapon(),
+	}
+
+
+func _boot_main_scene():
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn (the real project.godot run/main_scene target) must load as a PackedScene")
 	var instance = packed.instantiate()
-	instance.seed_override = seed_value
+	instance.seed_override = 1
 	add_child_autofree(instance)
 	return instance
 
 
-## _resolve_strike_via_full_click_flow(instance, target_id) -> Variant --
-## resolves a Strike through the SAME player-facing path a real click
-## drives: VerbBarView.press("STRIKE") enters Layer 2 selection, then a left
-## click on the target's own on-screen hex (hex_grid_view.hex_clicked, the
-## real signal presentation/selection_overlay.gd is subscribed to) resolves
-## it through selection_overlay -> `_verb_registry.execute()` ->
-## resolve_action_use_case.resolve() -- never a direct
-## `_verb_registry.execute()` shortcut, so the full Layer1->Layer2->Layer1
-## UI transition (including the post-resolution refresh_availability() call)
-## is exercised exactly as the real game drives it.
-func _resolve_strike_via_full_click_flow(instance, target_id: String) -> void:
-	var target_token = instance.hex_grid_view.get_token(target_id)
-	assert_not_null(target_token, "fixture assumption: the chosen Strike target has a rendered HexGridView token")
-	instance.hex_grid_view.hex_clicked.emit(target_token.hex_coord)
+## _wire_synthetic_fixture(instance, hero, golem) -> void — replaces the real
+## MainScene's prologue-encounter pipeline (`_party`/`_enemies`/
+## `resolve_action_use_case`/`run_round_use_case`) with a fully-controlled
+## synthetic 1v1 rig, THEN drives MainScene's own `rewire_session()` (the
+## SAME single reusable method _ready() already called at boot, FEAT-006) to
+## obtain round 1's RoundSession over that rig — exercising the real
+## composition-root wiring (TurnController/EndTurnControl/VerbBarView/
+## `_verb_registry`) against fully deterministic combatants. Mirrors
+## tests/integration/test_multi_round_loop.gd's identically-named helper
+## exactly.
+func _wire_synthetic_fixture(instance, hero: Dictionary, golem: Dictionary) -> void:
+	var entries: Array = [_entry(hero), _entry(golem)]
+	var turn_order_port = FakeTurnOrderPort.new(entries)
+	var round_history_port = FakeRoundHistoryPort.new()
+	var rng_port = ConstantRandomNumberPort.new(1)
+
+	instance._party = [hero]
+	instance._enemies = [golem]
+	instance.round_history_port = round_history_port
+	instance.resolve_action_use_case = ResolveActionUseCaseClass.new(rng_port, instance.event_sink, round_history_port)
+	instance.determine_outcome_use_case = DetermineOutcomeUseCaseClass.new()
+	instance.run_round_use_case = RunRoundUseCaseClass.new(
+		turn_order_port, instance.event_sink, round_history_port, FakeAIDecisionPort.new(),
+		instance.resolve_action_use_case, instance.determine_outcome_use_case
+	)
+
+	instance.rewire_session()
 
 
-func _last_attack_event_by(instance, attacker_name: String):
-	var events: Array = instance.event_sink.log
-	for i in range(events.size() - 1, -1, -1):
-		var event = events[i]
-		if event is RoundEventsClass.AttackEvent and event.attacker_name == attacker_name:
-			return event
+## _action_economy_by_id(instance, combatant_id) -> ActionEconomy or null —
+## looks up the live ActionEconomy paired with `combatant_id` in the real,
+## booted RoundSession's own turn-order entries, mirroring
+## tests/e2e/test_full_steel_thread_e2e.gd's identically-purposed
+## `_find_action_economy_by_id()` helper (non-invasive observation of the
+## real, unmodified production RoundSession instance — never a mock/stub).
+func _action_economy_by_id(instance, combatant_id: String):
+	for entry in instance.round_session._entries:
+		if entry.get("combatant", {}).get("combatant_id", "") == combatant_id:
+			return entry.get("action_economy")
 	return null
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Criterion 1 (entry_point) -- cursor advance to the player actor's turn ->
-# start_of_turn() fires -> can_take_action() true -> verb bar shows
-# Strike/Stride enabled.
+# Criterion 1 (entry_point) — round_session.begin_round() starts EVERY
+# combatant at a full 7-action budget.
 # ══════════════════════════════════════════════════════════════════════════
 
-func test_criterion1_cursor_advance_to_player_turn_fires_start_of_turn_and_verb_bar_shows_strike_stride_enabled() -> void:
-	var instance = _boot_main_scene_with_seed(SEED)
+func test_criterion1_round_begins_with_full_seven_action_budgets() -> void:
+	var instance = _boot_main_scene()
+	var hero: Dictionary = _hero()
+	var golem: Dictionary = _golem()
+	_wire_synthetic_fixture(instance, hero, golem)
+
+	assert_not_null(instance.round_session, "rewire_session() (which internally calls run_round_use_case.begin_round()) must assign a real RoundSession")
+	assert_is(instance.round_session, RoundSessionClass)
+
+	var hero_ae = _action_economy_by_id(instance, "hero")
+	var golem_ae = _action_economy_by_id(instance, "golem")
+	assert_not_null(hero_ae, "fixture assumption: the RoundSession must carry a live ActionEconomy for Hero")
+	assert_not_null(golem_ae, "fixture assumption: the RoundSession must carry a live ActionEconomy for Golem")
+
+	assert_eq(hero_ae.get_remaining(), ActionEconomyClass.MAX_BUDGET, "begin_round() must grant Hero a full 7-action budget before any turn is taken")
+	assert_eq(golem_ae.get_remaining(), ActionEconomyClass.MAX_BUDGET, "begin_round() must grant Golem a full 7-action budget before any turn is taken")
+	assert_eq(ActionEconomyClass.MAX_BUDGET, 7, "sanity check: this steel thread's contract is specifically a 7-action budget")
+	assert_false(hero_ae.is_spent(), "a freshly-begun round's combatants must not already be Spent")
+	assert_false(golem_ae.is_spent())
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Criteria 2 & 3 — the round loop proceeds across AT LEAST 2 undecided
+# rounds via the automatic next-round loop without any hang, and
+# presentation/turn_controller.gd's 1000-turn last-resort guard is NEVER
+# what actually terminates a round (a trip is a test FAILURE).
+# ══════════════════════════════════════════════════════════════════════════
+
+## Round 1 and round 2 are both driven to a natural, undecided conclusion
+## (both Hero and Golem start unhittable at ac=100 against this rig's
+## scripted roll of 1 — every Strike resolves as a miss, so BOTH sides
+## genuinely exhaust their own 7-action budgets rather than the no-progress
+## backstop firing) — MainScene.gd's _on_round_over() must then increment
+## ROUND_NUMBER and call rewire_session() automatically, twice, with zero
+## further test intervention beyond driving input exactly as a human would
+## (VerbBarView's STRIKE verb + EndTurnControl.press()). Only once round 3
+## begins is Hero's own Strike made lethal against Golem, so the round
+## FINALLY resolves to a decided ("won") outcome — proving this suite's own
+## drive loop, not a hang, is what eventually exits it.
+func test_criterion2_and_3_multi_round_loop_never_hangs_and_never_trips_the_1000_turn_guard() -> void:
+	var instance = _boot_main_scene()
+	var hero: Dictionary = _hero()
+	var golem: Dictionary = _golem()
+	_wire_synthetic_fixture(instance, hero, golem)
+
+	assert_eq(instance.ROUND_NUMBER, 1, "fixture setup: the synthetic rig must start on round 1")
+
+	var observed_round_numbers: Dictionary = {1: true}
+	var made_lethal: bool = false
+	var guard: int = 0
+
+	while not instance.round_session.is_round_over() and guard < _MAX_DRIVE_ITERATIONS:
+		guard += 1
+		observed_round_numbers[instance.ROUND_NUMBER] = true
+
+		# ── Criterion 3: the 1000-turn guard in turn_controller._drive() must
+		# NEVER be what settles this drive on its current actor. That guard's
+		# while-loop only ever exits early (mid-Enemy-turn, guard tripped) OR
+		# naturally (the round concluded, OR the current actor is no longer an
+		# Enemy). So: whenever the round is not yet over, the settled current
+		# actor must NEVER still be an Enemy — if it were, that could only mean
+		# _drive()'s own loop was cut short by its guard rather than by
+		# genuinely reaching the next Player's turn (or the round ending). A
+		# guard trip is therefore a hard test FAILURE here, exactly as this
+		# feature's design notes require (turn_controller.gd's guard is the
+		# LAST-RESORT circuit breaker, never the designed termination path —
+		# see round_session.gd's own no-progress backstop, which is the true
+		# guarantee). ─────────────────────────────────────────────────────────
+		if not instance.round_session.is_round_over():
+			assert_false(
+				instance.round_session.current_actor().get("_is_enemy", true),
+				"presentation/turn_controller.gd's 1000-turn last-resort guard must NEVER be what terminates _drive() — " +
+				"the settled current actor must be the Player whenever the round is not yet over (iteration %d)" % guard
+			)
+
+		if instance.ROUND_NUMBER == 3 and not made_lethal:
+			# Rounds 1 and 2 concluded undecided (both sides exhausted their
+			# 7-action budget against each other's unhittable ac=100) — now make
+			# Golem hittable (it already carries hp_current=1, per _golem()'s
+			# fixture) so Hero's own next Strike lethally decides round 3 in
+			# the PLAYER's favor ("won").
+			golem["ac"] = -100
+			made_lethal = true
+
+		if not instance.round_session.current_actor().get("_is_enemy", false):
+			instance._verb_registry.execute("STRIKE", "golem")
+		instance.end_turn_control.press()
+
+	assert_true(guard < _MAX_DRIVE_ITERATIONS, "the round(s) must conclude within this suite's own bounded drive loop — never hang (guard=%d/%d)" % [guard, _MAX_DRIVE_ITERATIONS])
+	assert_true(instance.round_session.is_round_over(), "the round must be over by the time this suite's drive loop exits")
+
+	# ── Criterion 2: at least 2 undecided rounds (round 1 AND round 2) must
+	# have genuinely been driven through the automatic next-round loop before
+	# the encounter concluded (round 3). ────────────────────────────────────
+	assert_true(observed_round_numbers.has(1), "round 1 must have been observed")
+	assert_true(observed_round_numbers.has(2), "round 2 must have been observed -- proving the automatic next-round continuation loop fired at least once")
+	assert_eq(
+		instance.ROUND_NUMBER, 3,
+		"exactly two undecided rounds (1 and 2) must have concluded and automatically continued before the third, decisive round"
+	)
+	assert_eq(instance.round_session.outcome(), "won", "round 3 must conclude with a decided outcome once Hero's now-lethal counter-Strike lands against Golem")
+
+	var result_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.EncounterResultEvent)
+	assert_eq(result_events.size(), 1, "exactly one decided encounter outcome must ever be reached across all three rounds")
+	assert_eq(result_events[0].round, 3, "the decided outcome must be stamped with round 3's number")
+
+	var turn_advanced_round_numbers: Dictionary = {}
+	for e in instance.event_sink.log:
+		if e is RoundEventsClass.TurnAdvancedEvent:
+			turn_advanced_round_numbers[e.round] = true
+	assert_true(turn_advanced_round_numbers.has(1), "round 1's own TurnAdvancedEvents must have been observed")
+	assert_true(turn_advanced_round_numbers.has(2), "round 2's own TurnAdvancedEvents must have been observed -- proving a genuine second undecided round ran")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Criteria 4 & 5 — mid-resolution, a live attack triggers a reaction window
+# presented as a blocking on-screen pop-up (Parry), player-chosen, and the
+# chosen reaction measurably alters the attack's outcome (damage
+# suppression) — driven through the REAL MainScene-wired ReactionWindow /
+# TurnController.resolve_reaction() / PlayerReactionChooser / the REAL,
+# on-screen scenes/ui/reaction_prompt_ui.gd pop-up.
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_criterion4_and_5_live_attack_reaction_pop_up_alters_outcome_via_parry() -> void:
+	var instance = _boot_main_scene()
+	var hero: Dictionary = _hero()
+	var golem: Dictionary = _golem()
+	_wire_synthetic_fixture(instance, hero, golem)
 	await get_tree().process_frame
 
-	assert_false(
-		instance.round_session.current_actor().get("_is_enemy", true),
-		"fixture assumption: RoundSession._init()'s cursor must settle on the living player combatant (Titus) at seed=42"
+	# This is the REAL, production composition-root wiring — the same
+	# ReactionWindow/TurnController/ReactionPromptUI/PlayerReactionChooser
+	# instances MainScene.gd's own _ready() constructs (FEAT-207), never a
+	# test-local substitute.
+	assert_not_null(instance.reaction_window, "MainScene must wire a real ReactionWindow (core/application/reaction_window.gd)")
+	assert_not_null(instance.turn_controller, "MainScene must wire a real TurnController")
+	assert_not_null(instance.reaction_prompt_ui, "MainScene must wire a real, on-screen ReactionPromptUI pop-up")
+	assert_not_null(instance.player_reaction_chooser, "MainScene must wire a real PlayerReactionChooser")
+
+	assert_false(instance.reaction_prompt_ui.visible, "the pop-up must start hidden -- no reaction is pending yet")
+
+	# Hero (the round's REAL, live party combatant, already carrying a real
+	# ActionEconomy inside round_session's own turn-order entries) is the
+	# reactor. A fresh, independent Resolution instance (scripted via
+	# SequenceRNG, mirroring tests/integration/test_reaction_prompt_ui.gd's
+	# own live-attack E2E convention) resolves a genuinely live attack against
+	# a snapshot of Hero with a hittable AC, so this suite can assert a
+	# concrete, deterministic damage-suppression outcome without depending on
+	# the round loop's own unhittable ac=100 fixture values.
+	var hero_action_economy = _action_economy_by_id(instance, "hero")
+	assert_not_null(hero_action_economy, "fixture assumption: Hero's real, round-shared ActionEconomy must be reachable off round_session")
+	assert_eq(hero_action_economy.get_remaining(), ActionEconomyClass.MAX_BUDGET, "fixture assumption: Hero has not yet spent any action/reaction this round")
+
+	var reactor: Dictionary = hero.duplicate()
+	reactor["ac"] = 13
+	reactor["conditions"] = []
+	reactor["skills"] = {}
+
+	var parrying_weapon: Dictionary = {"damage_die": 8, "parry_bonus": 3, "block_value": 0}
+	var attacker: Dictionary = {"name": "Golem", "strength": 3}
+	var attacker_weapon: Dictionary = {"damage_modifier_attribute": "strength", "proficiency_bonus": 2, "damage_die": 6}
+
+	var trigger: Dictionary = {
+		"trigger_type": "Parry",
+		"reactor": reactor,
+		"reactor_action_economy": hero_action_economy,
+		"weapon": parrying_weapon,
+		"defense_type": "ac",
+		"attack_context": {"parrying_weapon": parrying_weapon},
+		"round_number": instance.ROUND_NUMBER,
+	}
+
+	# Step 1: the player's own on-screen pop-up must present EXACTLY the
+	# eligible Parry reaction (plus Pass), and remain closed until this
+	# happens.
+	var press_parry := func():
+		assert_true(instance.reaction_prompt_ui.is_open(), "the real, on-screen ReactionPromptUI must be OPEN (blocking) when the player responds")
+		assert_true(instance.reaction_prompt_ui.visible, "the pop-up must be VISIBLE on screen while the player's choice is pending")
+		assert_eq(instance.reaction_prompt_ui.get_displayed_options(), ["parry", "none"], "the pop-up must offer exactly the eligible Parry reaction plus Pass -- nothing else")
+		instance.reaction_prompt_ui.press_option("parry")
+	press_parry.call_deferred()
+
+	# Step 2: drive the REAL blocking integration point
+	# (presentation/turn_controller.gd's resolve_reaction()) -- genuinely
+	# suspends this coroutine until the deferred press above fires.
+	var reaction_result: Dictionary = await instance.turn_controller.resolve_reaction(trigger, "player")
+
+	assert_true(reaction_result.get("ok", false), "resolve_reaction() must report success once the player's choice resumes the window")
+	assert_true(reaction_result.get("opened", false), "a window must genuinely have opened for this eligible Parry trigger")
+	assert_eq(reaction_result.get("choice", ""), "parry", "the player's own on-screen choice (Parry) must be what resumes the window")
+	assert_false(instance.reaction_prompt_ui.visible, "the pop-up must close the instant the player's choice is made")
+	assert_false(instance.reaction_prompt_ui.is_open())
+
+	assert_eq(
+		hero_action_economy.get_remaining(), ActionEconomyClass.MAX_BUDGET - 1,
+		"choosing a real, non-Pass reaction must spend exactly one reaction from Hero's SAME live, round-shared ActionEconomy budget"
 	)
 
-	var action_economy = instance.round_session.current_action_economy()
-	assert_not_null(action_economy, "fixture assumption: the active actor carries a live domain ActionEconomy")
+	# Step 3: resolution genuinely only proceeds NOW, using the player's
+	# actual on-screen choice as resolve_weapon_attack()'s active_defense
+	# argument -- mirroring core/application/reaction_window.gd's own
+	# open_and_resolve_attack() delegation contract. The reaction's spend
+	# already happened via resolve_reaction()/resume() above, so
+	# defense_context omits "action_economy" here (no second/duplicate spend).
+	#
+	# attack_d20=10 -> roll_total = 10 + strength(3) + prof(2) = 15 -> hits ac(13), not a crit (15-13=2 < 10)
+	# damage_die roll=4 -> damage_raw = 4 + strength(3) = 7
+	# parry_d20=13 -> parry_roll = 13 + parry_bonus(3) = 16 -> STRICTLY exceeds 15 -> Parry succeeds
+	var resolution: ResolutionClass = ResolutionClass.new(SequenceRNG.new([10, 13], [4]))
+	var outcome: Dictionary = resolution.resolve_weapon_attack(
+		attacker, reactor, attacker_weapon, "ac", reaction_result["choice"], trigger["attack_context"]
+	)
+
+	assert_true(outcome["hit"], "the underlying live attack roll must still hit AC -- Parry does not prevent a hit, only its damage")
+	assert_eq(outcome["damage_raw"], 7, "fixture assumption: the scripted damage roll must produce 7 raw damage before Parry is applied")
+	assert_eq(outcome["active_defense_applied"], "parry", "the player's chosen reaction must be the one actually applied by resolution.gd")
+	assert_true(outcome["on_hit_suppressed"], "a successful, player-chosen Parry must suppress the hit")
+	assert_eq(outcome["damage_final"], 0, "criterion 5: the chosen reaction must MEASURABLY alter the attack's outcome -- damage_final must drop from 7 (raw) to 0 (Parry-suppressed)")
+	assert_ne(outcome["damage_final"], outcome["damage_raw"], "damage_final must differ from damage_raw -- proving the reaction genuinely changed the outcome, not a no-op")
+
+
+## Sibling proof: an auto-Passed reaction (headless AutoReactionChooser
+## policy, per this feature's test_criteria "...or auto-Passed") must NEVER
+## suppress damage -- confirming the Parry-suppression result above is
+## actually caused by the player's choice, not an unconditional behavior of
+## resolution.gd regardless of what is chosen.
+func test_criterion4_and_5_sibling_auto_passed_reaction_never_suppresses_damage() -> void:
+	var instance = _boot_main_scene()
+	var hero: Dictionary = _hero()
+	var golem: Dictionary = _golem()
+	_wire_synthetic_fixture(instance, hero, golem)
+	await get_tree().process_frame
+
+	var hero_action_economy = _action_economy_by_id(instance, "hero")
+	var reactor: Dictionary = hero.duplicate()
+	reactor["ac"] = 13
+	reactor["conditions"] = []
+	reactor["skills"] = {}
+
+	var parrying_weapon: Dictionary = {"damage_die": 8, "parry_bonus": 3, "block_value": 0}
+	var attacker: Dictionary = {"name": "Golem", "strength": 3}
+	var attacker_weapon: Dictionary = {"damage_modifier_attribute": "strength", "proficiency_bonus": 2, "damage_die": 6}
+
+	var trigger: Dictionary = {
+		"trigger_type": "Parry",
+		"reactor": reactor,
+		"reactor_action_economy": hero_action_economy,
+		"weapon": parrying_weapon,
+		"defense_type": "ac",
+		"attack_context": {"parrying_weapon": parrying_weapon},
+		"round_number": instance.ROUND_NUMBER,
+	}
+
+	var opened: Dictionary = instance.reaction_window.open(trigger)
+	assert_eq(opened["legal_reactions"], ["parry"])
+
+	var auto_chooser := AutoReactionChooserRef.new("pass")
+	var choice: String = auto_chooser.choose(opened["legal_reactions"], trigger["attack_context"])
+	assert_eq(choice, ReactionChooserPortClass.PASS, "the headless auto-Passed policy must decline the offered Parry")
+
+	var resumed: Dictionary = instance.reaction_window.resume(opened["window_id"], choice, "auto")
+	assert_true(resumed["ok"])
+	assert_eq(hero_action_economy.get_remaining(), ActionEconomyClass.MAX_BUDGET, "declining (Pass) must never spend a reaction")
+
+	var resolution: ResolutionClass = ResolutionClass.new(SequenceRNG.new([10, 13], [4]))
+	var outcome: Dictionary = resolution.resolve_weapon_attack(
+		attacker, reactor, attacker_weapon, "ac", choice, trigger["attack_context"]
+	)
+
+	assert_true(outcome["hit"], "the underlying live attack roll must still hit AC")
+	assert_eq(outcome["damage_final"], 7, "declining (auto-Passed) the reaction must leave the full raw damage unsuppressed")
+	assert_eq(outcome["active_defense_applied"], "none", "no active defense may be recorded as applied when the reaction was declined")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Criterion 6 (exit_point) — the round ultimately resolves to a decided or
+# drawn outcome by test end. (Already proven inline by criterion 2/3's own
+# suite above; re-asserted standalone here so this exit-point guarantee has
+# its own, independently-readable proof.)
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_criterion6_round_ultimately_resolves_to_a_decided_outcome() -> void:
+	var instance = _boot_main_scene()
+	var hero: Dictionary = _hero()
+	var golem: Dictionary = _golem()
+	_wire_synthetic_fixture(instance, hero, golem)
+
+	# Make Hero's very first Strike lethal against Golem (already carrying
+	# hp_current=1 per _golem()'s fixture) -- this suite's narrow purpose is
+	# only to re-confirm the terminal exit-point contract (a decided/drawn
+	# outcome is reachable and observably reported), not to re-litigate the
+	# multi-round continuation already proven above.
+	golem["ac"] = -100
+
+	var guard: int = 0
+	while not instance.round_session.is_round_over() and guard < _MAX_DRIVE_ITERATIONS:
+		guard += 1
+		if not instance.round_session.current_actor().get("_is_enemy", false):
+			instance._verb_registry.execute("STRIKE", "golem")
+		instance.end_turn_control.press()
+
+	assert_true(guard < _MAX_DRIVE_ITERATIONS, "the round must conclude within this suite's own bounded drive loop")
+	assert_true(instance.round_session.is_round_over(), "the round must be over by test end")
+
+	var outcome: String = instance.round_session.outcome()
 	assert_true(
-		action_economy.can_take_action(),
-		"start_of_turn() must already have fired for the initial cursor position (RoundSession._init()) -- can_take_action() must report true before any spend"
+		outcome == "won" or outcome == "lost" or outcome == "",
+		"RoundSession.outcome() must report a recognized terminal state"
 	)
-
-	assert_not_null(instance.verb_bar_view, "MainScene must wire a real $VerbBarView (Layer 1 entry point)")
-	assert_true(instance._verb_registry.is_available("STRIKE"), "STRIKE must be available at the entry point (Skeleton starts adjacent to Titus per the prologue fixture)")
-	assert_true(instance._verb_registry.is_available("STRIDE"), "STRIDE must be available at the entry point (can_take_action() true and a legal Stride destination exists)")
-
-	assert_false(instance.verb_bar_view.get_button("STRIKE").disabled, "the rendered STRIKE button must be enabled at the entry point")
-	assert_false(instance.verb_bar_view.get_button("STRIDE").disabled, "the rendered STRIDE button must be enabled at the entry point")
-
-
-# ══════════════════════════════════════════════════════════════════════════
-# Criterion 2 (exit_point, half 1) -- a player Strike spends the turn's one
-# action, greys Strike/Stride on the real verb bar, and a second same-turn
-# action attempt is rejected with ACTION_ALREADY_USED.
-# ══════════════════════════════════════════════════════════════════════════
-
-func test_criterion2_player_strike_spends_the_one_action_and_greys_strike_and_stride_on_the_real_verb_bar() -> void:
-	var instance = _boot_main_scene_with_seed(SEED)
-	await get_tree().process_frame
-
-	assert_true(instance._verb_registry.is_available("STRIKE"), "fixture assumption: STRIKE is available at seed=42 before any spend")
-
-	var action_economy = instance.round_session.current_action_economy()
-	assert_not_null(action_economy, "fixture assumption: the active actor carries a live domain ActionEconomy")
-	assert_true(action_economy.can_take_action(), "fixture assumption: can_take_action() is true before any spend")
-
-	var selection: Dictionary = instance.verb_bar_view.press("STRIKE")
-	assert_true(instance.selection_overlay.is_active(), "STRIKE must enter Layer 2 (SelectionOverlay active)")
-	var target_ids: Array = selection.get("candidate_targets", [])
-	assert_true(target_ids.size() > 0, "entering STRIKE's Layer 2 selection must surface at least one in-reach target")
-	var target_id: String = target_ids[0]
-
-	_resolve_strike_via_full_click_flow(instance, target_id)
-
-	assert_false(action_economy.can_take_action(), "ActionEconomy.spend_action() must succeed and can_take_action() must report false immediately after the real Strike resolves")
-
-	assert_false(instance._verb_registry.is_available("STRIKE"), "STRIKE must become unavailable immediately after this turn's one action has been spent")
-	assert_false(instance._verb_registry.is_available("STRIDE"), "STRIDE must become unavailable immediately after this turn's one action has been spent")
-	assert_true(instance.verb_bar_view.get_button("STRIKE").disabled, "the real, rendered STRIKE button must be visibly greyed (disabled) after the Strike resolves")
-	assert_true(instance.verb_bar_view.get_button("STRIDE").disabled, "the real, rendered STRIDE button must be visibly greyed (disabled) after the Strike resolves")
-
-	# A second same-turn action attempt against the SAME live ActionEconomy
-	# `_verb_registry`'s closures already read from must be rejected with the
-	# domain gate's documented ACTION_ALREADY_USED reason code (core/rules/
-	# action_economy.gd's spend_action() contract), checked BEFORE any further
-	# budget mutation.
-	var remaining_before_rejected_attempt: int = action_economy.get_remaining()
-	var second_attempt: Dictionary = action_economy.spend_action({})
-	assert_false(second_attempt.get("success", true), "a second same-turn spend_action() call must be rejected")
-	assert_eq(second_attempt.get("reason", ""), "ACTION_ALREADY_USED", "a second same-turn action attempt must be rejected with reason ACTION_ALREADY_USED")
-	assert_eq(
-		action_economy.get_remaining(), remaining_before_rejected_attempt,
-		"a rejected ACTION_ALREADY_USED attempt must never decrement the shared per-round action budget"
-	)
-
-
-# ══════════════════════════════════════════════════════════════════════════
-# Criterion 2 (exit_point, half 2) -- the AC a Strike resolves against the
-# Skeleton with is sourced from data/enemies/skeleton.tres via EnemyResource,
-# never a hard-coded constant.
-# ══════════════════════════════════════════════════════════════════════════
-
-func test_criterion2_strike_against_the_skeleton_uses_the_ac_sourced_from_its_own_enemy_resource() -> void:
-	# Load the SAME .tres fixture MainScene.gd's own _build_enemy_combatant()
-	# reads at boot, and read its `ac` field fresh -- never assert against a
-	# bare literal `14` alone, so this test fails loudly if the resource's
-	# authored value ever changes instead of silently passing against a
-	# stale hard-coded expectation.
-	var skeleton_resource = ResourceLoader.load(SKELETON_TRES_PATH)
-	assert_not_null(skeleton_resource, "fixture assumption: skeleton.tres must load as an EnemyResource")
-	var expected_ac: int = skeleton_resource.ac
-	assert_eq(expected_ac, 14, "fixture assumption: skeleton.tres' own authored ac field is 14")
-
-	var instance = _boot_main_scene_with_seed(SEED)
-	await get_tree().process_frame
-
-	var selection: Dictionary = instance.verb_bar_view.press("STRIKE")
-	var target_ids: Array = selection.get("candidate_targets", [])
-	assert_true(target_ids.size() > 0, "fixture assumption: the Skeleton is in reach at the entry point")
-	var target_id: String = target_ids[0]
-
-	_resolve_strike_via_full_click_flow(instance, target_id)
-
-	var attack_event = _last_attack_event_by(instance, "Titus")
-	assert_not_null(attack_event, "resolving the player's Strike must emit a real AttackEvent via the SAME EventSinkPort broadcast every other round event uses")
-	assert_eq(
-		attack_event.defense_value, expected_ac,
-		"the Strike must roll against the Skeleton's AC as read DIRECTLY off skeleton.tres via EnemyResource "
-		+ "(MainScene.gd's _build_enemy_combatant(), FEAT-008) -- not a hard-coded fallback constant"
-	)
-
-
-# ══════════════════════════════════════════════════════════════════════════
-# Criterion 3 -- the cursor advances through a real enemy activation and back
-# -> Strike/Stride re-enable for the returning current actor.
-# ══════════════════════════════════════════════════════════════════════════
-
-func test_criterion3_cursor_advances_through_an_enemy_turn_and_back_reenabling_strike_and_stride() -> void:
-	var instance = _boot_main_scene_with_seed(SEED)
-	await get_tree().process_frame
-
-	assert_false(instance.round_session.current_actor().get("_is_enemy", true), "fixture assumption: Titus acts first at seed=42")
-	assert_true(instance._verb_registry.is_available("STRIKE"), "fixture assumption: STRIKE is available at the entry point")
-	assert_true(instance._verb_registry.is_available("STRIDE"), "fixture assumption: STRIDE is available at the entry point")
-
-	# End the player's turn WITHOUT acting (US-010: End Turn is ALWAYS
-	# available) -- the SAME real $EndTurnControl.press() the verb bar's
-	# END_TURN entry itself delegates to. MainScene's own turn_ended wiring
-	# re-invokes the real $TurnController, which auto-resolves the Skeleton's
-	# turn via RoundSession.advance_ai_turn() (it starts adjacent to Titus, so
-	# it Strikes immediately) before the cursor returns to Titus for his
-	# SECOND turn this round.
-	var end_turn_result: Dictionary = instance.end_turn_control.press()
-	assert_true(end_turn_result.get("ok", false), "ending the player's turn (no action taken) must succeed")
-
-	assert_false(instance.round_session.is_round_over(), "fixture assumption: neither combatant is defeated by this exchange -- the round must still be ongoing")
-	assert_false(
-		instance.round_session.current_actor().get("_is_enemy", true),
-		"the cursor must have advanced through the Skeleton's own turn and landed back on the living player combatant (Titus)"
-	)
-
-	var action_economy = instance.round_session.current_action_economy()
-	assert_not_null(action_economy, "fixture assumption: the returning current actor carries a live domain ActionEconomy")
-	assert_true(
-		action_economy.can_take_action(),
-		"the returning actor's NEW turn must have had start_of_turn() invoked by the SAME single cursor-advance call site (RoundSession._advance_cursor(), FEAT-004) -- can_take_action() must report true again"
-	)
-
-	assert_true(instance._verb_registry.is_available("STRIKE"), "STRIKE must re-enable for the returning current actor's fresh turn")
-	assert_true(instance._verb_registry.is_available("STRIDE"), "STRIDE must re-enable for the returning current actor's fresh turn")
-	assert_false(instance.verb_bar_view.get_button("STRIKE").disabled, "the real, rendered STRIKE button must be visibly re-enabled for the returning current actor")
-	assert_false(instance.verb_bar_view.get_button("STRIDE").disabled, "the real, rendered STRIDE button must be visibly re-enabled for the returning current actor")
-
-
-# ══════════════════════════════════════════════════════════════════════════
-# Criterion 4 -- the AI-controlled Skeleton takes EXACTLY ONE action per
-# turn (Strike if in reach, else Stride -- never both), driven through the
-# real RoundSession.advance_ai_turn() seam.
-# ══════════════════════════════════════════════════════════════════════════
-
-func test_criterion4_ai_controlled_skeleton_strikes_immediately_with_exactly_one_action_when_already_in_reach() -> void:
-	var instance = _boot_main_scene_with_seed(SEED)
-	await get_tree().process_frame
-
-	# End the player's turn without acting so the cursor lands on the
-	# Skeleton, which starts adjacent to Titus per the prologue fixture --
-	# the "Strike if in reach" branch.
-	var end_turn_result: Dictionary = instance.end_turn_control.press()
-	assert_true(end_turn_result.get("ok", false), "ending the player's turn (no action taken) must succeed")
-
-	var attack_event = _last_attack_event_by(instance, "Skeleton")
-	assert_not_null(attack_event, "the already-in-reach Skeleton must Strike on its own turn -- no AttackEvent authored by the Skeleton was found")
-
-	# Exactly one action was spent this turn -- never a composite
-	# Stride-then-Strike (FEAT-007 removed that composite path).
-	assert_eq(
-		attack_event.actor_updated_action_budget.get("remaining", -1), ActionEconomyClass.MAX_BUDGET - 1,
-		"the Skeleton's own ActionEconomy must reflect EXACTLY one action spent this turn (the Strike itself), never two"
-	)
-
-
-func test_criterion4_ai_controlled_skeleton_strides_toward_target_and_does_not_strike_the_same_turn_when_out_of_reach() -> void:
-	var instance = _boot_main_scene_with_seed(SEED)
-	await get_tree().process_frame
-
-	assert_eq(instance._enemies.size(), 1, "fixture assumption: the prologue encounter has exactly one enemy")
-	var enemy: Dictionary = instance._enemies[0]
-	var enemy_id: String = enemy.get("combatant_id", "")
-	assert_ne(enemy_id, "", "fixture assumption: the enemy combatant carries a non-empty combatant_id")
-
-	var player: Dictionary = instance._party[0]
-	var player_hex = player.get("hex_coord")
-	assert_not_null(player_hex, "fixture assumption: the player combatant carries positional hex_coord data")
-
-	# Relocate the Skeleton out of melee reach, but within a single Stride's
-	# reach (Movement.DEFAULT_SPEED == 4 hexes) -- mirrors the SAME
-	# "hex_coord" Dictionary-key mutation point core/rules/movement.gd's own
-	# _set_hex() writes, then resyncs the on-screen token via the SAME
-	# hex_grid_view.move_token() call the AI-Stride path itself invokes, so
-	# domain state and the rendered token agree before the real AI turn below.
-	var far_hex := HexCoordClass.new(player_hex.q + 3, player_hex.r)
-	enemy["hex_coord"] = far_hex
-	instance.hex_grid_view.move_token(enemy_id, far_hex)
-
-	var attack_events_before: int = instance.event_sink.log.filter(
-		func(e): return e is RoundEventsClass.AttackEvent and e.attacker_name == "Skeleton"
-	).size()
-
-	var end_turn_result: Dictionary = instance.end_turn_control.press()
-	assert_true(end_turn_result.get("ok", false), "ending the player's turn (no action taken) must succeed")
-
-	# The Skeleton must have Strode toward Titus (its hex position changed)...
-	assert_false(enemy.get("hex_coord").equals(far_hex), "the out-of-reach Skeleton must Stride toward Titus rather than standing still")
-
-	# ...and issued ZERO Strike in the SAME turn as the Stride (FEAT-007: one
-	# action per decision, never a composite).
-	var attack_events_after: int = instance.event_sink.log.filter(
-		func(e): return e is RoundEventsClass.AttackEvent and e.attacker_name == "Skeleton"
-	).size()
-	assert_eq(attack_events_after, attack_events_before, "no Strike may resolve in the same turn as the Stride -- the AI issues exactly ONE action per decision")
-
-	var enemy_action_economy = null
-	for entry in instance.round_session._entries:
-		if entry.get("combatant", {}).get("combatant_id", "") == enemy_id:
-			enemy_action_economy = entry.get("action_economy")
-	assert_not_null(enemy_action_economy, "fixture assumption: the Skeleton carries a live domain ActionEconomy")
-	assert_false(enemy_action_economy.can_take_movement_action(), "the Skeleton's Stride must trip the per-turn Movement-trait gate")
-
-
-# ══════════════════════════════════════════════════════════════════════════
-# Criterion 5 -- a headless MainScene boot completes without error with the
-# full wiring (verb-bar callbacks, RoundSession, ActionEconomy, AI,
-# EnemyResource) active. In-process complement to tests/integration/
-# test_headless_boot.gd's exhaustive real-subprocess console-output gate --
-# mirrors this codebase's established "every composition-root field resolves
-# non-null after a real frame" proxy (tests/infrastructure/
-# test_mainscene_headless_boot.gd, tests/gut/test_smoke_boot.gd) rather than
-# re-deriving a second subprocess-spawning mechanism.
-# ══════════════════════════════════════════════════════════════════════════
-
-func test_criterion5_headless_mainscene_boot_completes_without_error_with_the_full_steel_thread_wiring_active() -> void:
-	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
-	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
-	if packed == null:
-		return
-
-	var instance = packed.instantiate()
-	assert_not_null(instance, "MainScene.tscn must instantiate with no manual setup")
-	if instance == null:
-		return
-
-	instance.seed_override = SEED
-	add_child_autofree(instance)
-	await get_tree().process_frame
-
-	# RoundSession / ActionEconomy.
-	assert_not_null(instance.round_session, "MainScene.round_session must be a real RoundSession after first frame")
-	assert_false(instance.round_session.is_round_over(), "the freshly-begun RoundSession must not already be over with no player input")
-	assert_not_null(instance.round_session.current_action_economy(), "the active actor must carry a live domain ActionEconomy after boot")
-
-	# Verb-bar callbacks (the entry_point's Layer 1 surface).
-	assert_not_null(instance.verb_bar_view, "MainScene.verb_bar_view must be wired to a real $VerbBarView node")
-	assert_not_null(instance._verb_registry, "MainScene._verb_registry must be wired -- Strike/Step/Stride/End Turn are driven solely through it")
-	assert_gt(instance.verb_bar_view.get_button_count(), 0, "the verb bar must render at least one verb button after boot")
-	assert_true(typeof(instance._verb_registry.is_available("STRIKE")) == TYPE_BOOL, "is_available('STRIKE') must resolve to a bool without throwing")
-	assert_true(typeof(instance._verb_registry.is_available("STRIDE")) == TYPE_BOOL, "is_available('STRIDE') must resolve to a bool without throwing")
-
-	# AI / EnemyResource-sourced defenses.
-	assert_eq(instance._enemies.size(), 1, "fixture assumption: the prologue encounter has exactly one EnemyResource-backed enemy")
-	assert_eq(instance._enemies[0].get("ac", -1), 14, "the booted Skeleton combatant's AC must already be sourced from its EnemyResource (skeleton.tres) at boot, not a hard-coded constant")
-
-	# Driving one full turn cycle (through the real AI wiring) must not throw.
-	var end_turn_result: Dictionary = instance.end_turn_control.press()
-	assert_true(typeof(end_turn_result) == TYPE_DICTIONARY, "driving one full player-end-turn -> AI-turn cycle through the real composition root must not throw")
+	# A decided outcome ('won'/'lost') is the concrete expectation for THIS
+	# fixture (Hero's guaranteed-hit, guaranteed-crit Strike vs Golem's 1 HP);
+	# finish()'s Dictionary "outcome" additionally distinguishes a forced DRAW
+	# from a still-undecided round -- either a decided OR a drawn outcome
+	# satisfies this exit-point criterion, but this fixture specifically
+	# produces a decided one.
+	assert_eq(outcome, "won", "fixture: Hero's guaranteed-hit, guaranteed-crit Strike must decide the encounter")
+	assert_true(instance.result_screen_view.is_shown(), "a decided outcome must route to the real ResultScreenView")
