@@ -210,6 +210,58 @@ func set_token_reposition_fn(fn: Callable) -> void:
 	_token_reposition_fn = fn
 
 
+## _reaction_resolver_fn — OPTIONAL (FEAT-002 / US-002 / FR-002, ADR-002):
+## an injected, duck-typed Callable satisfying the ReactionResolverPort
+## contract — `async func(trigger: Dictionary) -> Dictionary`, returning at
+## least {choice: String} — that a future enemy-strikes-player reaction
+## window will `await` before a Strike resolves. This is a typed-Callable
+## seam (ADR-002's Dependency Inversion mechanism in lieu of GDScript
+## interfaces/generics), mirroring `_token_reposition_fn` above exactly:
+## RoundSession depends on this Callable ONLY as a signature and NEVER
+## imports/references presentation/turn_controller.gd or any other
+## concrete Presentation/Infrastructure class by type (ADR-001/ADR-002).
+## Establishing this seam is this feature's ENTIRE scope — no call site in
+## advance_ai_turn() (or anywhere else) invokes it yet; wiring a real
+## trigger/defense_context through it on the enemy-strikes-player path is a
+## separate, later feature. Left as an invalid (unbound) Callable — the
+## default — for every pre-existing caller/test double, including every
+## headless/sim caller, which never sets one; see _resolve_reaction()'s
+## default-safety fallback below.
+var _reaction_resolver_fn: Callable = Callable()
+
+
+## set_reaction_resolver_fn(fn) -> void — FEAT-002 (US-002 / FR-002,
+## ADR-002): injects the ReactionResolverPort Callable described above.
+## Intended to be called once by the composition root (MainScene.gd), the
+## SAME way set_token_reposition_fn() already is, e.g.:
+##   round_session.set_reaction_resolver_fn(Callable(turn_controller, "resolve_reaction"))
+## Never calling this method (every pre-existing caller/test double,
+## including every headless/sim caller) leaves RoundSession's behavior for
+## those callers byte-for-byte unchanged — see _resolve_reaction()'s
+## synchronous fallback below.
+func set_reaction_resolver_fn(fn: Callable) -> void:
+	_reaction_resolver_fn = fn
+
+
+## _resolve_reaction(trigger) -> Dictionary — FEAT-002 (US-002 / FR-002,
+## ADR-002): the internal seam a future reaction-window call site will
+## `await` on an enemy-strikes-player Strike. When a resolver has been
+## injected via set_reaction_resolver_fn(), awaits and returns its result
+## verbatim — the ReactionResolverPort contract: `async func(trigger:
+## Dictionary) -> Dictionary`. When NO resolver has been injected — every
+## headless/sim caller, and every pre-existing test — this is a
+## SYNCHRONOUS, zero-await fallback to {"choice": "none"} (equivalent to a
+## PASS), preserving byte-for-byte pre-change behavior for those callers
+## (NFR-004). Not yet called from advance_ai_turn() or anywhere else in
+## this feature's scope — it exists solely to establish and characterize
+## the port's default-safety contract ahead of the (separate) feature that
+## threads a real trigger/defense_context through it.
+func _resolve_reaction(trigger: Dictionary) -> Dictionary:
+	if _reaction_resolver_fn.is_valid():
+		return await _reaction_resolver_fn.call(trigger)
+	return {"choice": "none"}
+
+
 # ── Interactive stepwise API (US-010/US-011) ───────────────────────────────
 
 ## current_actor() -> Dictionary — the combatant whose turn it is, or {}
