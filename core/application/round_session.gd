@@ -420,13 +420,32 @@ func end_current_turn() -> Dictionary:
 	return _after_action_resolved()
 
 
-## finish() -> Dictionary — ends the round: calls ActionEconomy.end_of_round
-## on every combatant and returns the RoundResult Dictionary shaped
-## identically to RunRoundUseCase.execute()'s pre-FEAT-110 return:
+## finish() -> Dictionary — ends the round and returns the RoundResult
+## Dictionary shaped identically to RunRoundUseCase.execute()'s pre-FEAT-110
+## return:
 ##   {round_number: int, outcome: String, history: Array, encounter_outcome: String}
+##
+## FEAT-006 (US-004/FR-004, ADR-012): ActionEconomy.end_of_round() — which
+## resets budget_remaining back to MAX_BUDGET (7) and clears is_spent() for
+## EVERY combatant this session holds — is now invoked ONLY when this
+## round's own outcome is still undecided (_outcome == "", covering BOTH a
+## natural full-budget exhaustion AND the no-progress backstop's forced
+## per-round DRAW, neither of which is ever reported as 'won'/'lost' by
+## outcome() — see that method's own doc). This is exactly the multi-round
+## steel thread's continuation contract: MainScene.gd's _on_round_over()
+## calls finish() once a round concludes, and — only on an undecided
+## outcome — increments ROUND_NUMBER and calls rewire_session() to begin the
+## next round, which itself grants a fresh per-round budget via
+## RunRoundUseCase.begin_round()'s own start_of_round() calls (CR-001 AC-2);
+## finish()'s reset here is the FIRST of those two (belt-and-braces) resets,
+## observable immediately after finish() returns, before any continuation
+## logic runs. A DECIDED ('won'/'lost') outcome, by contrast, is a terminal
+## state — the encounter is over, no further round will ever be begun for
+## these combatants, so there is no reason to reset their budgets at all.
 func finish() -> Dictionary:
-	for entry in _entries:
-		entry["action_economy"].end_of_round()
+	if _outcome == "":
+		for entry in _entries:
+			entry["action_economy"].end_of_round()
 
 	var this_round_history: Array = []
 	for hist_entry in _round_history_port.get_history():

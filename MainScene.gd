@@ -189,11 +189,20 @@ const PROLOGUE_ENCOUNTER_PATH: String = "res://data/encounters/prologue_encounte
 const DEFAULT_VIEWPORT_WIDTH: int = 1152
 const DEFAULT_VIEWPORT_HEIGHT: int = 648
 
-## The single round this composition root drives interactively this
-## iteration (FEAT-123 / ADR-007's RoundSession stepwise API). Multi-round
-## continuation (calling begin_round() again once a round ends without a
-## decided outcome) is out of this feature's scope.
-const ROUND_NUMBER: int = 1
+## ROUND_NUMBER — FEAT-006 (US-004/FR-004, ADR-012): the round this
+## composition root is CURRENTLY driving interactively (FEAT-123 / ADR-007's
+## RoundSession stepwise API). A runtime `var`, NOT a `const` — _on_round_over()
+## increments it by exactly 1 immediately before calling rewire_session()
+## again whenever a round concludes WITHOUT a decided encounter outcome
+## (natural full-budget exhaustion, or the no-progress backstop's forced
+## per-round DRAW — see round_session.gd's finish() doc), so the steel
+## thread's exit point ("a combat round runs end-to-end without hanging,
+## including across multiple undecided rounds") is realized as repeated
+## RunRoundUseCase.begin_round(ROUND_NUMBER, ...) calls stamping the correct,
+## ever-increasing round number on every event/history entry the next round
+## emits. Starts at 1 for the very first round, exactly as the pre-FEAT-006
+## constant did.
+var ROUND_NUMBER: int = 1
 
 ## ACTION_NAME_STRIKE — FEAT-006: the action name passed to
 ## resolve_action_use_case.resolve() for a Strike, mirroring the removed
@@ -617,19 +626,6 @@ func _ready() -> void:
 		resolve_action_use_case, determine_outcome_use_case
 	)
 
-	round_session = run_round_use_case.begin_round(ROUND_NUMBER, _party, _enemies)
-
-	# ── FEAT-008 (US-008 / FR-012, ADR-006): wire RoundSession's execution of
-	# an AI-issued Stride to the SAME hex_grid_view.move_token() reposition
-	# function the player Step/Stride path already calls (via
-	# movement_input_controller.gd's _resync_token_renderers()) -- same call
-	# site, different actor_id/destination, no parallel reposition
-	# implementation. RoundSession itself never imports/depends on
-	# HexGridView (ADR-001/ADR-002); it only invokes whichever Callable this
-	# composition root injects here. ────────────────────────────────────────
-	if round_session != null and hex_grid_view != null:
-		round_session.set_token_reposition_fn(Callable(hex_grid_view, "move_token"))
-
 	if result_screen_view != null:
 		# FEAT-006: no strike_action_control node exists anymore -- its
 		# first (optional, default-null) argument is simply omitted; see
@@ -658,17 +654,16 @@ func _ready() -> void:
 		# duplicate "End Turn" control alongside the verb-bar button.
 		end_turn_control.visible = false
 
-	if turn_controller != null:
-		# FEAT-006: strike_action_control no longer exists; set_session()'s
-		# third argument is optional (default null) and simply omitted.
-		# FEAT-009 (US-009 / FR-004): `verb_bar_view` (fourth argument) is
-		# ALSO handed here so TurnController can refresh its Strike/Stride/Step
-		# availability the moment it drives a turn (see turn_controller.gd's
-		# FEAT-009 doc) -- a harmless no-op this early, since $VerbBarView is
-		# not yet configure()d (that happens immediately below); it becomes
-		# effective from the very next call site (_on_end_turn_control_
-		# turn_ended()) onward.
-		turn_controller.set_session(round_session, end_turn_control, null, verb_bar_view)
+	# ── FEAT-006 (US-004/FR-004, ADR-012): obtains this round's RoundSession
+	# via RunRoundUseCase.begin_round(ROUND_NUMBER, ...), wires its AI-Stride
+	# token-reposition hook (FEAT-008, unchanged), and hands it to
+	# TurnController.set_session() -- a harmless no-op on Strike/Stride/Step
+	# availability this early, since $VerbBarView is not yet configure()d
+	# (that happens immediately below); it becomes effective from the very
+	# next call site (_on_end_turn_control_turn_ended(), or a later
+	# _on_round_over() round continuation) onward. See rewire_session()'s own
+	# doc below for why this is the ONE place that wiring is expressed. ─────
+	rewire_session()
 
 	# ── FEAT-004 / US-004/FR-001: build the Layer 1 verb registry and hand it
 	# to $VerbBarView (see _build_verb_registry()'s doc). Built AFTER
@@ -707,8 +702,6 @@ func _ready() -> void:
 	# is reachable from it (see cancel_controller.gd's file-level doc). ──────
 	cancel_controller.configure(selection_overlay)
 
-	outcome = round_session.outcome()
-
 	print(
 		"INFO: Hykaen MainScene booted into the prologue encounter (interactive) -- "
 		+ "current_actor=" + str(round_session.current_actor().get("name", ""))
@@ -721,6 +714,57 @@ func _ready() -> void:
 	# immediately visible in headless-boot logs, mirroring the ADR-003
 	# rationale already established for `resolved_seed`. ───────────────────
 	print("DEBUG: viewport_centering centering_offset=" + str(centering_offset))
+
+
+## rewire_session() -> void — FEAT-006 (US-004/FR-004, ADR-012): the SINGLE
+## reusable composition-root rewiring method this file invokes both at
+## startup (_ready() above, for ROUND_NUMBER's initial value of 1) AND on
+## automatic round continuation (_on_round_over() below, once a round
+## concludes WITHOUT a decided encounter outcome) — there is no second,
+## duplicated copy of this wiring anywhere else in this file (FEAT-006's
+## "no duplicated wiring code" test criterion).
+##
+## Obtains a fresh RoundSession for the CURRENT `ROUND_NUMBER` via
+## RunRoundUseCase.begin_round(_party, _enemies) (which itself grants every
+## combatant's ActionEconomy a fresh start-of-round budget, CR-001 AC-2),
+## wires its AI-Stride token-reposition hook to the SAME
+## hex_grid_view.move_token() the player Step/Stride path already calls
+## (FEAT-008 / ADR-006, unchanged), and hands the new session to
+## TurnController.set_session() — which immediately auto-drives any leading
+## Enemy turn(s) for the new round (US-011) and refreshes end_turn_control/
+## `verb_bar_view` for whoever the new round's first actor is.
+##
+## Deliberately does NOT (re)connect turn_controller.active_actor_changed/
+## round_over or end_turn_control.turn_ended — those signal subscriptions are
+## one-time, established ONCE in _ready() above; reconnecting them here on
+## every round continuation would register a duplicate handler for the
+## lifetime of the SAME MainScene node/signal (a leak this method must never
+## introduce). `_verb_registry`/`selection_overlay` likewise need no rebuild
+## on continuation — their closures read `round_session`/`_party`/`_enemies`
+## fresh off `self` on every call (see e.g. _verb_bar_strike_availability()'s
+## doc), never a snapshot captured at registry-build time, so simply
+## reassigning `round_session` below is sufficient for every one of them to
+## observe the new round immediately.
+func rewire_session() -> void:
+	round_session = run_round_use_case.begin_round(ROUND_NUMBER, _party, _enemies)
+
+	# ── FEAT-008 (US-008 / FR-012, ADR-006): wire RoundSession's execution of
+	# an AI-issued Stride to the SAME hex_grid_view.move_token() reposition
+	# function the player Step/Stride path already calls (via
+	# movement_input_controller.gd's _resync_token_renderers()) -- same call
+	# site, different actor_id/destination, no parallel reposition
+	# implementation. RoundSession itself never imports/depends on
+	# HexGridView (ADR-001/ADR-002); it only invokes whichever Callable this
+	# composition root injects here. ────────────────────────────────────────
+	if round_session != null and hex_grid_view != null:
+		round_session.set_token_reposition_fn(Callable(hex_grid_view, "move_token"))
+
+	if turn_controller != null:
+		# FEAT-006: strike_action_control no longer exists; set_session()'s
+		# third argument is optional (default null) and simply omitted.
+		turn_controller.set_session(round_session, end_turn_control, null, verb_bar_view)
+
+	outcome = round_session.outcome()
 
 
 ## _unhandled_input(event) -> void — FEAT-176 (US-012 / FR-007, ADR-005):
@@ -1291,15 +1335,41 @@ func _union_hexes(step_hexes: Array, stride_hexes: Array) -> Array:
 ## (that node was deleted) -- Step/Stride availability is re-gated below via
 ## verb_bar_view.refresh_availability(), the SAME mechanism every other verb
 ## already relies on.
+##
+## FEAT-006 (US-004/FR-004, ADR-012 -- multi-round continuation): this
+## composition root's held RoundSession is now finish()ed the instant the
+## round is over (previously finish() was never called by this interactive
+## pipeline at all) — resetting every combatant's ActionEconomy back to a
+## fresh 7-action budget when (and ONLY when) THIS round's own outcome is
+## still undecided (round_session.gd's finish() doc; CR-001 AC-2's per-round
+## budget contract). When that is the case, ROUND_NUMBER is incremented by
+## exactly one and rewire_session() — the SAME single reusable method
+## _ready() already called at startup, no duplicated begin_round()/
+## set_token_reposition_fn()/TurnController.set_session() wiring here —
+## begins the next round immediately, so the steel thread never stalls
+## waiting on further player input it will never receive for a round that
+## has already concluded. A DECIDED ('won'/'lost') outcome is a terminal
+## state instead: ResultScreenView already reacted to the
+## EncounterResultEvent resolve_action_use_case/RoundSession emitted the
+## instant the decision was made (see round_session.gd's
+## _after_action_resolved()), so no further round is ever started here.
 func _on_round_over() -> void:
-	if round_session != null:
-		outcome = round_session.outcome()
+	if round_session == null:
+		return
+
+	round_session.finish()
+	outcome = round_session.outcome()
+
 	movement_input_controller.configure({}, [])
 	# FEAT-004 / US-004/FR-001: re-gate the verb bar now that no actor/targets
 	# remain configured (Strike/Step/Stride all become unavailable; End Turn
 	# stays always-available per its own availability closure).
 	if verb_bar_view != null:
 		verb_bar_view.refresh_availability()
+
+	if outcome == "":
+		ROUND_NUMBER += 1
+		rewire_session()
 
 
 ## _on_end_turn_control_turn_ended(_result) -> void — $EndTurnControl's own

@@ -97,6 +97,18 @@ var _verb_bar_view = null
 ## for whatever actor the round now sits on. Safe to call again for a new
 ## round (e.g. once RunRoundUseCase.begin_round() is called again), with no
 ## leaked state from the prior RoundSession.
+##
+## FEAT-006 (US-004/FR-004, ADR-012): this repeated-call contract is exactly
+## what powers automatic multi-round continuation — MainScene.gd's
+## rewire_session() (its ONE composition-root rewiring method, used both at
+## startup and again every time a round concludes without a decided outcome)
+## calls this SAME set_session() with a brand-new RoundSession for the next
+## round number. _MAX_AI_TURNS_PER_DRIVE (below) is a per-_drive()-call
+## guard, so each round this method is (re)invoked for gets its own fresh
+## 1000-Enemy-turn allowance — a multi-round encounter is therefore never
+## penalized across rounds by a single shared counter, and this guard
+## tripping is still always a bug signal (a genuinely stalled single round),
+## never a designed code path, exactly as the file-level doc above states.
 func set_session(round_session, end_turn_control = null, strike_action_control = null, verb_bar_view = null) -> void:
 	_round_session = round_session
 	if end_turn_control != null:
