@@ -262,6 +262,54 @@ func _resolve_reaction(trigger: Dictionary) -> Dictionary:
 	return {"choice": "none"}
 
 
+## _debug_trace_enabled — FEAT-007 (US-002/US-003/US-007, ADR-007): OFF by
+## default (NFR-004/NFR-005 default-safety — no observable behavior change,
+## not even an extra print() line, for any pre-existing caller/test). When
+## enabled via set_debug_trace_enabled(true), advance_ai_turn()'s Strike/
+## reaction path emits debug-gated trace lines at three points — trigger-built,
+## awaiting-resolver-start, resolver-resolved — directly de-risking the
+## await-propagation this steel thread introduced by making a hang/stall
+## visible immediately (as a missing "resolver_resolved" trace line) instead
+## of as a silent freeze (this feature's observability design note #2).
+var _debug_trace_enabled: bool = false
+
+## _debug_trace_log — every trace line _trace() has emitted while
+## _debug_trace_enabled was true, in order. Exposed via get_debug_trace_log()
+## purely so tests can assert on the trace trail directly (mirrors
+## MainScene.gd's pre-existing `_last_highlight_debug_log` convention)
+## without needing to capture stdout.
+var _debug_trace_log: Array = []
+
+
+## set_debug_trace_enabled(enabled) -> void — FEAT-007: toggles the
+## debug-gated trace logging described above. Never called by any
+## pre-existing caller/test double, so every one of them keeps
+## _debug_trace_enabled at its false default (NFR-004/NFR-005).
+func set_debug_trace_enabled(enabled: bool) -> void:
+	_debug_trace_enabled = enabled
+
+
+## get_debug_trace_log() -> Array — a read-only copy of every trace line
+## emitted so far (see `_debug_trace_log` above).
+func get_debug_trace_log() -> Array:
+	return _debug_trace_log.duplicate()
+
+
+## _trace(message) -> void — FEAT-007: appends "DEBUG: <message>" to
+## `_debug_trace_log` AND prints it (mirroring MainScene.gd's existing
+## debug-log convention), but ONLY when `_debug_trace_enabled` is true — a
+## complete no-op (not even a String concatenation) otherwise, so this never
+## becomes an always-on hot-path cost (observability design note #2:
+## "behind an existing debug/verbose flag, not left in hot path
+## unconditionally").
+func _trace(message: String) -> void:
+	if not _debug_trace_enabled:
+		return
+	var line: String = "DEBUG: " + message
+	_debug_trace_log.append(line)
+	print(line)
+
+
 ## _VALID_ACTIVE_DEFENSES — FEAT-003 (US-002 / FR-002, ADR-003): mirrors
 ## core/rules/resolution.gd's Resolution.VALID_ACTIVE_DEFENSES verbatim (that
 ## file remains the single source of truth for the rule; this local copy
@@ -576,7 +624,25 @@ func advance_ai_turn() -> Dictionary:
 		if action_name == "Strike":
 			var target_action_economy = _find_action_economy_for(target)
 			var trigger: Dictionary = _build_reaction_trigger(combatant, target, target_action_economy)
+			# FEAT-007 (observability #2): trigger-built trace point.
+			_trace(
+				"reaction_trigger_built attacker_id=%s target_id=%s round=%d"
+				% [trigger.get("attacker_id", ""), trigger.get("target_id", ""), _round_number]
+			)
+			# FEAT-007: awaiting-resolver-start trace point -- emitted
+			# immediately BEFORE the await below, so a genuinely hung/
+			# never-resolving resolver is visible as "this line printed, but
+			# resolver_resolved never did" rather than a silent freeze.
+			_trace(
+				"awaiting_resolver_start attacker_id=%s target_id=%s round=%d"
+				% [trigger.get("attacker_id", ""), trigger.get("target_id", ""), _round_number]
+			)
 			var reaction_result: Dictionary = await _resolve_reaction(trigger)
+			# FEAT-007: resolver-resolved trace point.
+			_trace(
+				"resolver_resolved choice=%s round=%d"
+				% [str(reaction_result.get("choice", "")), _round_number]
+			)
 			active_defense = _reaction_choice_to_active_defense(reaction_result)
 			defense_context = _build_defense_context(target, target_action_economy)
 

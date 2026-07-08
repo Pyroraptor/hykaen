@@ -152,6 +152,20 @@ const ERR_TARGET_INVALID: String = "ERR_TARGET_INVALID"
 ## per FIND-121's guardrail.
 const ERR_NOT_ACTIVE_COMBATANT: String = "ERR_NOT_ACTIVE_COMBATANT"
 
+## _VALID_ACTIVE_DEFENSES — FEAT-007 (US-003/US-007, ADR-007): mirrors
+## core/rules/resolution.gd's Resolution.VALID_ACTIVE_DEFENSES verbatim (that
+## file remains the single source of truth for the rule, and already
+## silently sanitizes an unrecognized active_defense to "none" internally —
+## see resolution.gd's resolve_weapon_attack() doc). This use-case-level copy
+## exists ONLY so a malformed caller-supplied active_defense is validated and
+## logged (push_error) at the boundary it actually entered this use case
+## from (api_contracts #4), rather than being silently absorbed one layer
+## further down inside resolution.gd with no observability trail at all —
+## defense-in-depth, mirroring core/application/round_session.gd's own
+## identically-purposed _VALID_ACTIVE_DEFENSES copy for the reaction-resolver
+## boundary.
+const _VALID_ACTIVE_DEFENSES: Array = ["none", "dodge", "block", "parry", "steel"]
+
 var _random_number_port      ## RandomNumberPort — injected; never instantiated here (NFR-003)
 var _event_sink_port         ## EventSinkPort — injected
 var _round_history_port      ## RoundHistoryPort — injected
@@ -305,7 +319,16 @@ func resolve(
 		return {"resolved": false, "ok": false, "error": ERR_NO_ACTION_REMAINING}
 
 	var weapon: Dictionary = combatant.get("weapon", {})
-	var strike_result: Dictionary = _resolve_strike(combatant, target, weapon, active_defense, defense_context)
+	# FEAT-007 (US-003/US-007, ADR-007, api_contracts #4): sanitize BEFORE
+	# delegating to _resolve_strike()/resolution.gd — an unrecognized
+	# active_defense is coerced to "none" here (fail-safe: resolution.gd's
+	# math is out of scope to touch this iteration) with a logged
+	# push_error(), never silently forwarded. A recognized value (including
+	# the default "none") passes through byte-for-byte unchanged, preserving
+	# the pre-existing backward-compat default-safety contract pinned by
+	# tests/characterization/test_strike_characterization.gd.
+	var sanitized_active_defense: String = _sanitize_active_defense(active_defense)
+	var strike_result: Dictionary = _resolve_strike(combatant, target, weapon, sanitized_active_defense, defense_context)
 
 	var damage: int = strike_result.get("damage_final", 0)
 	if damage > 0:
@@ -445,6 +468,20 @@ func _is_in_range(combatant: Dictionary, target: Dictionary) -> bool:
 	var range_hexes: int = weapon.get("range_hexes", 1)
 	var distance: int = HexMathClass.hex_distance(combatant["hex_coord"], target["hex_coord"])
 	return distance <= range_hexes
+
+
+## _sanitize_active_defense(active_defense) -> String — FEAT-007: returns
+## `active_defense` verbatim when it names one of resolution.gd's recognized
+## active defenses (_VALID_ACTIVE_DEFENSES above); otherwise logs a
+## push_error() (so a malformed caller — e.g. a future broken AI policy or
+## reaction resolver — is visible at THIS use-case boundary, api_contracts
+## #4) and coerces to "none" (fail-safe — never crashes/corrupts damage
+## numbers over a malformed String).
+func _sanitize_active_defense(active_defense: String) -> String:
+	if active_defense in _VALID_ACTIVE_DEFENSES:
+		return active_defense
+	push_error("ResolveActionUseCase.resolve: unrecognized active_defense '%s'; coercing to 'none'" % active_defense)
+	return "none"
 
 
 ## _resolve_strike(attacker, target, weapon, active_defense, defense_context)

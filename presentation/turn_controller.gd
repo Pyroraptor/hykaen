@@ -116,6 +116,49 @@ var _reaction_window = null
 ## auto_reaction_chooser.gd's AutoReactionChooser).
 var _reaction_chooser = null
 
+## _debug_trace_enabled — FEAT-007 (US-007, ADR-007): OFF by default
+## (NFR-004/NFR-005 default-safety — no observable behavior change for any
+## pre-existing caller/test). When enabled via set_debug_trace_enabled(true),
+## resolve_reaction() emits a debug-gated console trail alongside the visual
+## reaction pop-up — {window_id, choice, resolved_by, round_number} — for the
+## SAME ReactionResolvedEvent reaction_window.resume() already emits via
+## EventSinkPort (this feature's observability design note #1).
+var _debug_trace_enabled: bool = false
+
+## _debug_trace_log — every trace line _trace() has emitted while
+## _debug_trace_enabled was true, in order. Exposed via get_debug_trace_log()
+## so tests can assert on the trace trail directly without capturing stdout
+## (mirrors core/application/round_session.gd's identically-named FEAT-007
+## seam, and MainScene.gd's pre-existing `_last_highlight_debug_log`
+## convention).
+var _debug_trace_log: Array = []
+
+
+## set_debug_trace_enabled(enabled) -> void — FEAT-007: toggles the
+## debug-gated trace logging described above. Never called by any
+## pre-existing caller/test double, so every one of them keeps
+## _debug_trace_enabled at its false default (NFR-004/NFR-005).
+func set_debug_trace_enabled(enabled: bool) -> void:
+	_debug_trace_enabled = enabled
+
+
+## get_debug_trace_log() -> Array — a read-only copy of every trace line
+## emitted so far (see `_debug_trace_log` above).
+func get_debug_trace_log() -> Array:
+	return _debug_trace_log.duplicate()
+
+
+## _trace(message) -> void — FEAT-007: appends "DEBUG: <message>" to
+## `_debug_trace_log` AND prints it, but ONLY when `_debug_trace_enabled` is
+## true — a complete no-op otherwise (observability design note #2: "behind
+## an existing debug/verbose flag, not left in hot path unconditionally").
+func _trace(message: String) -> void:
+	if not _debug_trace_enabled:
+		return
+	var line: String = "DEBUG: " + message
+	_debug_trace_log.append(line)
+	print(line)
+
 
 ## configure_reactions(reaction_window, reaction_chooser) -> void — FEAT-207
 ## (US-013 / FR-015): injects the collaborators resolve_reaction() drives.
@@ -161,8 +204,44 @@ func resolve_reaction(trigger: Dictionary, resolved_by: String = "player") -> Di
 	var context: Dictionary = trigger.get("attack_context", {})
 	var choice: String = await _reaction_chooser.choose(legal_reactions, context)
 
+	# FEAT-007 (US-007, NFR-005): guard against this Node having been freed
+	# or having exited the SceneTree while the chooser await above was
+	# suspended (e.g. scene teardown mid-prompt) — resuming into a freed/
+	# detached Node's own member state (_reaction_window below) would be
+	# unsafe. Abort the coroutine cleanly instead of resuming into freed
+	# memory.
+	if not is_instance_valid(self) or not is_inside_tree():
+		push_warning("TurnController.resolve_reaction: node freed/tree-exiting mid-await; aborting reaction resolution")
+		return {"ok": false, "error": "ERR_NODE_FREED_MID_AWAIT"}
+
 	var result: Dictionary = _reaction_window.resume(opened["window_id"], choice, resolved_by)
+	if not result.get("ok", false):
+		# FEAT-007 (US-003, ADR-007, defense-in-depth): reaction_window.resume()
+		# is — and remains — the SINGLE canonical legality check (this
+		# method never re-implements it or bypasses it). A chooser answering
+		# with a choice outside legal_reactions is rejected by resume()
+		# itself (ERR_ILLEGAL_CHOICE); this is purely a defensive adapter
+		# boundary so that rejection can never propagate an errored/
+		# malformed Dictionary back up to RoundSession — it degrades to a
+		# logged warning + PASS instead, exactly mirroring resume()'s own
+		# internal ALREADY_SPENT race-guard fallback.
+		push_warning(
+			"TurnController.resolve_reaction: reaction_window.resume() rejected choice '%s' (%s); falling back to 'pass'"
+			% [choice, result.get("error", "")]
+		)
+		result = {"ok": true, "window_id": opened.get("window_id", ""), "choice": "none"}
+
 	result["opened"] = true
+
+	# FEAT-007 (observability #1): a debug-gated console trail alongside the
+	# visual pop-up, consuming the SAME fields as the ReactionResolvedEvent
+	# reaction_window.resume() already emitted via EventSinkPort — not a new
+	# event/shape.
+	_trace(
+		"reaction_resolved window_id=%s choice=%s resolved_by=%s round_number=%s"
+		% [result.get("window_id", ""), result.get("choice", ""), resolved_by, trigger.get("round_number", 0)]
+	)
+
 	return result
 
 
