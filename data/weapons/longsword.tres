@@ -10,5 +10,5 @@ damage_die = 12
 damage_count = 1
 damage_modifier_attribute = "strength"
 proficiency_bonus = 2
-block_value = 3
-parry_bonus = 4
+block_value = 1
+parry_bonus = 2
