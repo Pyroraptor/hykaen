@@ -101,11 +101,21 @@ const MAX_ROUNDS_GUARD: int = 50
 ## literal (a value that happened to match skeleton.tres' authored
 ## intuition=1 by coincidence, masking the same sim/game divergence risk
 ## ADR-106 targets). See tests/gut/test_intuition_defense_source_parity.gd.
+##
+## FEAT-001 (iteration-H B-1 / US-005 / FR-006) likewise intentionally
+## re-pins the longsword.tres hash below: that feature populates the
+## v0 CONFIRMED block_value=1/parry_bonus=2 reaction stats (superseding
+## the earlier FEAT-059 placeholder of block_value=3/parry_bonus=4) as
+## prerequisite data for the Parry/Block reaction wiring landing later in
+## this iteration. Neither field is read by the passive-defense-only
+## simulator.gd path exercised by this test, so this data-layer change is
+## not expected to shift win_rate — see
+## tests/unit/test_weapon_resource_data.gd for the FEAT-001 data suite.
 const _EXPECTED_HASHES: Dictionary = {
 	"res://core/sim/simulator.gd":      "a0caa3aa612bd7532187d4074d49b4ab",
 	"res://data/characters/titus.tres": "7b08e7c3460930c2a2262b32aa80d179",
 	"res://data/enemies/skeleton.tres": "b39f5afcf86749209eff4c99ef278bc7",
-	"res://data/weapons/longsword.tres": "248339f6e3f256d6cdc6a943ca824587",
+	"res://data/weapons/longsword.tres": "39a40c5ed6a4a0b5c3372ce0d8b7d280",
 	"res://data/armor/chain_shirt.tres": "6be0c7c1b55b7a91233bca0f62fadd16",
 	"res://data/armor/scale_mail.tres":  "7c724303a7db4ad78a7341bc9e7f46f1",
 }

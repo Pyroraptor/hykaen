@@ -69,6 +69,15 @@ extends Resource
 ## Source: docs/design-source/Weapons.pdf (Parry column).
 @export var parry_bonus: int = 0
 
+## Die size used for the Block reaction's damage-reduction roll, for weapons
+## (e.g. shields) that block with a die distinct from their damage_die.
+## Zero means "unset" — core/rules/resolution.gd's Block reaction falls back
+## to the blocking weapon's damage_die when this is 0/absent. No v0 weapon
+## fixture sets this (no shield weapon exists yet — see iteration-H B-1);
+## it exists so future shield resources can override the fallback.
+## Source: docs/design-source/Weapons.pdf (Block column, shield entries).
+@export var block_die: int = 0
+
 ## Maximum hex_distance (core/geometry/hex_math.gd HexMath.hex_distance())
 ## at which this weapon may Strike a target. Defaults to 1 — melee reach,
 ## i.e. adjacency-only (5 ft. per docs/design-source/Weapons.pdf's Range

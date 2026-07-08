@@ -1,0 +1,349 @@
+#+TITLE: Iteration H — Round-Loop / Idle-Enemy Fixes + Reaction System First Pass (AUTHORITATIVE — APPROVED by Guy 2026-07-07)
+#+DATE: 2026-07-07
+
+* Context (why this sprint exists)
+
+Iteration G (sprint-8) shipped the per-turn action-economy fixes, the AI one-action
+rework, and data-driven enemy defenses. Real-play testing then surfaced round-loop
+defects, and the next capability we want is the ACTIVE-DEFENSE REACTION system — the
+brief calls active+passive defense duality "the system's defining tactical hook"
+(docs/brief.org:315-323). This sprint does BOTH: (A) fix the round loop, then (B) a
+first pass integrating the five reactions into live play behind a blocking reaction
+prompt.
+
+** ⚠ PRECISION NOTE (read first — this brief is written to be unambiguous on purpose)
+Prior AEF runs have MISINTERPRETED game logic. Every rule below states the EXACT
+mechanic, the EXACT file it lives in, and — where the v0 ruleset is silent — an
+explicitly-flagged PROPOSED value/behavior to CONFIRM, never an assumed one. Do NOT
+invent mechanics not written here; if a needed rule is missing, STOP and flag it rather
+than guessing.
+
+** ⚠ KEY FINDING — the defensive-reaction MATH ALREADY EXISTS (do NOT rebuild it)
+core/rules/resolution.gd (FEAT-059) ALREADY fully implements Dodge, Block, Parry, and
+Steel inside resolve_weapon_attack(attacker, target, weapon, defense_type,
+active_defense, defense_context), INCLUDING the reaction-spend economy
+(_try_spend_reaction → ActionEconomy.spend_reaction(); a Spent combatant cannot react).
+core/model/weapon_resource.gd ALREADY has `block_value` and `parry_bonus` @export fields
+(currently 0 on every weapon). So most of Part B is INTEGRATION + DATA + UX + ONE new
+reaction (Opportunistic Strike), NOT a from-scratch rules build.
+
+THE GAP: the LIVE interactive Strike path does NOT use resolution.gd at all.
+core/application/resolve_action_use_case.gd `_resolve_strike()` is a SEPARATE, passive-
+AC-only reimplementation (it "mirrors resolve_weapon_attack(..., 'ac', 'none', {})" per
+its own doc, MainScene.gd:1413). So active defenses never fire in real play, and there
+are TWO parallel resolution code paths (known CR-001 hexagonal-rebuild tech debt).
+
+* SCOPE & PRIORITY
+
+- PART A (P0, MUST, lands FIRST): round-loop / idle-enemy / multi-round fixes. These are
+  live gameplay-breaking. Independent of Part B.
+- PART B (P1): reaction system first pass. Larger; if the planner cannot fit both cleanly
+  in one sprint, Part A ships and Part B's items carry a "reactions-first-pass" tag so a
+  partial Part B is coherent (see B ordering). Do NOT descope Part A to fit Part B.
+- SCOPE-DROP POLICY (Guy-approved): shipping ALL of Part A + Part B in ONE sprint is the
+  goal — attempt the whole thing. If the scope proves too large to converge cleanly, the
+  run MAY drop lower-priority work, but ONLY under this hard condition: EVERY dropped item
+  is RECORDED, before the run finishes, in docs/iterations/iteration-H-deferred.org (create
+  it) with — the item's intent, the exact files/mechanics it would touch, and why it was
+  cut — enough detail for a future sprint to implement it cold. SILENT TRUNCATION IS A
+  FAILURE: an unrecorded drop is worse than an honestly smaller scope. DROP ORDER (first to
+  cut): (1) Steel; (2) enemy reaction AI policy (enemies simply Pass on reactions until a
+  later sprint); (3) Opportunistic Strike. NEVER drop Part A (P0 round-loop fixes); NEVER
+  drop the core defensive-reaction wiring (Block/Parry/Dodge + the blocking pop-up) without
+  an explicit recorded note and Guy's awareness.
+
+────────────────────────────────────────────────────────────────────────────────
+* PART A — P0: Fix the round loop (idle enemy never depletes; round never ends; no round 2)
+
+Root-caused from real play (Titus Spent at 0 after 7 one-per-turn Strides — CORRECT;
+Skeleton stuck at 5, never depletes; game wedged, no new round).
+
+** A-1: An enemy turn with no productive action must still END THE TURN toward round-end
+- DEFECT: core/application/round_session.gd advance_ai_turn() — when core/combat/ai.gd
+  decide_action() returns the null-action sentinel (action_type ""), the CWE-835 guard
+  does `_advance_cursor()` WITHOUT the actor consuming anything, so the enemy takes free
+  no-op turns forever and its budget_remaining never decreases.
+- decide_action() returns "" whenever the enemy is out of reach AND no legal Stride gets
+  STRICTLY closer (ai.gd _stride_toward_target: best_distance >= current_distance, no
+  destinations, or blocked) — a real and common state.
+- RESOLVED (Guy approved the Wait action): introduce an explicit WAIT — a new resolvable
+  action that spends ONE action from the budget (ActionEconomy.spend_action, no Movement
+  trait, no target) and does nothing else. The AI/idle path (ai.gd decide_action returns
+  the null-action sentinel) resolves as a Wait, so an enemy with no useful action still
+  depletes its budget and becomes Spent in ≤7 turns — keeping the "7 actions per round,
+  one per turn" model intact and guaranteeing termination.
+- PLAYER side (deliberate design — budget conservation): a human who ends their turn
+  WITHOUT choosing an action is a FREE PASS that does NOT spend. Rationale: reactions cost
+  budget actions and are gated ONLY by "not Spent" (see the REACTION-GATING note below),
+  so letting a player end a turn without spending lets them CONSERVE budget to react later;
+  a forced Wait would burn budget they may want to hold (and, at 1 action left, could Spend
+  them out of a reaction entirely). Round termination is still guaranteed by the A-2
+  no-progress backstop. v0 SIMPLIFICATION: enemies do NOT conserve for reactions — an idle
+  enemy always Waits (spends); only the human may hold. (Revisit later if desired.)
+- ⚠ REACTION-GATING (already correct — do NOT regress): reactions are gated ONLY by
+  remaining budget. ActionEconomy.spend_reaction() checks `_is_spent` and does NOT check
+  the per-turn one-action gate (`_action_used`, which lives only in spend_action()). So a
+  combatant may react on another combatant's turn REGARDLESS of whether it spent its own
+  turn's action — provided it is not Spent. Part B's reaction wiring MUST preserve this;
+  reacting is budget-gated, never turn-action-gated.
+- TESTS: an out-of-reach enemy that cannot close still becomes Spent within 7 turns; a
+  1v1 where the player kites still terminates; no enemy can take more turns than its
+  budget allows.
+
+** A-2: Interactive round-end must have a no-progress backstop (parity with the sim)
+- DEFECT: is_round_over is true only when _find_next_actionable_index() == -1 (no living
+  un-Spent actor; round_session.gd _is_actionable). A non-Spent idle enemy stays
+  actionable forever → round never ends → presentation/turn_controller.gd _drive() spins
+  advance_ai_turn() up to _MAX_AI_TURNS_PER_DRIVE (1000) then bails → game WEDGED. Titus,
+  once Spent, IS correctly skipped — the deadlock is entirely enemy-side.
+- NOTE: the AUTONOMOUS sim path already HAS a backstop — run_autonomous_to_completion()
+  forces a DRAW when a full cycle resolves zero actions. The INTERACTIVE cursor path has
+  NONE. If A-1 (Wait spends an action) is adopted, budgets always deplete and the round
+  ALWAYS terminates naturally — but STILL add an interactive no-progress backstop
+  (mirror the sim's: if a full pass over all actionable combatants resolves/【spends】
+  zero, end the round) so a future zero-cost action can never re-wedge the UI.
+- TESTS: a constructed stall (an actor that can neither move nor attack) ends the round
+  via the backstop instead of hanging; _drive() never reaches its 1000-guard in normal
+  play.
+
+** A-3: Multi-round loop — a round ending without a decided outcome must start the next round
+- DEFECT: MainScene.gd is single-round. `const ROUND_NUMBER: int = 1` (line ~196);
+  _on_round_over() (line ~1294) only refreshes `outcome` + clears UI — it NEVER calls
+  begin_round() again. Comment at MainScene.gd:194 flags "continuation (calling
+  begin_round() again once a round ends)" as not-built. So even a correctly-ending round
+  just sits at round-over with no round 2.
+- REQUIRED: on round-over WITHOUT a decided win/loss (round_session.outcome() == ""),
+  MainScene must (1) call round_session.finish() (end_of_round resets every combatant's
+  ActionEconomy budget to 7 — verify this already happens in finish()), (2) increment the
+  round number, (3) begin_round(next_round, party, enemies) to obtain a fresh RoundSession
+  for the SAME surviving combatants at their CURRENT hp/positions, and (4) re-wire
+  TurnController/token-reposition to the new session (the SAME composition-root wiring
+  MainScene already does once at startup — factor it into a reusable method, do NOT
+  duplicate). ROUND_NUMBER becomes a runtime var, not a const.
+- On a DECIDED outcome (won/lost), behavior is unchanged (ResultScreen shows terminal
+  state; no new round).
+- TESTS: a round that ends with both sides alive begins round 2 with budgets reset to 7
+  and combatants at their carried-over hp/positions; the round counter increments; a
+  round that ends in a win/loss does NOT start a new round; multi-round E2E steel thread
+  (round 1 → round 2 → decided outcome) passes headless.
+
+────────────────────────────────────────────────────────────────────────────────
+* PART B — P1: Reaction system first pass (Block, Parry, Dodge, Steel, Opportunistic Strike)
+
+Goal: when a reaction TRIGGER fires during live play, the affected combatant may spend a
+reaction to respond, chosen through a blocking pop-up (player) or an AI policy (enemy),
+and the choice modifies the trigger's resolution — reusing resolution.gd's EXISTING
+math wherever it already exists.
+
+** B-0: Reaction WINDOW architecture — resolution must PAUSE for a blocking choice
+Guy's UX (authoritative): "When a trigger is satisfied, a pop-up window appears with
+legal reactions and the option to just pass without reacting. The player must choose an
+option before the rest of the trigger resolves."
+- The current resolve() pipeline is synchronous (roll → apply → return). Reactions
+  require a PAUSABLE resolution: at each reaction trigger, resolution must (1) compute the
+  set of LEGAL reactions for the reacting combatant, (2) YIELD to a chooser, (3) receive
+  the chosen reaction (or Pass), (4) continue resolving with that choice applied.
+- MODEL IT ON THE EXISTING STEPWISE PATTERN: RoundSession (ADR-007) already turned a
+  batch loop into a resumable, human-drivable object. Introduce an analogous small
+  reaction-window abstraction (application layer) that exposes the pending trigger +
+  legal-reaction list and accepts a choice — do NOT block the engine thread, and do NOT
+  put UI/Node types in core/ (ADR-001). Reuse the existing EventSinkPort/RoundEvents
+  surface for emitting "reaction window opened" rather than a new port if feasible
+  (ADR-002 — flag if a new port is genuinely required).
+- The CHOOSER is injected (like AIDecisionPort): a PlayerReactionChooser (Presentation —
+  drives the pop-up) for player-controlled reactors; an AI reaction policy for enemies
+  (see B-4). The domain never knows which; it only asks the injected chooser to pick from
+  the legal set.
+- "must choose before the rest of the trigger resolves" = resolution does NOT proceed
+  past the window until a choice returns. For headless tests/sim, an auto-chooser
+  (Pass, or a fixed policy) stands in — no UI required to exercise the rules.
+
+** B-1: DATA — populate weapon Block/Parry and give actors Mobility & Determination
+- Weapons: core/model/weapon_resource.gd ALREADY has @export block_value:int and
+  parry_bonus:int (both 0 today). POPULATE them on every data/weapons/*.tres. PROPOSED v0
+  values (CONFIRM — balance-tunable later):
+    | weapon    | block_value | parry_bonus | note                         |
+    | longsword |           1 |           2 | versatile blade — good parry |
+    | mace      |           2 |           1 | heavy — better block         |
+    | longbow   |           0 |           0 | ranged — no block/parry      |
+  (block_die for shields is a separate future item — no shield weapon exists yet; leave
+  the resolution.gd `block_die` path as-is, weapons fall back to their damage_die.)
+- Actors need MOBILITY (Dodge check) and DETERMINATION (Steel check). These are SKILLS,
+  NOT among the 7 attributes (strength/constitution/dexterity/willpower/intellect/
+  intuition/social — core/rules/attributes.gd). Ruleset names them as the checks combat
+  uses (docs/brief.org:545-546). ADD them as explicit values:
+  - RESOLVED (Guy): add a new @export `skills: Dictionary` to CharacterResource AND to
+    EnemyResource — a general, EXTENSIBLE map. Guy has NOT finalized the full skill list,
+    so do NOT hard-code a fixed skill schema/enum: arbitrary string keys, a missing key is
+    treated as 0. "mobility" and "determination" are the first two entries; the system
+    must accept new skill keys later with zero code changes to the data layer. Keeping
+    skills SEPARATE from the 7-key attribute point-buy dict avoids breaking
+    core/rules/attributes.gd REQUIRED_KEYS.
+  - Enemies use the SAME `skills: Dictionary` on EnemyResource (NOT flat mobility/
+    determination fields) so player + enemy skill access is uniform; populate on
+    skeleton.tres.
+  - PROPOSED v0 values (CONFIRM): Titus mobility=2, determination=2 (his dex=2, will=2);
+    Skeleton mobility=1, determination=1. General v0 default: mobility ≈ dexterity,
+    determination ≈ willpower (until a real skill system exists).
+- REWIRE resolution.gd's Dodge/Steel to read the REAL mobility/determination values
+  instead of the current dexterity/willpower PROXIES (resolution.gd lines 163 & 175 use
+  target.dexterity / target.willpower today — a stopgap). Mobility check = d20 +
+  mobility; Determination check = d20 + determination. (CONFIRM this is the intended
+  check formula: flat d20 + skill, compared as the defender's effective defense value.)
+
+** B-2: Route the LIVE Strike through the active-defense-capable resolution (path consolidation)
+- The live Strike (resolve_action_use_case._resolve_strike) MUST become active-defense-
+  aware so reactions fire in real play. STRONGLY PREFERRED: consolidate — have the live
+  Strike path delegate to core/rules/resolution.gd resolve_weapon_attack() (single source
+  of truth), removing the duplicate hand-rolled math in _resolve_strike(). This also
+  retires long-standing CR-001 duplication.
+  RESOLVED (Guy): CONSOLIDATE — the live Strike delegates to resolution.gd
+  resolve_weapon_attack(); the hand-rolled math in _resolve_strike() is DELETED (one
+  source of truth). ⚠ RNG SEAM: resolution.gd takes an injected RNG (core/rules/rng.gd)
+  while the live path uses RandomNumberPort — route both through ONE seeded source so
+  determinism / steel-thread tests stay green; verify Off-Guard +2 and crit-by-10 behave
+  IDENTICALLY post-consolidation (add a characterization test before deleting the old
+  math).
+- Whichever path: the attack resolution must accept the defender's chosen active defense
+  + defense_context (action_economy, blocking_weapon, parrying_weapon, open_space, etc.)
+  exactly as resolution.gd already documents, and apply the EXISTING outcome contract
+  (hit/crit/damage_final/defender_stepped/on_hit_suppressed/next_check_bonus).
+
+** B-3: THE FIVE REACTIONS — exact mechanics (4 exist in resolution.gd; add Opportunistic Strike)
+Restated from the ruleset (docs/brief.org:315-323) + the EXISTING resolution.gd behavior.
+Guy CONFIRMED these mechanics match intent (2026-07-07) — do NOT alter them.
+- DEFENSIVE reactions (trigger: the reactor is TARGETED by a Strike). Reaction ordering
+  is already encoded in resolution.gd's RNG sequence and phases:
+  - DODGE — trigger: attack vs AC or Reflex, reactor NOT Immobilized, an open adjacent
+    hex exists to Step into. Effect: substitute a Mobility check (d20+mobility) for the
+    passive AC/Reflex as the value the attacker must beat; on SUCCESS (attacker fails to
+    beat it) the attack MISSES and the defender Steps 1 hex (defender_stepped=true).
+    Pre-hit (rolls before the attack roll).
+  - PARRY — trigger: hit by a weapon attack vs AC, reactor wields a weapon with
+    parry_bonus. Effect: parry roll = d20 + parry_bonus; if it STRICTLY EXCEEDS the
+    attacker's roll_total, damage → 0 (on_hit_suppressed). Post-hit.
+  - BLOCK — trigger: hit by a weapon attack vs AC, reactor wields a weapon with a
+    block value. Effect: reduce damage by roll(block_die|damage_die, tier) + block_value
+    (1[W]+block at T1). Post-hit, cannot go below 0.
+  - STEEL — trigger: attack vs Fortitude or Will, reactor conscious. Effect: substitute a
+    Determination check (d20+determination) for Fort/Will; on RESIST, +2 to the reactor's
+    next check this round (next_check_bonus).
+    RESOLVED (Guy): INCLUDE Steel — but it is the DESIGNATED DEFERRABLE item: if the
+    sprint is over-full, Steel is the first thing to cut. Steel uses the SAME logic shape
+    as Dodge — a Determination check (d20+determination) SUBSTITUTES for the passive
+    Fort/Will exactly as Dodge's Mobility check substitutes for AC/Reflex. Build them as
+    ONE shared "check-substitutes-for-passive-defense" mechanism parameterized by (skill,
+    which passive defenses it covers, on-success effect) — resolution.gd already structures
+    Dodge/Steel in parallel, so factor the common core. Steel stays UN-TRIGGERABLE in live
+    play until a Fort/Will attack exists (no spells yet): ship it wired + data + unit-tested
+    with a dormant trigger.
+- OFFENSIVE reaction (NEW — not in resolution.gd):
+  - OPPORTUNISTIC STRIKE — trigger: an enemy currently within the reactor's MELEE reach
+    (adjacent) performs a STRIDE (NOT a Step — Step provokes no reactions,
+    docs/brief.org:286-289). Effect: the reactor makes one melee Strike against the mover,
+    resolved through the SAME Strike pipeline (B-2), spending a reaction from its budget.
+    RESOLVED (Guy): trigger = an enemy CURRENTLY in the reactor's melee reach (adjacent)
+    performs a Stride. TIMING = the Opportunistic Strike resolves BEFORE the move occurs —
+    the Strike lands against the mover at its PRE-Stride hex; if it drops the mover, the
+    Stride does not happen. MELEE-ONLY: a ranged weapon CANNOT normally perform an
+    Opportunistic Strike — BUT implement the melee-only restriction as a RELAXABLE
+    eligibility PREDICATE (not a hard architectural impossibility), so a future
+    higher-level TALENT can enable ranged Opportunistic Strikes without a rewrite. BOTH
+    sides' Strides check for provoked Opportunistic Strikes (player Strides → adjacent
+    enemies may react via the AI policy; enemy Strides → the player may react via the
+    pop-up). NOTE: Step still provokes NOTHING (docs/brief.org:286-289) — only Stride.
+- Reaction ECONOMY (already built, reuse): every reaction costs ONE action from the
+  reactor's per-ROUND 7-action budget via ActionEconomy.spend_reaction(); a SPENT
+  combatant cannot react (spend_reaction returns ALREADY_SPENT → the reaction is not
+  offered). Reactions are out-of-turn and draw from the same shared budget (CR-001).
+  ⚠ INTERACTION WITH PART A: a reaction spends a budget action, so reactions ALSO deplete
+  a combatant toward Spent — keep this consistent with A-1's Wait/spend model.
+  ⚠ CRITICAL PITFALL — reactions pay via spend_reaction(), NEVER spend_action(): spend_action()
+  checks the per-turn one-action gate (_action_used — set true once you act on your turn,
+  cleared only at start_of_turn) and would WRONGLY block a reaction taken after you already
+  acted this turn. spend_reaction() deliberately does NOT check _action_used (only _is_spent),
+  so it is the ONLY correct spend path for a reaction. This matters most for OPPORTUNISTIC
+  STRIKE, which reuses the Strike pipeline: it must resolve hit/damage via the shared
+  resolution math BUT pay through spend_reaction(), NOT the normal Strike's spend_action() —
+  else an actor that already took its turn action could never Opportunistic-Strike. The four
+  defensive reactions already do this right (resolution.gd _try_spend_reaction → spend_reaction).
+  Verified against post-Iteration-G action_economy.gd (2026-07-07): spend_reaction() checks
+  only _is_spent; reacting is budget-gated, never turn-action-gated. Do NOT regress this.
+
+** B-4: Reaction UX — blocking pop-up (player) + AI policy (enemy)
+- PLAYER reactor: a modal REACTION PROMPT (Presentation) appears listing ONLY the LEGAL
+  reactions for this trigger (filtered by: trigger type, reactor not Spent, required data
+  present — e.g. Parry only if parry_bonus>0, Dodge only if not Immobilized + open hex,
+  Opportunistic Strike only if the mover is/was in melee reach) PLUS a "Pass" option. The
+  trigger does NOT resolve until the player picks. Reuse the existing verb→target UX
+  patterns/registry idioms where possible; do NOT fork a parallel input stack. Respect the
+  known MOUSE_FILTER pitfall (overlapping panels must not eat clicks — Iteration E lesson).
+- ENEMY reactor: an AI reaction policy (core/combat/ai.gd or a sibling, injected as the
+  enemy's reaction chooser) auto-selects deterministically under a pinned seed — PROPOSED
+  v0 policy (CONFIRM): react if a legal reaction strictly helps and is affordable, else
+  Pass; prefer Parry/Block/Dodge that prevents/reduces the most damage; take Opportunistic
+  Strike when a target leaves reach and it can afford it. Deterministic tie-breaks (no
+  RNG in the choice itself), matching FEAT-007's determinism discipline.
+- The domain asks the injected chooser; headless tests/sim use an auto-chooser (Pass or
+  fixed policy) so all reaction RULES are testable without any UI.
+
+────────────────────────────────────────────────────────────────────────────────
+* DECISIONS — status
+RESOLVED by Guy (2026-07-07):
+1. Idle turn → explicit WAIT action spends one budget action (enemy/idle path). Player may
+   FREE-PASS (no spend) to hold actions for reactions; A-2 backstop guarantees termination.
+2. Resolution paths → CONSOLIDATE into resolution.gd; delete _resolve_strike's math.
+3. Steel → INCLUDE (DESIGNATED deferrable-if-over-full); shares Dodge's
+   check-substitutes-for-passive-defense core; dormant trigger until Fort/Will attacks exist.
+4. Skills → new EXTENSIBLE `skills: Dictionary` on CharacterResource + EnemyResource
+   (arbitrary keys, missing → 0); mobility/determination are the first two. Check = d20+skill.
+5. FEAT-059 mechanics (Dodge full-substitute + Step; Parry strict-exceed → 0 dmg; Block
+   dmg-reduction; Steel +2 next check) → CONFIRMED as written; do not alter.
+6. Opportunistic Strike → melee-only (relaxable predicate for a future talent), resolves
+   BEFORE the mover's Stride; both sides' Strides check for it; Step never provokes.
+
+RESOLVED (cont.):
+7. v0 DATA VALUES CONFIRMED: weapon block/parry (longsword 1/2, mace 2/1, longbow 0/0);
+   skills (Titus mobility 2 / determination 2, Skeleton 1/1). Balance-tunable later.
+8. Enemy reaction AI policy CONFIRMED: react if it helps AND is affordable, deterministic
+   tie-breaks — a deliberately extensible v0 descriptor.
+9. SPRINT SIZE: attempt EVERYTHING in one sprint; the run MAY drop scope if over-full,
+   but ONLY per the SCOPE-DROP POLICY above (record every drop in
+   iteration-H-deferred.org). Steel is the first designated cut.
+
+ALL DECISIONS RESOLVED — brief APPROVED 2026-07-07. Ready to launch.
+
+* Out of scope (do NOT build)
+- Spellcasting / Cast a Spell / Shield (the spell reaction) — deferred; only the 5 listed
+  reactions.
+- Action COMBINATIONS (Riposte = Block/Parry+Strike, Charge, etc.) — the ruleset ties
+  these to Stamina + the Repeat trait; NOT this sprint (combine_actions() stub stays).
+- Fortitude/Will ATTACKS — none exist; Steel stays dormant (unless deferred per decision 6).
+- New weapons/armor tables, shields (block_die), Immobilized-condition sources — only the
+  existing weapons/actors get data.
+- Any new AI beyond the reaction policy + the Part A idle/Wait behavior.
+
+* PRESERVE (must not regress) — green as of Iteration G (HEAD 21ed7d0, GUT 1269/1269)
+- Iteration G P0 fixes: per-turn one-action gate, start_of_turn-per-turn reset, AI
+  one-action rework, verb-bar greyout; enemy defenses data-driven (AC=14 etc.).
+- Per-round 7-action budget shared across turns + reactions (CR-001); flanking Off-Guard
+  +2 in live resolution; movement lockout; the two-layer verb→target UX; single UI stack;
+  determinism under pinned seed.
+
+* Verification (gate must be green)
+- Full GUT + pytest green; determinism/steel-thread at a pinned seed; MainScene boots
+  headless.
+- PART A: idle enemy depletes and round terminates (no wedge); no-progress backstop;
+  round 2 begins with budgets reset + carried hp/positions; win/loss still ends the game.
+- PART B: each reaction's rule verified headless via the auto-chooser (Dodge miss+step,
+  Parry strict-exceed→0, Block reduction, Steel resist+2 [dormant-trigger unit test],
+  Opportunistic Strike on adjacent-enemy-Stride); reaction spends a budget action and a
+  Spent combatant is never offered a reaction; player pop-up lists only legal reactions +
+  Pass and blocks resolution until chosen; enemy AI reaction policy deterministic at a
+  pinned seed; live Strike now routes through the active-defense-capable resolution.
+- Static: no Node/Control in core/ (ADR-001); the live Strike now delegates to
+  resolution.gd (no duplicate resolution math remains); reactions pay via spend_reaction()
+  (never spend_action()); reaction data-driven from weapon/actor resources.
+- SCOPE-DROP audit: if ANY scoped item was dropped, docs/iterations/iteration-H-deferred.org
+  MUST exist and record each dropped item (intent + files/mechanics + rationale). If nothing
+  was dropped, note "full scope shipped" in the run summary. No silent truncation.

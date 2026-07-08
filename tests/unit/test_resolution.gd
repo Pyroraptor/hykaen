@@ -1493,26 +1493,32 @@ func test_weapon_resource_has_parry_bonus_property() -> void:
 		"WeaponResource.parry_bonus must exist and default to 0")
 
 
-func test_longsword_tres_has_block_value_3() -> void:
-	## longsword.tres must have block_value=3 per docs/design-source/Weapons.pdf.
+func test_longsword_tres_has_block_value_1() -> void:
+	## longsword.tres must have block_value=1 — v0 CONFIRMED value from
+	## iteration-H B-1/B-7 (FEAT-001 / US-005), superseding the earlier
+	## FEAT-059 placeholder of 3. See tests/unit/test_weapon_resource_data.gd
+	## for the full FEAT-001 data-layer suite.
 	var longsword = ResourceLoader.load("res://data/weapons/longsword.tres")
 	assert_not_null(longsword,
 		"ResourceLoader.load('res://data/weapons/longsword.tres') must return non-null")
 	if longsword == null:
 		return
-	assert_eq(longsword.block_value, 3,
-		"longsword.tres block_value must be 3 (Weapons.pdf: Longsword Block=3)")
+	assert_eq(longsword.block_value, 1,
+		"longsword.tres block_value must be 1 (iteration-H B-1 v0 value, FEAT-001)")
 
 
-func test_longsword_tres_has_parry_bonus_4() -> void:
-	## longsword.tres must have parry_bonus=4 per docs/design-source/Weapons.pdf.
+func test_longsword_tres_has_parry_bonus_2() -> void:
+	## longsword.tres must have parry_bonus=2 — v0 CONFIRMED value from
+	## iteration-H B-1/B-7 (FEAT-001 / US-005), superseding the earlier
+	## FEAT-059 placeholder of 4. See tests/unit/test_weapon_resource_data.gd
+	## for the full FEAT-001 data-layer suite.
 	var longsword = ResourceLoader.load("res://data/weapons/longsword.tres")
 	assert_not_null(longsword,
 		"ResourceLoader.load('res://data/weapons/longsword.tres') must return non-null")
 	if longsword == null:
 		return
-	assert_eq(longsword.parry_bonus, 4,
-		"longsword.tres parry_bonus must be 4 (Weapons.pdf: Longsword Parry=4)")
+	assert_eq(longsword.parry_bonus, 2,
+		"longsword.tres parry_bonus must be 2 (iteration-H B-1 v0 value, FEAT-001)")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
