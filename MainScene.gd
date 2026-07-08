@@ -1006,6 +1006,26 @@ func _verb_bar_strike_enter_selection() -> Dictionary:
 ## currently in-reach target -- including a stale/spoofed id -- exactly as
 ## the removed strike_action_control.gd's select_target() used to (no
 ## action-budget spend, no event emission, no use-case call at all).
+##
+## FEAT-005 (US-004 / FR-004, ADR-005 — CR-001 accepted debt; docs/
+## iterations/iteration-I-reactions-live-wiring-and-offensive-reactions.org
+## Part A-3): this is the PLAYER-strikes-ENEMY call site (historically
+## documented as "MainScene.gd:1008"). Iteration I's Part A wires a REAL,
+## awaited reaction window onto the OTHER live call site into
+## ResolveActionUseCase.resolve() -- core/application/round_session.gd's
+## advance_ai_turn() (enemy-strikes-player, where the PLAYER is the
+## defender) -- but deliberately does NOT touch this one. The call below
+## intentionally passes NO active_defense/defense_context argument, so
+## resolve()'s own default parameters ("none", {}) apply verbatim: the
+## enemy always "Passes" on this path -- no reaction window is opened, no
+## reaction pop-up/prompt is ever shown for the enemy, and Strike outcomes
+## here are byte-for-byte identical to the pre-sprint (Iteration H)
+## baseline. A later feature (Part B, a real enemy reaction AI policy) is
+## the one that opts THIS call site into an explicit active_defense --
+## until it lands, this pass-through is pinned by tests/gut/
+## test_player_strikes_enemy_pass_through.gd; do not add trailing
+## active_defense/defense_context arguments here without updating that
+## suite consciously.
 func _verb_bar_strike_execute(selection) -> Dictionary:
 	if round_session == null or resolve_action_use_case == null:
 		return {"ok": false}
@@ -1016,6 +1036,9 @@ func _verb_bar_strike_execute(selection) -> Dictionary:
 
 	var actor: Dictionary = round_session.current_actor()
 	var action_economy = round_session.current_action_economy()
+	# Enemy active_defense hardcoded to "none" via resolve()'s own default
+	# parameter (Part A pass-through, FEAT-005) -- no active_defense/
+	# defense_context is passed here.
 	return resolve_action_use_case.resolve(actor, action_economy, target, ACTION_NAME_STRIKE, ROUND_NUMBER, 0)
 
 
