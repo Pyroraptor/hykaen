@@ -20,7 +20,28 @@
 ## `trigger` (the Dictionary passed to open()) shape:
 ##   "trigger_type"            — String, one of Resolution's active-defense
 ##                                family: "Dodge" | "Parry" | "Block" |
-##                                "Steel" | "OpportunisticStrike".
+##                                "Steel" | "OpportunisticStrike" | (FEAT-008
+##                                steel-thread smoke test regression fix)
+##                                "WeaponAttack" — the composite trigger_type
+##                                a live enemy-Strikes-player Strike (routed
+##                                through core/application/round_session.gd's
+##                                _build_reaction_trigger()) opens: legal_reactions
+##                                is the UNION of whichever of Dodge/Parry/Block
+##                                are eligible (never Steel — that only ever
+##                                triggers off a fortitude/will attack, which
+##                                does not exist yet, and never
+##                                OpportunisticStrike, a movement-triggered
+##                                reaction, not an incoming-Strike one), so a
+##                                single Strike's reaction pop-up can offer the
+##                                defender a genuine choice between whichever
+##                                reactions their own conditions/weapon make
+##                                legal, rather than being pinned to ONE
+##                                pre-selected reaction type. See
+##                                _compute_legal_reactions()'s "WeaponAttack"
+##                                branch below — composed entirely from the SAME
+##                                is_dodge_eligible()/is_parry_eligible()/
+##                                is_block_eligible() predicates the single-type
+##                                branches already use, never a re-derived rule.
 ##   "reactor"                 — Dictionary: the combatant offered the
 ##                                reaction (needs "conditions"/"skills"/
 ##                                "conscious" for Dodge/Steel eligibility).
@@ -357,5 +378,21 @@ func _compute_legal_reactions(trigger: Dictionary) -> Array:
 			if attack_context.get("melee_reach", false):
 				return [REACTION_OPPORTUNISTIC_STRIKE]
 			return []
+		"WeaponAttack":
+			# FEAT-008 (steel-thread smoke test) regression fix: the composite
+			# trigger_type a live enemy-Strikes-player Strike opens (see
+			# file-level doc above) — the union of whichever of Dodge/Parry/
+			# Block are legal right now, computed via the SAME eligibility
+			# predicates the single-type branches above use, never a
+			# re-derived rule. Steel is deliberately excluded (only triggers
+			# off a fortitude/will attack, out of scope for an "ac" Strike).
+			var legal: Array = []
+			if ResolutionClass.is_dodge_eligible(defense_type, reactor, attack_context):
+				legal.append(REACTION_DODGE)
+			if ResolutionClass.is_parry_eligible(weapon):
+				legal.append(REACTION_PARRY)
+			if ResolutionClass.is_block_eligible(weapon):
+				legal.append(REACTION_BLOCK)
+			return legal
 		_:
 			return []

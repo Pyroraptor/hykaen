@@ -367,7 +367,55 @@ func _reaction_choice_to_active_defense(reaction_result: Dictionary) -> String:
 ## byte-for-byte (pinned by tests/gut/test_async_reaction_propagation.gd's
 ## trigger-shape audit) — this is a strictly additive enrichment, never a
 ## breaking rename.
-func _build_reaction_trigger(attacker: Dictionary, target: Dictionary, target_action_economy = null) -> Dictionary:
+##
+## FEAT-008 (steel-thread smoke test) regression fix: "trigger_type"/
+## "reactor"/"weapon" are ADDITIONALLY populated here so a real
+## core/application/reaction_window.gd ReactionWindow.open() call (the
+## concrete resolver presentation/turn_controller.gd's resolve_reaction()
+## drives, per this session's own _resolve_reaction() doc) computes a
+## genuinely non-empty legal_reactions for this trigger instead of silently
+## defaulting to trigger_type "" -> [] (reaction_window.gd's documented
+## "unrecognized trigger_type" fallback) for EVERY enemy Strike, which would
+## have made every Dodge/Block/Parry choice reachable through this seam
+## always resolve as ERR_ILLEGAL_CHOICE -> "pass", no matter what a chooser
+## answered — a real integration gap between FEAT-004 (this file) and
+## FEAT-207 (the reaction pop-up/ReactionWindow) that the FEAT-008 end-to-end
+## steel-thread smoke test caught. "trigger_type" is the composite
+## "WeaponAttack" type (reaction_window.gd's own FEAT-008 doc) so the window
+## offers the UNION of whichever of Dodge/Parry/Block the DEFENDER
+## (`target`) is currently eligible for, rather than being pinned to one
+## pre-selected reaction — "reactor" is `target` itself (the combatant
+## OFFERED the reaction) and "weapon" is the DEFENDER's own weapon (used by
+## reaction_window.gd's is_parry_eligible()/is_block_eligible() predicates),
+## mirroring _build_defense_context()'s own "parrying_weapon"/
+## "blocking_weapon" derivation below exactly.
+##
+## FEAT-008 regression fix, continued — "reactor_action_economy" is
+## deliberately withheld (left unset/null) on THIS trigger, unlike the
+## ReactionTrigger passed to _resolve_reaction()'s doc-described shape one
+## might expect. Rationale: _build_defense_context() below is this session's
+## OWN, single, canonical spend authority — its "action_economy" key is what
+## actually reaches core/rules/resolution.gd's resolve_weapon_attack(),
+## whose dodge/block/parry branches call ActionEconomy.spend_reaction()
+## exactly once per resolved Strike (pinned by
+## tests/gut/test_enemy_strike_reaction_window.gd's "spend_reaction() must
+## fire on the DEFENDER" assertions). When the injected resolver is the LIVE
+## presentation/turn_controller.gd resolve_reaction() adapter, it drives
+## core/application/reaction_window.gd's OWN open()/resume() pair as an
+## independent legality/pop-up mechanism — resume() ALSO calls
+## spend_reaction() on whatever "reactor_action_economy" its trigger carries.
+## Handing resume() the SAME live ActionEconomy _build_defense_context() will
+## separately spend against would silently charge the defender a SECOND
+## reaction for the ONE choice they made. Leaving it null here means
+## reaction_window.open()'s ALREADY_SPENT gate cannot short-circuit an
+## already-Spent reactor's pop-up (a documented, accepted minor UX gap for
+## this iteration — resolution.gd's own _try_spend_reaction() still
+## correctly degrades an exhausted budget to a no-op, so no math/budget
+## corruption results), and resume() spends nothing — leaving
+## _build_defense_context()'s "action_economy" the single, authoritative
+## spend site for this call path, exactly as
+## tests/gut/test_enemy_strike_reaction_window.gd already pins.
+func _build_reaction_trigger(attacker: Dictionary, target: Dictionary, _target_action_economy = null) -> Dictionary:
 	return {
 		"attacker_id":            attacker.get("combatant_id", attacker.get("name", "")),
 		"target_id":              target.get("combatant_id", target.get("name", "")),
@@ -376,7 +424,10 @@ func _build_reaction_trigger(attacker: Dictionary, target: Dictionary, target_ac
 		"round_number":           _round_number,
 		"attacker":               attacker,
 		"target":                 target,
-		"reactor_action_economy": target_action_economy,
+		"reactor_action_economy": null,
+		"trigger_type":           "WeaponAttack",
+		"reactor":                target,
+		"weapon":                 target.get("weapon", {}),
 	}
 
 
@@ -420,7 +471,18 @@ func _find_action_economy_for(combatant: Dictionary):
 ##                             null, resolution.gd's _try_spend_reaction()
 ##                             treats spending as untracked/always-allowed
 ##                             rather than crashing, its own documented
-##                             contract).
+##                             contract). This is the SOLE site that actually
+##                             spends the defender's reaction for a chosen
+##                             Dodge/Block/Parry (pinned by
+##                             tests/gut/test_enemy_strike_reaction_window.gd)
+##                             — see _build_reaction_trigger()'s FEAT-008 doc
+##                             above for why the ReactionTrigger handed to a
+##                             LIVE presentation/turn_controller.gd
+##                             resolve_reaction() resolver deliberately
+##                             withholds its own "reactor_action_economy" so
+##                             core/application/reaction_window.gd's resume()
+##                             never ALSO spends the same reaction a second
+##                             time.
 ##   "parrying_weapon"      — the defender's own weapon Dictionary (the only
 ##                             weapon slot this project's combatant model
 ##                             carries — see core/rules/resolution.gd's
