@@ -25,10 +25,13 @@ extends GutTest
 ##   1. Unit: for an Enemy current_actor(), RoundSession.advance_ai_turn()
 ##      calls the REAL core/combat/ai.gd to select an action, resolves it
 ##      via resolve_action_use_case.resolve(), then advances the cursor.
-##   2. Defensive fallback: an AI-selected action rejected by
-##      resolve_action_use_case.resolve() is logged via event_sink_port
-##      (a TurnAdvancedEvent is still emitted for the forced cursor
-##      advance) and the cursor still advances — the turn loop never
+##   2. Defensive fallback: an AI decision port that yields no usable
+##      action/target (core/combat/ai.gd's null-action sentinel shape) is
+##      resolved as an explicit WAIT (US-001 / FR-001, ADR-010 —
+##      core/rules/actions.gd Actions.resolve_wait(), spending one action
+##      via ActionEconomy.spend_action() rather than a bare, budget-neutral
+##      cursor advance), a TurnAdvancedEvent is still emitted for the
+##      cursor advance, and the cursor still advances — the turn loop never
 ##      stalls.
 ##   3. Integration: an AI-driven AttackEvent renders through
 ##      HexGridView/StatusPanelView/EventLogView via the exact same signal
@@ -232,25 +235,32 @@ func test_advance_ai_turn_drives_the_real_ai_module_and_resolves_via_the_shared_
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Criterion 2: an AI-selected action rejected by resolve_action_use_case is
-# logged via event_sink_port and the cursor still advances (no stall).
+# Criterion 2: an AI decision port that yields no usable action/target is
+# resolved as an explicit WAIT (US-001 / FR-001, ADR-010) -- logged via
+# event_sink_port and the cursor still advances (no stall).
 # ══════════════════════════════════════════════════════════════════════════
 
-func test_advance_ai_turn_defensive_fallback_logs_via_event_sink_port_and_still_advances() -> void:
+func test_advance_ai_turn_defensive_fallback_resolves_wait_logs_via_event_sink_port_and_still_advances() -> void:
 	var bravo: Dictionary = _durable_combatant("Bravo", true)
 	var alpha: Dictionary = _durable_combatant("Alpha", false)
 	var entries: Array = [_entry(bravo), _entry(alpha)]
+	var bravo_action_economy = entries[0]["action_economy"]
 
 	var event_sink_port    = FakeEventSinkPort.new()
 	var random_number_port = SeededRandomAdapterClass.new(1)
 	var rig: Dictionary = _make_use_case(entries, BrokenAIDecisionPort.new(), random_number_port, event_sink_port)
 	var session = rig["use_case"].begin_round(1, [alpha], [bravo])
+	var budget_before: int = bravo_action_economy.get_remaining()
 
 	var result: Dictionary = session.advance_ai_turn()
 
-	assert_true(result.get("ok", false), "a rejected AI decision must not stall/deadlock the session (CWE-835 guard)")
-	assert_false(result.get("resolved", true), "no action was actually resolved for the broken AI decision")
-	assert_eq(rig["history"].entries.size(), 0, "no action-resolution history entry may be recorded for a rejected AI decision")
+	assert_true(result.get("ok", false), "a broken AI decision must not stall/deadlock the session (CWE-835 guard)")
+	assert_eq(rig["history"].entries.size(), 0, "no action-resolution history entry may be recorded for a WAIT resolution")
+	assert_eq(
+		bravo_action_economy.get_remaining(), budget_before - 1,
+		"the null-action AI sentinel must resolve as an explicit WAIT, spending exactly one action (US-001 / FR-001, ADR-010)"
+	)
+	assert_false(bravo_action_economy.is_spent(), "one WAIT must not exhaust the full 7-action round budget")
 	assert_eq(
 		session.current_actor().get("name", ""), "Alpha",
 		"the cursor must still advance past the broken AI turn so the turn loop can never stall"
@@ -259,7 +269,7 @@ func test_advance_ai_turn_defensive_fallback_logs_via_event_sink_port_and_still_
 	var turn_events: Array = event_sink_port.events.filter(func(e): return e is RoundEventsClass.TurnAdvancedEvent)
 	assert_eq(
 		turn_events.size(), 1,
-		"the forced cursor advance from a rejected AI decision must still be logged via event_sink_port (TurnAdvancedEvent)"
+		"the WAIT-driven cursor advance from a broken AI decision must still be logged via event_sink_port (TurnAdvancedEvent)"
 	)
 	assert_eq(turn_events[0].active_combatant_name, "Alpha")
 

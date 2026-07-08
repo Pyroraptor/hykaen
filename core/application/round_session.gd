@@ -52,6 +52,7 @@ class_name RoundSession
 extends RefCounted
 
 const RoundEventsClass = preload("res://core/rules/round_events.gd")
+const ActionsClass = preload("res://core/rules/actions.gd")
 
 var _entries: Array
 var _party: Array
@@ -214,12 +215,25 @@ func outcome() -> String:
 ## advance_ai_turn() -> Dictionary — for a current actor whose team is
 ## Enemy: obtains the action from AIDecisionPort, resolves it via the SAME
 ## resolve_action_use_case.resolve() the player's own Strike goes through,
-## consults DetermineOutcomeUseCase, and advances the cursor. Defensive
-## fallback (US-011 error_handling): an AI decision that is rejected or
-## yields no usable action/target is logged via push_warning() and the
-## cursor is STILL advanced, so the loop can never stall/deadlock. Calling
-## this after is_round_over(), or when the current actor is not on the Enemy
+## consults DetermineOutcomeUseCase, and advances the cursor. Calling this
+## after is_round_over(), or when the current actor is not on the Enemy
 ## team, is a no-op returning {"ok": false}.
+##
+## WAIT (US-001 / FR-001, ADR-010): when core/combat/ai.gd's decide_action()
+## reports its null-action sentinel ({"action_type": "", "target": {}, ...}
+## — no living target, or the nearest one is out of reach and cannot be
+## closed this turn), this method resolves that sentinel as an explicit
+## WAIT (core/rules/actions.gd Actions.resolve_wait()) rather than a bare,
+## budget-neutral cursor advance. WAIT spends exactly one action from the
+## SAME ActionEconomy budget every other resolvable action draws from, so a
+## permanently idle/unreachable enemy still depletes to Spent within
+## ActionEconomy.MAX_BUDGET (7) of its OWN turns — the steel-thread
+## round-termination guarantee this feature exists for (e.g. a kiting 1v1
+## where the enemy can never close the distance). Defensive fallback (US-011
+## error_handling): on the rare occasion WAIT itself is rejected (e.g. a
+## stale/misbehaving AIDecisionPort double already spent this turn's one
+## action), that is logged via push_warning() and the cursor is STILL
+## advanced, so the loop can never stall/deadlock.
 ##
 ## FEAT-007 (US-007 / FR-005, ADR-105): the AIDecision obtained via
 ## _decide_ai_action() below carries EXACTLY ONE action — "Strike" or
@@ -276,6 +290,13 @@ func advance_ai_turn() -> Dictionary:
 			combatant, action_economy, target, action_name, _round_number, _cycle_index
 		)
 		any_action_taken = resolve_result.get("resolved", false)
+	else:
+		# US-001 / FR-001 (ADR-010): the null-action AI sentinel — resolve it
+		# as an explicit WAIT (see the doc block above) instead of a bare,
+		# budget-neutral cursor advance, so this combatant's action budget
+		# genuinely depletes turn over turn.
+		var wait_result: Dictionary = ActionsClass.resolve_wait(action_economy)
+		any_action_taken = wait_result.get("success", false)
 
 	if not any_action_taken:
 		push_warning(

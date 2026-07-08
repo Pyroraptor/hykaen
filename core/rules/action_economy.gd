@@ -27,6 +27,13 @@
 ##   ae.start_of_turn()
 ##   var result = ae.spend_action({"traits": ["Strike"]})
 ##   # → {success: true, remaining: 6}
+##
+## Callers (US-001 / FR-001, ADR-010): every resolvable action funnels
+## through this SAME spend_action() gate, including the explicit WAIT action
+## an idle/unreachable combatant resolves via core/rules/actions.gd
+## (Actions.resolve_wait()) — WAIT carries no "Movement" trait and no
+## target, but is otherwise an ordinary spend_action() call, guaranteeing an
+## idle combatant's budget still counts down across its own turns.
 
 class_name ActionEconomy
 
