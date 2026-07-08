@@ -1,0 +1,277 @@
+#+TITLE: Iteration I — Reactions Go Live: Defensive Live-Wiring + Enemy Reaction AI + Opportunistic Strike (AUTHORITATIVE — APPROVED by Guy 2026-07-08)
+#+DATE: 2026-07-08
+#+STATUS: APPROVED 2026-07-08 — all open decisions settled (see DECISIONS). Ready to launch; not yet run.
+
+* Context (why this sprint exists)
+
+Iteration H (sprint-9) BUILT and unit-tested the whole reaction system — Dodge/Parry/
+Block/Steel math (core/rules/resolution.gd), the blocking reaction WINDOW
+(core/application/reaction_window.gd), the player pop-up (presentation/
+player_reaction_chooser.gd + scenes/ui/reaction_prompt_ui.gd) — and shipped GUT
+1408/1408 green. But NONE of it fires in real play: the live Strike path never opens a
+reaction window, so the "active + passive defense duality" the ruleset calls "the
+system's defining tactical hook" (docs/brief.org:315-323) is dead code. Two H items were
+also explicitly DROPPED and recorded in docs/iterations/iteration-H-deferred.org: the
+ENEMY REACTION AI POLICY and OPPORTUNISTIC STRIKE.
+
+Since H, the round-loop follow-ups were fixed and merged (round-over continuation +
+enemy budget display, HEAD 3fcd9d4, GUT 1410/1410), so the interactive loop is healthy
+and ready to carry reactions. THIS sprint makes reactions LIVE and adds the two dropped
+capabilities. There are NO known outstanding round-loop bugs blocking it.
+
+** ⚠ PRECISION NOTE (read first — this brief is written to be unambiguous on purpose)
+Prior AEF runs have MISINTERPRETED game logic AND re-implemented already-built code. Every
+item below states the EXACT mechanic, the EXACT file:line it lives in TODAY, and — where a
+rule/behavior is a judgment call — an explicitly-flagged PROPOSED value to CONFIRM, never
+an assumed one. Do NOT invent mechanics not written here; do NOT rebuild anything the
+"ALREADY EXISTS" inventory below lists as built. If a needed rule is missing, STOP and flag
+it rather than guessing.
+
+** ⚠ KEY FINDING — most of this sprint is WIRING + TWO focused additions, NOT a build
+The reaction pipeline is ~80% built. Verified against HEAD 3fcd9d4:
+
+- core/rules/resolution.gd — `resolve_weapon_attack(attacker, target, weapon, defense_type,
+  active_defense, defense_context)` fully applies Dodge/Block/Parry/Steel and spends the
+  reaction (spend_reaction; a Spent combatant cannot react). BUILT. Do NOT touch the math.
+- core/application/reaction_window.gd — `open(trigger)` (line 118) computes LEGAL reactions
+  (spent-check, weapon parry/block eligibility, Steel eligibility, AND the OpportunisticStrike
+  melee-reach predicate at line 353); `resume(window_id, choice, resolved_by)` (line 151)
+  spends the reaction + emits ReactionResolvedEvent; `open_and_resolve(trigger, chooser)`
+  (line 200) and `open_and_resolve_attack(...)` (line 262) are the convenience orchestrations.
+  BUILT.
+- presentation/turn_controller.gd — `configure_reactions(window, chooser)` (line 127) and the
+  ASYNC `resolve_reaction(trigger, resolved_by="player")` (line 146: `await
+  _reaction_chooser.choose(...)` → opens the pop-up → resume). BUILT, but resolve_reaction()
+  is called ONLY from tests, NEVER from the live loop.
+- presentation/player_reaction_chooser.gd `choose(legal_reactions, context)` (line 66) +
+  scenes/ui/reaction_prompt_ui.gd — the blocking pop-up. BUILT and wired into TurnController
+  via MainScene.gd:683-693 `configure_reactions(...)`. Unused.
+- core/application/ports/reaction_chooser_port.gd — the chooser CONTRACT. BUILT.
+  infrastructure/auto_reaction_chooser.gd — a HEADLESS double with only "pass" / "first_legal"
+  policies (NOT an intelligent enemy policy). BUILT (for tests/sim only).
+- Opportunistic Strike: the LEGALITY predicate + the `opportunistic_strike` choice constant +
+  the reaction-spend in resume() exist (reaction_window.gd:90,353; tests/unit/
+  test_reaction_window.gd:231-249). Its TRIGGER emission and its EFFECT are NOT built.
+
+THE GAPS (this sprint closes exactly these):
+1. The LIVE Strike path bypasses resolution.gd's active-defense capability entirely:
+   core/application/resolve_action_use_case.gd:458 `_resolve_strike()` hardcodes
+   `resolve_weapon_attack(attacker, target, weapon, "ac", "none", {})`. The two live callers
+   of resolve() — round_session.gd:343 (ENEMY strikes) and MainScene.gd:1008 (PLAYER strikes)
+   — never open the defender's window. (Known CR-001 two-parallel-resolution-paths tech debt.)
+2. No enemy reaction POLICY exists (only the "always Pass" headless double).
+3. Opportunistic Strike has no trigger and no effect.
+
+* SCOPE & PRIORITY
+
+- PART A (P0, MUST, lands FIRST): DEFENSIVE reaction live-wiring — make Dodge/Parry/Block/Steel
+  fire in real play via the blocking player pop-up. This is Iteration H's deferred Gap #1 and
+  the whole reason reactions were built. One integration activates all four at once.
+- PART B (P1): ENEMY REACTION AI POLICY — a deterministic "react if it helps and is affordable"
+  chooser so the enemy defends on the player-strikes-enemy path (MainScene.gd:1008), instead of
+  always Passing.
+- PART C (P2): OPPORTUNISTIC STRIKE — the offensive reaction: an adjacent combatant Strides ⇒
+  the reactor may spend a reaction to melee-Strike the mover BEFORE the Stride resolves.
+
+- SCOPE-DROP POLICY (mirrors Iteration H, Guy-approved): attempt ALL of A+B+C in one sprint. If
+  scope proves too large to converge cleanly, the run MAY drop lower-priority work, but ONLY
+  under this hard condition: EVERY dropped item is RECORDED, before the run finishes, in
+  docs/iterations/iteration-I-deferred.org (create it) with the item's intent, the exact
+  files/mechanics it would touch, and why it was cut — enough detail to implement it cold.
+  SILENT TRUNCATION IS A FAILURE. DROP ORDER (first to cut): (1) Part C Opportunistic Strike;
+  (2) Part B enemy reaction AI policy (enemy keeps Passing on defense until a later sprint).
+  NEVER drop Part A (the core defensive live-wiring + the blocking player pop-up) without an
+  explicit recorded note and Guy's awareness — a sprint that ships without Part A has failed.
+  GUY'S NOTE (2026-07-08): because this sprint is mostly WIRING already-built pieces rather than
+  new construction, handling ALL of A+B+C in one sprint is expected to be achievable — treat the
+  drop order as a genuine fallback, not an anticipated outcome. Aim to ship all three.
+
+- ⚠ MANDATORY REAL-PLAY VERIFICATION: the headless suite passed 1408/1408 while this ENTIRE
+  feature was dead. GREEN TESTS DO NOT PROVE THIS WORKS. Part A is not "done" until a human
+  has watched an enemy Strike open the pop-up in the running game and each reaction behave
+  (see Verification). The convergence gate MUST NOT accept Part A on headless tests alone.
+
+────────────────────────────────────────────────────────────────────────────────
+* PART A — P0: Defensive reaction live-wiring (Dodge / Parry / Block / Steel)
+
+The full implementation recipe already exists at docs/iterations/iteration-H-reactions-live-
+wiring-note.org (verified against HEAD 948c8e4; line numbers below re-checked against 3fcd9d4).
+That note IS the Part A plan — follow it. Summarized:
+
+** A-1: Thread a chosen defense through resolve() → _resolve_strike → resolve_weapon_attack
+- core/application/resolve_action_use_case.gd: add trailing params to `resolve(...)` (line 266)
+  and `_resolve_strike(...)` (line 457): `active_defense: String = "none"`,
+  `defense_context: Dictionary = {}`. Defaults preserve EVERY existing caller/sim/test byte-
+  for-byte (there is a pinned characterization test — tests/characterization/
+  test_strike_characterization.gd — that MUST stay green).
+- Line 458: replace the hardcoded `"none", {}` with `active_defense, defense_context`.
+
+** A-2: Inject an async reaction-resolver into RoundSession (mirror set_token_reposition_fn)
+- core/application/round_session.gd already injects a Callable for token repositioning
+  (`set_token_reposition_fn`, line 209; `_token_reposition_fn`). Add the SAME pattern:
+  `set_reaction_resolver_fn(fn: Callable)` where `fn(trigger) -> Dictionary` returns the
+  defender's `{choice, ...}`. Default un-injected = no reaction (headless/sim path unchanged).
+- ⚠ ASYNC PROPAGATION IS THE REAL WORK: turn_controller.resolve_reaction() `await`s the pop-up,
+  so the resolver call — and therefore advance_ai_turn() (round_session.gd:312) and
+  TurnController._drive()'s loop that calls it (presentation/turn_controller.gd:248) — must
+  become coroutines that `await` up the chain. Audit every caller of advance_ai_turn / _drive
+  for the `await` change. This is the highest-risk edit; plan it explicitly.
+
+** A-3: Open the DEFENDER's window BEFORE resolving a Strike — PRIMARY live path only in Part A
+The DEFENDER reacts, not the attacker. Two live callers of resolve_action_use_case.resolve():
+- round_session.gd:343 `advance_ai_turn` — ENEMY strikes ⇒ DEFENDER = PLAYER ⇒ open the PLAYER
+  pop-up. THIS IS PART A'S PATH. Before calling resolve():
+    * build trigger = {attacker, target, defense_type:"ac", attack_context:{weapon,...},
+      reactor_action_economy:<defender's AE>, round_number}
+    * choice = await reaction_resolver_fn.call(trigger)   # resolved_by "player"
+    * build defense_context = {action_economy:<defender AE>, parrying_weapon:{parry_bonus},
+      blocking_weapon:{damage_die, block_value}, open_space_available:<adjacent free hex?>}
+      (parry/block values come from the DEFENDER's equipped weapon; open_space from the grid)
+    * pass choice + defense_context into resolve().
+- MainScene.gd:1008 (PLAYER strikes ⇒ DEFENDER = ENEMY): in Part A the enemy PASSES
+  (active_defense "none", no pop-up). Part B replaces this with the enemy policy.
+- round_session.gd:545 (autonomous sim): leave as PASS — the sim never shows UI and must stay
+  deterministic (balance-sim parity; do NOT introduce reaction variance into sim_results.json).
+
+** A-4: Composition root
+- MainScene.gd: after obtaining the RoundSession (near the existing set_token_reposition_fn call,
+  line 808) also call `round_session.set_reaction_resolver_fn(Callable(turn_controller,
+  "resolve_reaction"))`. turn_controller already holds the window + player chooser from
+  configure_reactions() (MainScene.gd:683-693). Ensure this wiring is re-applied on round
+  continuation (rewire_session()), same as the token-reposition fn.
+
+** A — acceptance
+- Live: an enemy Strike on Titus opens the blocking pop-up listing ONLY the legal reactions
+  (+ Pass); Dodge-success negates + steps; Block reduces damage; Parry (beating the roll) → 0;
+  Steel is dormant (no Fort/Will attack exists yet — as designed, keep it offered only when
+  eligible); any reaction decrements the defender's budget via spend_reaction; Pass resolves
+  the Strike normally.
+- The player-strikes-enemy path still resolves (enemy Passes for now) with no regression.
+
+────────────────────────────────────────────────────────────────────────────────
+* PART B — P1: Enemy reaction AI policy
+
+Give the enemy a real defensive brain on the MainScene.gd:1008 (player-strikes-enemy) path.
+
+** B-1: A deterministic enemy reaction policy implementing ReactionChooserPort
+- NEW infrastructure/-layer chooser (e.g. infrastructure/ai_reaction_policy.gd) implementing
+  core/application/ports/reaction_chooser_port.gd `choose(legal_reactions, context) -> String`,
+  interchangeable with AutoReactionChooser but with a NON-trivial policy. It is NOT the "pass"
+  double — do not reuse AutoReactionChooser for live enemy play.
+- POLICY (✓ CONFIRMED by Guy 2026-07-08 — "good heuristic, make it more sophisticated later"):
+  "react if it helps and is affordable, else Pass." Deterministic and seed-stable (no RNG).
+  Precedence given the incoming attack context: if the hit would deal enough damage to matter and
+  a legal reaction meaningfully mitigates it, take the single best available legal reaction (Parry
+  if it can beat the roll > Block for hard hits > Dodge to negate), else Pass. Budget-aware: never
+  react below the reserve the enemy needs for its own next turn — RESERVE = keep ≥1 action. The
+  run MUST surface the chosen damage/mitigation thresholds in the design output (not bury them),
+  but this simple heuristic is the accepted target for THIS sprint; sophistication is deferred.
+- WIRE it to the player-strikes-enemy path: at MainScene.gd:1008, before resolve(), open the
+  ENEMY's window resolved_by "enemy" through this policy (synchronous choose(); NO pop-up for
+  the enemy) and pass the chosen defense in — the mirror of A-3, using the AI chooser instead
+  of the player pop-up. Enemy reaction resolution reuses the SAME resolution.gd path.
+
+** B — acceptance
+- Live: when Titus Strikes the Skeleton, the Skeleton sometimes Dodges/Blocks/Parries (no
+  pop-up), visibly spends a reaction (its budget drops — the enemy-budget display fix already
+  shows this), and does so deterministically for a given seed. When it can't help or can't
+  afford it, it Passes. Balance sim stays deterministic (sim path still PASSes, B does not
+  touch round_session.gd:545).
+
+────────────────────────────────────────────────────────────────────────────────
+* PART C — P2: Opportunistic Strike (the offensive reaction)
+
+Trigger: an ADJACENT hostile Strides. Effect: the reactor may spend a reaction to make a melee
+Strike against the mover BEFORE the Stride resolves. Melee-only via the relaxable predicate
+already in reaction_window.gd:353 (future talents may relax it — do NOT hardcode past it).
+
+** C-1: TRIGGER emission on the mover's Stride path (both movers)
+- ✓ SYMMETRIC (CONFIRMED by Guy 2026-07-08): BOTH the player's Stride AND the enemy's Stride
+  provoke Opportunistic Strikes from eligible adjacent hostiles. Not a drop candidate.
+- The Stride commit points are: ai.gd's stride (enemy mover — decide_action at ai.gd:189 already
+  EXECUTES the Stride inside the decision; the opportunistic window must open BEFORE that Stride
+  mutates position) and the player Stride (MainScene _verb_bar_stride_execute → movement path).
+- Before a Stride resolves, for each OTHER combatant that is (a) adjacent to the mover's START
+  hex, (b) hostile, (c) has a reaction available (not Spent), and (d) has melee reach, build a
+  trigger {trigger_type:"OpportunisticStrike", attack_context:{melee_reach:true, weapon:<reactor
+  weapon>}, reactor_action_economy:<reactor AE>, ...} and open its window. reaction_window.gd
+  ALREADY returns [opportunistic_strike] as the legal reaction for this trigger — do NOT rebuild
+  the legality.
+- Reactor identity ⇒ chooser: reactor is the PLAYER ⇒ pop-up (player_reaction_chooser); reactor
+  is an ENEMY ⇒ the Part B AI policy decides (if Part B is dropped, the enemy never opportunistic-
+  strikes — record that coupling in the deferred doc).
+
+** C-2: EFFECT resolution — a reactive melee Strike BEFORE the move
+- On an opportunistic_strike choice, resume() (reaction_window.gd:151) TODAY only spends the
+  reaction + emits ReactionResolvedEvent — it does NOT resolve the reactive attack. Part C must
+  resolve a melee Strike from the reactor against the MOVER, through the SAME consolidated
+  resolution path Part A established (resolve_action_use_case.resolve() / resolve_weapon_attack),
+  and it must land BEFORE the mover's Stride commits (ordering matters: the strike can down the
+  mover, which cancels the Stride). Pay via spend_reaction (already how resume() spends) — NOT
+  spend_action; a reactor that already acted this round may still opportunistic-strike if not
+  Spent.
+- ✓ ORDERING & interrupt semantics (CONFIRMED by Guy 2026-07-08): resolve the opportunistic
+  Strike, then — if the mover survives and is still adjacent-eligible / the Stride is still legal —
+  complete the Stride; if the mover is DOWNED, CANCEL the Stride. Multiple eligible reactors:
+  resolve in INITIATIVE ORDER.
+
+** C — acceptance
+- Live: when the Skeleton Strides out of / through Titus's melee reach, Titus gets an
+  Opportunistic Strike pop-up; taking it resolves a Strike on the Skeleton BEFORE it moves and
+  spends Titus's reaction. Symmetric for the enemy reactor via the Part B policy. Melee-only
+  (a ranged-only reactor is never offered it).
+
+────────────────────────────────────────────────────────────────────────────────
+* DECISIONS — status (all ✓ settled as of 2026-07-08 approval; nothing left open at kickoff)
+
+- ✓ Defender (not attacker) chooses the reaction; pop-up opens ONCE up front per incoming
+  Strike (resolve_weapon_attack sequences the pre-hit/post-hit application internally). (H note.)
+- ✓ Reactions pay via spend_reaction() (gated only by is_spent, NOT the per-turn _action_used
+  gate) — reacting after acting works. (resolution.gd / action_economy.gd, prior brief.)
+- ✓ Steel ships dormant (no Fort/Will attack exists to trigger it). (H, as designed.)
+- ✓ Autonomous balance sim stays PASS-only / deterministic (no reaction variance in
+  sim_results.json). (round_session.gd:545 untouched.)
+- ✓ Part B enemy reaction policy = "react if it helps and is affordable, else Pass"; reserve ≥1
+  action. Simple heuristic accepted for this sprint; sophistication deferred. (Guy 2026-07-08.)
+- ✓ Part C ordering: opportunistic Strike resolves BEFORE the Stride; a DOWNED mover CANCELS the
+  Stride; multi-reactor order = INITIATIVE. (Guy 2026-07-08.)
+- ✓ Part C symmetry: BOTH the player's Stride and the enemy's Stride provoke Opportunistic
+  Strikes. Not a drop candidate within C. (Guy 2026-07-08.)
+- ✓ Drop order C → B (never A) accepted as a fallback only; goal is to ship ALL of A+B+C since
+  the sprint is mostly wiring. (Guy 2026-07-08.)
+
+* Out of scope (do NOT build)
+- No new attack types (no Fort/Reflex/Will-targeting attacks) — Steel stays dormant.
+- No new reactions beyond the five. No reaction talents / predicate relaxations (leave the
+  extension_points hook, do not use it).
+- No rebuild of resolution.gd math, reaction_window.gd, the player pop-up, or the chooser port —
+  they are BUILT (see Key Finding).
+- No round-loop / action-economy changes — that area is fixed and green (HEAD 3fcd9d4).
+- No multi-enemy / multi-party scaling work beyond what the two-combatant steel thread needs.
+
+* PRESERVE (must not regress) — green as of HEAD 3fcd9d4, GUT 1410/1410 + pytest 305
+- The pinned Strike characterization test (tests/characterization/test_strike_characterization.gd)
+  — Part A's new resolve()/_resolve_strike params MUST default such that this stays byte-for-byte.
+- Round-over continuation + enemy-budget-display regression tests (tests/gut/
+  test_round_continuation_and_enemy_budget_display.gd) — reactions must not restall the loop nor
+  desync the budget display (reactions spend via spend_reaction — confirm the display still
+  reflects post-reaction budgets on settle).
+- All existing reaction unit tests (test_dodge/parry/block/steel_reaction.gd, test_reaction_window.gd,
+  test_reaction_prompt_ui.gd) and the End-Turn / movement / verb-bar integration suites.
+- Balance sim determinism (sim_results.json win-rate/avg-rounds unchanged by A/B; C only affects
+  interactive play).
+
+* Verification (gate must be green AND real-play confirmed)
+1. Full GUT suite + pytest green (regression); new tests for: resolve() active-defense threading,
+   the RoundSession reaction-resolver injection + async propagation, the enemy AI policy's
+   choose() decisions (deterministic per seed), and the Opportunistic Strike trigger+effect
+   ordering (strike-before-move; downed-mover cancels Stride).
+2. ⚠ REAL-PLAY (human, in the running game — REQUIRED for Part A, and for B/C if shipped):
+   a. Enemy Strides into reach and Strikes Titus ⇒ blocking pop-up appears listing only legal
+      reactions + Pass; Dodge negates+steps, Block reduces, Parry→0, budget decrements, Pass
+      resolves normally.
+   b. (Part B) Titus Strikes the Skeleton ⇒ the Skeleton sometimes defends (no pop-up), spends a
+      reaction (visible budget drop), deterministically for a seed.
+   c. (Part C) A Stride out of melee reach provokes an Opportunistic Strike pop-up (player reactor)
+      / AI decision (enemy reactor); the strike resolves before the move; a kill cancels the move.
+3. Any dropped item recorded in docs/iterations/iteration-I-deferred.org per the scope-drop policy.
