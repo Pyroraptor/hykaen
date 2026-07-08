@@ -26,6 +26,20 @@ extends GutTest
 ##      confirms none of them pass active_defense/defense_context yet
 ##      (default-only invocation) -- opting into reactive mode is reserved
 ##      for a later feature in this steel thread.
+##
+##      UPDATE (FEAT-004, US-003 / FR-003, ADR-004): that later feature has
+##      now landed -- core/application/round_session.gd's enemy-Strikes-
+##      player call site (inside advance_ai_turn()) legitimately threads a
+##      resolved active_defense/defense_context into resolve(). Criterion 4's
+##      audit below is updated (not removed) to reflect this: exactly ONE
+##      production call site (round_session.gd's reactive Strike branch) may
+##      now exceed the 7-argument default-only shape, capped at 9 args
+##      (active_combatant_id + active_defense + defense_context). Every OTHER
+##      production call site -- MainScene.gd's player-Strike path, and
+##      round_session.gd's OWN separate autonomous-path call site inside
+##      run_autonomous_to_completion(), which never offers a reaction --
+##      must remain default-only, so this audit still catches an
+##      undocumented/accidental new reactive call site anywhere else.
 
 const ResolveActionUseCaseClass = preload("res://core/application/resolve_action_use_case.gd")
 const ActionEconomyClass        = preload("res://core/rules/action_economy.gd")
@@ -289,6 +303,16 @@ const _CALL_NEEDLE: String = "_action_use_case.resolve("
 ## action_name, round_number, cycle_index, active_combatant_id).
 const _MAX_DEFAULT_ONLY_ARG_COUNT: int = 7
 
+## Maximum positional argument count resolve() accepts for the ONE
+## documented reactive call site (FEAT-004): the 7 default-only args above
+## PLUS active_defense + defense_context.
+const _REACTIVE_CALL_SITE_MAX_ARG_COUNT: int = 9
+
+## The ONE production file permitted to hold a reactive (>7-argument) call
+## site (FEAT-004, US-003 / FR-003, ADR-004) -- round_session.gd's
+## enemy-Strikes-player Strike branch inside advance_ai_turn().
+const _REACTIVE_CALL_SITE_FILE: String = "res://core/application/round_session.gd"
+
 
 func _read_file(res_path: String) -> String:
 	var f := FileAccess.open(res_path, FileAccess.READ)
@@ -374,6 +398,14 @@ func _find_call_sites(content: String) -> Array:
 
 
 func test_no_production_call_site_passes_active_defense_or_defense_context() -> void:
+	# UPDATED by FEAT-004 (see this file's file-level "UPDATE" doc above):
+	# round_session.gd's reactive enemy-Strikes-player call site is now the
+	# ONE documented exception permitted to exceed the 7-argument
+	# default-only shape (capped at 9 args). Every other call site --
+	# anywhere else in the scanned production tree, INCLUDING
+	# round_session.gd's own separate autonomous-path call site -- must
+	# still be default-only, so an undocumented/accidental new reactive call
+	# site is still caught here.
 	var files: Array = []
 	for dir_path in _PRODUCTION_SCAN_DIRS:
 		_collect_gd_files(dir_path, files)
@@ -381,19 +413,34 @@ func test_no_production_call_site_passes_active_defense_or_defense_context() -> 
 		files.append(file_path)
 
 	var total_sites_found: int = 0
+	var reactive_sites_found: int = 0
 	for file_path in files:
 		var content: String = _read_file(file_path)
 		var sites: Array = _find_call_sites(content)
 		for site in sites:
 			total_sites_found += 1
 			var arg_count: int = _count_top_level_args(site["args_text"])
+			if arg_count <= _MAX_DEFAULT_ONLY_ARG_COUNT:
+				continue
+
+			reactive_sites_found += 1
+			assert_eq(
+				file_path, _REACTIVE_CALL_SITE_FILE,
+				"%s:%d calls resolve() with %d arguments -- only %s's reactive Strike call site (FEAT-004) may exceed the %d-argument default-only contract" % [
+					file_path, site["line"], arg_count, _REACTIVE_CALL_SITE_FILE, _MAX_DEFAULT_ONLY_ARG_COUNT
+				]
+			)
 			assert_true(
-				arg_count <= _MAX_DEFAULT_ONLY_ARG_COUNT,
-				"%s:%d calls resolve() with %d arguments -- exceeds the %d-argument default-only contract, " % [
-					file_path, site["line"], arg_count, _MAX_DEFAULT_ONLY_ARG_COUNT
-				] + "meaning it appears to already pass active_defense/defense_context (US-001 reserves that for a later feature)"
+				arg_count <= _REACTIVE_CALL_SITE_MAX_ARG_COUNT,
+				"%s:%d calls resolve() with %d arguments -- exceeds the %d-argument reactive-call-site ceiling (active_combatant_id + active_defense + defense_context)" % [
+					file_path, site["line"], arg_count, _REACTIVE_CALL_SITE_MAX_ARG_COUNT
+				]
 			)
 
+	assert_eq(
+		reactive_sites_found, 1,
+		"exactly one production call site (round_session.gd's reactive enemy-Strikes-player Strike branch, FEAT-004) may pass active_defense/defense_context"
+	)
 	assert_true(
 		total_sites_found > 0,
 		"sanity: the audit must find at least one production call site into resolve() " +
@@ -408,14 +455,27 @@ func test_audit_finds_the_two_known_live_call_sites() -> void:
 	# path (two loop bodies) and MainScene.gd's player-strikes-enemy path) --
 	# so a future feature that adds/removes a call site does so consciously,
 	# by updating this assertion, rather than silently.
+	#
+	# UPDATED by FEAT-004: round_session.gd's two call sites are no longer
+	# both 6-argument default-only -- the interactive, reaction-enabled
+	# enemy-Strikes-player Strike branch (advance_ai_turn()) now passes 9
+	# args, while the autonomous/sim call site
+	# (run_autonomous_to_completion(), which never offers a reaction) still
+	# passes the original 6.
 	var round_session_content: String = _read_file("res://core/application/round_session.gd")
 	var round_session_sites: Array = _find_call_sites(round_session_content)
 	assert_eq(
 		round_session_sites.size(), 2,
 		"core/application/round_session.gd is expected to have exactly 2 live resolve() call sites"
 	)
+	var round_session_arg_counts: Array = []
 	for site in round_session_sites:
-		assert_eq(_count_top_level_args(site["args_text"]), 6, "round_session.gd's call sites pass exactly 6 positional args today")
+		round_session_arg_counts.append(_count_top_level_args(site["args_text"]))
+	round_session_arg_counts.sort()
+	assert_eq(
+		round_session_arg_counts, [6, 9],
+		"round_session.gd is expected to have exactly one 6-arg (autonomous) and one 9-arg (reactive interactive) call site"
+	)
 
 	var main_scene_content: String = _read_file("res://MainScene.gd")
 	var main_scene_sites: Array = _find_call_sites(main_scene_content)

@@ -299,23 +299,104 @@ func _reaction_choice_to_active_defense(reaction_result: Dictionary) -> String:
 	return choice
 
 
-## _build_reaction_trigger(attacker, target) -> Dictionary — FEAT-003: the
-## minimal ReactionTrigger value object (this feature's data_model) built on
-## an enemy-Strikes-player Strike, immediately before awaiting
-## _resolve_reaction() below. Deliberately minimal (attacker_id/target_id/
-## defense_type/attack_context/round_number) — a richer
-## attack_context/reactor_action_economy_snapshot is the concern of a later
-## feature that wires a real core/application/reaction_window.gd window
-## through this seam (see set_reaction_resolver_fn()'s file-level doc); this
-## feature's scope is proving the AWAIT ITSELF is safe, not the full
-## eligibility/legal_reactions pipeline.
-func _build_reaction_trigger(attacker: Dictionary, target: Dictionary) -> Dictionary:
+## _build_reaction_trigger(attacker, target, target_action_economy) ->
+## Dictionary — FEAT-003 (attacker_id/target_id/defense_type/attack_context/
+## round_number), extended by FEAT-004 (US-003 / FR-003, ADR-004): the
+## ReactionTrigger value object (this feature's data_model) built on an
+## enemy-Strikes-player Strike, immediately before awaiting
+## _resolve_reaction() below. FEAT-003 proved the await itself was safe with
+## a deliberately minimal shape; this feature adds the fields a real resolver
+## (e.g. presentation/turn_controller.gd's resolve_reaction(), driving a real
+## core/application/reaction_window.gd ReactionWindow) needs to actually
+## offer/resolve a reaction — "attacker"/"target" (the full combatant
+## Dictionaries, so a resolver can read weapon/skills/conditions without a
+## second lookup) and "reactor_action_economy" (the DEFENDER's own
+## ActionEconomy instance — a live reference, not a value snapshot, since
+## GDScript Dictionaries/objects are already reference types and this
+## project's ActionEconomy is deliberately mutated in place by
+## spend_reaction()). The pre-existing "attacker_id"/"target_id"/
+## "defense_type"/"attack_context"/"round_number" keys are preserved
+## byte-for-byte (pinned by tests/gut/test_async_reaction_propagation.gd's
+## trigger-shape audit) — this is a strictly additive enrichment, never a
+## breaking rename.
+func _build_reaction_trigger(attacker: Dictionary, target: Dictionary, target_action_economy = null) -> Dictionary:
 	return {
-		"attacker_id":    attacker.get("combatant_id", attacker.get("name", "")),
-		"target_id":      target.get("combatant_id", target.get("name", "")),
-		"defense_type":   "ac",
-		"attack_context": {},
-		"round_number":   _round_number,
+		"attacker_id":            attacker.get("combatant_id", attacker.get("name", "")),
+		"target_id":              target.get("combatant_id", target.get("name", "")),
+		"defense_type":           "ac",
+		"attack_context":         {"attacker_weapon": attacker.get("weapon", {})},
+		"round_number":           _round_number,
+		"attacker":               attacker,
+		"target":                 target,
+		"reactor_action_economy": target_action_economy,
+	}
+
+
+## _find_action_economy_for(combatant) -> ActionEconomy or null — FEAT-004:
+## looks up the ActionEconomy instance this session already holds (in
+## _entries) for `combatant`, so the reactor's OWN live budget (never a
+## copy) can be threaded into the ReactionTrigger/DefenseContext. Matches by
+## object identity first (the common case — `combatant` is literally the
+## same Dictionary reference _entries already holds, since RoundSession's
+## _party/_enemies and _entries are built from the SAME underlying
+## Dictionaries — see RunRoundUseCase.begin_round()), falling back to the
+## combatant_id/name identity convention used elsewhere in this codebase
+## (e.g. resolve_action_use_case.gd's _combatant_identifier()) for doubles
+## that rebuild an equal-but-distinct Dictionary. Returns null (a safe,
+## documented sentinel — see _build_defense_context()'s handling) if no
+## matching entry exists.
+func _find_action_economy_for(combatant: Dictionary):
+	for entry in _entries:
+		if is_same(entry["combatant"], combatant):
+			return entry["action_economy"]
+
+	var combatant_id: String = combatant.get("combatant_id", combatant.get("name", ""))
+	if combatant_id != "":
+		for entry in _entries:
+			var candidate: Dictionary = entry["combatant"]
+			if candidate.get("combatant_id", candidate.get("name", "")) == combatant_id:
+				return entry["action_economy"]
+
+	return null
+
+
+## _build_defense_context(target, target_action_economy) -> Dictionary —
+## FEAT-004 (US-003 / FR-003, ADR-004): the DefenseContext value object (this
+## feature's data_model) core/rules/resolution.gd's resolve_weapon_attack()
+## expects as its trailing `defense_context` argument. Resolved ENTIRELY from
+## the DEFENDER's (`target`'s) own data — this session never re-derives
+## reaction eligibility/math itself (that remains resolution.gd's/
+## reaction_window.gd's exclusive job):
+##   "action_economy"       — the defender's live ActionEconomy (may be null
+##                             — see _find_action_economy_for()'s doc; when
+##                             null, resolution.gd's _try_spend_reaction()
+##                             treats spending as untracked/always-allowed
+##                             rather than crashing, its own documented
+##                             contract).
+##   "parrying_weapon"      — the defender's own weapon Dictionary (the only
+##                             weapon slot this project's combatant model
+##                             carries — see core/rules/resolution.gd's
+##                             is_parry_eligible(), which no-ops when it
+##                             lacks a positive parry_bonus).
+##   "blocking_weapon"      — the SAME weapon Dictionary; is_block_eligible()
+##                             similarly no-ops without a positive
+##                             block_value. A single weapon safely serves
+##                             both roles because resolution.gd never applies
+##                             more than one active_defense per Strike.
+##   "open_space_available" — true (default-safe; no hex-grid adjacency/
+##                             occupancy query is wired into RoundSession
+##                             this feature — see this feature's design
+##                             note's data_model doc, "derived from a grid
+##                             query, not stored" — a future feature may
+##                             thread a real query in without changing this
+##                             method's other keys).
+func _build_defense_context(target: Dictionary, target_action_economy) -> Dictionary:
+	var target_weapon: Dictionary = target.get("weapon", {})
+	return {
+		"action_economy":       target_action_economy,
+		"parrying_weapon":      target_weapon,
+		"blocking_weapon":      target_weapon,
+		"open_space_available": true,
 	}
 
 
@@ -471,30 +552,37 @@ func advance_ai_turn() -> Dictionary:
 		any_action_taken = true
 		_reposition_token_after_ai_stride(combatant, ai_decision)
 	elif action_name != "" and not target.is_empty():
-		# FEAT-003: on an enemy-Strikes-player Strike, await the injected
-		# ReactionResolverPort BEFORE resolving the Strike — proving the
-		# await itself is safe (this feature's entire scope; see this
-		# method's file-level FEAT-003 doc). The resolved `active_defense`
-		# is deliberately NOT yet threaded into
-		# resolve_action_use_case.resolve()'s active_defense/defense_context
-		# trailing parameters here — tests/gut/
-		# test_resolve_action_use_case_active_defense.gd's audit pins EVERY
-		# production resolve() call site (this one included) to its
-		# pre-existing 6-positional-argument, default-only ("none", {})
-		# shape until a LATER feature opts in; wiring the reaction's actual
-		# outcome into resolve() is that later feature's job, not this
-		# one's. This call site therefore genuinely awaits a real reaction
-		# resolution end-to-end, it just doesn't yet act on the answer.
+		# FEAT-003 proved awaiting the injected ReactionResolverPort BEFORE
+		# resolving an enemy-Strikes-player Strike is safe (no deadlock, no
+		# double-advance). FEAT-004 (US-003 / FR-003, ADR-004) now ACTS on
+		# the resolver's answer: the resolved `active_defense` and a freshly
+		# built DefenseContext (see _build_defense_context()'s doc) are
+		# threaded verbatim into resolve_action_use_case.resolve()'s
+		# trailing parameters — the SAME pass-through
+		# resolve()/_resolve_strike() have accepted since FEAT-001, and the
+		# SAME core/rules/resolution.gd math every other reaction-enabled
+		# call site (e.g. reaction_window.gd's open_and_resolve_attack())
+		# already exercises; this method never re-implements Dodge/Block/
+		# Parry/Steel math or re-derives eligibility itself. A malformed or
+		# un-injected resolver still degrades safely to active_defense
+		# "none" / defense_context {} (see
+		# _reaction_choice_to_active_defense()'s doc), which resolves
+		# byte-for-byte identically to the pre-FEAT-004 default-only call --
+		# tests/characterization/test_strike_characterization.gd's pin, and
+		# this feature's own "Pass reproduces the exact pre-sprint unreacted
+		# outcome" test_criterion.
+		var active_defense: String = "none"
+		var defense_context: Dictionary = {}
 		if action_name == "Strike":
-			var trigger: Dictionary = _build_reaction_trigger(combatant, target)
+			var target_action_economy = _find_action_economy_for(target)
+			var trigger: Dictionary = _build_reaction_trigger(combatant, target, target_action_economy)
 			var reaction_result: Dictionary = await _resolve_reaction(trigger)
-			# Validated/logged now so a malformed adapter response is caught
-			# at the seam it came from (see _reaction_choice_to_active_defense()'s
-			# doc) even though its result isn't consumed by resolve() yet.
-			_reaction_choice_to_active_defense(reaction_result)
+			active_defense = _reaction_choice_to_active_defense(reaction_result)
+			defense_context = _build_defense_context(target, target_action_economy)
 
 		var resolve_result: Dictionary = _resolve_action_use_case.resolve(
-			combatant, action_economy, target, action_name, _round_number, _cycle_index
+			combatant, action_economy, target, action_name, _round_number, _cycle_index,
+			"", active_defense, defense_context
 		)
 		any_action_taken = resolve_result.get("resolved", false)
 	else:
