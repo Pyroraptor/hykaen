@@ -18,3 +18,4 @@ intuition = 1
 willpower = 1
 social = 1
 intellect = 0
+skills = {"determination": 1, "mobility": 1}

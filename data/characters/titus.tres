@@ -9,5 +9,6 @@ name = "Titus"
 race = "Human"
 class_ref = ExtResource("2_fghtr")
 attributes = {"constitution": 4, "dexterity": 2, "intellect": 1, "intuition": 2, "social": 1, "strength": 5, "willpower": 2}
+skills = {"determination": 2, "mobility": 2}
 starting_equipment = ["res://data/weapons/longsword.tres", "res://data/armor/chain_shirt.tres"]
 talent_selections = []

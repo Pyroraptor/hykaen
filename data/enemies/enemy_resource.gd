@@ -80,3 +80,19 @@ extends Resource
 
 ## Intellect attribute score.
 @export var intellect: int = 0
+
+## Skill scores (FEAT-002 / US-006 / FR-007) — arbitrary string keys (e.g.
+## "mobility", "determination"), each an int score. Kept SEPARATE from the
+## attribute fields above (independent attribute set, not a repeating
+## group) so it never perturbs Attributes.point_buy_validate()'s
+## REQUIRED_KEYS check (which only ever inspects CharacterResource
+## `attributes`, and never touches this field at all).
+##
+## Accessor pattern: this Resource carries ZERO business logic (ADR-104 —
+## enemy_resource.gd must contain no functions), so there is no bespoke
+## get_skill() method here. Read a skill score the same way `attributes`
+## values are read elsewhere in this codebase: `skills.get(key, 0)`,
+## which naturally defaults a missing key to 0.
+## Data-layer prerequisite for skill-based reaction/defense checks
+## (Dodge/Steel).
+@export var skills: Dictionary = {}
