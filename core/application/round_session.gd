@@ -366,6 +366,22 @@ func _reposition_token_after_ai_stride(combatant: Dictionary, ai_decision: Dicti
 ## whether/what action was spent this turn (US-010) — this method never
 ## itself spends an action or calls resolve_action_use_case. A no-op
 ## ({"ok": false}) once is_round_over().
+##
+## FEAT-004 (US-002 / FR-002, ADR-010): this is the PLAYER's free-pass path —
+## deliberately distinct from advance_ai_turn()'s handling of an Enemy's
+## null-action AI sentinel, which resolves as an explicit WAIT
+## (core/rules/actions.gd Actions.resolve_wait()) that DOES spend one action
+## via ActionEconomy.spend_action(). A player who ends their turn having
+## chosen no action at all is never routed through resolve_wait() or any
+## other spend_action()/spend_reaction() call here — end_current_turn()
+## forwards straight to the shared _after_action_resolved() tail below,
+## leaving the free-passing combatant's ActionEconomy.budget_remaining and
+## is_spent() completely untouched, so that combatant's full budget remains
+## available for a later reaction (Dodge/Parry/Block) this same round. The
+## enemy WAIT path exists to guarantee round termination for an idle/
+## unreachable Enemy (US-001); the player free-pass path exists so choosing
+## not to act never costs the player anything (US-002) — the two are
+## intentionally asymmetric.
 func end_current_turn() -> Dictionary:
 	if _round_over or _cursor == -1:
 		return {"ok": false}
