@@ -263,6 +263,19 @@ func _init(random_number_port, event_sink_port, round_history_port) -> void:
 ##       target_defeated is true iff target.hp_current transitioned to <= 0
 ##       as a result of this resolution. "event" carries the same
 ##       AttackEvent instance emitted via EventSinkPort.
+##
+## active_defense/defense_context (FEAT-001 / US-001 / FR-001, ADR-001):
+## trailing parameters threaded VERBATIM through _resolve_strike() into
+## core/rules/resolution.gd's resolve_weapon_attack() — this use case never
+## inspects or branches on their values (that is resolution.gd's job). Both
+## default to the pre-existing no-active-defense behavior ("none", {}), so
+## every caller that does not pass them (every caller as of this feature)
+## gets byte-for-byte identical output to before this parameter was added —
+## the backward-compat default-safety contract pinned by
+## tests/characterization/test_strike_characterization.gd. New callers
+## (e.g. the reactive-defense round_session.gd path, a subsequent feature)
+## opt into reactive mode by passing an explicit active_defense/
+## defense_context.
 func resolve(
 	combatant: Dictionary,
 	action_economy,
@@ -270,7 +283,9 @@ func resolve(
 	action_name: String,
 	round_number: int,
 	cycle_index: int,
-	active_combatant_id: String = ""
+	active_combatant_id: String = "",
+	active_defense: String = "none",
+	defense_context: Dictionary = {}
 ) -> Dictionary:
 	if active_combatant_id != "" and _combatant_identifier(combatant) != active_combatant_id:
 		return {"resolved": false, "ok": false, "error": ERR_NOT_ACTIVE_COMBATANT}
@@ -290,7 +305,7 @@ func resolve(
 		return {"resolved": false, "ok": false, "error": ERR_NO_ACTION_REMAINING}
 
 	var weapon: Dictionary = combatant.get("weapon", {})
-	var strike_result: Dictionary = _resolve_strike(combatant, target, weapon)
+	var strike_result: Dictionary = _resolve_strike(combatant, target, weapon, active_defense, defense_context)
 
 	var damage: int = strike_result.get("damage_final", 0)
 	if damage > 0:
@@ -432,14 +447,24 @@ func _is_in_range(combatant: Dictionary, target: Dictionary) -> bool:
 	return distance <= range_hexes
 
 
-## _resolve_strike(attacker, target, weapon) -> Dictionary — internal helper
-## (FEAT-008 / US-008, CR-001): delegates the ENTIRE Strike resolution
-## (attack roll, passive AC defense, Off-Guard reduction, crit-by-10 check,
-## damage roll) to core/rules/resolution.gd's Resolution.resolve_weapon_attack(),
-## called exactly as `resolve_weapon_attack(attacker, target, weapon, "ac",
-## "none", {})` — the SAME passive-AC-only, no-active-defense path
-## run_round()/the live interactive Strike UX has always exercised. There is
-## NO hand-rolled attack-roll/Off-Guard/crit-threshold math in this use case
+## _resolve_strike(attacker, target, weapon, active_defense, defense_context)
+## -> Dictionary — internal helper (FEAT-008 / US-008, CR-001; active_defense/
+## defense_context added by FEAT-001 / US-001 / FR-001, ADR-001): delegates
+## the ENTIRE Strike resolution (attack roll, passive AC defense, Off-Guard
+## reduction, crit-by-10 check, damage roll, and — when active_defense is not
+## "none" — reactive defense math) to core/rules/resolution.gd's
+## Resolution.resolve_weapon_attack(), called exactly as
+## `resolve_weapon_attack(attacker, target, weapon, "ac", active_defense,
+## defense_context)` — a VERBATIM, unmodified pass-through of the two
+## trailing parameters this use case receives from resolve(); no branching
+## on their values happens here. Every existing/default-arg caller still
+## resolves the SAME passive-AC-only, no-active-defense path
+## run_round()/the live interactive Strike UX has always exercised, because
+## active_defense defaults to "none" and defense_context to {} all the way
+## from resolve() down to this call (backward-compat default-safety
+## contract, pinned byte-for-byte by
+## tests/characterization/test_strike_characterization.gd). There is NO
+## hand-rolled attack-roll/Off-Guard/crit-threshold math in this use case
 ## any more — resolution.gd is the single source of that logic (CR-001), and
 ## this call is rolled via the SAME injected RandomNumberPort that backs
 ## `_resolution` (see the _PortRNGAdapter wrapping it in _init()), never a
@@ -454,5 +479,11 @@ func _is_in_range(combatant: Dictionary, target: Dictionary) -> bool:
 ## Returns resolution.gd's full result Dictionary — this use case only reads
 ## "roll_total", "hit", "crit", "damage_final", and "defense_value" out of
 ## it, but every key resolve_weapon_attack() documents is present.
-func _resolve_strike(attacker: Dictionary, target: Dictionary, weapon: Dictionary) -> Dictionary:
-	return _resolution.resolve_weapon_attack(attacker, target, weapon, "ac", "none", {})
+func _resolve_strike(
+	attacker: Dictionary,
+	target: Dictionary,
+	weapon: Dictionary,
+	active_defense: String = "none",
+	defense_context: Dictionary = {}
+) -> Dictionary:
+	return _resolution.resolve_weapon_attack(attacker, target, weapon, "ac", active_defense, defense_context)
