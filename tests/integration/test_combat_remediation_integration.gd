@@ -160,15 +160,19 @@ var _weapon: Dictionary = {
 	"damage_die":                6
 }
 
-## Active-defense target: augmented with dexterity (Dodge/Mobility check)
-## and willpower (Steel/Determination check), plus conscious flag.
+## Active-defense target: augmented with the real skills used for the
+## Dodge/Mobility check and Steel/Determination check (FEAT-007 / US-007 /
+## FR-008 / ADR-015 — skills['mobility']/skills['determination'], not the
+## former dexterity/willpower attribute proxies), plus conscious flag.
 var _ad_target: Dictionary = {
 	"ac":        13,
 	"reflex":    12,
 	"fortitude": 14,
 	"will":      11,
-	"dexterity": 1,
-	"willpower": 1,
+	"skills": {
+		"mobility":      1,
+		"determination": 1
+	},
 	"conscious": true
 }
 

@@ -987,15 +987,19 @@ class SequenceRNG:
 
 # ── Shared fixtures for FEAT-059 active defense tests ─────────────────────────
 
-## Target augmented with attribute scores needed for Dodge (dexterity)
-## and Steel (willpower) checks.
+## Target augmented with the real skills used for Dodge (mobility) and
+## Steel (determination) checks (FEAT-007 / US-007 / FR-008 / ADR-015 —
+## skills['mobility']/skills['determination'], not the former
+## dexterity/willpower attribute proxies).
 var _ad_target: Dictionary = {
 	"ac":        13,
 	"reflex":    12,
 	"fortitude": 14,
 	"will":      11,
-	"dexterity": 1,   # used for Mobility check (Dodge)
-	"willpower": 1,   # used for Determination check (Steel)
+	"skills": {
+		"mobility":      1,   # used for Mobility check (Dodge)
+		"determination": 1    # used for Determination check (Steel)
+	},
 	"conscious": true
 }
 
@@ -1677,8 +1681,10 @@ func test_bobbin_dmitri_dodge_negates_attack() -> void:
 		"reflex":    13,
 		"fortitude": 12,
 		"will":      10,
-		"dexterity": 4,    # Dmitri's dexterity (per Combat.pdf initiative: modifier=5, intuition=1, dex=4)
-		"willpower": 1,
+		"skills": {
+			"mobility":      4,   # Dmitri's Mobility skill (FEAT-007: skills['mobility'], not dexterity proxy)
+			"determination": 1
+		},
 		"conscious": true
 	}
 	# SequenceRNG: d20[0]=18 (mob check), d20[1]=11 (attack); roll=7 (not used on miss)

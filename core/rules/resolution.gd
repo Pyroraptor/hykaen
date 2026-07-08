@@ -9,6 +9,14 @@
 ##   Parry  — Parry roll vs attacker's roll_total; success → 0 damage.
 ##   Steel  — Determination check replaces Fortitude/Will; resist → +2 next check.
 ##
+## FEAT-007 (US-007 / FR-008, ADR-015): Dodge's Mobility check and Steel's
+## Determination check are computed from the target's REAL skills —
+## skills['mobility'] and skills['determination'] respectively — rather
+## than the earlier target.dexterity/target.willpower attribute proxies.
+## Both default to 0 when the target Dictionary carries no "skills" key or
+## the specific skill key is absent (missing-key-defaults-to-0, matching
+## the accessor pattern used everywhere else skills are read).
+##
 ## All active defenses are REACTIONS (Stamina 0) that spend one action from
 ## the actor's 7-action round budget via ActionEconomy.spend_reaction() when
 ## an action_economy is provided in defense_context.
@@ -71,8 +79,8 @@ func _init(rng) -> void:
 ##   target           — Dictionary with passive defense values AND optional
 ##                        attributes for active checks:
 ##                        {"ac": 13, "reflex": 12, "fortitude": 14, "will": 11,
-##                         "dexterity": 1,   ← Mobility check (Dodge)
-##                         "willpower":  1,   ← Determination check (Steel)
+##                         "skills": {"mobility": 1,       ← Mobility check (Dodge)
+##                                    "determination": 1}, ← Determination check (Steel)
 ##                         "conscious":  true, ← Steel trigger gate
 ##                         "conditions": []}   ← "Immobilized" blocks Dodge
 ##   weapon           — Dictionary with weapon statistics:
@@ -158,9 +166,11 @@ func resolve_weapon_attack(
 			# Attempt to spend one reaction from the action economy (if provided)
 			var reaction_ok: bool = _try_spend_reaction(defense_context)
 			if reaction_ok:
-				# Roll Mobility check: d20 + Dexterity (physical movement attribute)
+				# Roll Mobility check: d20 + Mobility skill (FEAT-007 / US-007 /
+				# FR-008 / ADR-015 — real skills['mobility'], not the former
+				# target.dexterity attribute proxy).
 				var mob_roll: int = _rng.d20()
-				mobility_check = mob_roll + target.get("dexterity", 0)
+				mobility_check = mob_roll + target.get("skills", {}).get("mobility", 0)
 
 	# STEEL — trigger: defense_type in ["fortitude","will"] AND conscious
 	if active_defense == "steel":
@@ -170,9 +180,11 @@ func resolve_weapon_attack(
 		if is_steel_trigger and is_conscious:
 			var reaction_ok: bool = _try_spend_reaction(defense_context)
 			if reaction_ok:
-				# Roll Determination check: d20 + Willpower (mental fortitude attribute)
+				# Roll Determination check: d20 + Determination skill (FEAT-007 /
+				# US-007 / FR-008 / ADR-015 — real skills['determination'], not
+				# the former target.willpower attribute proxy).
 				var det_roll: int = _rng.d20()
-				determination_check = det_roll + target.get("willpower", 0)
+				determination_check = det_roll + target.get("skills", {}).get("determination", 0)
 
 	# ── Attack roll (ADR-002 RNG position 2) ─────────────────────────────────
 	var raw: int = _rng.d20()
