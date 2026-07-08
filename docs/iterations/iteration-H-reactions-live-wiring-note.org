@@ -1,0 +1,79 @@
+#+TITLE: How to wire the reactions into live play (Iteration H Gap #1) — implementation note
+#+DATE: 2026-07-08
+#+CONTEXT: Sprint-9 built + unit-tested Dodge/Parry/Block/Steel + the pop-up (GUT 1408/1408)
+#+CONTEXT: but NOTHING in the live loop triggers them, so they can't fire in play. This note
+#+CONTEXT: is the exact integration to make them live. Everything below is already BUILT — this
+#+CONTEXT: is pure wiring. Verified against HEAD 948c8e4.
+
+* The gap in one sentence
+The defender is never given the chance to react: the live Strike calls
+`resolve_weapon_attack(..., "ac", "none", {})` with a hardcoded "none", and
+`turn_controller.resolve_reaction()` (which opens the pop-up) is only ever called from tests.
+
+* The pieces that ALREADY exist (do not rebuild)
+- core/rules/resolution.gd `resolve_weapon_attack(attacker, target, weapon, defense_type,
+  active_defense, defense_context)` — applies Dodge/Block/Parry/Steel + spends the reaction
+  via spend_reaction(). Just needs to be CALLED with a real active_defense + context.
+- presentation/turn_controller.gd:146 `resolve_reaction(trigger, resolved_by="player")` —
+  ASYNC (`await _reaction_chooser.choose(...)`); opens core/application/reaction_window.gd,
+  returns `{choice, window_id, opened, ...}`. reaction_window.open(trigger) computes the
+  LEGAL reactions itself (spent-check, Immobilized, weapon has parry/block, etc.).
+- MainScene.gd:683-693 constructs ReactionWindow + PlayerReactionChooser and calls
+  turn_controller.configure_reactions(reaction_window, player_reaction_chooser). Wired, unused.
+
+* THE WIRING (four edits)
+
+** 1. Thread a chosen defense through resolve() → _resolve_strike → resolve_weapon_attack
+- core/application/resolve_action_use_case.gd: add params to `resolve(...)` (line 266) and
+  `_resolve_strike(...)` (line 457): `active_defense: String = "none"`,
+  `defense_context: Dictionary = {}` (defaults preserve every existing caller/sim/test).
+- Line 458: replace `resolve_weapon_attack(attacker, target, weapon, "ac", "none", {})` with
+  `resolve_weapon_attack(attacker, target, weapon, "ac", active_defense, defense_context)`.
+
+** 2. Inject a reaction-resolver into RoundSession (mirror set_token_reposition_fn)
+- core/application/round_session.gd already takes an injected Callable for token repositioning
+  (_token_reposition_fn via set_token_reposition_fn). Add the SAME pattern:
+  `set_reaction_resolver_fn(fn: Callable)` where fn(trigger: Dictionary) -> Dictionary returns
+  the defender's `{choice, ...}`. Composition root wires it to turn_controller.resolve_reaction.
+- ⚠ ASYNC: resolve_reaction() awaits the pop-up. So the resolver call — and therefore
+  advance_ai_turn() and TurnController._drive()'s loop that calls it — must `await` up the
+  chain (GDScript coroutines). This async propagation is the main real work; the rest is glue.
+
+** 3. Open the DEFENDER's reaction window BEFORE resolving a Strike, at the two live call sites
+The DEFENDER reacts (not the attacker). Two live callers of _resolve_action_use_case.resolve():
+- round_session.gd:321 `advance_ai_turn` — ENEMY strikes ⇒ DEFENDER = PLAYER ⇒ open the PLAYER
+  pop-up. THIS IS THE PRIMARY PATH (the one that shows the pop-up). Before calling resolve():
+    * build trigger = {attacker, target, defense_type:"ac", attack_context:{weapon, ...}}
+    * choice = await reaction_resolver_fn.call(trigger)  # resolved_by "player"
+    * build defense_context = {action_economy: <defender's AE>, parrying_weapon:{parry_bonus},
+      blocking_weapon:{damage_die, block_value}, open_space_available: <adjacent free hex?>}
+      (parry/block values come from the DEFENDER's equipped weapon; open_space from the grid)
+    * pass choice + defense_context into resolve().
+- MainScene.gd:1008 (player Strikes) ⇒ DEFENDER = ENEMY ⇒ needs the ENEMY reaction AI policy,
+  which was DROPPED this sprint. For now the enemy simply Passes (active_defense "none") — no
+  pop-up. Wire this path when the enemy reaction policy is added (see deferred doc).
+- round_session.gd:523 (autonomous sim) — leave "none"/pass; the sim never shows UI.
+
+** 4. Composition root
+- MainScene.gd: after obtaining the RoundSession, also call
+  `round_session.set_reaction_resolver_fn(Callable(turn_controller, "resolve_reaction"))`
+  (alongside the existing set_token_reposition_fn wiring). turn_controller already holds the
+  window + player chooser from configure_reactions().
+
+* KEY DECISION TO SETTLE FIRST
+Async ordering: resolution.gd resolves the attack roll AND damage in one synchronous call,
+but the reaction (Dodge/Parry pre-hit; Block post-hit) must be chosen BEFORE that resolves.
+resolve_weapon_attack already sequences the reaction internally (it takes active_defense up
+front and applies it at the right phase), so the ONLY thing the caller must do is obtain the
+defender's CHOICE (await the pop-up) and pass it in BEFORE calling resolve(). So the pop-up
+opens once, up front, per incoming Strike — no mid-resolution re-entry needed. Confirm this
+matches the intended "player chooses before the trigger resolves" UX (it does: choose → then
+resolve with the choice).
+
+* VERIFY IN REAL PLAY (headless tests already pass while the feature is dead — do NOT trust them alone)
+Launch the game, let an enemy Stride into reach and Strike Titus, and confirm:
+1. a pop-up appears listing only the LEGAL reactions + Pass, and BLOCKS until chosen;
+2. Dodge on success negates + steps; Block reduces damage; Parry (if it beats the roll) → 0;
+3. choosing a reaction decrements the defender's action budget (spend_reaction);
+4. Pass resolves the Strike normally.
+Then confirm the enemy-defender path (player Strikes enemy) still works (enemy Passes for now).

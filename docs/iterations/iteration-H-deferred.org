@@ -1,0 +1,67 @@
+#+TITLE: Iteration H — Deferred / Dropped Scope + Critical Delivery Gaps (authored by monitor, 2026-07-08)
+#+NOTE: The AEF sprint-9 run "converged" (GUT 1408/1408, pytest 305/1skip, exit 0) but did
+#+NOTE: NOT create this file despite the brief's scope-drop policy requiring it. Authored
+#+NOTE: post-run by the overnight monitor from log + code inspection. HEAD at run end: b7cb600.
+
+* ⚠ CRITICAL DELIVERY GAP #1 — Reactions are NOT wired into live play (headline deliverable non-functional)
+The four defensive reactions (Dodge/Parry/Block/Steel) + the pop-up are fully built and
+UNIT/INTEGRATION-tested (that's why GUT is 1408/1408 green), but they CANNOT FIRE in real
+play. Verified on final HEAD:
+- core/application/resolve_action_use_case.gd:458 — the live Strike still hardcodes
+  `_resolution.resolve_weapon_attack(attacker, target, weapon, "ac", "none", {})` — always
+  "none" active defense. The FEAT-008 "consolidation" routed through resolution.gd but kept
+  the "none" argument.
+- presentation/turn_controller.gd:146 `resolve_reaction()` EXISTS and MainScene wires up
+  ReactionWindow + PlayerReactionChooser (MainScene.gd:683-693) via configure_reactions(),
+  but NOTHING in the live loop (TurnController._drive / RoundSession.advance_ai_turn / the
+  player-Strike path) ever CALLS resolve_reaction() or opens the window for a live attack.
+- This is the recurring "built + unit-tested but not wired into the composition-root/live
+  loop" pattern (cf. FEAT-138, FEAT-162, Iteration E). Peer-review CAUGHT it on FEAT-207
+  attempt 1 (CRITICAL finding), but attempt 2 "verified rather than re-implemented" and got
+  a FALSE APPROVE; V&V then passed without re-catching it.
+- FIX (next session): make the live Strike/turn flow open the reaction window when a
+  combatant is targeted — call resolve_reaction() (player → pop-up; enemy → AI policy) and
+  pass the chosen active_defense + defense_context into resolve_weapon_attack() instead of
+  the hardcoded "none". This single integration makes ALL four reactions live at once.
+  REQUIRES REAL-PLAY VERIFICATION (headless tests already pass while the feature is dead).
+
+* ⚠ CRITICAL DELIVERY GAP #2 — Skills DATA left UNCOMMITTED (HEAD is inconsistent)
+At run end the working tree is DIRTY with the skills additions never committed:
+- data/enemies/enemy_resource.gd (+16 lines — the `skills` field on EnemyResource)
+- data/enemies/skeleton.tres  (+ `skills = {"determination": 1, "mobility": 1}`)
+- data/characters/titus.tres  (+ `skills = {"determination": 2, "mobility": 2}`)
+- sim_results.json (regenerated)
+So a CLEAN checkout of HEAD b7cb600 LACKS the EnemyResource skills field and the actors'
+mobility/determination values — the Dodge/Steel skill reads would fall back to 0. The
+GUT 1408/1408 pass only happened because the suite ran against the DIRTY tree.
+NOTE (monitor): these changes were PRESERVED (not discarded) but NOT committed — the
+monitor does not commit to the repo without being asked. COMMIT THESE (completing FEAT-002)
+before trusting HEAD, or fold them into the wiring fix.
+
+* DROPPED SCOPE (per the brief's drop-order: Steel → enemy AI policy → Opportunistic Strike)
+- STEEL: NOT dropped — shipped dormant (rules + Determination-check share Dodge's mechanism;
+  no Fort/Will attack exists to trigger it in play). As designed.
+- ENEMY REACTION AI POLICY: DROPPED. core/combat/ai.gd has NO reaction logic — enemies
+  cannot choose reactions. (Moot until Gap #1 is fixed, since no reactions fire live at all.)
+  Re-add: an injected enemy reaction chooser (react-if-helpful-and-affordable, deterministic).
+- OPPORTUNISTIC STRIKE: DROPPED. Not implemented anywhere (only a doc mention in
+  core/application/reaction_window.gd). The offensive reaction — trigger: an adjacent enemy
+  Strides; effect: a melee Strike BEFORE the move; melee-only via a relaxable predicate —
+  was never scoped as an item (the 14-item plan omitted it). Re-scope for the next sprint.
+
+* WHAT DID LAND (committed, tested)
+- Part A round-loop fixes — Wait (FEAT-003), player free-pass (004), no-progress backstop
+  (005), multi-round loop (006). These are in the live round loop and should actually work;
+  VERIFY the original real-play bugs (idle enemy never depletes / round never ends / no
+  round 2) are fixed in play.
+- Part B (rules/architecture, tested-in-isolation) — weapon block/parry data (001), skills
+  field on CharacterResource (002, but see Gap #2), Dodge/Steel skill rewire (007),
+  resolution consolidation (008), pausable reaction-window (009), Dodge/Parry/Block wiring
+  into resolution.gd (010/205/206), pop-up UI (207), steel-thread E2E test (208).
+
+* SUGGESTED NEXT-SPRINT ORDER
+1. Commit the uncommitted skills data (Gap #2) — make HEAD consistent.
+2. Wire reactions into the live loop (Gap #1) — the one integration that activates the whole
+   feature; verify in REAL PLAY, not just headless.
+3. Enemy reaction AI policy.
+4. Opportunistic Strike.
