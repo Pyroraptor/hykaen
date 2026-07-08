@@ -113,6 +113,16 @@ func _init(rng) -> void:
 ##   "defender_stepped"       — bool: true after a SUCCESSFUL Dodge (miss)
 ##   "next_check_bonus"       — int: +2 after a SUCCESSFUL Steel resist; else 0
 ##   "on_hit_suppressed"      — bool: true after Block or successful Parry
+##   "defense_value"          — int: the EFFECTIVE defense value the attack roll
+##                                    was actually compared against (the passive
+##                                    target[defense_type], substituted by a
+##                                    successful Dodge/Steel check, and reduced
+##                                    by the Off-Guard bonus when applicable) —
+##                                    consumed by core/application/
+##                                    resolve_action_use_case.gd (FEAT-008/
+##                                    US-008, CR-001) to populate
+##                                    RoundEvents.AttackEvent.defense_value
+##                                    without recomputing it a second time.
 ##   "error"                  — String: present ONLY when defense_type is invalid
 ##
 ## RNG consumption order (for pinned-seed test reproducibility):
@@ -281,7 +291,8 @@ func resolve_weapon_attack(
 		"damage_final":           damage_final,
 		"defender_stepped":       defender_stepped,
 		"next_check_bonus":       next_check_bonus,
-		"on_hit_suppressed":      on_hit_suppressed
+		"on_hit_suppressed":      on_hit_suppressed,
+		"defense_value":          defense_value
 	}
 
 

@@ -70,7 +70,40 @@ extends RefCounted
 
 const RoundEventsClass = preload("res://core/rules/round_events.gd")
 const HexMathClass     = preload("res://core/geometry/hex_math.gd")
-const FlankingClass    = preload("res://core/rules/flanking.gd")
+const ResolutionClass  = preload("res://core/rules/resolution.gd")
+
+
+## _PortRNGAdapter (FEAT-008 / US-008, CR-001) — internal adapter wrapping
+## an injected RandomNumberPort (the dice_spec-shaped `roll(dice_spec)`
+## contract — core/rules/random_port.gd) so it can be handed to
+## core/rules/resolution.gd's Resolution constructor, which duck-types its
+## injected `_rng` against the RNG-shaped `d20()` / `roll(die_size, count)`
+## contract (core/rules/rng.gd). resolution.gd's own contract is NEVER
+## changed by this adapter — every call this adapter makes is forwarded
+## straight back out to the SAME injected RandomNumberPort instance, so the
+## live interactive Strike path and every other resolution.gd caller
+## (core/combat/encounter.gd, core/sim/simulator.gd, tests) now draw from
+## ONE unified seeded RNG source rather than two independently-shaped ones.
+class _PortRNGAdapter:
+	var _port
+
+	func _init(port) -> void:
+		_port = port
+
+	## d20() -> int — forwards to the injected port's own d20() (see
+	## core/rules/random_port.gd's base-class convenience), which in turn
+	## calls roll({"die": 20, "count": 1}) on the SAME concrete adapter
+	## injected into this use case.
+	func d20() -> int:
+		return _port.d20()
+
+	## roll(die_size, count) -> int — forwards to the injected port's
+	## dice_spec-shaped roll(), reconstructing the {"die":.., "count":..}
+	## Dictionary resolution.gd's damage/check rolls are expressed in terms
+	## of die size + count, never a raw call to any engine RNG primitive.
+	func roll(die_size: int, count: int) -> int:
+		return _port.roll({"die": die_size, "count": count})
+
 
 ## Action names that are melee attacks and therefore subject to the
 ## hex_neighbors-based reach precondition (FEAT-003 / US-003). Only "Strike"
@@ -122,6 +155,10 @@ const ERR_NOT_ACTIVE_COMBATANT: String = "ERR_NOT_ACTIVE_COMBATANT"
 var _random_number_port      ## RandomNumberPort — injected; never instantiated here (NFR-003)
 var _event_sink_port         ## EventSinkPort — injected
 var _round_history_port      ## RoundHistoryPort — injected
+var _resolution               ## Resolution (core/rules/resolution.gd) — constructed once in
+## _init() from a _PortRNGAdapter wrapping the injected RandomNumberPort
+## (FEAT-008 / US-008, CR-001). ALL Strike resolution math lives in
+## resolution.gd; this use case never re-implements it.
 
 
 ## _init(random_number_port, event_sink_port, round_history_port) — stores
@@ -129,10 +166,18 @@ var _round_history_port      ## RoundHistoryPort — injected
 ## parameters) so any object implementing the documented method contracts —
 ## whether or not it formally `extends` the port base class — may be
 ## substituted (test doubles in particular).
+##
+## Also constructs the single Resolution instance (core/rules/resolution.gd)
+## this use case delegates ALL Strike math to (FEAT-008 / US-008, CR-001),
+## backed by a _PortRNGAdapter wrapping `random_number_port` — so the exact
+## same injected RandomNumberPort remains the sole source of randomness
+## consumed by this use case, just reshaped to the RNG-duck-typed contract
+## resolution.gd's constructor expects.
 func _init(random_number_port, event_sink_port, round_history_port) -> void:
 	_random_number_port = random_number_port
 	_event_sink_port     = event_sink_port
 	_round_history_port  = round_history_port
+	_resolution          = ResolutionClass.new(_PortRNGAdapter.new(random_number_port))
 
 
 ## resolve(combatant, action_economy, target, action_name, round_number,
@@ -387,60 +432,27 @@ func _is_in_range(combatant: Dictionary, target: Dictionary) -> bool:
 	return distance <= range_hexes
 
 
-## _resolve_strike(attacker, target, weapon) -> Dictionary — internal helper:
-## the minimal passive-AC-defense Strike math exercised by run_round() (no
-## active defenses; mirrors core/rules/resolution.gd's
-## resolve_weapon_attack(..., "ac", "none", {}) path exactly), rolled via the
-## injected RandomNumberPort instead of a directly-held RNG instance.
+## _resolve_strike(attacker, target, weapon) -> Dictionary — internal helper
+## (FEAT-008 / US-008, CR-001): delegates the ENTIRE Strike resolution
+## (attack roll, passive AC defense, Off-Guard reduction, crit-by-10 check,
+## damage roll) to core/rules/resolution.gd's Resolution.resolve_weapon_attack(),
+## called exactly as `resolve_weapon_attack(attacker, target, weapon, "ac",
+## "none", {})` — the SAME passive-AC-only, no-active-defense path
+## run_round()/the live interactive Strike UX has always exercised. There is
+## NO hand-rolled attack-roll/Off-Guard/crit-threshold math in this use case
+## any more — resolution.gd is the single source of that logic (CR-001), and
+## this call is rolled via the SAME injected RandomNumberPort that backs
+## `_resolution` (see the _PortRNGAdapter wrapping it in _init()), never a
+## directly-held RNG instance.
 ##
-## FEAT-153 (US-015 / FR-016, resolves FIND-142/FIND-145): honors the
-## Off-Guard positional condition (core/rules/flanking.gd) the SAME way
-## core/rules/resolution.gd's legacy resolve_weapon_attack()/
-## resolve_spell_attack() path already does -- when `target`'s "conditions"
-## list carries Flanking.OFF_GUARD_CONDITION ("Off-Guard"), the effective
-## defense_value is reduced by Flanking.OFF_GUARD_BONUS (a flat 2) BEFORE the
-## hit/crit checks below, so the blanket +2 bonus reaches the live,
-## interactive Strike path this use case drives (MainScene.gd's
-## _refresh_off_guard_conditions() populates the live combatant Dictionary's
-## "conditions" key this reads -- see MainScene.gd). Targets with no
-## "conditions" key (every pre-FEAT-153 caller) see a reduction of 0 --
-## preserving the pre-existing contract exactly.
+## Off-Guard (FEAT-153 / US-015 / FR-016, resolves FIND-142/FIND-145) and the
+## crit-by-10-or-more threshold are therefore applied by resolution.gd
+## itself, identically to every other resolve_weapon_attack() caller — see
+## tests/characterization/test_strike_characterization.gd for the pinned
+## behavior this delegation is required to preserve byte-for-byte.
 ##
-## Returns {roll_total: int, hit: bool, crit: bool, damage_final: int,
-##          defense_value: int}.
+## Returns resolution.gd's full result Dictionary — this use case only reads
+## "roll_total", "hit", "crit", "damage_final", and "defense_value" out of
+## it, but every key resolve_weapon_attack() documents is present.
 func _resolve_strike(attacker: Dictionary, target: Dictionary, weapon: Dictionary) -> Dictionary:
-	var raw: int = _random_number_port.roll({"die": 20, "count": 1})
-	var attribute_mod: int = attacker.get(weapon["damage_modifier_attribute"], 0)
-	var roll_total: int = raw + attribute_mod + weapon["proficiency_bonus"]
-
-	var defense_value: int = target["ac"] - _off_guard_defense_reduction(target)
-	var hit: bool = roll_total >= defense_value
-	var crit: bool = hit and (roll_total - defense_value) >= 10
-
-	var damage_final: int = 0
-	if hit:
-		var damage_die: int = weapon["damage_die"]
-		if crit:
-			damage_final = _random_number_port.roll({"die": damage_die, "count": 2}) + attribute_mod * 2
-		else:
-			damage_final = _random_number_port.roll({"die": damage_die, "count": 1}) + attribute_mod
-
-	return {
-		"roll_total":     roll_total,
-		"hit":            hit,
-		"crit":           crit,
-		"damage_final":   damage_final,
-		"defense_value":  defense_value
-	}
-
-
-## _off_guard_defense_reduction(target) -> int — FEAT-153 (US-015 / FR-016):
-## returns Flanking.OFF_GUARD_BONUS (2) when `target`'s "conditions" list
-## carries Flanking.OFF_GUARD_CONDITION ("Off-Guard"), else 0. Mirrors
-## core/rules/resolution.gd's identically-named/behaved helper exactly (the
-## SAME domain constant/label, not a re-derived copy) so the live interactive
-## Strike path and the legacy resolution.gd path apply the bonus identically.
-func _off_guard_defense_reduction(target: Dictionary) -> int:
-	if FlankingClass.OFF_GUARD_CONDITION in target.get("conditions", []):
-		return FlankingClass.OFF_GUARD_BONUS
-	return 0
+	return _resolution.resolve_weapon_attack(attacker, target, weapon, "ac", "none", {})

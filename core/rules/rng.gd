@@ -45,3 +45,23 @@ func roll(die_size: int, count: int) -> int:
 ## Used when a raw uniform random value is needed (e.g. probability checks).
 func roll_raw() -> float:
 	return _rng.randf()
+
+
+## roll_from_spec(dice_spec) → int — FEAT-008 (US-008, CR-001): convenience
+## accepting the SAME {"die": int, "count": int} dice_spec shape
+## core/rules/random_port.gd's RandomNumberPort.roll() contract uses, so
+## this single seeded RNG source can be driven identically by either calling
+## convention — d20()/roll(die_size, count) (the shape resolution.gd's
+## injected _rng duck-types against) OR the dice_spec shape (the shape
+## RandomNumberPort adapters like SeededRandomAdapter/GodotRandomAdapter
+## expose) — WITHOUT this class ever needing two differently-shaped methods
+## both named `roll`. This is the single underlying implementation both
+## surfaces now route through (unifying RandomNumberPort and rng.gd onto
+## one seeded RNG source per CR-001 — see
+## core/application/resolve_action_use_case.gd's internal RNG-adapter,
+## which wraps an injected RandomNumberPort and delegates its own
+## d20()/roll(die_size, count) calls back out through the port).
+func roll_from_spec(dice_spec: Dictionary) -> int:
+	var die_size: int = dice_spec.get("die", 6)
+	var count: int = dice_spec.get("count", 1)
+	return roll(die_size, count)

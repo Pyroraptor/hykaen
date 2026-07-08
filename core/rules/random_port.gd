@@ -41,3 +41,19 @@ extends RefCounted
 func roll(dice_spec: Dictionary) -> int:
 	push_error("RandomNumberPort.roll() is abstract — override in a concrete adapter (GodotRandomAdapter / SeededRandomAdapter)")
 	return 0
+
+
+## d20() -> int — FEAT-008 (US-008, CR-001): convenience sugar for
+## roll({"die": 20, "count": 1}), matching core/rules/rng.gd's d20() call
+## surface. Provided on the base class (not overridden by concrete
+## adapters) so EVERY RandomNumberPort — SeededRandomAdapter,
+## GodotRandomAdapter, or a test double that only overrides roll() — is
+## automatically drivable through the SAME RNG-shaped d20()/roll(die_size,
+## count) contract core/rules/resolution.gd's injected _rng duck-types
+## against, without resolution.gd's contract ever changing. This is what
+## lets core/application/resolve_action_use_case.gd delegate live Strike
+## resolution to resolution.gd while still consuming its injected
+## RandomNumberPort as the sole source of randomness — unifying
+## RandomNumberPort and rng.gd onto one seeded RNG source (CR-001).
+func d20() -> int:
+	return roll({"die": 20, "count": 1})
