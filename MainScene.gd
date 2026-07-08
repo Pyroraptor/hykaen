@@ -1275,6 +1275,34 @@ func _on_active_actor_changed(combatant: Dictionary) -> void:
 	if verb_bar_view != null:
 		verb_bar_view.refresh_availability()
 
+	# FEAT-006 (enemy-Stride display fix): re-push EVERY combatant's action
+	# budget now that control has settled back on a player after any auto-driven
+	# Enemy turn(s). A player Stride pushes its own snapshot inline
+	# (_verb_bar_stride_execute), and any Strike updates the panel via its
+	# AttackEvent — but an Enemy Stride/WAIT (round_session.advance_ai_turn())
+	# spends a budget action while emitting no event at all, so the enemy row's
+	# Actions/Spent readout would otherwise stay stale. Reuses the SAME
+	# StatusPanelView.on_verb_action_budget_changed() the player-Stride path
+	# uses, driven off round_session.action_budget_snapshot() (the live,
+	# authoritative per-entry economies).
+	_refresh_all_action_budgets()
+
+
+## _refresh_all_action_budgets() -> void — pushes each combatant's current
+## Actions-remaining/Spent state to $StatusPanelView from
+## round_session.action_budget_snapshot(). Idempotent and safe to call whenever
+## control settles (after AI turns, on round-over) — it only READS the live
+## economies and forwards them through StatusPanelView's existing per-combatant
+## update contract; it never mutates a budget or derives one itself. A no-op
+## when no session/panel is wired.
+func _refresh_all_action_budgets() -> void:
+	if round_session == null or status_panel_view == null:
+		return
+	for row in round_session.action_budget_snapshot():
+		status_panel_view.on_verb_action_budget_changed(
+			row["combatant_id"], row["remaining"], row["spent"]
+		)
+
 
 ## _highlight_legal_moves(combatant, active_combatant_id) -> void — FEAT-006 /
 ## US-006 (FR-001, ADR-004): the turn_started handler's highlight step
@@ -1443,7 +1471,20 @@ func _on_round_over() -> void:
 func _on_end_turn_control_turn_ended(_result: Dictionary) -> void:
 	if turn_controller == null or round_session == null:
 		return
+	# FEAT-006 (round-stall fix): when end_current_turn() above ALREADY drove
+	# the round to its end — every living combatant Spent, so
+	# round_session.is_round_over() is now true — TurnController.set_session()/
+	# _drive() must NOT be the path we take (there is no enemy turn left to
+	# auto-drive), but we must STILL trigger the round-over continuation. The
+	# round_over signal only ever fires from inside _drive() (see
+	# presentation/turn_controller.gd), which this branch skips — so a bare
+	# `return` here silently swallows the round-over transition and the round
+	# stalls forever (End Turn appears to do nothing, no next round begins).
+	# Invoke _on_round_over() directly — the SAME handler TurnController.round_over
+	# is wired to — so finish()/ROUND_NUMBER++/rewire_session() run and the next
+	# round begins.
 	if round_session.is_round_over():
+		_on_round_over()
 		return
 	turn_controller.set_session(round_session, null, null, verb_bar_view)
 

@@ -231,6 +231,28 @@ func current_action_economy():
 	return _entries[_cursor]["action_economy"]
 
 
+## action_budget_snapshot() -> Array — one read-only Dictionary per combatant
+## this session holds: {combatant_id, remaining, spent}, read live off the
+## SAME per-entry ActionEconomy instances advance_ai_turn()/end_current_turn()
+## mutate (never a copy). Presentation (MainScene._refresh_all_action_budgets())
+## uses this to re-push every combatant's Actions/Spent readout to
+## StatusPanelView after a run of auto-driven Enemy turns — an Enemy Stride/WAIT
+## spends from its budget but emits no AttackEvent (unlike a Strike), so without
+## this the enemy row's count goes stale. Pure read; mutates nothing, and is
+## valid whether or not the round is over.
+func action_budget_snapshot() -> Array:
+	var snapshot: Array = []
+	for entry in _entries:
+		var combatant: Dictionary = entry["combatant"]
+		var action_economy = entry["action_economy"]
+		snapshot.append({
+			"combatant_id": combatant.get("combatant_id", combatant.get("name", "")),
+			"remaining":    action_economy.get_remaining(),
+			"spent":        action_economy.is_spent(),
+		})
+	return snapshot
+
+
 ## is_round_over() -> bool — true when every living combatant is Spent OR an
 ## EncounterResultEvent has been emitted (or, autonomous path only, the
 ## stalled-cycle backstop forced a DRAW).
