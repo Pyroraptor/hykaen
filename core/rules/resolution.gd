@@ -61,6 +61,20 @@
 ## test_parry_reaction.gd for the end-to-end, headless
 ## (AutoReactionChooser-driven) proof.
 ##
+## FEAT-206 (US-012 / FR-012, ADR-016): the SAME open_and_resolve_attack()
+## seam wires this file's post-hit Block branch below into LIVE play — the
+## THIRD player-triggerable reaction on the steel thread's pop-up surface. A
+## hit by a weapon attack vs AC, when the reactor's own weapon (forwarded by
+## the caller as defense_context["blocking_weapon"], typically via
+## trigger["attack_context"]) carries block_value > 0, reduces damage_final
+## by roll(block_die|damage_die, tier) + block_value, floored at 0, and sets
+## on_hit_suppressed=true — spent via ActionEconomy.spend_reaction(), never
+## spend_action(). No new math or reaction-spend logic was needed here: this
+## file's Block branch (FEAT-059) and reaction_window.gd's generic
+## trigger/attack_context hand-off (FEAT-009) already composed correctly;
+## see tests/unit/test_block_reaction.gd for the end-to-end, headless
+## (AutoReactionChooser-driven) proof.
+##
 ## Satisfies: US-008, US-015, ADR-001, ADR-002, FEAT-059, FEAT-015, DEF-NEW-003
 ##
 ## Usage example:
