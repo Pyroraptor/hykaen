@@ -36,6 +36,16 @@
 ## identity against a flanking pair (v0 is explicitly NOT flankers-only; see
 ## core/rules/flanking.gd's file-level doc).
 ##
+## FEAT-010 (US-010 / FR-010, ADR-016): this file's Dodge branch below is now
+## reachable from LIVE play, not just direct/isolated calls — see
+## core/application/reaction_window.gd's ReactionWindow.open_and_resolve_attack(),
+## which asks an injected ReactionChooserPort (e.g. a headless
+## AutoReactionChooser, or a future player-facing pop-up) for a decision and
+## then delegates the entire attack — including this pre-hit Mobility check
+## and its ActionEconomy.spend_reaction() spend — to
+## resolve_weapon_attack() below. No math or reaction-spend logic moved:
+## this remains the SOLE place either happens.
+##
 ## Satisfies: US-008, US-015, ADR-001, ADR-002, FEAT-059, FEAT-015, DEF-NEW-003
 ##
 ## Usage example:

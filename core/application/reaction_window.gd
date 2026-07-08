@@ -217,6 +217,110 @@ func open_and_resolve(trigger: Dictionary, chooser, resolved_by: String = "auto"
 	return result
 
 
+## open_and_resolve_attack(trigger, resolution, attacker, weapon, chooser,
+##                         resolved_by) -> Dictionary — FEAT-010 (US-010 /
+## FR-010, ADR-016): wires a reaction into a LIVE attack resolution.
+##
+## open_and_resolve()/resume() (FEAT-009) only ever produce a bare `choice`
+## String — they never touch core/rules/resolution.gd, so a chosen "dodge"
+## could not previously influence an actual Strike's hit/miss outcome. This
+## method closes that gap: it opens the window, asks the injected
+## ReactionChooserPort for a decision, then delegates the ENTIRE attack roll
+## — including the pre-hit Mobility check that substitutes for the reactor's
+## passive AC/Reflex on a successful Dodge — to the injected `resolution`
+## (a core/rules/resolution.gd Resolution instance) via
+## resolve_weapon_attack(). resolution.gd remains the SOLE place attack math
+## AND reaction-spend (ActionEconomy.spend_reaction(), NEVER
+## spend_action()) happen; this method never re-derives either — it only
+## decides WHETHER to hand resolution.gd the reactor's ActionEconomy (i.e.
+## whether a reaction may be spent at all), based on the chooser's answer.
+##
+## trigger      — same shape as open()'s trigger argument (see file-level
+##                doc). `trigger["reactor"]` doubles as resolve_weapon_attack()'s
+##                `target` argument (the reactor IS the party being attacked).
+## resolution   — a core/rules/resolution.gd Resolution instance.
+## attacker     — resolve_weapon_attack()'s `attacker` argument.
+## weapon       — resolve_weapon_attack()'s `weapon` argument (the
+##                ATTACKER's weapon — not the reactor's).
+## chooser      — a ReactionChooserPort implementation (e.g. a headless
+##                AutoReactionChooser, or a future blocking
+##                PlayerReactionChooser).
+## resolved_by  — stamped on the emitted ReactionResolvedEvent.
+##
+## Returns resolution.gd's full resolve_weapon_attack() result Dictionary
+## (hit/crit/damage_final/defender_stepped/next_check_bonus/... — see that
+## method's doc), PLUS:
+##   "reaction_choice" — the String actually applied: one of trigger's
+##                        legal_reactions, or ReactionChooserPort.PASS.
+##   "window_id"        — "" when the reactor was already Spent (window
+##                        never opened), else the opened window's id.
+##
+## When the reactor's ActionEconomy is already Spent (ALREADY_SPENT), no
+## window opens and no reaction is offered — the attack resolves exactly as
+## if the chooser had declined (active_defense "none", passive AC/Reflex),
+## matching open_and_resolve()'s existing ALREADY_SPENT contract.
+func open_and_resolve_attack(
+	trigger: Dictionary,
+	resolution,
+	attacker: Dictionary,
+	weapon: Dictionary,
+	chooser,
+	resolved_by: String = "auto"
+) -> Dictionary:
+	var reactor: Dictionary = trigger.get("reactor", {})
+	var defense_type: String = trigger.get("defense_type", "")
+	var attack_context: Dictionary = trigger.get("attack_context", {})
+	var reactor_action_economy = trigger.get("reactor_action_economy", null)
+
+	var opened: Dictionary = open(trigger)
+	var choice: String = ReactionChooserPortClass.PASS
+
+	if opened.get("opened", false):
+		var legal_reactions: Array = opened.get("legal_reactions", [])
+		var requested_choice: String = chooser.choose(legal_reactions, attack_context)
+		# Safety net matching resume()'s ERR_ILLEGAL_CHOICE guard: a
+		# misbehaving chooser answering with something not offered degrades
+		# to PASS rather than being forwarded to resolution.gd.
+		if requested_choice == ReactionChooserPortClass.PASS or legal_reactions.has(requested_choice):
+			choice = requested_choice
+
+	var defense_context: Dictionary = attack_context.duplicate()
+	if choice != ReactionChooserPortClass.PASS:
+		# Only when a real reaction was chosen do we hand resolution.gd the
+		# reactor's ActionEconomy — this is what permits resolve_weapon_attack()
+		# to call ActionEconomy.spend_reaction() internally. Declining (PASS)
+		# must never spend a reaction, so the economy is withheld entirely.
+		defense_context["action_economy"] = reactor_action_economy
+
+	var outcome: Dictionary = resolution.resolve_weapon_attack(
+		attacker, reactor, weapon, defense_type, choice, defense_context
+	)
+
+	var applied_choice: String = ReactionChooserPortClass.PASS
+	if opened.get("opened", false):
+		var active_defense_applied: String = outcome.get("active_defense_applied", "none")
+		if active_defense_applied != "none":
+			applied_choice = active_defense_applied
+
+		# Close the window (mirrors resume()'s one-shot closing behavior) —
+		# resolution.gd has already applied/spent the reaction itself, so no
+		# second spend happens here.
+		_open_window_id       = ""
+		_open_trigger         = {}
+		_open_legal_reactions = []
+
+		_event_sink_port.emit(RoundEventsClass.ReactionResolvedEvent.new(
+			trigger.get("round_number", 0),
+			opened.get("window_id", ""),
+			applied_choice,
+			resolved_by
+		))
+
+	outcome["reaction_choice"] = applied_choice
+	outcome["window_id"] = opened.get("window_id", "")
+	return outcome
+
+
 ## _compute_legal_reactions(trigger) -> Array — evaluates the
 ## trigger-type-specific eligibility predicate (test_criteria #1) via
 ## core/rules/resolution.gd's FEAT-009 static predicates, never
