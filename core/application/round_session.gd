@@ -262,6 +262,63 @@ func _resolve_reaction(trigger: Dictionary) -> Dictionary:
 	return {"choice": "none"}
 
 
+## _VALID_ACTIVE_DEFENSES — FEAT-003 (US-002 / FR-002, ADR-003): mirrors
+## core/rules/resolution.gd's Resolution.VALID_ACTIVE_DEFENSES verbatim (that
+## file remains the single source of truth for the rule; this local copy
+## exists only so _reaction_choice_to_active_defense() below can validate a
+## resolver's response WITHOUT round_session.gd depending on resolution.gd's
+## constant directly, since resolve_action_use_case.gd already re-sanitizes
+## any unrecognized value to "none" itself — this is a defense-in-depth
+## check purely so a malformed adapter response is logged (push_error) at
+## the seam it actually came from, rather than silently swallowed one layer
+## further down).
+const _VALID_ACTIVE_DEFENSES: Array = ["none", "dodge", "block", "parry", "steel"]
+
+
+## _reaction_choice_to_active_defense(reaction_result) -> String — FEAT-003:
+## validates the Dictionary returned by _resolve_reaction() (either the
+## injected resolver's own answer, or the synchronous {"choice": "none"}
+## default-safety fallback) against the ReactionResolverPort contract
+## (api_contracts #2 error_handling): a missing "choice" key, or a choice
+## naming something other than one of resolution.gd's recognized active
+## defenses, is a malformed adapter response — logged via push_error() and
+## coerced to "none" (fail-safe: this must never raise/hang the round loop
+## over a misbehaving resolver). A well-formed response's "choice" is
+## returned verbatim, ready to be threaded straight into
+## ResolveActionUseCase.resolve()'s `active_defense` parameter.
+func _reaction_choice_to_active_defense(reaction_result: Dictionary) -> String:
+	if not reaction_result.has("choice"):
+		push_error("RoundSession: reaction resolver returned a Dictionary missing 'choice'; falling back to 'none'")
+		return "none"
+
+	var choice: String = str(reaction_result.get("choice", "none"))
+	if not (choice in _VALID_ACTIVE_DEFENSES):
+		push_error("RoundSession: reaction resolver returned unrecognized choice '%s'; falling back to 'none'" % choice)
+		return "none"
+
+	return choice
+
+
+## _build_reaction_trigger(attacker, target) -> Dictionary — FEAT-003: the
+## minimal ReactionTrigger value object (this feature's data_model) built on
+## an enemy-Strikes-player Strike, immediately before awaiting
+## _resolve_reaction() below. Deliberately minimal (attacker_id/target_id/
+## defense_type/attack_context/round_number) — a richer
+## attack_context/reactor_action_economy_snapshot is the concern of a later
+## feature that wires a real core/application/reaction_window.gd window
+## through this seam (see set_reaction_resolver_fn()'s file-level doc); this
+## feature's scope is proving the AWAIT ITSELF is safe, not the full
+## eligibility/legal_reactions pipeline.
+func _build_reaction_trigger(attacker: Dictionary, target: Dictionary) -> Dictionary:
+	return {
+		"attacker_id":    attacker.get("combatant_id", attacker.get("name", "")),
+		"target_id":      target.get("combatant_id", target.get("name", "")),
+		"defense_type":   "ac",
+		"attack_context": {},
+		"round_number":   _round_number,
+	}
+
+
 # ── Interactive stepwise API (US-010/US-011) ───────────────────────────────
 
 ## current_actor() -> Dictionary — the combatant whose turn it is, or {}
@@ -361,6 +418,28 @@ func outcome() -> String:
 ## core/combat/ai.gd's one-decision-per-call contract, this guarantees
 ## advance_ai_turn() triggers at most ONE ActionEconomy.spend_action() call
 ## per AI turn — the same one-action gate the player is bound to.
+## FEAT-003 (US-002 / FR-002, ADR-003, NFR-004): advance_ai_turn() is now a
+## genuine coroutine (GDScript's `await`-driven suspension) — on the
+## "Strike" branch below it awaits _resolve_reaction() BEFORE resolving the
+## Strike, so an injected reaction resolver genuinely gets to run the
+## defender's reaction to completion (however long that takes — a blocking
+## player pop-up, a delayed test double, ...) before
+## resolve_action_use_case.resolve() ever executes. Every existing caller
+## that never injects a resolver (set_reaction_resolver_fn() never called —
+## every headless/sim caller, and every pre-existing test) still resolves
+## `await _resolve_reaction(...)` against the SAME synchronous, zero-await
+## {"choice": "none"} fallback documented on _resolve_reaction() above: in
+## GDScript, `await`ing an expression that never actually suspends (no
+## Signal wait occurs) returns its value immediately, so this coroutine
+## NEVER actually yields control back to the caller for that fallback path
+## — behavior for those callers is byte-for-byte unchanged (NFR-004).
+## GDScript nonetheless statically requires every direct call site of a
+## function containing `await` anywhere in its body to itself use `await`
+## (a parse-time rule, not a runtime one) — every caller in this codebase
+## has been updated accordingly as part of this feature's mandated
+## "audit every caller in the await chain" scope; see
+## tests/gut/test_async_reaction_propagation.gd's audit test for the
+## enumerated list.
 func advance_ai_turn() -> Dictionary:
 	if _round_over or _cursor == -1:
 		return {"ok": false}
@@ -392,6 +471,28 @@ func advance_ai_turn() -> Dictionary:
 		any_action_taken = true
 		_reposition_token_after_ai_stride(combatant, ai_decision)
 	elif action_name != "" and not target.is_empty():
+		# FEAT-003: on an enemy-Strikes-player Strike, await the injected
+		# ReactionResolverPort BEFORE resolving the Strike — proving the
+		# await itself is safe (this feature's entire scope; see this
+		# method's file-level FEAT-003 doc). The resolved `active_defense`
+		# is deliberately NOT yet threaded into
+		# resolve_action_use_case.resolve()'s active_defense/defense_context
+		# trailing parameters here — tests/gut/
+		# test_resolve_action_use_case_active_defense.gd's audit pins EVERY
+		# production resolve() call site (this one included) to its
+		# pre-existing 6-positional-argument, default-only ("none", {})
+		# shape until a LATER feature opts in; wiring the reaction's actual
+		# outcome into resolve() is that later feature's job, not this
+		# one's. This call site therefore genuinely awaits a real reaction
+		# resolution end-to-end, it just doesn't yet act on the answer.
+		if action_name == "Strike":
+			var trigger: Dictionary = _build_reaction_trigger(combatant, target)
+			var reaction_result: Dictionary = await _resolve_reaction(trigger)
+			# Validated/logged now so a malformed adapter response is caught
+			# at the seam it came from (see _reaction_choice_to_active_defense()'s
+			# doc) even though its result isn't consumed by resolve() yet.
+			_reaction_choice_to_active_defense(reaction_result)
+
 		var resolve_result: Dictionary = _resolve_action_use_case.resolve(
 			combatant, action_economy, target, action_name, _round_number, _cycle_index
 		)

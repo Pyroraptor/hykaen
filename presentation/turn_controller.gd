@@ -189,6 +189,17 @@ func resolve_reaction(trigger: Dictionary, resolved_by: String = "player") -> Di
 ## penalized across rounds by a single shared counter, and this guard
 ## tripping is still always a bug signal (a genuinely stalled single round),
 ## never a designed code path, exactly as the file-level doc above states.
+## FEAT-003 (US-002 / FR-002, ADR-003): now a coroutine — see _drive()'s own
+## FEAT-003 doc below. `await`ing here (rather than a fire-and-forget call)
+## preserves this method's pre-existing contract that the injected
+## end_turn_control/verb_bar_view are fully refreshed for the round's
+## settled actor by the time set_session() returns to its caller. For every
+## caller that never injects a reaction resolver on the held RoundSession
+## (every pre-existing caller/test double, and MainScene.gd as of this
+## feature), _drive()'s await never actually suspends (see
+## RoundSession.advance_ai_turn()'s own doc), so set_session() still
+## completes synchronously within the same call, byte-for-byte identical to
+## before this feature (NFR-004).
 func set_session(round_session, end_turn_control = null, strike_action_control = null, verb_bar_view = null) -> void:
 	_round_session = round_session
 	if end_turn_control != null:
@@ -197,7 +208,7 @@ func set_session(round_session, end_turn_control = null, strike_action_control =
 		_strike_action_control = strike_action_control
 	if verb_bar_view != null:
 		_verb_bar_view = verb_bar_view
-	_drive()
+	await _drive()
 
 
 ## on_end_turn_pressed() -> Dictionary — forwards to the held RoundSession's
@@ -209,7 +220,11 @@ func on_end_turn_pressed() -> Dictionary:
 		return {"ok": false}
 
 	var result: Dictionary = _round_session.end_current_turn()
-	_drive()
+	# FEAT-003: _drive() is now a coroutine (see its doc below) — awaited
+	# here so this method's returned `result` is only handed back once any
+	# following auto-driven Enemy turn(s) (and any reaction they await) have
+	# fully settled, matching set_session()'s identical await discipline.
+	await _drive()
 	return result
 
 
@@ -228,6 +243,21 @@ func on_end_turn_pressed() -> Dictionary:
 ## live targets is the composition root's job (unchanged by this feature),
 ## exactly as StrikeActionControl.configure() has always been invoked
 ## per-turn rather than owned by this node.
+## FEAT-003 (US-002 / FR-002, ADR-003, NFR-004): _drive()'s auto-drive loop
+## below now `await`s RoundSession.advance_ai_turn() on every iteration
+## (that method is itself a coroutine as of this feature — see its own
+## doc). This is deliberately the single point in this loop that ever
+## awaits: the loop reads `_round_session.current_actor()`/
+## `is_round_over()` again only AFTER advance_ai_turn() has fully resolved
+## (including any reaction it awaited), so a slow/suspending resolver can
+## never cause this loop to double-advance the turn cursor or race ahead of
+## a still-in-flight reaction — the very next loop condition check only
+## observes RoundSession state exactly as advance_ai_turn() left it once its
+## own await chain (if any) completed. For every existing caller (no
+## resolver injected on the held RoundSession), advance_ai_turn()'s own
+## await never actually suspends, so this loop's timing is byte-for-byte
+## identical to the pre-FEAT-003 synchronous version (NFR-004) — see
+## tests/gut/test_async_reaction_propagation.gd.
 func _drive() -> void:
 	if _round_session == null:
 		return
@@ -249,7 +279,7 @@ func _drive() -> void:
 		var actor: Dictionary = _round_session.current_actor()
 		if actor.is_empty() or not actor.get("_is_enemy", false):
 			break
-		_round_session.advance_ai_turn()
+		await _round_session.advance_ai_turn()
 		guard += 1
 
 	if _end_turn_control != null:

@@ -793,6 +793,15 @@ func _ready() -> void:
 ## doc), never a snapshot captured at registry-build time, so simply
 ## reassigning `round_session` below is sufficient for every one of them to
 ## observe the new round immediately.
+## FEAT-003 (US-002 / FR-002, ADR-003): now a coroutine — TurnController.
+## set_session() below is itself a coroutine as of this feature (it awaits
+## TurnController._drive(), which awaits RoundSession.advance_ai_turn()).
+## `await`ing it here preserves this method's pre-existing contract that
+## `outcome`/every UI control it wires is fully settled for the new round by
+## the time rewire_session() returns — this composition root never injects
+## a reaction resolver on `round_session` (that wiring is a later feature's
+## scope), so that await never actually suspends and this method's
+## observable behavior/timing is byte-for-byte unchanged (NFR-004).
 func rewire_session() -> void:
 	round_session = run_round_use_case.begin_round(ROUND_NUMBER, _party, _enemies)
 
@@ -810,7 +819,9 @@ func rewire_session() -> void:
 	if turn_controller != null:
 		# FEAT-006: strike_action_control no longer exists; set_session()'s
 		# third argument is optional (default null) and simply omitted.
-		turn_controller.set_session(round_session, end_turn_control, null, verb_bar_view)
+		# FEAT-003: set_session() is now a coroutine — awaited (see this
+		# method's own FEAT-003 doc above).
+		await turn_controller.set_session(round_session, end_turn_control, null, verb_bar_view)
 
 	outcome = round_session.outcome()
 
@@ -1429,6 +1440,15 @@ func _union_hexes(step_hexes: Array, stride_hexes: Array) -> Array:
 ## EncounterResultEvent resolve_action_use_case/RoundSession emitted the
 ## instant the decision was made (see round_session.gd's
 ## _after_action_resolved()), so no further round is ever started here.
+## FEAT-003 (US-002 / FR-002, ADR-003): now a coroutine — rewire_session()
+## below is itself a coroutine as of this feature; `await`ing it here keeps
+## this handler's existing contract that the next round is fully wired
+## before it returns. Safe to connect as a Signal handler
+## (turn_controller.round_over.connect(_on_round_over), _ready() above)
+## exactly as before — Godot never requires (or permits) a signal `emit()`
+## call to `await` its own connected handlers, so TurnController.round_over
+## firing from inside a suspended _drive() is unaffected by this handler
+## also being a coroutine.
 func _on_round_over() -> void:
 	if round_session == null:
 		return
@@ -1445,7 +1465,9 @@ func _on_round_over() -> void:
 
 	if outcome == "":
 		ROUND_NUMBER += 1
-		rewire_session()
+		# FEAT-003: rewire_session() is now a coroutine — awaited (see this
+		# method's own FEAT-003 doc above).
+		await rewire_session()
 
 
 ## _on_end_turn_control_turn_ended(_result) -> void — $EndTurnControl's own
@@ -1468,6 +1490,12 @@ func _on_round_over() -> void:
 ## auto-drive settles back on the player (or the round ends), so Strike/
 ## Stride never render a stale (pre-AI-turn) grey/enabled state for even one
 ## frame once control returns to the player.
+## FEAT-003 (US-002 / FR-002, ADR-003): now a coroutine — both
+## TurnController.set_session() and _on_round_over() below are themselves
+## coroutines as of this feature; `await`ing them here keeps this handler's
+## existing contract (see file-level doc above). Safe to connect as a Signal
+## handler (end_turn_control.turn_ended.connect(...), _ready() above)
+## exactly as before, for the same reason documented on _on_round_over().
 func _on_end_turn_control_turn_ended(_result: Dictionary) -> void:
 	if turn_controller == null or round_session == null:
 		return
@@ -1484,9 +1512,9 @@ func _on_end_turn_control_turn_ended(_result: Dictionary) -> void:
 	# is wired to — so finish()/ROUND_NUMBER++/rewire_session() run and the next
 	# round begins.
 	if round_session.is_round_over():
-		_on_round_over()
+		await _on_round_over()
 		return
-	turn_controller.set_session(round_session, null, null, verb_bar_view)
+	await turn_controller.set_session(round_session, null, null, verb_bar_view)
 
 
 ## _after_successful_move() -> void — FEAT-007 (this iteration's US-007/
