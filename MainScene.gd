@@ -798,10 +798,15 @@ func _ready() -> void:
 ## TurnController._drive(), which awaits RoundSession.advance_ai_turn()).
 ## `await`ing it here preserves this method's pre-existing contract that
 ## `outcome`/every UI control it wires is fully settled for the new round by
-## the time rewire_session() returns — this composition root never injects
-## a reaction resolver on `round_session` (that wiring is a later feature's
-## scope), so that await never actually suspends and this method's
-## observable behavior/timing is byte-for-byte unchanged (NFR-004).
+## the time rewire_session() returns.
+## FEAT-006 (US-005/FR-005, ADR-002): this composition root now DOES inject
+## a reaction resolver on `round_session` (set_reaction_resolver_fn(), below
+## — see its own doc) before awaiting TurnController.set_session(), so an
+## enemy Strike auto-driven during that very call can already await a real,
+## player-facing reaction window. For headless/sim callers that never boot
+## this composition root at all (RunRoundUseCase/RoundSession used directly,
+## e.g. the balance sim), nothing here ever runs, so that path's await still
+## never actually suspends and remains byte-for-byte unchanged (NFR-004).
 func rewire_session() -> void:
 	round_session = run_round_use_case.begin_round(ROUND_NUMBER, _party, _enemies)
 
@@ -815,6 +820,23 @@ func rewire_session() -> void:
 	# composition root injects here. ────────────────────────────────────────
 	if round_session != null and hex_grid_view != null:
 		round_session.set_token_reposition_fn(Callable(hex_grid_view, "move_token"))
+
+	# ── FEAT-006 (US-005/FR-005, ADR-002): wire RoundSession's enemy-strikes-
+	# player reaction window to the SAME TurnController.resolve_reaction()
+	# every player-facing reaction resolves through (turn_controller.gd,
+	# FEAT-207/configure_reactions(), unchanged by this feature) -- the
+	# IDENTICAL Dependency-Inversion pattern immediately above for
+	# set_token_reposition_fn(): RoundSession itself never imports/references
+	# TurnController by type (ADR-002; see
+	# tests/gut/test_round_session_reaction_resolver_injection.gd's static
+	# source-inspection criterion), it only invokes whichever Callable this
+	# composition root injects here. Re-applied on every rewire_session()
+	# call -- both _ready()'s initial call and every _on_round_over() round
+	# continuation -- so a freshly begin_round()'d RoundSession is never left
+	# without a resolver for even one frame, mirroring the token-reposition
+	# re-wiring immediately above. ──────────────────────────────────────────
+	if round_session != null and turn_controller != null:
+		round_session.set_reaction_resolver_fn(Callable(turn_controller, "resolve_reaction"))
 
 	if turn_controller != null:
 		# FEAT-006: strike_action_control no longer exists; set_session()'s

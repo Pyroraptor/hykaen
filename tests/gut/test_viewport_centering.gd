@@ -143,6 +143,17 @@ func test_mainscene_boot_renders_every_token_within_viewport_bounds() -> void:
 	if instance == null:
 		return
 
+	# FEAT-006 (US-005/FR-005, ADR-002): pin the prologue fixture's own
+	# established "Titus (player) acts first" seed before add_child()
+	# triggers _ready() -- otherwise an unpinned random initiative draw
+	# could seat the Skeleton first, and MainScene.gd's rewire_session()
+	# now wires RoundSession's enemy-strikes-player reaction window to the
+	# REAL, blocking TurnController.resolve_reaction() -> PlayerReactionChooser
+	# chain (no auto-timeout by design), which would suspend this boot
+	# indefinitely with no player present to answer it. This test only
+	# checks token render positions, not turn advancement, so pinning the
+	# seed changes nothing it asserts.
+	instance.seed_override = 42
 	add_child_autofree(instance)
 	await get_tree().process_frame
 
@@ -199,6 +210,11 @@ func test_mainscene_boot_configures_a_non_zero_origin_offset_on_hex_grid_view() 
 		return
 
 	var instance = packed.instantiate()
+	# FEAT-006 (US-005/FR-005, ADR-002): see the FEAT-006 doc on
+	# test_mainscene_boot_renders_every_token_within_viewport_bounds()
+	# above -- pinning this seed avoids a possible enemy-led-initiative
+	# boot-time hang on the real, blocking reaction-resolver chain.
+	instance.seed_override = 42
 	add_child_autofree(instance)
 	await get_tree().process_frame
 

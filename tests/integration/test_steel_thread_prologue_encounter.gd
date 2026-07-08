@@ -74,6 +74,7 @@ const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 
 const RoundEventsClass    = preload("res://core/rules/round_events.gd")
 const TurnControllerClass = preload("res://presentation/turn_controller.gd")
+const AutoReactionChooserClass = preload("res://infrastructure/auto_reaction_chooser.gd")
 
 ## _MAX_DRIVE_ITERATIONS -- an upper bound on how many player-turn/End-Turn
 ## cycles test_encounter_concludes_with_result_screen_matching_determine_outcome_use_case()
@@ -94,11 +95,28 @@ const _MAX_DRIVE_ITERATIONS: int = 20
 # test_main_scene_interactive_wiring.gd, this file's Part (B) precedent).
 # ══════════════════════════════════════════════════════════════════════════
 
+## FEAT-006 (US-005/FR-005, ADR-002): MainScene now wires RoundSession's
+## enemy-strikes-player reaction window to the REAL, blocking
+## TurnController.resolve_reaction() -> PlayerReactionChooser ->
+## $ReactionPromptUI chain, which has "no auto-timeout" by design and
+## suspends until an actual player clicks an option. This helper boots with
+## no seed pinned, so an enemy-led initiative draw is possible; the injected
+## ReactionChooserPort is swapped for infrastructure/auto_reaction_chooser.gd's
+## AutoReactionChooser("pass") immediately after boot -- the SAME headless
+## double every other reaction-system suite already uses -- via
+## TurnController.configure_reactions()'s own documented "safe to call any
+## number of times" contract, so this suite's automated AI-turn drive never
+## suspends on a real, un-clickable pop-up. Reproduces the exact
+## pre-FEAT-006 "none"/PASS default this suite's assertions were written
+## against; the REAL PlayerReactionChooser is still what MainScene.gd wires
+## for an actual player session.
 func _boot_main_scene():
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	add_child_autofree(instance)
+	if instance.turn_controller != null and instance.reaction_window != null:
+		instance.turn_controller.configure_reactions(instance.reaction_window, AutoReactionChooserClass.new("pass"))
 	return instance
 
 
@@ -117,12 +135,17 @@ func _boot_main_scene():
 ## environment. infrastructure/seed_policy.gd's own precedence/fail-open
 ## unit coverage lives in tests/gut/test_seed_policy.gd (FEAT-003); this
 ## file only asserts the resulting composition-root behavior end-to-end.
+## See _boot_main_scene()'s FEAT-006 doc immediately above -- the same
+## headless AutoReactionChooser swap applies here regardless of the pinned
+## seed, since a fixed seed can still place the enemy first in initiative.
 func _boot_main_scene_with_seed(seed_value: int):
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = seed_value
 	add_child_autofree(instance)
+	if instance.turn_controller != null and instance.reaction_window != null:
+		instance.turn_controller.configure_reactions(instance.reaction_window, AutoReactionChooserClass.new("pass"))
 	return instance
 
 

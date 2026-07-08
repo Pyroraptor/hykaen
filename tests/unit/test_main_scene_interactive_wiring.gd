@@ -44,6 +44,7 @@ const RoundSessionClass    = preload("res://core/application/round_session.gd")
 const RunRoundUseCaseClass = preload("res://core/application/run_round_use_case.gd")
 const RoundEventsClass     = preload("res://core/rules/round_events.gd")
 const HexCoordClass        = preload("res://core/geometry/hex_coord.gd")
+const AutoReactionChooserClass = preload("res://infrastructure/auto_reaction_chooser.gd")
 
 
 ## FEAT-002 / US-002: this whole file's scenarios assume the prologue
@@ -55,12 +56,29 @@ const HexCoordClass        = preload("res://core/geometry/hex_coord.gd")
 ## the Skeleton first), so every boot in this file pins that known-good seed
 ## explicitly via the in-process `seed_override` composition-root contract
 ## instead of relying on MainScene's randomized default.
+## FEAT-006 (US-005/FR-005, ADR-002): MainScene now wires RoundSession's
+## enemy-strikes-player reaction window to the REAL, blocking
+## TurnController.resolve_reaction() -> PlayerReactionChooser ->
+## $ReactionPromptUI chain, which has "no auto-timeout" by design and
+## suspends until an actual player clicks an option. This suite's End-Turn
+## criteria drive Skeleton's real AI-controlled Strike against Titus
+## headlessly with no player present, so the injected ReactionChooserPort is
+## swapped for infrastructure/auto_reaction_chooser.gd's
+## AutoReactionChooser("pass") immediately after boot -- the SAME headless
+## double every other reaction-system suite already uses -- via
+## TurnController.configure_reactions()'s own documented "safe to call any
+## number of times" contract. Reproduces the exact pre-FEAT-006 "none"/PASS
+## default this suite's assertions were written against; the REAL
+## PlayerReactionChooser is still what MainScene.gd wires for an actual
+## player session.
 func _boot_main_scene():
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = 42
 	add_child_autofree(instance)
+	if instance.turn_controller != null and instance.reaction_window != null:
+		instance.turn_controller.configure_reactions(instance.reaction_window, AutoReactionChooserClass.new("pass"))
 	return instance
 
 

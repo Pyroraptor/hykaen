@@ -202,12 +202,27 @@ func _golem() -> Dictionary:
 	}
 
 
+## FEAT-006 (US-005/FR-005, ADR-002): MainScene now wires RoundSession's
+## enemy-strikes-player reaction window to the REAL, blocking
+## TurnController.resolve_reaction() -> PlayerReactionChooser ->
+## $ReactionPromptUI chain, which has "no auto-timeout" by design and
+## suspends until an actual player clicks an option. This suite drives many
+## AI Strikes headlessly with no player present, so it swaps the injected
+## ReactionChooserPort for the SAME headless AutoReactionChooserRef("pass")
+## double this file already preloads (mirrors tests/integration/
+## test_multi_round_loop.gd's identical fix) via TurnController.
+## configure_reactions()'s own documented "safe to call any number of times"
+## contract -- reproducing the exact pre-FEAT-006 "none"/PASS default this
+## suite's assertions were written against; the REAL PlayerReactionChooser
+## is still what MainScene.gd wires for an actual player session.
 func _boot_main_scene():
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn (the real project.godot run/main_scene target) must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = 1
 	add_child_autofree(instance)
+	if instance.turn_controller != null and instance.reaction_window != null:
+		instance.turn_controller.configure_reactions(instance.reaction_window, AutoReactionChooserRef.new("pass"))
 	return instance
 
 
@@ -430,9 +445,21 @@ func test_criterion4_and_5_live_attack_reaction_pop_up_alters_outcome_via_parry(
 		"round_number": instance.ROUND_NUMBER,
 	}
 
-	# Step 1: the player's own on-screen pop-up must present EXACTLY the
-	# eligible Parry reaction (plus Pass), and remain closed until this
-	# happens.
+	# Criterion 4/5 exercises the REAL, human-facing player pop-up. But
+	# _boot_main_scene() above deliberately re-wired the headless
+	# AutoReactionChooser("pass") into TurnController (so criteria 1-3/6 resolve
+	# their incidental reaction windows to Pass with no UI). Restore MainScene's
+	# OWN real PlayerReactionChooser here so resolve_reaction() genuinely drives
+	# the on-screen pop-up for this criterion, rather than auto-Passing to "none".
+	# configure_reactions() is documented safe to call any number of times.
+	instance.turn_controller.configure_reactions(instance.reaction_window, instance.player_reaction_chooser)
+
+	# Step 1: the player's own on-screen pop-up must present EXACTLY the eligible
+	# Parry reaction (plus Pass). press_parry fires (deferred) once
+	# resolve_reaction()/choose() below has opened the blocking prompt and this
+	# coroutine has suspended awaiting it -- the SAME pattern
+	# tests/integration/test_reaction_prompt_ui.gd's own live player-pop-up E2E
+	# uses (press.call_deferred() then await the chooser).
 	var press_parry := func():
 		assert_true(instance.reaction_prompt_ui.is_open(), "the real, on-screen ReactionPromptUI must be OPEN (blocking) when the player responds")
 		assert_true(instance.reaction_prompt_ui.visible, "the pop-up must be VISIBLE on screen while the player's choice is pending")

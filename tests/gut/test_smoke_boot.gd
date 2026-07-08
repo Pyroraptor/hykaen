@@ -129,6 +129,15 @@ func test_main_scene_boots_headlessly_with_no_manual_setup() -> void:
 	if instance == null:
 		return
 
+	# FEAT-006 (US-005/FR-005, ADR-002): pin the prologue fixture's own
+	# established "Titus (player) acts first" seed before add_child()
+	# triggers _ready() -- an unpinned random initiative draw could seat
+	# the Skeleton first, and MainScene.gd's rewire_session() now wires
+	# RoundSession's enemy-strikes-player reaction window to the REAL,
+	# blocking TurnController.resolve_reaction() -> PlayerReactionChooser
+	# chain (no auto-timeout by design), which would suspend this smoke
+	# test's boot indefinitely with no player present to answer it.
+	instance.seed_override = 42
 	add_child_autofree(instance)
 	await get_tree().process_frame
 
@@ -162,6 +171,9 @@ func test_main_scene_loads_prologue_encounter_party_and_enemies_with_no_manual_s
 		return
 
 	var instance = packed.instantiate()
+	# FEAT-006 (US-005/FR-005, ADR-002): see the FEAT-006 doc on
+	# test_main_scene_boots_headlessly_with_no_manual_setup() above.
+	instance.seed_override = 42
 	add_child_autofree(instance)
 	await get_tree().process_frame
 

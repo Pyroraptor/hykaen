@@ -49,6 +49,7 @@ const HexCoordClass                = preload("res://core/geometry/hex_coord.gd")
 const RoundEventsClass             = preload("res://core/rules/round_events.gd")
 
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
+const AutoReactionChooserClass = preload("res://infrastructure/auto_reaction_chooser.gd")
 
 
 # ── Fake/double port implementations (mirrors tests/integration/test_ai_token_reposition.gd) ──
@@ -158,12 +159,31 @@ func _golem() -> Dictionary:
 	}
 
 
+## FEAT-006 (US-005/FR-005, ADR-002): MainScene now wires RoundSession's
+## enemy-strikes-player reaction window to the REAL, blocking
+## TurnController.resolve_reaction() -> PlayerReactionChooser ->
+## $ReactionPromptUI chain (MainScene.gd's rewire_session()), which has "no
+## auto-timeout" by design (scenes/ui/reaction_prompt_ui.gd) and suspends
+## until an actual player clicks an option. This suite drives Golem's AI
+## Strikes against Hero headlessly with no player present, so it swaps the
+## injected ReactionChooserPort for infrastructure/auto_reaction_chooser.gd's
+## AutoReactionChooser("pass") immediately after boot -- the SAME headless
+## double every other reaction-system suite already uses -- via
+## TurnController.configure_reactions()'s own documented "safe to call any
+## number of times" contract. This reproduces the exact pre-FEAT-006
+## "none"/PASS default this suite's assertions were written against, never a
+## new production behavior; the REAL PlayerReactionChooser is still what
+## MainScene.gd wires for an actual player session. `_wire_synthetic_fixture()`
+## below re-invokes rewire_session() for its own synthetic rig, but never
+## touches turn_controller._reaction_chooser, so this swap stays in effect.
 func _boot_main_scene():
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = 1
 	add_child_autofree(instance)
+	if instance.turn_controller != null and instance.reaction_window != null:
+		instance.turn_controller.configure_reactions(instance.reaction_window, AutoReactionChooserClass.new("pass"))
 	return instance
 
 

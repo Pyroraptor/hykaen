@@ -69,6 +69,7 @@ environment with pytest installed, even without Godot available.
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -165,7 +166,28 @@ def bare_headless_boot(godot_bin, repo_root) -> subprocess.CompletedProcess:
     composition-root logic run (the SAME code path a real, non-test launch
     executes) before the engine exits on its own -- no test-local scene, no
     stubbed autoload, no mock.
+
+    FEAT-006 (US-005/FR-005, ADR-002): MainScene.gd now wires RoundSession's
+    enemy-strikes-player reaction window to the REAL, blocking
+    TurnController.resolve_reaction() -> PlayerReactionChooser ->
+    $ReactionPromptUI chain (see MainScene.gd's rewire_session() doc), which
+    has "no auto-timeout" by design (scenes/ui/reaction_prompt_ui.gd) --
+    genuinely correct behavior for an actual player launch, but this bare
+    boot has no seed pinned (infrastructure/seed_policy.gd's documented
+    random fallback), so an unlucky initiative draw could seat the Skeleton
+    first and have it auto-Strike Titus before this fixture's N frames
+    elapse, suspending a coroutine forever and leaking a RefCounted past
+    `--quit-after`'s forced exit (observed as Godot's own "resources still
+    in use at exit" ERROR line -- exactly what this suite exists to catch).
+    HYKAEN_SEED is pinned here to 42 -- the prologue fixture's own
+    established "Titus acts first" seed (the SAME value every other
+    seed-pinning fixture in this codebase uses, e.g. tests/unit/
+    test_main_scene_interactive_wiring.gd) -- via infrastructure/
+    seed_policy.gd's documented env-var precedence (ADR-004), so this real,
+    unmodified subprocess boot is deterministic rather than randomly seeded.
     """
+    env = dict(os.environ)
+    env["HYKAEN_SEED"] = "42"
     return subprocess.run(
         [
             godot_bin,
@@ -179,6 +201,7 @@ def bare_headless_boot(godot_bin, repo_root) -> subprocess.CompletedProcess:
         capture_output=True,
         text=True,
         timeout=_SUBPROCESS_TIMEOUT_SECONDS,
+        env=env,
     )
 
 

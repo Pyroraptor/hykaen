@@ -39,6 +39,7 @@ const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 
 const SelectionOverlayClass = preload("res://presentation/selection_overlay.gd")
 const RoundEventsClass      = preload("res://core/rules/round_events.gd")
+const AutoReactionChooserClass = preload("res://infrastructure/auto_reaction_chooser.gd")
 
 const END_TURN: String = "END_TURN"
 
@@ -47,12 +48,32 @@ const END_TURN: String = "END_TURN"
 ## res://MainScene.tscn composition root, pinned to seed=42 (the prologue
 ## fixture's known-good seed, matching this codebase's established
 ## convention -- tests/gut/test_strike_layer2_integration.gd).
+##
+## FEAT-006 (US-005/FR-005, ADR-002): MainScene now wires RoundSession's
+## enemy-strikes-player reaction window to the REAL, blocking
+## TurnController.resolve_reaction() -> PlayerReactionChooser ->
+## $ReactionPromptUI chain (see MainScene.gd's rewire_session() doc) --
+## which, by design, has "no auto-timeout" (scenes/ui/reaction_prompt_ui.gd)
+## and suspends until an actual player clicks an option. This suite drives
+## End Turn headlessly with no player present, so it swaps the injected
+## ReactionChooserPort for infrastructure/auto_reaction_chooser.gd's
+## AutoReactionChooser("pass") immediately after boot -- the SAME headless
+## double every other reaction-system suite already uses (e.g.
+## tests/unit/test_dodge_reaction.gd) -- via TurnController.configure_reactions()'s
+## own documented "safe to call any number of times" contract. This
+## reproduces the exact pre-FEAT-006 "none"/PASS default this suite's
+## assertions were written against (see core/application/round_session.gd's
+## _resolve_reaction() doc), never a new production behavior; the REAL
+## PlayerReactionChooser is still what MainScene.gd wires for an actual
+## player session.
 func _boot_main_scene_with_seed(seed_value: int):
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = seed_value
 	add_child_autofree(instance)
+	if instance.turn_controller != null and instance.reaction_window != null:
+		instance.turn_controller.configure_reactions(instance.reaction_window, AutoReactionChooserClass.new("pass"))
 	return instance
 
 

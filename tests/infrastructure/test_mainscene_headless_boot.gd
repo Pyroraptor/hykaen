@@ -46,6 +46,15 @@ func test_mainscene_boots_headlessly_with_zero_errors_after_battlefield_removal(
 	if instance == null:
 		return
 
+	# FEAT-006 (US-005/FR-005, ADR-002): pin the prologue fixture's own
+	# established "Titus (player) acts first" seed before add_child()
+	# triggers _ready() -- an unpinned random initiative draw could seat
+	# the Skeleton first, and MainScene.gd's rewire_session() now wires
+	# RoundSession's enemy-strikes-player reaction window to the REAL,
+	# blocking TurnController.resolve_reaction() -> PlayerReactionChooser
+	# chain (no auto-timeout by design), which would suspend this boot
+	# indefinitely with no player present to answer it.
+	instance.seed_override = 42
 	add_child_autofree(instance)
 	await get_tree().process_frame
 
@@ -83,6 +92,9 @@ func test_mainscene_tree_contains_no_node_from_the_removed_battlefield_package()
 		return
 
 	var instance = packed.instantiate()
+	# FEAT-006 (US-005/FR-005, ADR-002): see the FEAT-006 doc on
+	# test_mainscene_boots_headlessly_with_zero_errors_after_battlefield_removal() above.
+	instance.seed_override = 42
 	add_child_autofree(instance)
 	await get_tree().process_frame
 
@@ -110,6 +122,9 @@ func test_mainscene_tree_has_no_signal_connections_targeting_removed_battlefield
 		return
 
 	var instance = packed.instantiate()
+	# FEAT-006 (US-005/FR-005, ADR-002): see the FEAT-006 doc on
+	# test_mainscene_boots_headlessly_with_zero_errors_after_battlefield_removal() above.
+	instance.seed_override = 42
 	add_child_autofree(instance)
 	await get_tree().process_frame
 
