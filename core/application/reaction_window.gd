@@ -547,3 +547,67 @@ func _compute_legal_reactions(trigger: Dictionary) -> Array:
 			return legal
 		_:
 			return []
+
+
+## is_on_hit_mitigation_eligible(reaction_already_spent, attack_hit) -> bool —
+## FEAT-003 (US-003 / FR-002): the shared eligibility gate a future
+## "OnHitMitigation" window (Parry/Block, opened AFTER resolve_to_hit()'s hit
+## result is known — the on-hit sibling of open_and_resolve_prehit_avoidance()'s
+## two-phase pattern above) must consult before ever opening. Pure,
+## side-effect-free, statically callable (mirrors core/rules/resolution.gd's
+## is_dodge_eligible() family, and this class's own
+## _compute_legal_reactions() predicates) so no caller re-derives this rule a
+## second, drifting way.
+##
+## The <=1-reaction-per-Strike budget invariant (US-003) means an on-hit
+## window may NEVER be offered once a pre-hit reaction (Dodge/Steel) already
+## spent this Strike's one reaction — `reaction_already_spent` is
+## deliberately checked FIRST, independent of `attack_hit`, so a caller gets
+## `false` "regardless of hit result" once a reaction was already spent
+## (test_criteria #3). This mirrors round_session.gd's existing
+## `not prehit_on_hit_suppressed` short-circuit guarding its current
+## "WeaponAttack" composite window (see that call site's own doc) — this
+## function gives that same rule a real name/seam a caller can invoke
+## directly and a test can exercise in isolation, without needing to drive a
+## full Strike through resolve_to_hit() first.
+static func is_on_hit_mitigation_eligible(reaction_already_spent: bool, attack_hit: bool) -> bool:
+	if reaction_already_spent:
+		return false
+	return attack_hit
+
+
+## assert_reaction_budget_delta(delta, context_label) -> bool — FEAT-003
+## (US-003 / FR-002): the shared budget-delta GATE a caller invokes once a
+## Strike's reaction-eligible defender ActionEconomy budget delta is known —
+## a before-snapshot minus an after-snapshot spanning every reaction window
+## opened for that ONE Strike (see core/application/round_session.gd's
+## advance_ai_turn(), this project's shared reaction resolution path, per
+## this feature's design notes). `delta` must never exceed 1 — the
+## <=1-reaction-per-Strike invariant this feature exists to defend (US-003),
+## covering Dodge/Steel (pre-hit) today and Parry/Block (on-hit, a future
+## wiring) alike, since both ultimately draw from the SAME
+## ActionEconomy.spend_reaction() gate (core/rules/resolution.gd's
+## _try_spend_reaction(), the single shared spend site every active-defense
+## branch already routes through).
+##
+## A delta of 0 or 1 is a no-op returning true. A delta > 1 is a genuine
+## contract violation: a real GDScript assert() fires — failing loudly in a
+## dev/test build (Godot only compiles assert() calls into debug builds,
+## exactly the "assert-fail in dev, silently skip in release" contract this
+## feature's design calls for) — AND push_error() is logged as
+## defense-in-depth, since this project's Godot 4.3 engine cannot capture
+## push_error() from GUT (see core/rules/resolution.gd's
+## apply_on_hit_defense() doc for this same documented limitation). Returns
+## false so a caller can additionally record the violation somewhere GUT CAN
+## observe directly (e.g. RoundSession.get_reaction_budget_violations()).
+static func assert_reaction_budget_delta(delta: int, context_label: String = "") -> bool:
+	if delta <= 1:
+		return true
+
+	var message: String = (
+		"ReactionWindow: budget-delta invariant violated%s -- expected <=1 reaction spent per Strike, observed delta=%d"
+		% [(" (%s)" % context_label) if context_label != "" else "", delta]
+	)
+	assert(false, message)
+	push_error(message)
+	return false

@@ -53,6 +53,15 @@ extends RefCounted
 
 const RoundEventsClass = preload("res://core/rules/round_events.gd")
 const ActionsClass = preload("res://core/rules/actions.gd")
+## ReactionWindowClass — FEAT-003 (US-003 / FR-002): preloaded ONLY for its
+## static, side-effect-free helpers (is_on_hit_mitigation_eligible(),
+## assert_reaction_budget_delta()) — RoundSession never instantiates a
+## ReactionWindow itself (a resolver Callable, injected via
+## set_reaction_resolver_fn()/set_prehit_avoidance_resolver_fn(), remains the
+## sole seam to a real one — see those setters' own docs). Both files already
+## live in the SAME application layer (ADR-002), so this is not a layering
+## violation.
+const ReactionWindowClass = preload("res://core/application/reaction_window.gd")
 
 var _entries: Array
 var _party: Array
@@ -340,6 +349,27 @@ func set_debug_trace_enabled(enabled: bool) -> void:
 ## emitted so far (see `_debug_trace_log` above).
 func get_debug_trace_log() -> Array:
 	return _debug_trace_log.duplicate()
+
+
+## _reaction_budget_violations — FEAT-003 (US-003 / FR-002): every
+## budget-delta violation ReactionWindowClass.assert_reaction_budget_delta()
+## has flagged for a Strike this session resolved via advance_ai_turn()
+## (mirrors `_debug_trace_log`'s established observability convention
+## immediately above). Recorded here purely so a test can observe that the
+## gate actually fired: this project's Godot 4.3 engine cannot capture
+## GDScript's assert()/push_error() output from GUT (see
+## core/rules/resolution.gd's apply_on_hit_defense() doc for this same
+## documented limitation). ALWAYS empty for a Strike that respects the
+## <=1-reaction-per-Strike invariant — i.e. always empty for every
+## pre-existing caller/test (NFR-004).
+var _reaction_budget_violations: Array = []
+
+
+## get_reaction_budget_violations() -> Array — a read-only copy of every
+## budget-delta violation recorded so far (see `_reaction_budget_violations`
+## above).
+func get_reaction_budget_violations() -> Array:
+	return _reaction_budget_violations.duplicate()
 
 
 ## _trace(message) -> void — FEAT-007: appends "DEBUG: <message>" to
@@ -763,8 +793,34 @@ func advance_ai_turn() -> Dictionary:
 		# outcome" test_criterion.
 		var active_defense: String = "none"
 		var defense_context: Dictionary = {}
+		# FEAT-003 (US-003 / FR-002): declared here (rather than inside the
+		# nested "Strike" branch below) so the budget-delta gate after
+		# resolve_action_use_case.resolve() below -- which needs
+		# `target_action_economy` -- can see the SAME variable the Strike
+		# branch populates. `action_name` is always "Strike" whenever this
+		# elif is reached (see the file-level "EXACTLY ONE action -- Strike
+		# or Stride, never both" doc above); left null/-1 for any other
+		# action_name so the gate below is a no-op in that case.
+		var target_action_economy = null
+		var reaction_budget_before: int = -1
 		if action_name == "Strike":
-			var target_action_economy = _find_action_economy_for(target)
+			target_action_economy = _find_action_economy_for(target)
+			# FEAT-003 (US-003 / FR-002): snapshot the defender's
+			# reaction-eligible budget BEFORE either reaction window
+			# (PreHitAvoidance below, and -- when not suppressed -- the
+			# existing on-hit WeaponAttack window) is ever awaited for this
+			# Strike. The budget-delta gate below compares this snapshot
+			# against the same ActionEconomy's remaining budget once the
+			# ENTIRE Strike (both windows, plus
+			# resolve_action_use_case.resolve()'s own reaction-spending
+			# resolve_weapon_attack() call) has resolved, proving AT MOST ONE
+			# reaction was spent across the whole Strike regardless of which
+			# branch below actually ran -- the shared spend_reaction() gate's
+			# budget-delta assertion this feature adds (design notes: "a
+			# budget-delta assertion (<=1 spent per Strike) in the shared
+			# reaction resolution path").
+			if target_action_economy != null:
+				reaction_budget_before = target_action_economy.get_remaining()
 
 			# FEAT-002 (US-002 / FR-001, Iteration J Part B): the
 			# PreHitAvoidance window (Dodge/Steel only) is awaited FIRST --
@@ -828,6 +884,32 @@ func advance_ai_turn() -> Dictionary:
 			"", active_defense, defense_context
 		)
 		any_action_taken = resolve_result.get("resolved", false)
+
+		# FEAT-003 (US-003 / FR-002): the shared budget-delta gate — proves
+		# AT MOST ONE reaction was actually spent from the defender's
+		# ActionEconomy across this ENTIRE Strike (the PreHitAvoidance
+		# window, the existing on-hit WeaponAttack window, and
+		# resolve_action_use_case.resolve()'s own resolve_weapon_attack()
+		# call — whichever combination of branches above actually ran),
+		# never re-deriving the <=1-reaction-per-Strike invariant a second,
+		# drifting way. A no-op (delta always 0 or 1) for every correctly
+		# behaving call path, including every pre-existing test — this is a
+		# detective regression guard, not a behavior change (NFR-004).
+		if target_action_economy != null:
+			var reaction_budget_after: int = target_action_economy.get_remaining()
+			var reaction_budget_delta: int = reaction_budget_before - reaction_budget_after
+			var budget_gate_label: String = "round=%d attacker=%s target=%s" % [
+				_round_number,
+				combatant.get("combatant_id", combatant.get("name", "")),
+				target.get("combatant_id", target.get("name", "")),
+			]
+			if not ReactionWindowClass.assert_reaction_budget_delta(reaction_budget_delta, budget_gate_label):
+				_reaction_budget_violations.append({
+					"round_number": _round_number,
+					"attacker_id": combatant.get("combatant_id", combatant.get("name", "")),
+					"target_id":   target.get("combatant_id", target.get("name", "")),
+					"delta":       reaction_budget_delta,
+				})
 	else:
 		# US-001 / FR-001 (ADR-010): the null-action AI sentinel — resolve it
 		# as an explicit WAIT (see the doc block above) instead of a bare,
