@@ -306,12 +306,22 @@ func test_application_layer_contains_no_new_port_or_use_case_class() -> void:
 	# core/application/ports/ -- a subdirectory this flat, non-recursive
 	# dir.list_dir_begin() scan never descends into -- so they never appear
 	# in actual_files below and this whitelist does not need to name them.
+	#
+	# FEAT-002 (US-001, ADR-001) deliberately extends this whitelist by TWO
+	# more files: core/application/resolve_to_hit_uc.gd (ResolveToHitUseCase)
+	# and core/application/apply_on_hit_defense_uc.gd
+	# (ApplyOnHitDefenseUseCase) -- the two APPLICATION-layer use cases the
+	# ADR-001 two-phase Strike-resolution split introduces (see each file's
+	# own header doc, and core/application/resolve_action_use_case.gd's
+	# FEAT-002 doc).
 	var expected_files: Array = [
 		"ai_decision_port.gd",
+		"apply_on_hit_defense_uc.gd",
 		"determine_outcome_use_case.gd",
 		"event_sink_port.gd",
 		"reaction_window.gd",
 		"resolve_action_use_case.gd",
+		"resolve_to_hit_uc.gd",
 		"round_history_port.gd",
 		"round_session.gd",
 		"run_round_use_case.gd",

@@ -75,6 +75,18 @@
 ## see tests/unit/test_block_reaction.gd for the end-to-end, headless
 ## (AutoReactionChooser-driven) proof.
 ##
+## FEAT-002 (US-001, ADR-001): the APPLICATION layer now exposes this file's
+## resolve_to_hit()/apply_on_hit_defense() split directly, rather than only
+## through resolve_weapon_attack()'s thin wrapper — see
+## core/application/resolve_to_hit_uc.gd's ResolveToHitUseCase and
+## core/application/apply_on_hit_defense_uc.gd's ApplyOnHitDefenseUseCase,
+## which construct/inject a RandomNumberPort-backed Resolution instance the
+## SAME way core/application/resolve_action_use_case.gd already does and
+## delegate each phase verbatim to this file — no math is duplicated at the
+## application layer. This file's own two functions are UNCHANGED by
+## FEAT-002 (the domain-layer split already existed — see the FEAT-001 doc
+## above); FEAT-002 is purely an application-layer consumer.
+##
 ## Satisfies: US-008, US-015, ADR-001, ADR-002, FEAT-059, FEAT-015, DEF-NEW-003
 ##
 ## Usage example:

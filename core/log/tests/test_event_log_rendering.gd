@@ -55,8 +55,16 @@ const EventLogViewClass = preload("res://presentation/event_log_view.gd")
 ## _EXPECTED_HASHES pattern. FEAT-008's entire scope is presentation/
 ## event_log_view.gd; this hash proves resolution.gd's RNG/math file was
 ## never touched while implementing it.
+##
+## FEAT-002 (US-001, ADR-001) update: this baseline was intentionally
+## re-pinned to reflect a legitimate, later, IN-SCOPE change to
+## resolution.gd — a purely additive, doc-only cross-reference to the new
+## core/application/resolve_to_hit_uc.gd / apply_on_hit_defense_uc.gd
+## application-layer use cases (see resolution.gd's own FEAT-002 doc). No
+## RNG or math in resolution.gd was touched; this guard still correctly
+## fails if a FUTURE, unrelated feature edits resolution.gd's math again.
 const _RESOLUTION_GD_PATH: String = "res://core/rules/resolution.gd"
-const _RESOLUTION_GD_EXPECTED_MD5: String = "197d50b078d5a4ff3a755cebbdf5f98c"
+const _RESOLUTION_GD_EXPECTED_MD5: String = "f99271348ee81801463bafbb5e7f3965"
 
 var _resolution_gd_actual_md5: String
 

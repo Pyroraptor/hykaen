@@ -47,6 +47,27 @@
 ##      giving the observability surface its intended typed-event shape
 ##      without breaking any existing Dictionary-shaped consumer.
 ##
+## FEAT-002 (US-001, ADR-001): this class ALSO constructs (but does not yet
+## wire resolve()/_resolve_strike() through) the two APPLICATION-layer use
+## cases the ADR-001 two-phase Strike split is built from —
+## core/application/resolve_to_hit_uc.gd's ResolveToHitUseCase and
+## core/application/apply_on_hit_defense_uc.gd's ApplyOnHitDefenseUseCase —
+## sharing this instance's SAME injected RandomNumberPort/EventSinkPort so a
+## caller that retrieves them via get_resolve_to_hit_use_case()/
+## get_apply_on_hit_defense_use_case() draws from the identical RNG sequence
+## and event sink resolve() itself uses. resolve()/_resolve_strike() below
+## are DELIBERATELY LEFT UNCHANGED — they keep calling
+## core/rules/resolution.gd's Resolution.resolve_weapon_attack() exactly as
+## before (the pinned SpyResolution contract in
+## tests/gut/test_resolve_action_use_case_active_defense.gd depends on this).
+## Actually retargeting round_session.gd's OnHitMitigation window (the
+## documented "does NOT yet retroactively reduce this Strike's
+## already-finalized damage" gap noted in that file's advance_ai_turn() doc)
+## onto these two use cases is left to a follow-on feature — establishing
+## this application-layer seam is this feature's entire scope, mirroring
+## this codebase's established convention (e.g. round_session.gd's own
+## original _reaction_resolver_fn doc).
+##
 ## RNG consumption order (identical to the pre-extraction
 ## Resolution.resolve_weapon_attack(..., "ac") path this replaces, which was
 ## always invoked with active_defense="none" by run_round() — preserving
@@ -71,6 +92,13 @@ extends RefCounted
 const RoundEventsClass = preload("res://core/rules/round_events.gd")
 const HexMathClass     = preload("res://core/geometry/hex_math.gd")
 const ResolutionClass  = preload("res://core/rules/resolution.gd")
+
+## FEAT-002 (US-001, ADR-001): the two APPLICATION-layer use cases the
+## two-phase Strike-resolution split is built from — see this file's
+## file-level FEAT-002 doc above and each class's own file-level doc for the
+## full contract.
+const ResolveToHitUseCaseClass      = preload("res://core/application/resolve_to_hit_uc.gd")
+const ApplyOnHitDefenseUseCaseClass = preload("res://core/application/apply_on_hit_defense_uc.gd")
 
 
 ## _PortRNGAdapter (FEAT-008 / US-008, CR-001) — internal adapter wrapping
@@ -174,6 +202,17 @@ var _resolution               ## Resolution (core/rules/resolution.gd) — const
 ## (FEAT-008 / US-008, CR-001). ALL Strike resolution math lives in
 ## resolution.gd; this use case never re-implements it.
 
+var _resolve_to_hit_use_case            ## ResolveToHitUseCase (FEAT-002) — constructed once in
+## _init() from the SAME injected RandomNumberPort. NOT called by
+## resolve()/_resolve_strike() below (see the file-level FEAT-002 doc) —
+## exposed via get_resolve_to_hit_use_case() for a future two-phase caller
+## (e.g. round_session.gd's OnHitMitigation window).
+var _apply_on_hit_defense_use_case      ## ApplyOnHitDefenseUseCase (FEAT-002) — constructed once in
+## _init() sharing _resolve_to_hit_use_case's OWN Resolution instance (ADR-002
+## RNG-sequence sharing) and this instance's injected EventSinkPort. NOT
+## called by resolve()/_resolve_strike() below; exposed via
+## get_apply_on_hit_defense_use_case().
+
 
 ## _init(random_number_port, event_sink_port, round_history_port) — stores
 ## the injected ports. All three are duck-typed (no static port type on the
@@ -192,6 +231,34 @@ func _init(random_number_port, event_sink_port, round_history_port) -> void:
 	_event_sink_port     = event_sink_port
 	_round_history_port  = round_history_port
 	_resolution          = ResolutionClass.new(_PortRNGAdapter.new(random_number_port))
+
+	# FEAT-002 (US-001, ADR-001): construct the two-phase use cases sharing
+	# this SAME injected RandomNumberPort/EventSinkPort — see the file-level
+	# FEAT-002 doc above. _apply_on_hit_defense_use_case is deliberately
+	# wired to _resolve_to_hit_use_case.get_resolution() (never a fresh
+	# Resolution instance) so the two use cases continue the SAME RNG
+	# sequence when a future caller drives them across an awaited reaction
+	# window.
+	_resolve_to_hit_use_case       = ResolveToHitUseCaseClass.new(random_number_port)
+	_apply_on_hit_defense_use_case = ApplyOnHitDefenseUseCaseClass.new(
+		_resolve_to_hit_use_case.get_resolution(), event_sink_port
+	)
+
+
+## get_resolve_to_hit_use_case() -> ResolveToHitUseCase — FEAT-002: the
+## PHASE 1 (to-hit) use case constructed in _init(), sharing this instance's
+## injected RandomNumberPort. See core/application/resolve_to_hit_uc.gd.
+func get_resolve_to_hit_use_case():
+	return _resolve_to_hit_use_case
+
+
+## get_apply_on_hit_defense_use_case() -> ApplyOnHitDefenseUseCase — FEAT-002:
+## the PHASE 2 (apply-mitigation) use case constructed in _init(), sharing
+## get_resolve_to_hit_use_case()'s OWN Resolution instance (ADR-002) and this
+## instance's injected EventSinkPort. See
+## core/application/apply_on_hit_defense_uc.gd.
+func get_apply_on_hit_defense_use_case():
+	return _apply_on_hit_defense_use_case
 
 
 ## resolve(combatant, action_economy, target, action_name, round_number,
