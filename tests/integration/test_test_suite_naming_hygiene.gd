@@ -74,7 +74,16 @@ extends GutTest
 ## and resolves its scripted enemy Strike solely through
 ## round_session.advance_ai_turn().
 ##
-## Satisfies: DEF-005, US-011, FEAT-141, FEAT-159, FEAT-001, FEAT-180, FEAT-010.
+## FEAT-220 (US-002..US-009, DEF-005 continuation): tests/gut/
+## test_smoke_full_steel_thread.gd was added to this allow-list for the same
+## reason — it is the CI-runnable release-gate smoke test (paired with
+## scripts/smoke_test.sh) that genuinely instantiates/boots the real
+## res://MainScene.tscn composition root (via the SAME
+## ResourceLoader.load(MAIN_SCENE_PATH)/`instance.seed_override` convention
+## every other allow-listed suite uses) and drives the full Dodge-Step
+## steel thread end to end through it.
+##
+## Satisfies: DEF-005, US-011, FEAT-141, FEAT-159, FEAT-001, FEAT-180, FEAT-010, FEAT-220.
 ##
 ## ══════════════════════════════════════════════════════════════════════════
 ## FEAT-171 (DEF-003): the guard above only ever inspected FILENAMES. That
@@ -106,6 +115,7 @@ const ALLOWED_STEEL_THREAD_PATHS: Array = [
 	"res://tests/gut/test_steel_thread_e2e.gd",
 	"res://tests/integration/test_steel_thread_e2e.gd",
 	"res://tests/test_steel_thread_full_e2e.gd",
+	"res://tests/gut/test_smoke_full_steel_thread.gd",
 ]
 
 ## Path-fragment/identifier substrings from the removed duplicate
