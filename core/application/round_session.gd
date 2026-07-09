@@ -318,6 +318,63 @@ func _resolve_prehit_avoidance(trigger: Dictionary) -> Dictionary:
 	return {"choice": "none"}
 
 
+## _onhit_mitigation_resolver_fn — OPTIONAL (FEAT-004 / US-004 / FR-003): an
+## injected, duck-typed Callable satisfying the SAME ReactionResolverPort
+## shape `_prehit_avoidance_resolver_fn` above does -- `async func(trigger:
+## Dictionary) -> Dictionary`, returning at least {choice: String} -- but
+## `await`ed for the NEW, POST-HIT sibling window: "OnHitMitigation"
+## (Parry/Block only), opened AFTER a Strike's hit/miss result is already
+## known (core/application/reaction_window.gd's
+## open_and_resolve_onhit_mitigation(), built on this feature's two-phase
+## resolve_to_hit()/apply_on_hit_defense() split). This mirrors
+## `_prehit_avoidance_resolver_fn`'s own seam-establishment pattern exactly
+## (a typed-Callable Dependency Inversion seam, ADR-002) and is deliberately
+## a SEPARATE Callable rather than overloading either existing one, so a
+## caller can inject an OnHitMitigation resolver without disturbing the
+## existing PreHitAvoidance/WeaponAttack resolvers' contracts or any of
+## their pinned tests. Left as an invalid (unbound) Callable -- the default
+## -- for every pre-existing caller/test double, including every
+## headless/sim caller, which never sets one; see
+## _resolve_onhit_mitigation()'s default-safety fallback below.
+##
+## Establishing this seam (plus reaction_window.gd's new "OnHitMitigation"
+## trigger_type/open_and_resolve_onhit_mitigation()) is this feature's
+## ENTIRE scope for RoundSession -- no call site in advance_ai_turn() (or
+## anywhere else) invokes it yet; replacing the existing pre-hit "WeaponAttack"
+## on-hit offer with a genuinely POST-HIT OnHitMitigation window inside
+## advance_ai_turn() is a separate, later feature (mirrors
+## `_reaction_resolver_fn`'s own original establishment-only doc above).
+var _onhit_mitigation_resolver_fn: Callable = Callable()
+
+
+## set_onhit_mitigation_resolver_fn(fn) -> void — FEAT-004: injects the
+## OnHitMitigation ReactionResolverPort Callable described above. Intended to
+## be called once by the composition root, the SAME way
+## set_prehit_avoidance_resolver_fn() already is. Never calling this method
+## (every pre-existing caller/test double) leaves RoundSession's behavior for
+## those callers byte-for-byte unchanged -- see
+## _resolve_onhit_mitigation()'s synchronous fallback below.
+func set_onhit_mitigation_resolver_fn(fn: Callable) -> void:
+	_onhit_mitigation_resolver_fn = fn
+
+
+## _resolve_onhit_mitigation(trigger) -> Dictionary — FEAT-004: the internal
+## seam a future feature's advance_ai_turn() Strike branch will `await` AFTER
+## resolve_to_hit()'s hit/miss result is known (never before -- Parry/Block
+## are ON-HIT reactions, see reaction_window.gd's OnHitMitigation doc). When a
+## resolver has been injected via set_onhit_mitigation_resolver_fn(), awaits
+## and returns its result verbatim. When NO resolver has been injected --
+## every headless/sim caller, and every pre-existing test -- this is a
+## SYNCHRONOUS, zero-await fallback to {"choice": "none"} (equivalent to a
+## PASS), preserving byte-for-byte pre-change behavior for those callers
+## (NFR-004), exactly mirroring _resolve_reaction()'s/
+## _resolve_prehit_avoidance()'s own contract.
+func _resolve_onhit_mitigation(trigger: Dictionary) -> Dictionary:
+	if _onhit_mitigation_resolver_fn.is_valid():
+		return await _onhit_mitigation_resolver_fn.call(trigger)
+	return {"choice": "none"}
+
+
 ## _debug_trace_enabled — FEAT-007 (US-002/US-003/US-007, ADR-007): OFF by
 ## default (NFR-004/NFR-005 default-safety — no observable behavior change,
 ## not even an extra print() line, for any pre-existing caller/test). When

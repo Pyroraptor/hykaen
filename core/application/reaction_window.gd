@@ -477,6 +477,156 @@ func open_and_resolve_prehit_avoidance(
 	return partial
 
 
+## open_and_resolve_onhit_mitigation(trigger, resolution, partial, chooser,
+##                                    resolved_by) -> Dictionary — FEAT-004
+## (US-004 / FR-003): the ON-HIT sibling of
+## open_and_resolve_prehit_avoidance() above -- wires a "OnHitMitigation"
+## reaction (Parry/Block only) into a LIVE attack's PHASE 2 resolution,
+## reusing core/rules/resolution.gd's apply_on_hit_defense() (FEAT-001's
+## two-phase split) instead of the combined resolve_weapon_attack(). This
+## method is invoked with the ALREADY-COMPUTED `partial` a prior
+## resolve_to_hit() call produced (typically via
+## open_and_resolve_prehit_avoidance() itself, or a plain resolve_to_hit()
+## call when no pre-hit reaction was even offered) -- it never re-rolls the
+## attack, never re-derives hit/miss, and -- per apply_on_hit_defense()'s own
+## documented precondition -- NEVER calls apply_on_hit_defense() when
+## partial.hit == false (test_criteria #2) or when a reaction was already
+## spent earlier this Strike (test_criteria #5): both conditions are checked
+## via is_on_hit_mitigation_eligible() BEFORE this method ever calls open()
+## at all, so a miss/already-spent Strike never even opens a window or emits
+## a ReactionWindowOpenedEvent (test_criteria #5 "skipped entirely").
+##
+## trigger      — same shape as open()'s trigger argument (see file-level
+##                doc); `trigger["reactor"]` is the combatant OFFERED the
+##                reaction, `trigger["weapon"]` is the REACTOR's own weapon
+##                (used by is_parry_eligible()/is_block_eligible()), and
+##                `trigger["attack_context"]` is reused verbatim as
+##                apply_on_hit_defense()'s defense_context -- so a caller
+##                that wants Block/Parry math to actually reduce damage must
+##                populate attack_context's "blocking_weapon"/
+##                "parrying_weapon" keys itself (mirrors
+##                open_and_resolve_attack()'s identical convention).
+##                `trigger["reaction_already_spent"]` — bool, OPTIONAL
+##                (default false): true when an earlier reaction (pre-hit
+##                Dodge/Steel, or per this feature's budget invariant) already
+##                spent this Strike's one reaction -- the gate this method
+##                checks FIRST, independent of hit result.
+## resolution   — a core/rules/resolution.gd Resolution instance.
+## partial      — the Dictionary produced by resolution.resolve_to_hit() (or
+##                an equivalent Dictionary carrying at least "hit",
+##                "damage_raw", "roll_total", "defense_type", "weapon",
+##                "active_defense_applied") -- this method never re-derives
+##                any of resolve_to_hit()'s own math.
+## chooser      — a ReactionChooserPort implementation.
+## resolved_by  — stamped on the emitted ReactionResolvedEvent.
+##
+## Returns a copy of `partial`, PLUS:
+##   "damage_final"           — int, ALWAYS >= 0: damage_raw when the window
+##                              never opened/no reaction was chosen, else
+##                              apply_on_hit_defense()'s own damage_final.
+##   "active_defense_applied" — "parry" | "block" | whatever `partial`
+##                              already carried (e.g. "none") when no on-hit
+##                              reaction was chosen.
+##   "on_hit_suppressed"      — bool: true after a real Block or a
+##                              SUCCESSFUL Parry (mirrors
+##                              apply_on_hit_defense()'s own contract).
+##   "reaction_choice"        — "parry" | "block" | ReactionChooserPort.PASS.
+##   "window_id"              — "" when the gate failed (window never
+##                              opened) or the reactor was already Spent,
+##                              else the opened window's id.
+##   "reaction_spent"         — bool: true iff apply_on_hit_defense() was
+##                              actually invoked (a real Parry/Block choice
+##                              was made and applied).
+func open_and_resolve_onhit_mitigation(
+	trigger: Dictionary,
+	resolution,
+	partial: Dictionary,
+	chooser,
+	resolved_by: String = "auto"
+) -> Dictionary:
+	var attack_hit: bool = partial.get("hit", false)
+	var reaction_already_spent: bool = trigger.get("reaction_already_spent", false)
+
+	var damage_final: int = partial.get("damage_raw", 0)
+	var active_defense_applied: String = partial.get("active_defense_applied", "none")
+	var on_hit_suppressed: bool = false
+	var reaction_spent: bool = false
+	var applied_choice: String = ReactionChooserPortClass.PASS
+	var window_id: String = ""
+
+	# The gate (test_criteria #1/#5): a miss, or a Strike whose one reaction
+	# was already spent, skips this window ENTIRELY -- open() is never even
+	# called, so no ReactionWindowOpenedEvent/ReactionResolvedEvent is ever
+	# emitted for it, and apply_on_hit_defense() is never invoked
+	# (test_criteria #2).
+	if is_on_hit_mitigation_eligible(reaction_already_spent, attack_hit):
+		var attack_context: Dictionary = trigger.get("attack_context", {})
+		var reactor_action_economy = trigger.get("reactor_action_economy", null)
+
+		# Stamp attack_hit/reaction_already_spent onto the trigger handed to
+		# open() so _compute_legal_reactions()'s OWN "OnHitMitigation" gate
+		# (test_criteria #1) evaluates the SAME facts this outer check just
+		# confirmed -- never a second, drifting copy of the eligibility rule.
+		var trigger_for_open: Dictionary = trigger.duplicate()
+		trigger_for_open["attack_hit"] = attack_hit
+		trigger_for_open["reaction_already_spent"] = reaction_already_spent
+
+		var opened: Dictionary = open(trigger_for_open)
+		window_id = opened.get("window_id", "")
+
+		if opened.get("opened", false):
+			var legal_reactions: Array = opened.get("legal_reactions", [])
+			if not legal_reactions.is_empty():
+				var requested_choice: String = chooser.choose(legal_reactions, attack_context)
+				# Safety net matching resume()'s ERR_ILLEGAL_CHOICE guard: a
+				# misbehaving chooser answering with something not offered
+				# degrades to PASS rather than being forwarded to
+				# apply_on_hit_defense().
+				if requested_choice == ReactionChooserPortClass.PASS or legal_reactions.has(requested_choice):
+					applied_choice = requested_choice
+
+			if applied_choice != ReactionChooserPortClass.PASS:
+				# Only when a real reaction was chosen do we hand
+				# apply_on_hit_defense() the reactor's ActionEconomy -- permitting
+				# its internal _try_spend_reaction() call. Declining (PASS) must
+				# never spend a reaction, so the economy is withheld entirely
+				# (mirrors open_and_resolve_prehit_avoidance()'s identical
+				# discipline).
+				var ctx: Dictionary = attack_context.duplicate()
+				ctx["action_economy"] = reactor_action_economy
+				var post: Dictionary = resolution.apply_on_hit_defense(partial, applied_choice, ctx)
+				damage_final = post["damage_final"]
+				active_defense_applied = post["active_defense_applied"]
+				on_hit_suppressed = post["on_hit_suppressed"]
+				reaction_spent = true
+
+			# Close the window (mirrors resume()'s one-shot closing behavior) --
+			# apply_on_hit_defense() (when invoked) has already applied/spent
+			# the reaction itself, so no second spend happens here.
+			_open_window_id       = ""
+			_open_trigger         = {}
+			_open_legal_reactions = []
+
+			_event_sink_port.emit(RoundEventsClass.ReactionResolvedEvent.new(
+				trigger.get("round_number", 0),
+				window_id,
+				applied_choice,
+				resolved_by
+			))
+	# else: gate failed -- damage_final/active_defense_applied/on_hit_suppressed
+	# stay exactly what `partial` already carried (plus damage_final defaulting
+	# to damage_raw), reaction_choice stays PASS, window_id stays "".
+
+	var result: Dictionary = partial.duplicate()
+	result["damage_final"] = damage_final
+	result["active_defense_applied"] = active_defense_applied
+	result["on_hit_suppressed"] = on_hit_suppressed
+	result["reaction_choice"] = applied_choice
+	result["window_id"] = window_id
+	result["reaction_spent"] = reaction_spent
+	return result
+
+
 ## _compute_legal_reactions(trigger) -> Array — evaluates the
 ## trigger-type-specific eligibility predicate (test_criteria #1) via
 ## core/rules/resolution.gd's FEAT-009 static predicates, never
@@ -529,6 +679,30 @@ func _compute_legal_reactions(trigger: Dictionary) -> Array:
 			if ResolutionClass.is_steel_eligible(defense_type, reactor):
 				legal_prehit.append(REACTION_STEEL)
 			return legal_prehit
+		"OnHitMitigation":
+			# FEAT-004 (US-004 / FR-003): the ON-HIT sibling of "PreHitAvoidance"
+			# above -- offers ONLY Parry/Block (never Dodge/Steel, which are
+			# ON-ATTACKED reactions and must never be offered AFTER the attack
+			# roll is already known). Gated FIRST by
+			# is_on_hit_mitigation_eligible() (test_criteria #1 "gated
+			# correctly" / #5 "skipped entirely on miss or when a reaction was
+			# already spent") BEFORE ever consulting is_parry_eligible()/
+			# is_block_eligible() -- a miss, or a Strike whose one reaction was
+			# already spent (Dodge/Steel pre-hit, or a prior on-hit reaction),
+			# must offer NEITHER reaction regardless of the reactor's weapon.
+			# Computed via the SAME is_parry_eligible()/is_block_eligible()
+			# predicates the single-type "Parry"/"Block" branches above already
+			# use -- never a re-derived rule.
+			var attack_hit: bool = trigger.get("attack_hit", false)
+			var reaction_already_spent: bool = trigger.get("reaction_already_spent", false)
+			if not is_on_hit_mitigation_eligible(reaction_already_spent, attack_hit):
+				return []
+			var legal_onhit: Array = []
+			if ResolutionClass.is_parry_eligible(weapon):
+				legal_onhit.append(REACTION_PARRY)
+			if ResolutionClass.is_block_eligible(weapon):
+				legal_onhit.append(REACTION_BLOCK)
+			return legal_onhit
 		"WeaponAttack":
 			# FEAT-008 (steel-thread smoke test) regression fix: the composite
 			# trigger_type a live enemy-Strikes-player Strike opens (see

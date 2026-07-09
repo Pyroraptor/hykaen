@@ -318,9 +318,11 @@ func test_failed_dodge_sets_on_hit_suppressed_and_still_resolves_the_hit() -> vo
 	var ae: ActionEconomyClass = ActionEconomyClass.new()
 	var chooser: AutoReactionChooserClass = AutoReactionChooserClass.new("first_legal")
 
-	# mob_d20=2 -> mobility_check=2+1=3. attack_d20=10 -> roll_total=15.
-	# 15 >= 3 -> Dodge FAILS to protect: hit, no step, damage rolled.
-	var resolution: SpyResolution = _resolution([2, 10], [4])
+	# mob_d20=2 -> mobility_check=2+1=3. attack_d20=2 -> roll_total=2+3+2=7.
+	# 7 >= 3 -> Dodge FAILS to protect: hit, no step, damage rolled. (7-3)=4
+	# < 10 -- not a crit, so damage is a single-die roll, not the double-dice
+	# crit formula.
+	var resolution: SpyResolution = _resolution([2, 2], [4])
 
 	var outcome: Dictionary = window.open_and_resolve_prehit_avoidance(
 		{
@@ -457,7 +459,8 @@ func test_already_spent_reactor_never_opens_and_still_resolves_the_plain_roll() 
 	var sink: FakeEventSinkPort = built["sink"]
 
 	var ae: ActionEconomyClass = ActionEconomyClass.new()
-	ae.spend_reaction()
+	for _i in range(ActionEconomyClass.MAX_BUDGET):
+		ae.spend_reaction()
 	assert_true(ae.is_spent(), "fixture: budget exhausted before this Strike")
 
 	var chooser: AutoReactionChooserClass = AutoReactionChooserClass.new("first_legal")
@@ -748,7 +751,7 @@ func test_pass_via_prehit_seam_still_offers_the_existing_weapon_attack_window() 
 
 	# attack_d20=10 -> roll_total=13 -> hit. damage die=4 -> damage_raw=7.
 	# block-reduction die=3 -> block_reduction=3+block_value(2)=5 -> damage_final=2.
-	var rng := ScriptedRandomNumberPort.new([10], [4, 3])
+	var rng := ScriptedRandomNumberPort.new([10, 4, 3])
 	var rig: Dictionary = _make_session(entries, [alpha], [bravo], rng)
 	var session = rig["session"]
 
