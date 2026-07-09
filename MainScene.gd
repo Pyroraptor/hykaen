@@ -861,6 +861,17 @@ func rewire_session() -> void:
 		round_session.set_prehit_avoidance_resolver_fn(Callable(turn_controller, "resolve_reaction"))
 		round_session.set_onhit_mitigation_resolver_fn(Callable(turn_controller, "resolve_reaction"))
 
+		# FEAT-213 (Iteration J V&V fix): wire the structured combat-log recorder
+		# into the REAL composition root, mirroring the reaction-resolver seams
+		# above. round_session._record_structured_attack() (called from
+		# advance_ai_turn on every resolved Strike) forwards the AttackEvent to
+		# this Callable; without this binding the live log only ever rendered the
+		# old plain on_attack_event() string ("Hit for D damage."), never Part D-1's
+		# rich roll/defense-outcome format — the composition-root gap V&V flagged.
+		# Re-applied on every rewire_session() call like the resolvers above.
+		if event_log_view != null:
+			round_session.set_event_log_record_attack_fn(Callable(event_log_view, "record_attack"))
+
 	if turn_controller != null:
 		# FEAT-006: strike_action_control no longer exists; set_session()'s
 		# third argument is optional (default null) and simply omitted.

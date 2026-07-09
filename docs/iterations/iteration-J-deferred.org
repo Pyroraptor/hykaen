@@ -1,0 +1,80 @@
+#+TITLE: Iteration J — Deferred / Outstanding Scope
+#+DATE: 2026-07-09
+#+STATUS: Iteration J shipped Part A (two-phase reaction timing) + Part D-1 (inline combat-log richness).
+#+NOTE: Authored during the hand-finish/wrap-up of sprint-11. Records the planned D-2 drop (required by
+#+NOTE: the brief's FR-012 completion gate) AND the outstanding V&V-flagged defects that the AEF
+#+NOTE: self-correction round (FEAT-212..216) could not close before the run errored out.
+
+* DEFERRED — Part D-2: click-an-attack → full breakdown pop-up (FR-009)
+Dropped at PLANNING time (the brief's explicit first-drop candidate). Iteration J's 10-item plan
+covered Part A + Part D-1 (inline richness) + the boot-real tests + the E2E capstone; D-2 was never
+scoped as an item.
+
+** Intent
+Make each combat-log entry selectable; selecting it opens a modal pop-up with the FULL breakdown of
+that attack (attacker/defender, weapon, each roll + modifiers, defense chosen + its roll and
+success/fail, raw→final damage).
+
+** Files / mechanics (cold-start ready)
+- Requires the structured per-attack records Part D-1 (FEAT-007) already persists (AttackEvent +
+  paired ReactionResolvedEvent) — event_log_view.gd stores entries; carry the structured pair, not
+  just the formatted string.
+- NEW scenes/ui/attack_breakdown_popup.gd — mirror the scenes/ui/reaction_prompt_ui.gd modal pattern.
+- Make event_log_view.gd entries selectable (click → emit selected(index) → open the breakdown popup
+  bound to that entry's stored AttackEvent/ReactionResolvedEvent).
+- MUST ship with a BOOT-REAL-MAINSCENE test (per the standing rule): boot MainScene, resolve a
+  scripted attack+reaction, select the log entry, assert the popup renders the matching real
+  resolution result. Not a hand-wired fixture.
+
+────────────────────────────────────────────────────────────────────────────────
+* OUTSTANDING V&V DEFECTS (sprint-11 verification-validation.org) — NOT yet fixed; block "complete"
+The AEF run's post-V&V self-correction round (FEAT-212..216) FAILED on its first item and errored out.
+The following are real, confirmed defects at HEAD 72c3d24 that a follow-up MUST close.
+
+** DEF-001 (CRITICAL) — on-hit Parry/Block is COSMETIC-ONLY in live play  [FEAT-212, not fixed]
+round_session.gd advance_ai_turn() (~lines 1107-1167) resolves the enemy Strike via
+resolve_action_use_case.resolve() with active_defense="none" — which COMMITS target.hp_current
+(resolve_action_use_case.gd:335) AND emits the AttackEvent/CombatantDefeatedEvent (line 358/361) —
+and only AFTER that awaits the OnHitMitigation choice, which it merely TRACES (round_session.gd
+~1162-1167) without ever calling Resolution.apply_on_hit_defense(). So choosing Parry/Block reduces
+damage by ZERO in live play. The two-phase TIMING (pop-up order) is correct; the on-hit MITIGATION is
+not connected to the damage path. round_session.gd's own comment (~1141-1150) admits this as a
+"documented interim scope limitation."
+
+*** Correct fix (the RNG-safe two-phase REORDER — do NOT do a naive retroactive heal)
+A retroactive `hp_current += mitigation` after resolve() is tempting but WRONG in the edge cases:
+resolve() already emitted CombatantDefeatedEvent for a lethal-but-mitigated hit, and
+Resolution.apply_on_hit_defense()'s parry/block roll must consume the use case's OWN injected RNG port
+(resolve_action_use_case.gd:194's _resolution / _PortRNGAdapter), not a fresh Resolution instance, or
+determinism/tests break. Instead REORDER so damage is not committed until the on-hit choice is known:
+- Expose the two-phase split on resolve_action_use_case.gd (its _resolution already has resolve_to_hit()
+  / apply_on_hit_defense()): e.g. resolve_to_hit_uc() (roll hit+raw damage, NO hp commit, NO event
+  emit) → caller awaits the on-hit window → apply_on_hit_uc()/commit_uc() (apply the chosen defense via
+  the SAME _resolution, THEN write hp_current, emit the AttackEvent with the final damage, emit
+  CombatantDefeatedEvent only if still <=0). round_session.advance_ai_turn()'s Strike branch orchestrates
+  those three across the two windows.
+- Preserve the pinned characterization test (default/"none" path byte-for-byte) — the single-call
+  resolve() stays as a thin wrapper over the three-phase path.
+- Keep the ≤1-reaction budget gate (apply_on_hit spends via _try_spend_reaction; pre-hit Dodge/Steel
+  already skips the on-hit window).
+- This is the 189-line change AEF's FEAT-212 attempted and could not stabilize in 3 attempts (its
+  partial is preserved at /tmp/FEAT212_ref_test.gd). Needs careful implementation + full GUT/pytest.
+
+** DEF (structured combat log NOT wired into MainScene)  [FEAT-213, not fixed]
+render_attack_entry()/get_active_defense_outcome_string() + the structured storage are correct and
+unit-tested, but MainScene.gd never calls round_session.set_event_log_record_attack_fn() nor pairs a
+ReactionResolvedEvent into the real event_log_view. In live play the log still renders only the old
+plain on_attack_event() string ("Hit for D damage."/"Miss."), never the rich format. FIX: wire the
+EventLogPort seam + reaction pairing into MainScene.gd's composition root (_ready() and rewire_session()),
+mirroring set_prehit_avoidance_resolver_fn()/set_onhit_mitigation_resolver_fn().
+
+** DEF (Part-D boot-real test SELF-WIRES the seam)  [FEAT-214, not fixed]
+tests/*combat_log_richness* boots real MainScene.tscn but then performs the EventLogPort wiring itself
+inside the test body (its own header admits it) — defeating the brief's boot-real-MainScene rule
+("a feature whose only tests hand-build/self-wire their inputs is treated as UNVERIFIED"). Once the
+DEF above wires MainScene for real, rewrite the test to assert against that REAL wiring. Same lesson
+applies to auditing the Part-A reaction-timing boot-real test (FEAT-215).
+
+** PROCESS GAP — no human real-play sign-off record (FR-011)
+No sign-off doc/commit-trailer exists. Given DEF-001, a genuine real-play pass would catch and block on
+it. Record an explicit sign-off (or re-run real-play honestly) before marking Iteration J complete.

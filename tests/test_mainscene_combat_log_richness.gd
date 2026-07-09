@@ -90,10 +90,22 @@ func test_boot_real_mainscene_scripted_enemy_strike_and_reaction_produces_rich_l
 	var skeleton: Dictionary = instance._enemies[0]
 	assert_eq(skeleton.get("name", ""), "Skeleton", "fixture: the real enemy combatant must be the Skeleton")
 
-	# ── Wire the REAL EventLogView's record_attack() into round_session's
-	# FEAT-007 EventLogPort seam -- see this file's header doc for why this
-	# suite performs this ONE composition-root-style wiring step itself
-	# rather than relying on MainScene.gd (which does not yet perform it). ──
+	# FEAT-213 / FEAT-214 (Iteration J V&V fix): MainScene's composition root now
+	# wires the EventLogPort seam FOR REAL (set_event_log_record_attack_fn ->
+	# event_log_view.record_attack, MainScene.gd rewire_session()). Assert that
+	# real wiring exists at boot -- BEFORE this suite overrides it with a
+	# capturing recorder below -- so this boot-real test genuinely verifies the
+	# composition-root wiring instead of self-wiring around the gap it should
+	# catch (the V&V finding this rewrite closes; the standing boot-real rule).
+	assert_true(
+		instance.round_session._event_log_record_attack_fn.is_valid(),
+		"MainScene must wire round_session.set_event_log_record_attack_fn() in its composition root -- the live combat log must render the rich format without any test self-wiring"
+	)
+
+	# ── Override with a capturing recorder purely to snapshot the forwarded
+	# AttackEvents for the assertions below (the real MainScene wiring, asserted
+	# above, still points at event_log_view.record_attack -- this override also
+	# forwards there, preserving identical live behavior). ──
 	var recorded_attacks: Array = []
 	instance.round_session.set_event_log_record_attack_fn(func(attack_event):
 		recorded_attacks.append(attack_event)
