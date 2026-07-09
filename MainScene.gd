@@ -838,6 +838,29 @@ func rewire_session() -> void:
 	if round_session != null and turn_controller != null:
 		round_session.set_reaction_resolver_fn(Callable(turn_controller, "resolve_reaction"))
 
+		# ── FEAT-005 (US-005 / FR-005, Iteration J Part A): wire RoundSession's
+		# TWO newer, correctly-timed reaction windows -- "PreHitAvoidance"
+		# (Dodge/Steel, asked BEFORE the attack roll) and "OnHitMitigation"
+		# (Parry/Block, asked AFTER the hit result is known) -- to the SAME
+		# real TurnController.resolve_reaction() adapter immediately above,
+		# rather than leaving them permanently unset (their pre-FEAT-005 state,
+		# under which RoundSession's own default-safety fallback silently
+		# resolved both to Pass for EVERY real playthrough, so only the legacy
+		# combined "WeaponAttack" window above was ever actually reachable in
+		# real play). resolve_reaction() is trigger-type-agnostic (it merely
+		# forwards whatever trigger Dictionary it is handed to
+		# reaction_window.gd's open()/resume(), which already branches on
+		# trigger["trigger_type"] -- see reaction_window.gd's own doc), so the
+		# SAME real ReactionResolverPort adapter (and, transitively, the SAME
+		# real EventLogPort-equivalent event_sink every ReactionWindowOpenedEvent/
+		# ReactionResolvedEvent already flows through, ADR-003) correctly
+		# serves all three seams without a second/parallel adapter. Re-applied
+		# on every rewire_session() call, mirroring the reaction_resolver_fn
+		# wiring immediately above -- a freshly begin_round()'d RoundSession is
+		# never left without either resolver for even one frame.
+		round_session.set_prehit_avoidance_resolver_fn(Callable(turn_controller, "resolve_reaction"))
+		round_session.set_onhit_mitigation_resolver_fn(Callable(turn_controller, "resolve_reaction"))
+
 	if turn_controller != null:
 		# FEAT-006: strike_action_control no longer exists; set_session()'s
 		# third argument is optional (default null) and simply omitted.

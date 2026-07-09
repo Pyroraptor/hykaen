@@ -598,6 +598,59 @@ func _build_prehit_avoidance_trigger(attacker: Dictionary, target: Dictionary) -
 	}
 
 
+## _build_onhit_mitigation_trigger(attacker, target, attack_hit) -> Dictionary
+## — FEAT-005 (US-005 / FR-005, Iteration J Part A): the ReactionTrigger built
+## for the NEW, genuinely POST-HIT "OnHitMitigation" window, `await`ed by
+## advance_ai_turn() AFTER resolve_action_use_case.resolve() has already
+## determined this Strike's hit/miss result (test_criteria: firing order
+## PreHitAvoidance then, conditionally, OnHitMitigation -- never before the
+## roll). Shaped identically to _build_prehit_avoidance_trigger()'s trigger
+## (same attacker/target/round_number/attack_context/weapon derivation --
+## never a second, drifting convention), differing in:
+##   "trigger_type"           -- "OnHitMitigation" so
+##                                core/application/reaction_window.gd's
+##                                _compute_legal_reactions() offers exactly
+##                                Parry/Block (never Dodge/Steel -- those are
+##                                ON-ATTACKED reactions already resolved by
+##                                the PreHitAvoidance window above) once its
+##                                own is_on_hit_mitigation_eligible() gate
+##                                passes.
+##   "attack_hit"              -- threaded through verbatim so the REAL
+##                                reaction_window.gd's own "OnHitMitigation"
+##                                eligibility gate (which this method's own
+##                                caller already evaluated via
+##                                ReactionWindowClass.is_on_hit_mitigation_eligible()
+##                                before ever building this trigger) evaluates
+##                                the SAME fact, never a second, drifting copy.
+##   "reaction_already_spent"  -- always false here: this trigger is only ever
+##                                built when advance_ai_turn() has already
+##                                confirmed active_defense == "none" for this
+##                                Strike (see this trigger's sole call site's
+##                                own doc) -- i.e. no reaction has been spent
+##                                yet.
+## "reactor_action_economy" is withheld (null) for the SAME reason
+## _build_reaction_trigger()/_build_prehit_avoidance_trigger() withhold it —
+## this session never hands a live resolver's own ReactionWindow.resume() the
+## authority to spend the reactor's reaction directly (see those methods' own
+## FEAT-008 doc for the full double-spend rationale this mirrors).
+func _build_onhit_mitigation_trigger(attacker: Dictionary, target: Dictionary, attack_hit: bool) -> Dictionary:
+	return {
+		"attacker_id":            attacker.get("combatant_id", attacker.get("name", "")),
+		"target_id":              target.get("combatant_id", target.get("name", "")),
+		"defense_type":           "ac",
+		"attack_context":         {"attacker_weapon": attacker.get("weapon", {})},
+		"round_number":           _round_number,
+		"attacker":               attacker,
+		"target":                 target,
+		"reactor_action_economy": null,
+		"trigger_type":           "OnHitMitigation",
+		"reactor":                target,
+		"weapon":                 target.get("weapon", {}),
+		"attack_hit":             attack_hit,
+		"reaction_already_spent": false,
+	}
+
+
 ## _find_action_economy_for(combatant) -> ActionEconomy or null — FEAT-004:
 ## looks up the ActionEconomy instance this session already holds (in
 ## _entries) for `combatant`, so the reactor's OWN live budget (never a
@@ -910,28 +963,47 @@ func advance_ai_turn() -> Dictionary:
 				active_defense = prehit_choice
 				defense_context = _build_defense_context(target, target_action_economy)
 			elif not prehit_on_hit_suppressed:
-				var trigger: Dictionary = _build_reaction_trigger(combatant, target, target_action_economy)
-				# FEAT-007 (observability #2): trigger-built trace point.
-				_trace(
-					"reaction_trigger_built attacker_id=%s target_id=%s round=%d"
-					% [trigger.get("attacker_id", ""), trigger.get("target_id", ""), _round_number]
-				)
-				# FEAT-007: awaiting-resolver-start trace point -- emitted
-				# immediately BEFORE the await below, so a genuinely hung/
-				# never-resolving resolver is visible as "this line printed, but
-				# resolver_resolved never did" rather than a silent freeze.
-				_trace(
-					"awaiting_resolver_start attacker_id=%s target_id=%s round=%d"
-					% [trigger.get("attacker_id", ""), trigger.get("target_id", ""), _round_number]
-				)
-				var reaction_result: Dictionary = await _resolve_reaction(trigger)
-				# FEAT-007: resolver-resolved trace point.
-				_trace(
-					"resolver_resolved choice=%s round=%d"
-					% [str(reaction_result.get("choice", "")), _round_number]
-				)
-				active_defense = _reaction_choice_to_active_defense(reaction_result)
-				defense_context = _build_defense_context(target, target_action_economy)
+				# FEAT-005 (US-005 / FR-005, Iteration J Part A): two-phase mode is
+				# opted into once a caller injects a DEDICATED OnHitMitigation
+				# resolver (set_onhit_mitigation_resolver_fn() -- MainScene.gd wires
+				# this for real play, this feature). In that mode the legacy
+				# combined "WeaponAttack" ask below (Dodge+Parry+Block unioned
+				# BEFORE the roll even happens) is retired in favor of asking
+				# Block/Parry strictly AFTER the hit result is known -- see the
+				# post-resolve OnHitMitigation ask below (the SECOND await point
+				# this feature introduces into this coroutine). active_defense/
+				# defense_context are deliberately left "none"/{} here so
+				# resolve_action_use_case.resolve() below applies NO on-hit
+				# mitigation of its own for this call -- that decision is deferred
+				# to the post-resolve block.
+				#
+				# Every pre-existing caller/test double that never calls
+				# set_onhit_mitigation_resolver_fn() (NFR-004 default-safety) takes
+				# the unchanged legacy path in the `else` branch instead, so this
+				# feature introduces zero behavior change for them.
+				if not _onhit_mitigation_resolver_fn.is_valid():
+					var trigger: Dictionary = _build_reaction_trigger(combatant, target, target_action_economy)
+					# FEAT-007 (observability #2): trigger-built trace point.
+					_trace(
+						"reaction_trigger_built attacker_id=%s target_id=%s round=%d"
+						% [trigger.get("attacker_id", ""), trigger.get("target_id", ""), _round_number]
+					)
+					# FEAT-007: awaiting-resolver-start trace point -- emitted
+					# immediately BEFORE the await below, so a genuinely hung/
+					# never-resolving resolver is visible as "this line printed, but
+					# resolver_resolved never did" rather than a silent freeze.
+					_trace(
+						"awaiting_resolver_start attacker_id=%s target_id=%s round=%d"
+						% [trigger.get("attacker_id", ""), trigger.get("target_id", ""), _round_number]
+					)
+					var reaction_result: Dictionary = await _resolve_reaction(trigger)
+					# FEAT-007: resolver-resolved trace point.
+					_trace(
+						"resolver_resolved choice=%s round=%d"
+						% [str(reaction_result.get("choice", "")), _round_number]
+					)
+					active_defense = _reaction_choice_to_active_defense(reaction_result)
+					defense_context = _build_defense_context(target, target_action_economy)
 			# else: prehit_on_hit_suppressed with no explicit dodge/steel
 			# choice (a defensive/malformed-resolver case) -- active_defense/
 			# defense_context stay "none"/{}, matching Pass.
@@ -941,6 +1013,49 @@ func advance_ai_turn() -> Dictionary:
 			"", active_defense, defense_context
 		)
 		any_action_taken = resolve_result.get("resolved", false)
+
+		# FEAT-005 (US-005 / FR-005, Iteration J Part A): the SECOND await point
+		# this feature introduces into advance_ai_turn's coroutine chain -- a
+		# genuinely POST-HIT "OnHitMitigation" ask (Parry/Block only), fired
+		# strictly AFTER resolve_action_use_case.resolve() above has already
+		# determined this Strike's hit/miss result, and ONLY when: (a) this is a
+		# Strike, (b) two-phase mode was opted into (a dedicated
+		# OnHitMitigation resolver was injected -- see the elif branch above),
+		# and (c) no reaction has been spent yet this Strike (active_defense is
+		# still "none" -- a Dodge/Steel choice from the PreHitAvoidance window
+		# always sets active_defense to something else, correctly skipping this
+		# block per the <=1-reaction-per-Strike budget rule). Firing order is
+		# therefore always PreHitAvoidance (above) THEN, conditionally,
+		# OnHitMitigation (here) -- never reversed, never duplicated (this block
+		# runs at most once per Strike).
+		#
+		# NOTE (documented interim scope limitation): the chosen on-hit
+		# mitigation is asked for, validated, and traced here, proving the
+		# coroutine's second await point fires in the correct order without
+		# ever stalling and safely defaults to Pass for an un-injected/
+		# declining/misbehaving resolver (this feature's test_criteria). It does
+		# NOT yet retroactively reduce this Strike's already-finalized damage --
+		# doing so would require exposing resolve_action_use_case.gd's internal
+		# two-phase resolve_to_hit()/apply_on_hit_defense() split to this
+		# caller, which is out of this feature's file scope (round_session.gd /
+		# MainScene.gd only) and is left to a follow-on feature.
+		if action_name == "Strike" and _onhit_mitigation_resolver_fn.is_valid() and active_defense == "none":
+			var attack_hit: bool = false
+			var resolved_event = resolve_result.get("event", null)
+			if resolved_event != null:
+				attack_hit = resolved_event.hit
+			if ReactionWindowClass.is_on_hit_mitigation_eligible(false, attack_hit):
+				var onhit_trigger: Dictionary = _build_onhit_mitigation_trigger(combatant, target, attack_hit)
+				_trace(
+					"onhit_mitigation_trigger_built attacker_id=%s target_id=%s round=%d"
+					% [onhit_trigger.get("attacker_id", ""), onhit_trigger.get("target_id", ""), _round_number]
+				)
+				var onhit_result: Dictionary = await _resolve_onhit_mitigation(onhit_trigger)
+				var onhit_choice: String = _reaction_choice_to_active_defense(onhit_result)
+				_trace(
+					"onhit_mitigation_resolved choice=%s round=%d"
+					% [onhit_choice, _round_number]
+				)
 
 		# FEAT-003 (US-003 / FR-002): the shared budget-delta gate — proves
 		# AT MOST ONE reaction was actually spent from the defender's
