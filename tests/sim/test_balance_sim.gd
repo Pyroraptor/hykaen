@@ -214,7 +214,17 @@ func test_write_sim_results_json_artifact() -> void:
 	## confidence_interval.
 	##
 	## The CI workflow uploads this file as 'balance-sim-results' artifact.
+	##
+	## FEAT-211 (DEF-003): re-emit the PROVENANCE keys (commit_hash, seed,
+	## timestamp) alongside the four result keys. FEAT-007's commit had
+	## regenerated this file with only the four result keys, silently dropping
+	## provenance; writing all seven here — plus the pinned regression test
+	## tests/pytest/test_sim_results_provenance.py — makes a future drop fail CI
+	## rather than pass unnoticed.
 	var json_dict: Dictionary = {
+		"commit_hash":        _current_commit_hash(),
+		"seed":               BALANCE_SEED,
+		"timestamp":          Time.get_datetime_string_from_system(false, true),
 		"total_battles":      _result.get("total_battles",      0),
 		"win_rate":           _result.get("win_rate",           0.0),
 		"avg_rounds":         _result.get("avg_rounds",         0.0),
@@ -241,3 +251,21 @@ func test_write_sim_results_json_artifact() -> void:
 		json_dict["win_rate"] >= 0.0 and json_dict["win_rate"] <= 1.0,
 		"sim_results.json win_rate must be in [0.0, 1.0] — FEAT-090 artifact"
 	)
+
+
+## _current_commit_hash() -> String — FEAT-211 (DEF-003): the git HEAD SHA
+## stamped into sim_results.json's provenance, obtained by shelling out to git
+## (the repo IS a git checkout in every environment that runs this sim). Returns
+## "" if git is unavailable or the command fails, so the artifact write stays
+## best-effort / non-fatal, matching this method's existing contract.
+func _current_commit_hash() -> String:
+	var output: Array = []
+	var exit_code: int = OS.execute(
+		"git",
+		["-C", ProjectSettings.globalize_path("res://"), "rev-parse", "HEAD"],
+		output,
+		true
+	)
+	if exit_code == 0 and output.size() > 0:
+		return String(output[0]).strip_edges()
+	return ""

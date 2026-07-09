@@ -1,0 +1,99 @@
+#+TITLE: Iteration I — Deferred Scope: Enemy Reaction AI (Part B) + Opportunistic Strike (Part C)
+#+DATE: 2026-07-09
+#+STATUS: Part A SHIPPED (reactions live-wired). Part B + Part C DEFERRED to a follow-on sprint (Iteration J).
+#+NOTE: Authored during the hand-finish/wrap-up of sprint-10. The AEF run scoped its 8-item
+#+NOTE: plan to Part A only and recorded the B/C deferral in output/sprint-10/sprint-planning.org
+#+NOTE: "Deferred Requirements"; this file is the durable, cold-start-ready record the approved
+#+NOTE: brief's scope-drop policy requires. Deferral was pre-approved by Guy (Part-A-only this
+#+NOTE: sprint; B+C as an immediate follow-on).
+
+* What SHIPPED in Iteration I (Part A) — context for the follow-on
+Defensive reactions (Dodge/Parry/Block/Steel) are now LIVE in real play: an enemy Strike on
+the player opens the blocking reaction pop-up, the chosen reaction threads through the async
+round loop into resolution.gd, spends the reaction, and alters the outcome. Committed FEAT-001..008
+(HEAD ~aec4884 + the FEAT-211 provenance fix). Steel ships dormant (no Fort/Will attack exists to
+trigger it). The player-strikes-enemy path is a pass-through placeholder: the enemy always Passes
+("none") — THIS is the seam Part B fills.
+
+⚠️ Part A still owes a MANDATORY REAL-PLAY verification: headless tests (GUT 1451/pytest) pass, but
+a human must launch the game and confirm the pop-up actually opens on an enemy Strike and each
+reaction behaves. Not yet done as of this writing.
+
+────────────────────────────────────────────────────────────────────────────────
+* DEFERRED — PART B (P1): Enemy reaction AI policy
+Was FR-006/FR-007 in sprint-10's plan. 'Should' priority; first non-Part-A item eligible for
+deferral per the drop order; cut at planning time (velocity-unknown first iteration).
+
+** Intent
+Give the enemy a real defensive brain on the PLAYER-strikes-enemy path so it Dodges/Blocks/Parries
+when worthwhile instead of always Passing.
+
+** Exact mechanics (Guy-approved, from the iteration-I brief DECISIONS)
+- Policy: "react if it helps and is affordable, else Pass." Deterministic / seed-stable (no RNG).
+- Precedence given the incoming attack: Parry if it can beat the roll > Block for hard hits >
+  Dodge to negate; else Pass.
+- Budget-aware: never react below a reserve the enemy needs for its own next turn — RESERVE = keep
+  ≥1 action. Surface the chosen damage/mitigation thresholds in the design output (don't bury them).
+- Simple heuristic is the accepted target for the sprint; sophistication is a later iteration.
+
+** Files / mechanics to touch
+- NEW infrastructure/ai_reaction_policy.gd — implements core/application/ports/reaction_chooser_port.gd
+  choose(legal_reactions, context) -> String with the NON-trivial policy above. Do NOT reuse
+  infrastructure/auto_reaction_chooser.gd (that's only the headless "pass"/"first_legal" double).
+- Wire it into the player-strikes-enemy path at MainScene.gd:1008 (ADR-005's second live resolve()
+  call site): before resolve(), open the ENEMY's reaction window resolved_by "enemy" through this
+  policy (SYNCHRONOUS choose(), NO pop-up) and pass the chosen active_defense in — the mirror of the
+  enemy-strikes-player path (round_session.advance_ai_turn) but with the AI chooser instead of the
+  player pop-up. Reuses the SAME resolution.gd path.
+- Autonomous balance sim (round_session.gd:~545) stays PASS-only / deterministic — do NOT introduce
+  reaction variance into sim_results.json.
+
+** Acceptance
+Live: when the player Strikes the Skeleton, it sometimes Dodges/Blocks/Parries (no pop-up), visibly
+spends a reaction (budget drops — the enemy-budget-display fix already shows this), deterministically
+per seed; when it can't help or can't afford it, it Passes.
+
+────────────────────────────────────────────────────────────────────────────────
+* DEFERRED — PART C (P2): Opportunistic Strike (offensive reaction)
+Was FR-008/FR-009. 'Could' priority; first item cut when scope shrinks; depends on Part A's
+resolution path being proven first (now it is).
+
+** Intent
+An ADJACENT hostile Strides ⇒ the reactor may spend a reaction to make a melee Strike against the
+mover BEFORE the Stride resolves. Melee-only via the relaxable predicate.
+
+** Already BUILT (do NOT rebuild)
+- Legality: core/application/reaction_window.gd:~353 already returns [opportunistic_strike] for a
+  {trigger_type:"OpportunisticStrike", attack_context:{melee_reach:true}} trigger; the choice
+  constant + reaction-spend in resume() exist; tests/unit/test_reaction_window.gd:231-249 pin it.
+
+** GAPS to implement
+1. TRIGGER emission on the mover's Stride path (BOTH movers — symmetric, Guy-approved):
+   - Enemy mover: core/combat/ai.gd's decide_action (~ai.gd:189) EXECUTES the Stride as part of the
+     decision — the opportunistic window must open BEFORE that Stride mutates position.
+   - Player mover: MainScene _verb_bar_stride_execute → movement path, before the Stride commits.
+   - For each OTHER combatant adjacent to the mover's START hex, hostile, not Spent, and with melee
+     reach: build the OpportunisticStrike trigger and open its window. Reactor=player ⇒ pop-up;
+     reactor=enemy ⇒ the Part B AI policy decides (so Part C's enemy side depends on Part B).
+2. EFFECT resolution (the real gap — resume() only records the choice + spends today):
+   - On an opportunistic_strike choice, resolve a melee Strike from the reactor against the MOVER
+     through the SAME consolidated resolution path Part A established
+     (resolve_action_use_case.resolve / resolve_weapon_attack), and it must land BEFORE the mover's
+     Stride commits. Pay via spend_reaction (already how resume() spends), NOT spend_action.
+
+** Ordering / interrupt semantics (Guy-approved, settled)
+Resolve the opportunistic Strike, THEN — if the mover survives and the Stride is still legal —
+complete the Stride; if the mover is DOWNED, CANCEL the Stride. Multiple eligible reactors resolve
+in INITIATIVE order.
+
+** Acceptance
+Live: when the Skeleton Strides out of Titus's melee reach, Titus gets an Opportunistic Strike
+pop-up; taking it resolves a Strike on the Skeleton BEFORE it moves and spends Titus's reaction;
+a kill cancels the move. Symmetric for the enemy reactor via the Part B policy. Melee-only.
+
+────────────────────────────────────────────────────────────────────────────────
+* SUGGESTED NEXT-SPRINT (Iteration J) ORDER
+1. Part B (enemy reaction AI policy) — bounded, mostly wiring on an already-proven resolution path.
+2. Part C (Opportunistic Strike) — trigger emission + strike-before-move effect; its enemy side
+   depends on Part B's policy, so B first.
+Base off the Part-A HEAD once the real-play verification passes.
