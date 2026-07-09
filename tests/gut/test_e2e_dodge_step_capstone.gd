@@ -183,11 +183,43 @@ func _function_body(content: String, func_signature_prefix: String) -> String:
 # exit point (relocation + correct single rich log row) in ONE test run.
 # ══════════════════════════════════════════════════════════════════════════
 
+## _assert_seams_are_the_real_composition_root_bindings(instance) -> void —
+## FEAT-218 (closes PR-001/G2): identity/regression guard proving the ports
+## this suite's assertions rest on are still the EXACT Callables/objects
+## MainScene.gd's own composition root bound at boot -- never a local
+## double this (or any other) test body silently re-wired underneath the
+## capstone assertions above/below. Mirrors
+## tests/gut/test_seam_composition_root_wiring.gd's own identity checks
+## exactly; invoked at multiple points in this test body (before AND after
+## the deliberate, documented hex_choice_resolver substitution below) so a
+## future edit that accidentally re-wires ANY of these seams to a test-local
+## double fails immediately, here, rather than only in the dedicated suite.
+func _assert_seams_are_the_real_composition_root_bindings(instance) -> void:
+	var reposition_fn: Callable = instance.round_session._token_reposition_fn
+	assert_true(reposition_fn.is_valid(), "round_session._token_reposition_fn must remain bound")
+	assert_same(reposition_fn.get_object(), instance.hex_grid_view, "the token-reposition seam must remain bound to the REAL, booted hex_grid_view -- never re-wired to a local double inside this test body")
+	assert_eq(reposition_fn.get_method(), StringName("move_token"), "the token-reposition seam must remain bound to hex_grid_view's real move_token()")
+
+	var hex_choice_fn: Callable = instance.round_session._hex_choice_resolver_fn
+	assert_true(hex_choice_fn.is_valid(), "round_session._hex_choice_resolver_fn must remain bound")
+	assert_same(hex_choice_fn.get_object(), instance, "the hex-choice seam must remain bound to the REAL MainScene instance's resolve_hex_choice() call path -- never re-wired to a local double's own resolve method")
+	assert_eq(hex_choice_fn.get_method(), StringName("resolve_hex_choice"), "the hex-choice seam must remain bound to MainScene's real resolve_hex_choice()")
+
+	for fn in [instance.round_session._event_log_record_attack_fn, instance.round_session._event_log_render_attack_entry_fn, instance.round_session._event_log_record_reaction_fn]:
+		assert_true(fn.is_valid(), "every combat-log Callable must remain bound")
+		assert_same(fn.get_object(), instance.event_log_view, "every combat-log seam must remain bound to the REAL, booted event_log_view -- never re-wired to a local double inside this test body")
+
+
 func test_capstone_successful_dodge_relocates_defender_and_renders_single_rich_log_row_with_dodge_defense_segment() -> void:
 	var instance = _boot_main_scene()
 	await get_tree().process_frame
 
 	assert_eq(instance.event_log_view.get_entry_count(), 0, "sanity: the log must start empty before any Strike is scripted")
+
+	# FEAT-218 (G2 gap closure): prove the seams this test is about to
+	# exercise are the real composition-root bindings BEFORE this suite
+	# scripts anything.
+	_assert_seams_are_the_real_composition_root_bindings(instance)
 
 	var defender: Dictionary = instance._party[0]
 	assert_eq(defender.get("name", ""), "Titus", "fixture: Titus (the real player combatant) must be the prologue's defender")
@@ -261,7 +293,21 @@ func test_capstone_successful_dodge_relocates_defender_and_renders_single_rich_l
 	var scripted := ScriptedHexChoiceResolver.new(chosen_hex)
 	instance.hex_choice_resolver = scripted
 
+	# FEAT-218 (G2 gap closure): the line above deliberately substitutes ONLY
+	# the leaf `hex_choice_resolver` field -- this codebase's established,
+	# documented convention (see this file's top-level doc) for scripting a
+	# legal Step choice without a live human click. Prove the
+	# round_session-LEVEL seam Callable itself (`_hex_choice_resolver_fn`,
+	# and every other port this test depends on) is still the REAL
+	# composition-root binding, never a second, parallel seam re-wired
+	# alongside that documented substitution.
+	_assert_seams_are_the_real_composition_root_bindings(instance)
+
 	await instance.round_session._resolve_dodge_step_prompt(defender, {"defender_stepped": true})
+
+	# Re-assert once more after driving the Dodge-Step prompt: no seam was
+	# silently swapped out for a local double as a side effect of driving it.
+	_assert_seams_are_the_real_composition_root_bindings(instance)
 
 	assert_eq(scripted.call_count, 1, "the SAME successful Dodge this attack just resolved must invoke the Step-selection prompt exactly once")
 
