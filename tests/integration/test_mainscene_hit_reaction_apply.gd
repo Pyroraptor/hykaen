@@ -36,6 +36,30 @@ extends GutTest
 ##      Parry); assert no CombatantDefeatedEvent is ever emitted and no loss
 ##      state is shown (ResultScreenView.is_shown() stays false, Titus's own
 ##      HP panel never reaches 0).
+##
+## FEAT-219 (PR-002 remediation): DEF-001 ("on-hit mitigation cosmetic-only")
+## could not be confirmed genuinely fixed by an automated, code-verifiable
+## check alone, because RoundEvents.AttackEvent (the value object the
+## assertions above read) only ever carries the FINAL, post-mitigation
+## damage -- there was no live, observable field for the RAW (pre-mitigation)
+## damage a successful Parry/Block was supposed to have reduced. This suite
+## now additionally reads core/log/attack_event.gd's structured AttackEvent
+## (retrieved from the REAL, live event_log_view via
+## _latest_structured_attack_event() below -- record_attack()'s storage
+## channel, never a re-derived/recomputed value) to assert the RELATIONSHIP
+## between raw_damage and final_damage directly on the live combatant state,
+## closing the code-verifiable portion of this finding:
+##   5. Scripted successful Parry: final_damage < raw_damage by the
+##      documented mitigation amount (Resolution.apply_on_hit_defense()'s
+##      Parry formula: a success negates ALL raw damage -- final_damage ==
+##      0, raw_damage > 0).
+##   6. Scripted successful Block: final_damage < raw_damage by the
+##      documented mitigation amount (Resolution.apply_on_hit_defense()'s
+##      Block formula: max(0, raw_damage - block_reduction); pinned here, via
+##      OVERWHELMING_MITIGATION_STAT, to full suppression -- final_damage ==
+##      0, raw_damage > 0).
+##   7. Scripted Pass/no-reaction: final_damage == raw_damage (no unintended
+##      mitigation).
 
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 const RoundEventsClass = preload("res://core/rules/round_events.gd")
@@ -95,6 +119,30 @@ func _has_combatant_defeated_event(instance) -> bool:
 	return false
 
 
+## _latest_structured_attack_event(instance) -> AttackEvent or null
+##
+## FEAT-219 (PR-002 remediation): the accessor this suite adds to reach the
+## structured, storage-shaped core/log/attack_event.gd AttackEvent (which
+## carries BOTH damage_raw and damage_final -- unlike
+## core/rules/round_events.gd's RoundEvents.AttackEvent above, which only
+## ever carries damage_final) for the JUST-resolved Strike's row, driven
+## entirely through the REAL, live-booted event_log_view (never a
+## re-derived/recomputed value) -- exactly the same accessor
+## tests/gut/test_rich_log_enemy_attack.gd already established
+## (get_entry()'s attack_event_id -> get_structured_attack()). Returns null
+## if no row has been appended yet.
+func _latest_structured_attack_event(instance):
+	var count: int = instance.event_log_view.get_entry_count()
+	assert_true(count > 0, "at least one row must exist in the real event_log_view after a resolved Strike")
+	if count == 0:
+		return null
+	var attack_event_id = instance.event_log_view.get_entry(count - 1).get("attack_event_id", "")
+	assert_true(str(attack_event_id) != "", "the latest row must carry a non-empty attack_event_id")
+	var structured = instance.event_log_view.get_structured_attack(attack_event_id)
+	assert_not_null(structured, "the structured AttackEvent recorded via record_attack() must be retrievable for the just-resolved Strike")
+	return structured
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # Criterion 1 — hit + Parry: Titus's HP panel reflects ZERO damage taken.
 # ══════════════════════════════════════════════════════════════════════════
@@ -127,6 +175,22 @@ func test_hit_then_parry_leaves_titus_hp_panel_unchanged() -> void:
 	assert_eq(attack_events.size(), 1, "exactly one Strike must have resolved")
 	assert_true(attack_events[0].hit, "fixture assumption: the guaranteed-hit AC must actually produce a hit")
 	assert_eq(attack_events[0].damage_final, 0, "the committed AttackEvent itself must carry the mitigated (zero) final damage")
+
+	# FEAT-219 (PR-002 remediation, criterion 5): assert the RELATIONSHIP
+	# between raw and final damage directly on the live combatant state --
+	# not merely that final_damage happens to be zero (which, in isolation,
+	# is indistinguishable from a bug that always reports zero damage) but
+	# that it is STRICTLY LESS than the real raw_damage the to-hit phase
+	# actually rolled, matching Resolution.apply_on_hit_defense()'s
+	# documented Parry formula (a success negates ALL raw damage).
+	var structured_attack_event = _latest_structured_attack_event(instance)
+	if structured_attack_event != null:
+		assert_true(structured_attack_event.damage_raw > 0, "fixture assumption: a guaranteed hit must roll positive raw damage")
+		assert_true(
+			structured_attack_event.damage_final < structured_attack_event.damage_raw,
+			"a successful Parry must genuinely reduce final_damage below raw_damage -- not merely report a coincidental zero"
+		)
+		assert_eq(structured_attack_event.damage_final, 0, "Parry's documented mitigation amount is full negation: final_damage == 0")
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -161,6 +225,20 @@ func test_hit_then_block_leaves_titus_hp_panel_reflecting_the_mitigation_formula
 	assert_true(attack_events[0].hit)
 	assert_eq(attack_events[0].damage_final, 0, "block_value pinned to an overwhelming value must reduce committed damage per FR-001's formula: max(0, raw - reduction) = 0")
 
+	# FEAT-219 (PR-002 remediation, criterion 6): as with Parry above, assert
+	# the RELATIONSHIP between raw and final damage on the live combatant
+	# state -- final_damage must be strictly less than the real raw_damage
+	# rolled, matching Resolution.apply_on_hit_defense()'s documented Block
+	# formula: max(0, raw_damage - block_reduction).
+	var structured_attack_event = _latest_structured_attack_event(instance)
+	if structured_attack_event != null:
+		assert_true(structured_attack_event.damage_raw > 0, "fixture assumption: a guaranteed hit must roll positive raw damage")
+		assert_true(
+			structured_attack_event.damage_final < structured_attack_event.damage_raw,
+			"a successful Block must genuinely reduce final_damage below raw_damage -- not merely report a coincidental zero"
+		)
+		assert_eq(structured_attack_event.damage_final, 0, "block_value pinned to an overwhelming value must reduce final_damage to 0 per max(0, raw - reduction)")
+
 
 # ══════════════════════════════════════════════════════════════════════════
 # Criterion 3 — hit + Pass: Titus's HP panel takes the FULL, unmitigated hit.
@@ -190,6 +268,17 @@ func test_hit_then_pass_leaves_titus_hp_panel_showing_full_unmitigated_damage() 
 
 	var hp_after: int = instance.status_panel_view.get_status(titus_id).get("hp_current", -1)
 	assert_eq(hp_before - hp_after, attack_events[0].damage_final, "Titus's HP panel must show damage taken EXACTLY matching the unmitigated (raw) committed damage -- Pass reproduces the unmitigated outcome byte-for-byte")
+
+	# FEAT-219 (PR-002 remediation, criterion 7): declining every reaction
+	# (Pass) must leave final_damage EQUAL to raw_damage -- no unintended
+	# mitigation is ever silently applied when the player chose none.
+	var structured_attack_event = _latest_structured_attack_event(instance)
+	if structured_attack_event != null:
+		assert_true(structured_attack_event.damage_raw > 0, "fixture assumption: a guaranteed hit must roll positive raw damage")
+		assert_eq(
+			structured_attack_event.damage_final, structured_attack_event.damage_raw,
+			"Pass/no-reaction must leave final_damage EQUAL to raw_damage -- no unintended mitigation"
+		)
 
 
 # ══════════════════════════════════════════════════════════════════════════

@@ -1387,6 +1387,24 @@ func advance_ai_turn() -> Dictionary:
 		)
 
 		var resolve_result: Dictionary = {}
+		# FEAT-219 (PR-002 remediation): the RAW (pre-mitigation) damage for
+		# THIS Strike, captured directly from the to-hit phase's own partial
+		# result (`partial.get("damage_raw", 0)`) inside the two_phase_commit_pending
+		# branch below -- NEVER re-derived from resolution.gd a second way.
+		# -1 is a "not captured this call" sentinel (the legacy atomic
+		# `else` branch below never populates it -- resolve_action_use_case.gd
+		# is out of this feature's scope; see the structured_attack_event
+		# construction below, which falls back to its pre-existing
+		# damage_final-duplicate behavior in that case, an unchanged NFR-004
+		# default-safety path). Consumed below to fix core/log/attack_event.gd's
+		# damage_raw field, which this call site previously populated with a
+		# SECOND COPY of damage_final instead of the true raw damage --
+		# silently making it impossible for any observer (rich log row,
+		# get_structured_attack()) to ever see that Parry/Block genuinely
+		# reduced damage relative to the raw roll (the exact gap DEF-001/
+		# PR-002 flagged: mitigation could regress to a no-op without any
+		# code-verifiable signal catching it).
+		var strike_damage_raw_for_log: int = -1
 
 		if two_phase_commit_pending:
 			# FEAT-003 (US-002 / FR-002, G3 remediation): the GENUINE two-phase
@@ -1430,6 +1448,11 @@ func advance_ai_turn() -> Dictionary:
 				var partial: Dictionary = to_hit_uc.resolve_to_hit(combatant, target, weapon, "ac", "none", {})
 				var attack_hit: bool = partial.get("hit", false)
 				var on_hit_defense: String = "none"
+				# FEAT-219 (PR-002 remediation): capture the true pre-mitigation
+				# damage for this Strike straight off the to-hit phase's own
+				# result -- the SAME `partial` dict apply_uc.apply() below is
+				# handed, never a second/re-derived read.
+				strike_damage_raw_for_log = partial.get("damage_raw", 0)
 
 				if ReactionWindowClass.is_on_hit_mitigation_eligible(false, attack_hit):
 					var onhit_trigger: Dictionary = _build_onhit_mitigation_trigger(combatant, target, attack_hit)
@@ -1532,6 +1555,22 @@ func advance_ai_turn() -> Dictionary:
 			if resolved_attack_event_for_log != null:
 				var attack_event_id: String = _generate_attack_event_id()
 				var log_weapon: Dictionary = combatant.get("weapon", {})
+				# FEAT-219 (PR-002 remediation): the structured, storage-shaped
+				# AttackEvent's damage_raw field must carry the ACTUAL
+				# pre-mitigation damage (strike_damage_raw_for_log, captured
+				# above straight off the to-hit phase) -- previously this call
+				# site passed a SECOND COPY of damage_final into this slot,
+				# making it impossible for any observer (get_structured_attack(),
+				# the rendered rich log row) to ever see that a successful
+				# Parry/Block genuinely reduced damage relative to the raw
+				# roll. The -1 sentinel (legacy atomic path, out of this
+				# feature's scope) preserves the pre-existing damage_final-
+				# duplicate fallback byte-for-byte (NFR-004 default-safety).
+				var log_damage_raw: int = (
+					strike_damage_raw_for_log
+					if strike_damage_raw_for_log >= 0
+					else resolved_attack_event_for_log.damage_final
+				)
 				var structured_attack_event = AttackEventClass.new(
 					attack_event_id,
 					_round_number,
@@ -1541,7 +1580,7 @@ func advance_ai_turn() -> Dictionary:
 					resolved_attack_event_for_log.roll,
 					resolved_attack_event_for_log.hit,
 					resolved_attack_event_for_log.crit,
-					resolved_attack_event_for_log.damage_final,
+					log_damage_raw,
 					resolved_attack_event_for_log.damage_final,
 					false,
 					false
