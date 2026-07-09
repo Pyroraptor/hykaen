@@ -288,8 +288,22 @@ func test_scenario_dodge_success_short_circuits_the_strike_with_no_onhit_window(
 	assert_eq(attack_event.damage_final, 0)
 
 	# ── Final combat log entry (test_criteria #5) ───────────────────────────
-	var paired: bool = _record_correlated_reaction(instance, attack_event.id, "PreHitAvoidance", "dodge", "player", "dodge_succeeded")
-	assert_true(paired, "the PreHitAvoidance ReactionResolvedEvent must correlate to the just-recorded real AttackEvent")
+	# FEAT-008 (US-008 / FR-007, Iteration J-R2 Part D): MainScene's
+	# composition root now wires RenderCombatLogUseCase into
+	# round_session.advance_ai_turn() FOR REAL, so the PreHitAvoidance
+	# ReactionResolvedEvent for this Strike is ALREADY correlated to the real
+	# AttackEvent by production code -- a manual record_reaction() call here
+	# would now be rejected as a duplicate pairing for the SAME
+	# attack_event_id + window_id (see event_log_view.gd's documented dedup
+	# contract). Assert the ALREADY-paired reaction directly instead.
+	var paired_reaction = instance.event_log_view.get_paired_reaction(attack_event.id, "PreHitAvoidance")
+	assert_not_null(
+		paired_reaction,
+		"production code (RenderCombatLogUseCase, wired via round_session.gd's advance_ai_turn()) must already have paired a ReactionResolvedEvent to this Strike's PreHitAvoidance window"
+	)
+	if paired_reaction != null:
+		assert_eq(paired_reaction.choice, "dodge")
+		assert_eq(paired_reaction.outcome, "dodge_succeeded")
 
 	var defense_outcome: String = instance.event_log_view.get_active_defense_outcome_string(attack_event.id)
 	assert_eq(defense_outcome, "dodge-succeeded")
@@ -495,13 +509,27 @@ func test_scenario_dodge_declined_hit_then_parry_chosen_at_onhit_window() -> voi
 	var outcome: Dictionary = await _run_dodge_declined_hit_scenario(instance, "parry")
 	var attack_event = outcome["attack_event"]
 
-	var paired_prehit: bool = _record_correlated_reaction(instance, attack_event.id, "PreHitAvoidance", "none", "player", "none")
-	var paired_onhit: bool = _record_correlated_reaction(instance, attack_event.id, "OnHitMitigation", "parry", "player", "none")
-	assert_true(paired_prehit)
-	assert_true(paired_onhit, "the OnHitMitigation ReactionResolvedEvent (choice='parry') must correlate to the same real AttackEvent")
+	# FEAT-008 (US-008 / FR-007, Iteration J-R2 Part D): MainScene's
+	# composition root now wires RenderCombatLogUseCase into
+	# round_session.advance_ai_turn() FOR REAL, so the OnHitMitigation
+	# ReactionResolvedEvent for this Strike is ALREADY correlated to the real
+	# AttackEvent by production code (a manual record_reaction() call for the
+	# SAME attack_event_id + window_id would now be rejected as a duplicate
+	# pairing). Assert the ALREADY-paired reaction directly instead -- and,
+	# since parry_bonus was pinned to overwhelmingly succeed above, the
+	# derived outcome is genuinely "parry_succeeded", not the pre-FEAT-008
+	# "no reaction ever recorded" default of "none".
+	var paired_onhit = instance.event_log_view.get_paired_reaction(attack_event.id, "OnHitMitigation")
+	assert_not_null(
+		paired_onhit,
+		"production code (RenderCombatLogUseCase, wired via round_session.gd's advance_ai_turn()) must already have paired a ReactionResolvedEvent to this Strike's OnHitMitigation window"
+	)
+	if paired_onhit != null:
+		assert_eq(paired_onhit.choice, "parry")
+		assert_eq(paired_onhit.outcome, "parry_succeeded")
 
 	var defense_outcome: String = instance.event_log_view.get_active_defense_outcome_string(attack_event.id)
-	assert_eq(defense_outcome, "none")
+	assert_eq(defense_outcome, "parry-succeeded")
 
 	var hit_label: String = "Critical Hit" if attack_event.is_crit else "Hit"
 	var rendered: String = instance.event_log_view.render_attack_entry(attack_event.id)
@@ -509,7 +537,7 @@ func test_scenario_dodge_declined_hit_then_parry_chosen_at_onhit_window() -> voi
 	assert_string_contains(rendered, hit_label)
 	assert_string_contains(rendered, str(attack_event.damage_raw))
 	assert_string_contains(rendered, str(attack_event.damage_final))
-	assert_string_contains(rendered, "Defense: none")
+	assert_string_contains(rendered, "Defense: parry-succeeded")
 
 
 func test_scenario_dodge_declined_hit_then_block_chosen_at_onhit_window() -> void:
@@ -519,13 +547,33 @@ func test_scenario_dodge_declined_hit_then_block_chosen_at_onhit_window() -> voi
 	var outcome: Dictionary = await _run_dodge_declined_hit_scenario(instance, "block")
 	var attack_event = outcome["attack_event"]
 
-	var paired_prehit: bool = _record_correlated_reaction(instance, attack_event.id, "PreHitAvoidance", "none", "player", "none")
-	var paired_onhit: bool = _record_correlated_reaction(instance, attack_event.id, "OnHitMitigation", "block", "player", "none")
-	assert_true(paired_prehit)
-	assert_true(paired_onhit, "the OnHitMitigation ReactionResolvedEvent (choice='block') must correlate to the same real AttackEvent")
+	# FEAT-008 (US-008 / FR-007): see the parry scenario's identical doc
+	# above -- production already pairs this Strike's OnHitMitigation
+	# ReactionResolvedEvent; Block's outcome is always "block_reduced_by_n"
+	# once attempted (never succeeded/failed), with reduced_by equal to the
+	# actual damage-reduction amount (the TRUE pre-mitigation damage_raw --
+	# resolve_to_hit_uc's own `partial.damage_raw` -- minus the committed
+	# damage_final; block_value was pinned to overwhelmingly succeed above,
+	# so damage_final is 0 and reduced_by equals the full pre-mitigation
+	# damage). NOTE: this structured AttackEvent's OWN damage_raw field is
+	# NOT that true pre-mitigation value -- core/application/round_session.gd's
+	# _record_structured_attack() convention mirrors it from the
+	# already-final resolve_result (damage_raw == damage_final always holds
+	# on THIS structured record, per _run_dodge_declined_hit_scenario()'s own
+	# doc above) -- so reduced_by is asserted here only as a non-negative
+	# int, never pinned against attack_event.damage_raw.
+	var paired_onhit = instance.event_log_view.get_paired_reaction(attack_event.id, "OnHitMitigation")
+	assert_not_null(
+		paired_onhit,
+		"production code (RenderCombatLogUseCase, wired via round_session.gd's advance_ai_turn()) must already have paired a ReactionResolvedEvent to this Strike's OnHitMitigation window"
+	)
+	if paired_onhit != null:
+		assert_eq(paired_onhit.choice, "block")
+		assert_eq(paired_onhit.outcome, "block_reduced_by_n")
+		assert_true(int(paired_onhit.reduced_by) >= 0, "reduced_by must be a non-negative int")
 
 	var defense_outcome: String = instance.event_log_view.get_active_defense_outcome_string(attack_event.id)
-	assert_eq(defense_outcome, "none")
+	assert_true(defense_outcome.begins_with("block reduced-by-"), "defense_outcome must render Block's 'block reduced-by-N' shape (got '%s')" % defense_outcome)
 
 	var hit_label: String = "Critical Hit" if attack_event.is_crit else "Hit"
 	var rendered: String = instance.event_log_view.render_attack_entry(attack_event.id)
@@ -533,7 +581,7 @@ func test_scenario_dodge_declined_hit_then_block_chosen_at_onhit_window() -> voi
 	assert_string_contains(rendered, hit_label)
 	assert_string_contains(rendered, str(attack_event.damage_raw))
 	assert_string_contains(rendered, str(attack_event.damage_final))
-	assert_string_contains(rendered, "Defense: none")
+	assert_string_contains(rendered, "Defense: block reduced-by-")
 
 
 func test_scenario_dodge_declined_hit_then_no_reaction_chosen_at_onhit_window() -> void:
@@ -543,10 +591,18 @@ func test_scenario_dodge_declined_hit_then_no_reaction_chosen_at_onhit_window() 
 	var outcome: Dictionary = await _run_dodge_declined_hit_scenario(instance, "none")
 	var attack_event = outcome["attack_event"]
 
-	var paired_prehit: bool = _record_correlated_reaction(instance, attack_event.id, "PreHitAvoidance", "none", "player", "none")
-	var paired_onhit: bool = _record_correlated_reaction(instance, attack_event.id, "OnHitMitigation", "none", "player", "none")
-	assert_true(paired_prehit)
-	assert_true(paired_onhit, "the OnHitMitigation ReactionResolvedEvent (choice='none', declined) must correlate to the same real AttackEvent")
+	# FEAT-008 (US-008 / FR-007): see the parry scenario's identical doc
+	# above -- production already pairs this Strike's OnHitMitigation
+	# ReactionResolvedEvent, recorded with choice/outcome "none" since
+	# OnHitMitigation was declined (Pass).
+	var paired_onhit = instance.event_log_view.get_paired_reaction(attack_event.id, "OnHitMitigation")
+	assert_not_null(
+		paired_onhit,
+		"production code (RenderCombatLogUseCase, wired via round_session.gd's advance_ai_turn()) must already have paired a ReactionResolvedEvent to this Strike's OnHitMitigation window"
+	)
+	if paired_onhit != null:
+		assert_eq(paired_onhit.choice, "none")
+		assert_eq(paired_onhit.outcome, "none")
 
 	var defense_outcome: String = instance.event_log_view.get_active_defense_outcome_string(attack_event.id)
 	assert_eq(defense_outcome, "none")

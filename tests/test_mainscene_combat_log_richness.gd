@@ -140,19 +140,28 @@ func test_boot_real_mainscene_scripted_enemy_strike_and_reaction_produces_rich_l
 	assert_eq(attack_event.target_id, player.get("combatant_id", ""), "the resolved Strike must target the real Titus player combatant")
 	assert_true(attack_event.roll_total > 0, "the real resolution.gd math must produce a non-zero roll_total for the resolved Strike")
 
-	# ── Pair a structured ReactionResolvedEvent (core/log/reaction_resolved_event.gd)
-	# to the just-recorded AttackEvent, correlated by the REAL attack_event_id
-	# round_session generated, and derived from the REAL resolved outcome (a
-	# successful Dodge produces a miss; a failed Dodge still produces a hit --
-	# resolution.gd's own math, never re-derived by this suite) -- recording
-	# it into the REAL event_log_view via its FEAT-007 record_reaction()
-	# accessor. ────────────────────────────────────────────────────────────
-	var outcome: String = "dodge_failed" if attack_event.is_hit else "dodge_succeeded"
-	var reaction_event := ReactionResolvedEventClass.new(
-		"RE-mainscene-1", attack_event.id, "PreHitAvoidance", "dodge", "test", outcome
+	# ── FEAT-008 (US-008 / FR-007, Iteration J-R2 Part D): MainScene's
+	# composition root now wires RenderCombatLogUseCase into
+	# round_session.advance_ai_turn() FOR REAL (set_event_log_record_reaction_fn
+	# -> event_log_view.record_reaction), so the ReactionResolvedEvent for
+	# this Skeleton Strike's PreHitAvoidance window is ALREADY paired to the
+	# real AttackEvent by production code -- this suite no longer needs to
+	# construct/record one itself (a manual record_reaction() call here would
+	# now be rejected as a duplicate pairing for the SAME attack_event_id +
+	# window_id, per that accessor's own documented dedup contract). The
+	# outcome derived by production ("dodge_succeeded"/"dodge_failed") mirrors
+	# the REAL resolved outcome (a successful Dodge produces a miss; a failed
+	# Dodge still produces a hit -- resolution.gd's own math, never re-derived
+	# by this suite). ─────────────────────────────────────────────────────
+	var expected_outcome: String = "dodge_failed" if attack_event.is_hit else "dodge_succeeded"
+	var paired_reaction = instance.event_log_view.get_paired_reaction(attack_event.id, "PreHitAvoidance")
+	assert_not_null(
+		paired_reaction,
+		"production code (RenderCombatLogUseCase, wired via round_session.gd's advance_ai_turn()) must already have paired a ReactionResolvedEvent to this Strike's PreHitAvoidance window"
 	)
-	var paired: bool = instance.event_log_view.record_reaction(reaction_event, attack_event.id)
-	assert_true(paired, "record_reaction() must accept the pairing against the just-recorded real AttackEvent")
+	if paired_reaction != null:
+		assert_eq(paired_reaction.choice, "dodge", "the paired reaction's choice must reflect the scripted Dodge resolver's answer")
+		assert_eq(paired_reaction.outcome, expected_outcome, "the paired reaction's outcome must reflect the REAL resolved hit/miss result")
 
 	# ── Criterion 2: the log entry produced carries roll_total and a
 	# non-empty active-defense-outcome field via the FEAT-007 structured

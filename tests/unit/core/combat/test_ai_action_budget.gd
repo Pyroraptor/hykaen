@@ -322,12 +322,24 @@ func test_application_layer_contains_no_new_port_or_use_case_class() -> void:
 	# to-hit phase reports defender_stepped=true (see that file's own header
 	# doc, and core/application/round_session.gd's `_resolve_dodge_step_prompt()`
 	# doc).
+	#
+	# FEAT-008 (US-008 / FR-007, Dodge-Step steel thread) deliberately extends
+	# this whitelist by ONE more file: core/application/render_combat_log_use_case.gd
+	# (RenderCombatLogUseCase) -- the APPLICATION-layer use case that derives
+	# the active-defense outcome ("Defense: <outcome>") from an
+	# already-resolved reaction and records it via the injected
+	# record_reaction Callable, so the rich combat log's Defense segment
+	# reflects the ACTUAL dodge/parry/block/none outcome instead of always
+	# defaulting to "none" (see that file's own header doc, and
+	# core/application/round_session.gd's `advance_ai_turn()` /
+	# MainScene.gd's `_verb_bar_strike_execute()` wiring doc).
 	var expected_files: Array = [
 		"ai_decision_port.gd",
 		"apply_on_hit_defense_uc.gd",
 		"determine_outcome_use_case.gd",
 		"event_sink_port.gd",
 		"reaction_window.gd",
+		"render_combat_log_use_case.gd",
 		"resolve_action_use_case.gd",
 		"resolve_dodge_step_use_case.gd",
 		"resolve_to_hit_uc.gd",

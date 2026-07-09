@@ -190,6 +190,7 @@ const ReactionWindowClass              = preload("res://core/application/reactio
 const PlayerReactionChooserClass       = preload("res://presentation/player_reaction_chooser.gd")
 const HexChoiceResolverPortClass       = preload("res://core/application/ports/hex_choice_resolver_port.gd")
 const AttackEventClass                 = preload("res://core/log/attack_event.gd")
+const RenderCombatLogUseCaseClass      = preload("res://core/application/render_combat_log_use_case.gd")
 
 ## The steel-thread's entry_point: the one encounter this composition root boots into.
 const PROLOGUE_ENCOUNTER_PATH: String = "res://data/encounters/prologue_encounter.tres"
@@ -977,6 +978,14 @@ func rewire_session() -> void:
 			round_session.set_event_log_entry_count_fn(Callable(event_log_view, "get_entry_count"))
 			round_session.set_event_log_render_attack_entry_fn(Callable(event_log_view, "render_attack_entry"))
 			round_session.set_event_log_overwrite_entry_fn(Callable(event_log_view, "overwrite_entry_as_rich"))
+			# FEAT-008 (US-008 / FR-007): wire the structured reaction recorder
+			# into the REAL composition root -- mirrors the record_attack seam
+			# immediately above. Without this binding, RenderCombatLogUseCase
+			# (invoked from round_session.gd's advance_ai_turn()) still derives
+			# the correct ReactionResolvedEvent but never records it anywhere
+			# observable, leaving the enemy-strikes-player path's Defense
+			# segment stuck on its "none" default.
+			round_session.set_event_log_record_reaction_fn(Callable(event_log_view, "record_reaction"))
 
 		# ── FEAT-002 (US-002, Dodge-Step steel thread): wire RoundSession's
 		# Dodge-Step seams to the REAL composition-root adapters -- the SAME
@@ -1268,6 +1277,28 @@ func _verb_bar_strike_execute(selection) -> Dictionary:
 			)
 
 			event_log_view.record_attack(structured_attack_event)
+
+			# FEAT-008 (US-008 / FR-007): pair this Strike's reaction outcome
+			# to the JUST-recorded structured AttackEvent via
+			# RenderCombatLogUseCase.record_reaction_outcome() -- mirrors
+			# core/application/round_session.gd's identical wiring for the
+			# enemy-strikes-player path. This call site's Strike is always
+			# resolved with active_defense "none" (this file's own FEAT-005
+			# "Part A pass-through" doc above -- the enemy never reacts on
+			# THIS call site yet), so `choice` is always "none" here today;
+			# still invoking RenderCombatLogUseCase (rather than leaving this
+			# call site out of the pipeline entirely) keeps BOTH live call
+			# sites uniformly wired through the SAME reaction-recording seam,
+			# ready for a later feature (a real enemy reaction policy) to
+			# start passing a genuine choice through this SAME path with zero
+			# further plumbing.
+			var render_combat_log_use_case := RenderCombatLogUseCaseClass.new()
+			render_combat_log_use_case.record_reaction_outcome(
+				attack_event_id, RenderCombatLogUseCaseClass.WINDOW_PRE_HIT_AVOIDANCE, "none",
+				"auto", false, 0,
+				Callable(event_log_view, "record_reaction")
+			)
+
 			var rich_text: String = event_log_view.render_attack_entry(attack_event_id)
 			event_log_view.overwrite_entry_as_rich(pending_entry_index, rich_text, attack_event_id)
 

@@ -74,6 +74,16 @@ const ReactionWindowClass = preload("res://core/application/reaction_window.gd")
 ## set_event_log_record_attack_fn() below.
 const AttackEventClass = preload("res://core/log/attack_event.gd")
 
+## RenderCombatLogUseCaseClass — FEAT-008 (US-008 / FR-007): preloaded ONLY
+## to derive/record the active-defense outcome ("Defense: <outcome>") for a
+## just-resolved Strike's paired reaction — see that use case's own
+## file-level doc. Both files live in the SAME application layer (ADR-002),
+## so this is not a layering violation; RoundSession never imports/
+## references presentation/event_log_view.gd itself (ADR-001/ADR-002) — only
+## this use case, which in turn only invokes whichever Callable a
+## composition root injects via set_event_log_record_reaction_fn() below.
+const RenderCombatLogUseCaseClass = preload("res://core/application/render_combat_log_use_case.gd")
+
 ## ResolveDodgeStepUseCaseClass — FEAT-002 (US-002, Dodge-Step steel thread):
 ## preloaded ONLY to construct the use case that decides whether/how to
 ## prompt for a Dodge-Step destination hex once a Strike's to-hit phase has
@@ -729,6 +739,30 @@ func set_event_log_overwrite_entry_fn(fn: Callable) -> void:
 	_event_log_overwrite_entry_fn = fn
 
 
+## _event_log_record_reaction_fn — FEAT-008 (US-008 / FR-007): an OPTIONAL,
+## injected, duck-typed Callable satisfying the design's ICombatLogPort
+## record_reaction() half — `func(reaction_event, correlated_attack_id) ->
+## bool` — mirroring `_event_log_record_attack_fn` above. Bound by the
+## composition root (MainScene.gd's rewire_session()) to
+## presentation/event_log_view.gd's record_reaction(), so
+## RenderCombatLogUseCase (see `_generate_attack_event_id()`'s sibling call
+## site below, inside advance_ai_turn()) can pair this Strike's ACTUAL
+## dodge/steel/parry/block outcome to its AttackEvent — closing the gap where
+## nothing in production code ever called record_reaction(), leaving every
+## rich row's Defense segment stuck on its "no reaction recorded" "none"
+## default (see render_combat_log_use_case.gd's file-level doc). Left as an
+## invalid (unbound) Callable — the default — for every pre-existing
+## caller/test double, which never sets one (NFR-004): RenderCombatLogUseCase
+## itself still returns the derived ReactionResolvedEvent in that case, it is
+## simply never recorded anywhere observable.
+var _event_log_record_reaction_fn: Callable = Callable()
+
+## set_event_log_record_reaction_fn(fn) -> void — FEAT-008: injects the
+## Callable described above.
+func set_event_log_record_reaction_fn(fn: Callable) -> void:
+	_event_log_record_reaction_fn = fn
+
+
 ## _trace(message) -> void — FEAT-007: appends "DEBUG: <message>" to
 ## `_debug_trace_log` AND prints it (mirroring MainScene.gd's existing
 ## debug-log convention), but ONLY when `_debug_trace_enabled` is true — a
@@ -1203,6 +1237,22 @@ func advance_ai_turn() -> Dictionary:
 		# outcome" test_criterion.
 		var active_defense: String = "none"
 		var defense_context: Dictionary = {}
+		# FEAT-008 (US-008 / FR-007): populated by whichever reaction branch
+		# below actually resolved a defense for this Strike (the PreHitAvoidance
+		# Dodge/Steel branch, or the OnHitMitigation Parry/Block branch inside
+		# the two_phase_commit_pending block) — consumed once, right after
+		# record_attack() below, to call RenderCombatLogUseCase.
+		## record_reaction_outcome() so the rich row's Defense segment reflects
+		## the ACTUAL outcome rather than always defaulting to "none".
+		## reaction_window_id_for_log stays "" (no recording call) whenever
+		## neither branch below resolved a reaction-eligible window for this
+		## Strike (e.g. the legacy single-window "WeaponAttack" fallback path,
+		## which no real composition-root boot ever takes — see this method's
+		## own doc on `_onhit_mitigation_resolver_fn.is_valid()`).
+		var reaction_window_id_for_log: String = ""
+		var reaction_choice_for_log: String = "none"
+		var reaction_success_for_log: bool = false
+		var reaction_reduced_by_for_log: int = 0
 		# FEAT-003 (US-002 / FR-002, G3 remediation): true once this Strike has
 		# opted into GENUINE two-phase commit -- see the `else` branch below
 		# (immediately preceding the removed trace-only stub this feature
@@ -1406,6 +1456,20 @@ func advance_ai_turn() -> Dictionary:
 					_round_number, actor_updated_action_budget
 				)
 
+				# FEAT-008 (US-008 / FR-007): capture the OnHitMitigation
+				# outcome for RenderCombatLogUseCase below -- reformats
+				# apply_on_hit_defense()'s ALREADY-COMPUTED
+				# active_defense_applied/on_hit_suppressed/damage_final fields
+				# (never re-derived here). reduced_by is the actual
+				# damage-reduction amount Block applied (0 for a non-Block
+				# choice, or a Block that reduced nothing); success mirrors
+				# on_hit_suppressed, meaningful only for a Parry (see
+				# render_combat_log_use_case.gd's _derive_outcome() doc).
+				reaction_window_id_for_log = RenderCombatLogUseCaseClass.WINDOW_ON_HIT_MITIGATION
+				reaction_choice_for_log = apply_result.get("active_defense_applied", "none")
+				reaction_success_for_log = apply_result.get("on_hit_suppressed", false)
+				reaction_reduced_by_for_log = max(0, partial.get("damage_raw", 0) - apply_result.get("damage_final", 0))
+
 				var history_entry = RoundEventsClass.RoundHistoryEntry.new(
 					_round_number, _cycle_index, combatant.get("name", ""), action_name, spend_result.get("remaining", -1)
 				)
@@ -1433,6 +1497,22 @@ func advance_ai_turn() -> Dictionary:
 				combatant, action_economy, target, action_name, _round_number, _cycle_index,
 				"", active_defense, defense_context
 			)
+
+			# FEAT-008 (US-008 / FR-007): capture the PreHitAvoidance outcome
+			# for RenderCombatLogUseCase below -- only reachable when
+			# active_defense is "dodge"/"steel" (a genuine pre-hit reaction was
+			# chosen; see the branch above that set it). Dodge/Steel succeeded
+			# iff the JUST-resolved Strike's own "event" reports the attack
+			# missed (core/rules/resolution.gd's resolve_to_hit() `not hit`
+			# result, mirrored onto RoundEvents.AttackEvent.hit here) -- never
+			# re-derived, only read back from the SAME resolved event this
+			# method already forwards to record_attack() below.
+			if active_defense == "dodge" or active_defense == "steel":
+				var resolved_event_for_reaction = resolve_result.get("event", null)
+				if resolved_event_for_reaction != null:
+					reaction_window_id_for_log = RenderCombatLogUseCaseClass.WINDOW_PRE_HIT_AVOIDANCE
+					reaction_choice_for_log = active_defense
+					reaction_success_for_log = not resolved_event_for_reaction.hit
 
 		any_action_taken = resolve_result.get("resolved", false)
 
@@ -1469,6 +1549,27 @@ func advance_ai_turn() -> Dictionary:
 
 				if _event_log_record_attack_fn.is_valid():
 					_event_log_record_attack_fn.call(structured_attack_event)
+
+				# FEAT-008 (US-008 / FR-007): pair this Strike's ACTUAL
+				# dodge/steel/parry/block outcome (captured above by whichever
+				# reaction branch this Strike actually took --
+				# reaction_window_id_for_log/reaction_choice_for_log/
+				# reaction_success_for_log/reaction_reduced_by_for_log) to the
+				# JUST-recorded structured AttackEvent via
+				# RenderCombatLogUseCase.record_reaction_outcome(), so
+				# render_attack_entry() below renders the CORRECT
+				# 'Defense: <outcome>' segment instead of always falling back
+				# to "none". A no-op (no ReactionResolvedEvent recorded) when
+				# neither reaction branch resolved a window for this Strike --
+				# reaction_window_id_for_log stays "" in that case (see its own
+				# doc above).
+				if reaction_window_id_for_log != "":
+					var render_combat_log_use_case := RenderCombatLogUseCaseClass.new()
+					render_combat_log_use_case.record_reaction_outcome(
+						attack_event_id, reaction_window_id_for_log, reaction_choice_for_log,
+						"human", reaction_success_for_log, reaction_reduced_by_for_log,
+						_event_log_record_reaction_fn
+					)
 
 				# FEAT-006 (US-006 / FR-006, Iteration J-R2 Part D): mirror
 				# MainScene.gd's `_verb_bar_strike_execute()` player-path rich-log
