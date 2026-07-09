@@ -50,6 +50,27 @@
 ## ReactionResolvedEvent. Purely a reformatting of already-computed data —
 ## this file never rolls dice, never computes damage, and never imports or
 ## calls into core/rules/resolution.gd.
+##
+## Current-iteration US-007 ("Suppress duplicate basic log entry", design
+## notes' ICombatLogPort.suppress_basic_entry() contract): overwrite_entry_as_rich()
+## below IS this steel thread's concrete implementation of that contract —
+## the plain-format row on_attack_event() appends is overwritten IN PLACE at
+## its OWN append-order slot rather than left standing alongside a second,
+## freshly-appended rich row, so no basic+rich duplicate pair for the SAME
+## attack ever exists, even transiently (eliminates the "trace-but-don't-
+## apply" anti-pattern for the visible combat log). Both live call sites —
+## MainScene.gd's `_verb_bar_strike_execute()` (player-strikes-enemy) and
+## core/application/round_session.gd's `advance_ai_turn()`
+## (enemy-strikes-player) — already drive this same overwrite-in-place path
+## (their own FEAT-005/FEAT-006 doc comments below `overwrite_entry_as_rich()`
+## describe it); tests/gut/test_log_single_row_per_attack.gd is the
+## cross-path regression proving BOTH paths, driven back-to-back through
+## ONE booted composition root in the SAME round, each still produce
+## exactly one visible row per attack — and that other, non-visible
+## consumers of the same broadcast AttackEvent (e.g.
+## presentation/status_panel_view.gd's independent EventSinkPort
+## subscription) are entirely unaffected by this suppression, since it only
+## ever mutates event_log_view's OWN `_entries`/`_labels` backing store.
 
 class_name EventLogView
 extends Control
@@ -334,7 +355,9 @@ func render_attack_entry(attack_event_id) -> String:
 
 
 ## overwrite_entry_as_rich(index, text, attack_event_id) → bool — FEAT-005
-## (US-005, Iteration J-R2 Part D): overwrites the ALREADY-APPENDED entry at
+## (US-005, Iteration J-R2 Part D; formalized as the current iteration's
+## US-007 ICombatLogPort.suppress_basic_entry() contract, see this file's
+## top-level doc): overwrites the ALREADY-APPENDED entry at
 ## append-order `index` (its `_entries[index]`/`_labels[index]` pairing) in
 ## place with an already-rendered rich text (the caller renders it via
 ## render_attack_entry() first; this method never renders/formats anything
