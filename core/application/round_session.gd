@@ -386,6 +386,74 @@ func _resolve_onhit_mitigation(trigger: Dictionary) -> Dictionary:
 	return {"choice": "none"}
 
 
+## _hex_choice_resolver_fn — OPTIONAL (FEAT-001 / US-001, Dodge-Step steel
+## thread; ADR-001/ADR-002/ADR-006 "no duplicate seam"): an injected,
+## duck-typed Callable satisfying THIS SAME reused FEAT-001 hex-choice seam's
+## contract -- `func(legal_hexes: Array) -> HexCoord | null`
+## (core/application/ports/hex_choice_resolver_port.gd's `resolve`/
+## `choose_step_hex` contract, already proven end-to-end against the REAL
+## MainScene.gd composition root by
+## tests/application/test_hex_choice_resolver_seam.gd and
+## tests/gut/test_hex_choice_seam_dodge_step.gd) -- mirrors every other
+## Dependency-Inversion Callable seam already established in this file
+## (_token_reposition_fn / _reaction_resolver_fn / _prehit_avoidance_resolver_fn
+## / _onhit_mitigation_resolver_fn) exactly: RoundSession depends on this
+## Callable ONLY as a signature, never importing/referencing
+## core/application/ports/hex_choice_resolver_port.gd's concrete adapters or
+## MainScene.gd by type (ADR-001/ADR-002). Establishing this seam on
+## RoundSession is this feature's (FEAT-001 / US-001) ENTIRE scope for this
+## file -- no call site in advance_ai_turn() (or anywhere else) invokes it
+## yet; threading a genuine Dodge-Step await through a future
+## ResolveDodgeStepUseCase is separate, later work (mirrors this file's own
+## established "establishing this seam is this feature's entire scope"
+## convention, e.g. `_onhit_mitigation_resolver_fn`'s original doc). Left as
+## an invalid (unbound) Callable -- the default -- for every existing
+## caller/test double, which never sets one; see
+## _resolve_step_hex_choice()'s no-op-safe fallback below.
+var _hex_choice_resolver_fn: Callable = Callable()
+
+
+## set_hex_choice_resolver_fn(fn) -> void -- FEAT-001: injects the
+## hex-choice-resolver Callable described above. Intended to be called once
+## by the composition root (MainScene.gd), the SAME way
+## set_token_reposition_fn() already is, e.g.:
+##   round_session.set_hex_choice_resolver_fn(Callable(main_scene, "resolve_hex_choice"))
+## Never calling this method (every pre-existing caller/test double) leaves
+## RoundSession's behavior byte-for-byte unchanged (NFR-004) -- see
+## _resolve_step_hex_choice()'s fallback below.
+func set_hex_choice_resolver_fn(fn: Callable) -> void:
+	_hex_choice_resolver_fn = fn
+
+
+## _resolve_step_hex_choice(legal_hexes) -> HexCoord | null -- FEAT-001: the
+## internal seam a future ResolveDodgeStepUseCase will `await` to ask "which
+## legal Step hex was picked?", reusing the EXACT SAME
+## HexChoiceResolverPort contract rather than a second, parallel resolution
+## path (ADR-001/ADR-002/ADR-006 "no duplicate seam"): an empty
+## `legal_hexes` always returns null IMMEDIATELY, with NO await/prompt at
+## all -- the G3/G4 "zero-legal-adjacent-hex" guard this steel thread's
+## error_handling design note requires (damage is negated, but no
+## Step-selection UI is ever invoked). A non-empty `legal_hexes` awaits the
+## injected Callable (when one has been set via
+## set_hex_choice_resolver_fn()) and returns its result verbatim -- the
+## SAME resolve()/choose_step_hex() contract
+## tests/application/test_hex_choice_resolver_seam.gd and
+## tests/gut/test_hex_choice_seam_dodge_step.gd already pin against the REAL
+## MainScene.gd composition root. When no resolver has been injected --
+## every headless/sim caller, and every pre-existing test -- this degrades
+## safely to null even for a non-empty legal_hexes (never a fabricated/
+## guessed hex, mirroring HexChoiceResolverPort's own "never guess"
+## contract), since no call site invokes this helper yet in this feature's
+## scope; a future feature's guard-clause caller remains responsible for
+## never awaiting this without first checking legal_hexes itself.
+func _resolve_step_hex_choice(legal_hexes: Array):
+	if legal_hexes.is_empty():
+		return null
+	if _hex_choice_resolver_fn.is_valid():
+		return await _hex_choice_resolver_fn.call(legal_hexes)
+	return null
+
+
 ## _debug_trace_enabled — FEAT-007 (US-002/US-003/US-007, ADR-007): OFF by
 ## default (NFR-004/NFR-005 default-safety — no observable behavior change,
 ## not even an extra print() line, for any pre-existing caller/test). When

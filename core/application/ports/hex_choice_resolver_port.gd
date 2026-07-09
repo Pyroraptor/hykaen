@@ -69,3 +69,36 @@ func resolve(legal_hexes: Array):
 		return null
 	push_error("HexChoiceResolverPort.resolve() is abstract — override in a concrete adapter")
 	return null
+
+
+## choose_step_hex(defender_id, legal_hexes) -> HexCoord | null — FEAT-001
+## (US-001, Dodge-Step steel-thread extension; ADR-001/ADR-002 "no
+## duplicate seam"): the Dodge-Step-flavored entry point onto this EXACT
+## SAME seam (this steel thread's api_contracts:
+## IHexChoicePort.choose_step_hex(defender_id, legal_hexes) -> HexCoord),
+## added so a future ResolveDodgeStepUseCase can ask "which legal Step hex
+## did `defender_id` pick?" using the vocabulary this steel thread's design
+## standardizes on, WITHOUT introducing a second, parallel hex-choice
+## resolution algorithm: it is a pure, zero-logic delegation to resolve()
+## above — the ONE production implementation every concrete adapter (the
+## real MainScene.gd `_UIHexChoiceResolver`, and every scripted test
+## double) already provides by inheriting from this base class. Every
+## invariant resolve() already documents (null ONLY for an empty
+## legal_hexes; a non-empty legal_hexes must never resolve to null) holds
+## here unchanged, since this method performs no logic of its own.
+##
+## `defender_id` is accepted, per the design's IHexChoicePort contract
+## shape, but is NOT consulted by this base delegation — resolve()'s own
+## legal_hexes-membership contract already fully determines the answer
+## regardless of which defender is asking. A future concrete adapter MAY
+## override this method to make use of `defender_id` (e.g. a multi-actor
+## UI), but doing so can never bypass resolve()'s single authoritative
+## resolution path without also overriding resolve() itself.
+##
+## tests/regression/test_single_hex_choice_seam.gd statically enforces
+## that core/application/ports/hex_choice_resolver_port.gd remains the
+## ONLY hex-choice seam implementation referenced from the MainScene.gd
+## composition root — this method must never grow its own independent
+## resolution logic.
+func choose_step_hex(_defender_id: String, legal_hexes: Array):
+	return resolve(legal_hexes)
