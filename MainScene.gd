@@ -1712,7 +1712,17 @@ func _build_party_combatant(character_path: String, hex_coord, combatant_id: Str
 		"weapon": {
 			"damage_modifier_attribute": weapon_res.damage_modifier_attribute,
 			"proficiency_bonus":         weapon_res.proficiency_bonus,
-			"damage_die":                weapon_res.damage_die
+			"damage_die":                weapon_res.damage_die,
+			# FEAT-006 real-play fix: carry the DEFENSIVE reaction fields too, so
+			# the live reaction window can offer Parry/Block (not just Dodge) and
+			# resolution.gd's Parry/Block math has the values it needs. Without
+			# these, is_parry_eligible()/is_block_eligible() read 0 and the pop-up
+			# only ever shows Dodge — the reaction-window aggregation + weapon data
+			# (parry_bonus/block_value on the WeaponResource) were correct, this
+			# composition-root combatant build was the sole missing link.
+			"parry_bonus":               weapon_res.parry_bonus,
+			"block_value":               weapon_res.block_value,
+			"block_die":                 weapon_res.block_die
 		}
 	}
 	if hex_coord != null:

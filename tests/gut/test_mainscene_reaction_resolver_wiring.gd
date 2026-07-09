@@ -209,4 +209,60 @@ func test_headless_boot_still_succeeds_after_reaction_resolver_rewiring() -> voi
 
 	assert_not_null(instance.round_session, "MainScene.round_session must be a real RoundSession after first frame")
 	assert_false(instance.round_session.is_round_over(), "the freshly-begun RoundSession must not already be over with no player input")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Criterion 4 (real-play regression) — the REAL player combatant MainScene
+# builds must carry the DEFENSIVE reaction fields, so the live reaction window
+# offers Parry and Block, not only Dodge.
+#
+# Every other reaction test hand-builds a weapon fixture WITH parry_bonus/
+# block_value, so none exercised MainScene's own _build_player_combatant().
+# That composition-root build dropped parry_bonus/block_value/block_die, so in
+# real play is_parry_eligible()/is_block_eligible() read 0 and the pop-up only
+# ever showed Dodge. These tests boot the REAL scene and prove the whole chain.
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_real_player_combatant_weapon_carries_defensive_reaction_fields() -> void:
+	var instance = _boot_main_scene()
+	await get_tree().process_frame
+
+	var player: Dictionary = instance.round_session.current_actor()
+	assert_false(player.get("_is_enemy", true), "fixture: Titus (player) is the current actor at boot")
+	var weapon: Dictionary = player.get("weapon", {})
+	assert_true(
+		weapon.get("parry_bonus", 0) > 0,
+		"the REAL player combatant's weapon must carry parry_bonus (longsword=2) -- without it the live pop-up can never offer Parry"
+	)
+	assert_true(
+		weapon.get("block_value", 0) > 0,
+		"the REAL player combatant's weapon must carry block_value (longsword=1) -- without it the live pop-up can never offer Block"
+	)
+	assert_true(weapon.has("block_die"), "block_die must be carried through for the Block reduction math")
+
+
+func test_live_reaction_window_offers_dodge_parry_and_block_for_the_real_player() -> void:
+	var instance = _boot_main_scene()
+	await get_tree().process_frame
+
+	var player: Dictionary = instance.round_session.current_actor()
+	assert_false(player.get("_is_enemy", true), "fixture: Titus (player) is the current actor at boot")
+
+	# A WeaponAttack trigger shaped exactly as round_session._build_reaction_trigger()
+	# builds on the live enemy-strikes-player path, but from the REAL player combatant.
+	var trigger: Dictionary = {
+		"trigger_type":           "WeaponAttack",
+		"defense_type":           "ac",
+		"reactor":                player,
+		"weapon":                 player.get("weapon", {}),
+		"attack_context":         {"attacker_weapon": {}},
+		"reactor_action_economy": instance.round_session.current_action_economy(),
+		"round_number":           1,
+	}
+	var opened: Dictionary = instance.reaction_window.open(trigger)
+	assert_true(opened.get("opened", false), "a fresh, un-Spent player must open a real reaction window")
+	var legal: Array = opened.get("legal_reactions", [])
+	assert_true(legal.has("dodge"), "Dodge must be offered")
+	assert_true(legal.has("parry"), "Parry MUST be offered for the real parry-capable player weapon (regression: only Dodge showed in real play)")
+	assert_true(legal.has("block"), "Block MUST be offered for the real block-capable player weapon")
 	assert_true(instance.round_session._reaction_resolver_fn.is_valid(), "the reaction resolver must be wired by the first frame")
