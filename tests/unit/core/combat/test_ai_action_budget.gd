@@ -314,6 +314,14 @@ func test_application_layer_contains_no_new_port_or_use_case_class() -> void:
 	# ADR-001 two-phase Strike-resolution split introduces (see each file's
 	# own header doc, and core/application/resolve_action_use_case.gd's
 	# FEAT-002 doc).
+	#
+	# FEAT-002 (US-002, Dodge-Step steel thread) deliberately extends this
+	# whitelist by ONE more file: core/application/resolve_dodge_step_use_case.gd
+	# (ResolveDodgeStepUseCase) -- the APPLICATION-layer use case that decides
+	# whether/how to prompt for a Dodge-Step destination hex once a Strike's
+	# to-hit phase reports defender_stepped=true (see that file's own header
+	# doc, and core/application/round_session.gd's `_resolve_dodge_step_prompt()`
+	# doc).
 	var expected_files: Array = [
 		"ai_decision_port.gd",
 		"apply_on_hit_defense_uc.gd",
@@ -321,6 +329,7 @@ func test_application_layer_contains_no_new_port_or_use_case_class() -> void:
 		"event_sink_port.gd",
 		"reaction_window.gd",
 		"resolve_action_use_case.gd",
+		"resolve_dodge_step_use_case.gd",
 		"resolve_to_hit_uc.gd",
 		"round_history_port.gd",
 		"round_session.gd",

@@ -954,6 +954,21 @@ func rewire_session() -> void:
 		if event_log_view != null:
 			round_session.set_event_log_record_attack_fn(Callable(event_log_view, "record_attack"))
 
+		# ── FEAT-002 (US-002, Dodge-Step steel thread): wire RoundSession's
+		# Dodge-Step seams to the REAL composition-root adapters -- the SAME
+		# Dependency-Inversion pattern every other seam in this method already
+		# follows. `hex_choice_resolver` (set up in _ready(), see that field's
+		# own doc) is reused verbatim via resolve_hex_choice() -- the EXACT
+		# SAME FEAT-001 seam tests/gut/test_hex_choice_seam_dodge_step.gd
+		# already proves flows through this composition root (ADR-001/ADR-002
+		# "no duplicate seam"). `_query_selectable_step_hexes()` reuses the
+		# unchanged movement_input_controller.get_selectable_step_hexes_for()
+		# query (no new adjacency rule). Re-applied on every rewire_session()
+		# call like every other seam above, so a freshly begin_round()'d
+		# RoundSession is never left without either for even one frame.
+		round_session.set_hex_choice_resolver_fn(Callable(self, "resolve_hex_choice"))
+		round_session.set_step_hex_query_fn(Callable(self, "_query_selectable_step_hexes"))
+
 	if turn_controller != null:
 		# FEAT-006: strike_action_control no longer exists; set_session()'s
 		# third argument is optional (default null) and simply omitted.
@@ -1727,6 +1742,42 @@ func _other_living_combatants(combatant: Dictionary) -> Array:
 		if c.get("combatant_id", c.get("name", "")) != self_id:
 			others.append(c)
 	return others
+
+
+## _find_combatant_by_id(combatant_id) -> Dictionary -- looks up
+## combatant_id (the SAME "combatant_id" falling back to "name" identity
+## convention used throughout this file) among the FULL `_party + _enemies`
+## roster, never only the living subset -- a defensive-but-defeated
+## combatant is still a valid lookup target, mirroring
+## _other_living_combatants()'s own identity matching. Returns an empty
+## Dictionary (never null) when not found, matching this file's existing
+## "empty Dictionary == not found" convention (e.g. _find_strike_reachable_target()).
+func _find_combatant_by_id(combatant_id: String) -> Dictionary:
+	for c in _party + _enemies:
+		if c.get("combatant_id", c.get("name", "")) == combatant_id:
+			return c
+	return {}
+
+
+## _query_selectable_step_hexes(combatant_id) -> Array -- FEAT-002 (US-002,
+## Dodge-Step steel thread): the IStepHexQueryPort Callable
+## round_session.set_step_hex_query_fn() is wired to in rewire_session()
+## above. Looks `combatant_id` up via _find_combatant_by_id() and forwards
+## to the unchanged movement_input_controller.get_selectable_step_hexes_for()
+## query (the SAME domain adjacency rule get_selectable_step_hexes() itself
+## already reuses -- ADR-002 "no duplicate seam") -- deliberately a STATELESS
+## query against a scratch (combatant, other_combatants) pair, rather than
+## reconfigure()ing the shared movement_input_controller instance, so asking
+## for a Dodge-Step prompt mid-way through an ENEMY's turn never disturbs
+## that shared controller's own currently-configured actor/highlight state
+## (e.g. the enemy's own Step/Stride affordance, or whichever player actor it
+## was last configure()d for). Returns an empty Array (never fabricates a
+## hex) when `combatant_id` cannot be found on the current roster.
+func _query_selectable_step_hexes(combatant_id: String) -> Array:
+	var combatant: Dictionary = _find_combatant_by_id(combatant_id)
+	if combatant.is_empty():
+		return []
+	return movement_input_controller.get_selectable_step_hexes_for(combatant, _other_living_combatants(combatant))
 
 
 ## _living_combatants(combatants) -> Array — the subset of `combatants` with

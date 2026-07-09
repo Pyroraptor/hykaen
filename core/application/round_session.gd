@@ -74,6 +74,17 @@ const ReactionWindowClass = preload("res://core/application/reaction_window.gd")
 ## set_event_log_record_attack_fn() below.
 const AttackEventClass = preload("res://core/log/attack_event.gd")
 
+## ResolveDodgeStepUseCaseClass — FEAT-002 (US-002, Dodge-Step steel thread):
+## preloaded ONLY to construct the use case that decides whether/how to
+## prompt for a Dodge-Step destination hex once a Strike's to-hit phase has
+## reported defender_stepped=true (see _resolve_dodge_step_prompt() below).
+## Both files live in the SAME application layer (ADR-002), so this is not a
+## layering violation — RoundSession never imports anything from
+## presentation/ or infrastructure/ to do this (the use case itself depends
+## only on plain data + a duck-typed Callable seam, mirroring every other
+## use case this file already preloads).
+const ResolveDodgeStepUseCaseClass = preload("res://core/application/resolve_dodge_step_use_case.gd")
+
 var _entries: Array
 var _party: Array
 var _enemies: Array
@@ -452,6 +463,90 @@ func _resolve_step_hex_choice(legal_hexes: Array):
 	if _hex_choice_resolver_fn.is_valid():
 		return await _hex_choice_resolver_fn.call(legal_hexes)
 	return null
+
+
+## _step_hex_query_fn — OPTIONAL (FEAT-002 / US-002, Dodge-Step steel
+## thread): an injected, duck-typed Callable satisfying the design's
+## IStepHexQueryPort contract -- `func(combatant_id: String) -> Array` --
+## reused, unmodified, from presentation/movement_input_controller.gd's
+## get_selectable_step_hexes_for() (never a new adjacency rule, ADR-002 "no
+## duplicate seam"). Mirrors `_hex_choice_resolver_fn`'s own seam-
+## establishment pattern exactly: RoundSession depends on this Callable
+## ONLY as a signature, never importing/referencing
+## presentation/movement_input_controller.gd or MainScene.gd by type
+## (ADR-001/ADR-002). Left as an invalid (unbound) Callable -- the default
+## -- for every pre-existing caller/test double, which never sets one; see
+## _resolve_dodge_step_prompt()'s no-op-safe fallback below.
+var _step_hex_query_fn: Callable = Callable()
+
+
+## set_step_hex_query_fn(fn) -> void -- FEAT-002: injects the
+## IStepHexQueryPort Callable described above. Intended to be called once by
+## the composition root (MainScene.gd), the SAME way
+## set_hex_choice_resolver_fn() already is, e.g.:
+##   round_session.set_step_hex_query_fn(Callable(main_scene, "_query_selectable_step_hexes"))
+## Never calling this method (every pre-existing caller/test double) leaves
+## RoundSession's behavior byte-for-byte unchanged (NFR-004) -- see
+## _resolve_dodge_step_prompt()'s fallback below.
+func set_step_hex_query_fn(fn: Callable) -> void:
+	_step_hex_query_fn = fn
+
+
+## _resolve_dodge_step_prompt(target, partial) -> void -- FEAT-002 (US-002,
+## Dodge-Step steel thread): the seam that a to-hit-phase caller
+## (core/application/resolve_to_hit_uc.gd's ResolveToHitUseCase.resolve_to_hit()
+## / core/rules/resolution.gd's Resolution.resolve_to_hit()) reporting
+## `partial["defender_stepped"] == true` for a JUST-resolved Strike against
+## `target` -- i.e. exactly the moment "the defender rolls a successful
+## Dodge" per this steel thread's requirement -- `await`s to trigger the
+## Step-selection prompt. Fully wired at the REAL MainScene.gd composition
+## root (rewire_session() calls both set_hex_choice_resolver_fn() and
+## set_step_hex_query_fn() below with production adapters -- never a test
+## double), and exercised directly by tests/gut/test_dodge_step_prompt.gd
+## against a real booted MainScene (G2). Threading a call to this method
+## through advance_ai_turn()'s live Strike-resolution coroutine is
+## deliberately left to a later feature (mirrors this file's own established
+## "establishing this seam is this feature's entire scope" convention, e.g.
+## `_hex_choice_resolver_fn`'s own FEAT-001 doc above) -- the REAL
+## `_UIHexChoiceResolver` this seam is wired to genuinely blocks on a live
+## hex click, so wiring an unconditional live call site here would hang any
+## caller that scripts a successful Dodge without also scripting a click
+## (including pre-existing suites, e.g. tests/test_mainscene_combat_log_richness.gd).
+## Delegates the ENTIRE whether/how-to-prompt decision to
+## ResolveDodgeStepUseCase (ADR-001/ADR-002: no duplicate resolution logic
+## here) -- this method's only job is assembling that use case's inputs from
+## RoundSession's own seams:
+##   - `defender_id`      -- target's "combatant_id" falling back to "name"
+##                            (this file's established identity convention).
+##   - `legal_hexes`       -- `_step_hex_query_fn.call(defender_id)` when a
+##                            query Callable has been injected, else an empty
+##                            Array (the G3/G4 "no query wired -> no prompt"
+##                            default-safety fallback -- never a fabricated
+##                            adjacency computation of RoundSession's own).
+##   - `hex_choice_resolver_fn` -- `_hex_choice_resolver_fn` verbatim, the
+##                            EXACT SAME FEAT-001 seam _resolve_step_hex_choice()
+##                            already consumes (no second, parallel hex-choice
+##                            resolution path).
+## A no-op (no query call, no prompt, no await) whenever
+## `partial["defender_stepped"]` is false -- the overwhelmingly common case
+## for every pre-existing caller/test (NFR-004). Even when defender_stepped
+## is true, this remains a complete no-op for every pre-existing caller/test
+## double, since neither `_step_hex_query_fn` nor `_hex_choice_resolver_fn`
+## is ever injected by them (both default to an invalid Callable) --
+## ResolveDodgeStepUseCase.resolve()'s own guard clauses degrade that to
+## `legal_hexes == []` / an invalid resolver, either of which short-circuits
+## before any await (see that use case's own doc).
+func _resolve_dodge_step_prompt(target: Dictionary, partial: Dictionary) -> void:
+	if not partial.get("defender_stepped", false):
+		return
+
+	var defender_id: String = target.get("combatant_id", target.get("name", ""))
+	var legal_hexes: Array = []
+	if _step_hex_query_fn.is_valid():
+		legal_hexes = _step_hex_query_fn.call(defender_id)
+
+	var use_case := ResolveDodgeStepUseCaseClass.new()
+	await use_case.resolve(defender_id, true, legal_hexes, _hex_choice_resolver_fn)
 
 
 ## _debug_trace_enabled — FEAT-007 (US-002/US-003/US-007, ADR-007): OFF by

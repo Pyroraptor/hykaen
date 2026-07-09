@@ -253,6 +253,26 @@ func is_hex_selectable(hex_coord) -> bool:
 	return _find_selectable(hex_coord) != null
 
 
+## get_selectable_step_hexes_for(actor, other_combatants) -> Array[HexCoord]
+## -- FEAT-002 (US-002, Dodge-Step steel thread): a STATELESS query mirroring
+## get_selectable_step_hexes() exactly -- calls the SAME domain function
+## (core/rules/movement.gd Movement.get_step_destinations()) this
+## controller's own _recompute_selectable_destinations() already calls,
+## introducing NO new adjacency rule (ADR-002 "no duplicate seam";
+## IStepHexQueryPort's own contract: "movement_input_controller contract,
+## unchanged, no new adjacency rule introduced"). Unlike
+## get_selectable_step_hexes(), this does NOT read or mutate this
+## controller's own configure()d `_actor`/`_selectable_destinations` state --
+## it lets a composition root ask "what are combatant X's legal Step hexes
+## right now?" for a combatant OTHER than whoever this controller is
+## currently configured for (e.g. a Dodge-Step prompt computed for the
+## PLAYER defender mid-way through an ENEMY's turn, without disturbing the
+## enemy's own configured Step/Stride affordance or firing a redundant
+## hex_grid_view.set_selectable_hexes() push).
+func get_selectable_step_hexes_for(actor, other_combatants: Array) -> Array:
+	return MovementClass.get_step_destinations(actor, other_combatants)
+
+
 ## get_selectable_stride_hexes() -> Array[HexCoord] -- the legal Stride
 ## destinations for the currently configured actor right now, in the same
 ## order Movement.get_stride_destinations() returned them (FEAT-014 /
