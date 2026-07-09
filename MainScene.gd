@@ -188,6 +188,7 @@ const SelectionOverlayClass            = preload("res://presentation/selection_o
 const CancelControllerClass            = preload("res://presentation/cancel_controller.gd")
 const ReactionWindowClass              = preload("res://core/application/reaction_window.gd")
 const PlayerReactionChooserClass       = preload("res://presentation/player_reaction_chooser.gd")
+const HexChoiceResolverPortClass       = preload("res://core/application/ports/hex_choice_resolver_port.gd")
 
 ## The steel-thread's entry_point: the one encounter this composition root boots into.
 const PROLOGUE_ENCOUNTER_PATH: String = "res://data/encounters/prologue_encounter.tres"
@@ -287,6 +288,45 @@ class InMemoryRoundHistoryAdapter:
 
 	func get_history() -> Array:
 		return _entries
+
+
+## _UIHexChoiceResolver — the production, composition-root-only default
+## implementation of core/application/ports/hex_choice_resolver_port.gd's
+## HexChoiceResolverPort (FEAT-001 / US-004, ADR-002/G2). Wired ONLY here
+## (see `hex_choice_resolver` field + resolve_hex_choice() below) — this
+## class is never instantiated by a test, mirroring the ADR-002/G2
+## discipline every other seam in this file already follows
+## (PlayerReactionChooser, the AI-Stride token-reposition Callable, etc.).
+## Establishes the seam a future Dodge-Step selection window (US-005/US-006/
+## US-007) will use; nothing in this feature yet wires it into
+## round_session/turn_controller.
+##
+## resolve(legal_hexes) blocks on `hex_grid_view`'s REAL hex_clicked signal
+## (presentation/hex_grid_view.gd — the same click channel the Step/Stride
+## Layer-2 selection flow already uses) and loops until the player actually
+## clicks one of `legal_hexes` — an off-target click is silently ignored and
+## the wait continues, so this adapter can NEVER fabricate/guess an answer
+## of its own (this feature's G3 anti-punt discipline: "requires/blocks on
+## real human/UI input when not scripted, never silently returns an
+## arbitrary hex"). An empty `legal_hexes` short-circuits to null
+## immediately — there is nothing to click, so there is nothing to wait for
+## (the one legal case for a null return, per the port's own contract).
+class _UIHexChoiceResolver:
+	extends "res://core/application/ports/hex_choice_resolver_port.gd"
+
+	var _hex_grid_view
+
+	func _init(p_hex_grid_view) -> void:
+		_hex_grid_view = p_hex_grid_view
+
+	func resolve(legal_hexes: Array):
+		if legal_hexes.is_empty():
+			return null
+		while true:
+			var clicked = await _hex_grid_view.hex_clicked
+			for hex in legal_hexes:
+				if hex.equals(clicked):
+					return hex
 
 
 ## _VerbBarRegistryAdapter — the presentation/verb_bar_view.gd VerbBarView
@@ -537,6 +577,20 @@ var cancel_controller = CancelControllerClass.new()
 ## verification.
 var player_reaction_chooser = null
 
+## hex_choice_resolver — the HexChoiceResolverPort (core/application/ports/
+## hex_choice_resolver_port.gd, FEAT-001 / US-004, ADR-002/G2) this
+## composition root wires in _ready() around `hex_grid_view`
+## (_UIHexChoiceResolver above) — the seam a future Dodge-Step selection
+## window (US-005/US-006/US-007) will use, mirroring player_reaction_chooser's
+## identical "constructed here, exposed for verification/injection"
+## precedent. A test may overwrite this field directly with a scripted
+## double WITHOUT ever constructing its own HexChoiceResolverPort in
+## isolation — every resolution still routes through resolve_hex_choice()
+## below, this composition root's own real call path (see
+## tests/application/test_hex_choice_resolver_seam.gd's "no test self-wiring"
+## criterion).
+var hex_choice_resolver = null
+
 ## reaction_window — the ReactionWindow (core/application/reaction_window.gd,
 ## FEAT-009/US-009) this composition root constructs in _ready(), wired to
 ## the SAME `event_sink` every other use case emits through (ADR-003 — no
@@ -692,6 +746,15 @@ func _ready() -> void:
 	if turn_controller != null:
 		turn_controller.configure_reactions(reaction_window, player_reaction_chooser)
 
+	# ── FEAT-001 (US-004, ADR-002/G2): construct the production default
+	# HexChoiceResolverPort adapter around `hex_grid_view` — the ONE place
+	# both sides of this seam are ever named concretely. Establishes the
+	# seam a future Dodge-Step selection window (US-005/US-006/US-007) will
+	# use; see hex_choice_resolver's own field doc above and
+	# _UIHexChoiceResolver's doc. ───────────────────────────────────────────
+	if hex_grid_view != null:
+		hex_choice_resolver = _UIHexChoiceResolver.new(hex_grid_view)
+
 	if end_turn_control != null:
 		end_turn_control.turn_ended.connect(_on_end_turn_control_turn_ended)
 		# BUGFIX (post-iteration-E): End Turn is now a first-class verb in the
@@ -762,6 +825,25 @@ func _ready() -> void:
 	# immediately visible in headless-boot logs, mirroring the ADR-003
 	# rationale already established for `resolved_seed`. ───────────────────
 	print("DEBUG: viewport_centering centering_offset=" + str(centering_offset))
+
+
+## resolve_hex_choice(legal_hexes) -> HexCoord | null — FEAT-001 (US-004,
+## ADR-002/G2): the ONE call path through which this composition root's
+## injected `hex_choice_resolver` is ever invoked — the seam-level test
+## (tests/application/test_hex_choice_resolver_seam.gd) proves a scripted
+## hex_choice_resolver flows through THIS method, never a resolver a test
+## constructed and invoked directly in isolation (self-wiring). Delegates
+## verbatim to hex_choice_resolver.resolve(legal_hexes) — see that port's
+## own contract doc (core/application/ports/hex_choice_resolver_port.gd)
+## for the "null only when legal_hexes is empty" invariant this composition
+## root never second-guesses or overrides. Returns null defensively if
+## `hex_choice_resolver` itself is somehow unwired (hex_grid_view missing) —
+## a structural impossibility for the real res://MainScene.tscn, never
+## exercised in normal play.
+func resolve_hex_choice(legal_hexes: Array):
+	if hex_choice_resolver == null:
+		return null
+	return await hex_choice_resolver.resolve(legal_hexes)
 
 
 ## rewire_session() -> void — FEAT-006 (US-004/FR-004, ADR-012): the SINGLE
