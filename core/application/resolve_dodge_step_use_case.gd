@@ -32,6 +32,23 @@
 ##     successful Dodge as a miss regardless of legal_hexes) — this use
 ##     case's sole job is deciding whether/how to prompt, never re-deriving
 ##     hit/damage math.
+##
+##     FEAT-003 (US-003, ADR-005 guard-clause discipline, NFR-003 "no
+##     stall/deadlock"): this is the dedicated "successful Dodge, zero legal
+##     adjacent hexes" edge case — a defender who is boxed in (every
+##     adjacent hex occupied/out-of-bounds) can still roll a successful
+##     Dodge. Guarding on `legal_hexes.is_empty()` BEFORE ever touching
+##     `hex_choice_resolver_fn` is what makes this safe: the Step-selection
+##     prompt (the real `_UIHexChoiceResolver`, which genuinely blocks on a
+##     live hex click) is NEVER invoked with nothing to offer, so this
+##     branch can never await/stall the turn coroutine — it returns on the
+##     same frame it was called, exactly like the `defender_stepped == false`
+##     guard above. final_damage/damage_final is still correctly negated
+##     (0) for this branch — again, entirely via Resolution.resolve_to_hit()
+##     already recording the successful Dodge as a miss, never via any logic
+##     this use case adds. See tests/gut/test_dodge_step_no_legal_hex.gd for
+##     the boot-real-MainScene proof of both halves of this contract
+##     (damage negated AND no prompt AND no stall) together.
 ##   - `hex_choice_resolver_fn` not injected/invalid — no prompt, no await,
 ##     returns immediately (default-safety fallback mirroring every other
 ##     Callable seam in this codebase, e.g. round_session.gd's
