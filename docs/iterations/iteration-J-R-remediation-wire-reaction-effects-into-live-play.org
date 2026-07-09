@@ -1,0 +1,125 @@
+#+TITLE: Iteration J-R (Remediation) — Wire Reaction Effects + Rich Log into LIVE PLAY (DRAFT — for Guy's approval)
+#+DATE: 2026-07-09
+#+STATUS: APPROVED by Guy 2026-07-09 (R-2 step-hex = player-picks). Base HEAD = f84e440. Corrective sprint for Iteration J's live-play gaps (NOT Iteration K).
+
+* Context (why this sprint exists)
+Iteration J shipped the reaction TIMING correctly — the two-phase pop-ups fire in the right order in
+real play (Guy-verified). But three EFFECTS/DISPLAY wirings were built + unit-tested + V&V-partially-
+passed yet NEVER connected to live play (Guy real-play 2026-07-09). All three are the SAME failure
+class this project keeps hitting: the logic/data is correct and a test asserts THE FUNCTION, but
+nothing wires it into the running game, and the test passes anyway.
+1. On-hit Parry/Block does NOT reduce damage (damage committed before the on-hit ask).
+2. A successful Dodge does NOT Step the defender (resolution sets defender_stepped=true; no live
+   code reads it).
+3. The rich combat log is NOT displayed (render_attack_entry exists but the visible log is a SEPARATE
+   channel still rendering the basic on_attack_event string).
+
+This is a REMEDIATION sprint. Its entire point is to make these three EFFECTUAL in play. Because the
+recurring failure is "green tests, dead in play," the GUARDRAILS below are the heart of this brief.
+
+* ⭐⭐ GUARDRAILS — READ FIRST. These override normal item flow. Violating one FAILS the item.
+- G1 — ACCEPTANCE IS OBSERVABLE LIVE STATE, NEVER FUNCTION EXISTENCE. Each item is "done" ONLY when a
+  boot-real-MainScene test drives the REAL end-to-end path and asserts the user-visible / game-state
+  RESULT changed: target.hp_current is higher by the mitigated amount; the defender combatant's
+  hex_coord actually moved; event_log_view.get_row_text(i) actually contains the rich fields. A test
+  that asserts "the function returns X" or "the flag is set" is NOT acceptance and does NOT satisfy
+  the item.
+- G2 — NO SELF-WIRING (generalize the FEAT-214 lesson). A test may NOT inject, override, or hand-wire
+  the seam/composition-root it is verifying, nor substitute a double for the component under test. It
+  must assert the REAL MainScene wiring is what fired. If a test needs to self-wire to pass, the
+  PRODUCTION wiring is missing — fix that, not the test.
+- G3 — NO "INTERIM SCOPE LIMITATION" / TRACE-BUT-DON'T-APPLY PUNTS. It is FORBIDDEN to ship a
+  cosmetic stub that asks/traces/logs a choice without applying its effect (the exact anti-pattern in
+  round_session.gd's ~line 1141 comment that caused DEF-001). No "left to a follow-on feature"
+  comments. If an item genuinely cannot be wired within scope, STOP and flag Guy — never trace-and-move-on.
+- G4 — NO NEW DEFERRALS. All three items MUST ship wired. iteration-J-R-deferred.org may be created
+  ONLY for a genuinely out-of-scope NEW discovery, and ONLY with an explicit Guy-facing STOP flag in
+  the run output — never a quiet drop. "Descoped the wiring" is an automatic failure.
+- G5 — MANDATORY V&V LIVE-BEHAVIOR AUDIT + HUMAN REAL-PLAY SIGN-OFF. The verification-validation step
+  MUST independently confirm each observable by DRIVING the booted scene (not reading green counts),
+  AND grep the live-path call sites to prove the wiring exists AND that no trace-only handling remains.
+  The convergence gate MUST NOT accept function-level green. A human real-play sign-off (recorded in a
+  committed doc/trailer) is a hard completion gate — an unrecorded sign-off blocks completion.
+- G6 — CAPSTONE "REACTIONS ARE EFFECTUAL" E2E. One boot-real-MainScene E2E, in a single scripted
+  encounter, must assert ALL THREE observables together: Parry/Block lowers damage taken, a successful
+  Dodge relocates the defender, and the visible log row shows the rich format. No injected doubles for
+  the reaction/log path.
+
+────────────────────────────────────────────────────────────────────────────────
+* R-1 (P0) — On-hit Parry/Block must actually reduce damage taken
+** Live-path gap
+round_session.gd advance_ai_turn() resolves the Strike via resolve_action_use_case.resolve() with
+active_defense="none" — committing target.hp_current (resolve_action_use_case.gd:335) AND emitting the
+AttackEvent + CombatantDefeatedEvent (line 358/361) — then merely TRACES the on-hit choice
+(round_session.gd ~1162-1167).
+** Fix (two-phase REORDER — NOT a retroactive heal; see docs/iterations/iteration-J-deferred.org DEF-001)
+Expose the two-phase split on resolve_action_use_case (its _resolution already has resolve_to_hit()/
+apply_on_hit_defense(), same injected RNG port): resolve_to_hit_uc (roll hit+raw damage, NO hp commit,
+NO event emit) → round_session awaits the on-hit window → apply+commit (apply_on_hit_defense via the
+SAME _resolution, THEN write hp_current, emit AttackEvent with FINAL damage, emit
+CombatantDefeatedEvent only if still <=0). Preserve the pinned characterization test (default/"none"
+path byte-for-byte via a thin single-call wrapper). Keep the ≤1-reaction budget gate.
+** OBSERVABLE ACCEPTANCE (G1): boot real MainScene; scripted hit; choose Parry (beats roll) → damage
+   taken == 0; choose Block → damage taken == raw − (1[W]+block_value); choose Pass → damage taken ==
+   raw. A lethal-but-parried hit must NOT emit a defeat / show a loss. Human real-play confirms Titus's
+   HP/status panel reflects the mitigation.
+
+* R-2 (P0) — A successful Dodge must Step the defender (move the token)
+** Live-path gap
+resolution.gd resolve_to_hit() sets defender_stepped=true on a successful Dodge (~line 376); it is
+returned but has ZERO consumers (grep-confirmed: round_session.gd / MainScene.gd / turn_controller.gd
+never read it). The defender never moves.
+** Fix (✓ Guy 2026-07-09: the PLAYER picks the step hex)
+On a resolved reaction whose result carries defender_stepped=true, PROMPT the player to choose the
+step destination among the LEGAL adjacent hexes (reuse the existing Step legal-move computation —
+movement_input_controller / the Step verb's get_selectable_step_hexes(), NOT a new movement rule), a
+mini Step-selection identical in feel to the Step verb. Then relocate the defender via the SAME
+token-reposition seam AI-Stride already uses (round_session._token_reposition_fn →
+MainScene set_token_reposition_fn(Callable(hex_grid_view,"move_token")); mirror
+_reposition_token_after_ai_stride). Update the defender combatant's hex_coord AND spend the movement
+per the existing Step semantics as applicable.
+⚠ ASYNC: this adds ANOTHER await (the player's hex pick) into the reaction chain after a successful
+Dodge — audit the coroutine chain (same discipline as J's two-phase await work). Inject the hex
+choice via a resolver seam so tests can script it (mirror the reaction-chooser pattern), NEVER a
+self-wired test double (G2). If no legal adjacent hex exists, the Dodge still negates the attack but
+no Step occurs (document that edge, do not stall).
+** OBSERVABLE ACCEPTANCE (G1): boot real MainScene; force a successful Dodge; script the player's hex
+   pick; assert the defender combatant's hex_coord (and its on-screen token) actually changed to THAT
+   chosen legal adjacent hex. Human real-play confirms the Step-selection prompt appears on a
+   successful Dodge and Titus moves to the picked hex.
+
+* R-3 (P0) — The rich combat log must render in the VISIBLE display
+** Live-path gap
+event_log_view.gd has TWO channels: on_attack_event() drives the VISIBLE log (`_entries`/`_labels`,
+basic "Hit for X"/"Miss" via _append_entry), while record_attack()/render_attack_entry() (the rich
+format: "…Hit (roll R) for Rw raw / F final damage. Defense: <outcome>.") are a SEPARATE storage
+channel that never appends to the display. FEAT-213 wired record_attack STORAGE; the visible log still
+uses the basic channel.
+** Fix
+Drive the VISIBLE log via render_attack_entry: on record_attack (which now runs in live play for the
+enemy path, and MUST also be invoked for the PLAYER attack path at MainScene.gd:1008), append the
+RICH rendered entry to the visible `_entries`/`_labels`, and SUPPRESS the basic on_attack_event attack
+entry so there is exactly ONE (rich) row per attack — no duplicates, no regression to the basic string.
+Wire the record path for BOTH the enemy (advance_ai_turn) and player attack paths, plus the paired
+ReactionResolvedEvent (record_reaction) so the "Defense:" segment is real.
+** OBSERVABLE ACCEPTANCE (G1): boot real MainScene; resolve a scripted attack+reaction; assert
+   event_log_view.get_row_text(i) for that attack CONTAINS "roll", "raw", "final", and a real
+   "Defense: <dodge|parry|block|none>" — and that NO basic "Hit for %d damage." duplicate row exists.
+   Human real-play confirms the on-screen log shows the rich line.
+
+────────────────────────────────────────────────────────────────────────────────
+* PRESERVE (must not regress) — green as of HEAD f84e440 (GUT 1570, pytest 308/1 skip)
+- The two-phase reaction TIMING (pop-up order, ≤1-reaction budget), the pinned Strike characterization
+  test, round-loop/budget-display fixes, and balance-sim determinism (sim_results.json 7-key provenance
+  + win_rate 0.747/avg_rounds 1.081). R-1's reorder must keep the "none"/Pass path byte-for-byte.
+
+* Out of scope (→ later)
+- Enemy reaction AI + Opportunistic Strike (Iteration K, iteration-I-deferred.org). Part D-2 click-to-
+  breakdown pop-up (iteration-J-deferred.org). No new attack types / reactions / resolution MATH changes
+  (only phase-split plumbing + the wiring).
+
+* Verification (all THREE gates required — none substitutes for another)
+1. Full GUT + pytest green, INCLUDING the three observable-asserting boot-real-MainScene tests + the G6
+   capstone — none self-wiring the seam under test.
+2. V&V live-behavior audit per G5 (drive the booted scene; grep the wiring; assert no trace-only punt).
+3. Human real-play sign-off recorded in a committed doc — the hard completion gate (G5).
