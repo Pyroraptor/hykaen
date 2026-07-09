@@ -67,6 +67,13 @@ extends GutTest
 ## established rig), never re-deriving the "steel thread" label without
 ## MainScene involvement anywhere in the file.
 ##
+## FEAT-010 (iteration J's capstone, DEF-005 continuation):
+## tests/test_steel_thread_full_e2e.gd was added to this allow-list for the
+## same reason — every scenario it drives boots the real res://MainScene.tscn
+## composition root (via the SAME `_boot_main_scene_with_seed()` convention)
+## and resolves its scripted enemy Strike solely through
+## round_session.advance_ai_turn().
+##
 ## Satisfies: DEF-005, US-011, FEAT-141, FEAT-159, FEAT-001, FEAT-180, FEAT-010.
 ##
 ## ══════════════════════════════════════════════════════════════════════════
@@ -98,6 +105,7 @@ const ALLOWED_STEEL_THREAD_PATHS: Array = [
 	"res://tests/e2e/test_full_steel_thread_e2e.gd",
 	"res://tests/gut/test_steel_thread_e2e.gd",
 	"res://tests/integration/test_steel_thread_e2e.gd",
+	"res://tests/test_steel_thread_full_e2e.gd",
 ]
 
 ## Path-fragment/identifier substrings from the removed duplicate
