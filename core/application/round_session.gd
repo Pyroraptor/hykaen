@@ -536,6 +536,25 @@ func set_step_hex_query_fn(fn: Callable) -> void:
 ## ResolveDodgeStepUseCase.resolve()'s own guard clauses degrade that to
 ## `legal_hexes == []` / an invalid resolver, either of which short-circuits
 ## before any await (see that use case's own doc).
+##
+## FEAT-004 (US-004, Dodge-Step steel thread -- "Relocate defender to
+## player-chosen hex via shared token-reposition seam"): this method now ALSO
+## threads `_token_reposition_fn` (the EXACT SAME ITokenRepositionPort seam
+## `_reposition_token_after_ai_stride()` already awaits for an AI-issued
+## Stride, ADR-002 "no duplicate seam") and `target` itself through to
+## ResolveDodgeStepUseCase.resolve()'s new trailing parameters -- see that use
+## case's own FEAT-004 doc for the full "reposition the token, then update
+## Combatant.hex_coord" sequence it now performs once a hex has actually been
+## chosen. `target` is the SAME live Dictionary reference this session's own
+## `_entries` holds (current_actor()'s own documented contract), so mutating
+## `target["hex_coord"]` inside the use case is immediately observable by
+## every other holder of that reference (GDScript Dictionaries are reference
+## types) -- no second, stale copy of the defender's position is ever left
+## behind. A complete no-op for every pre-existing caller/test double for the
+## SAME reason documented above: neither `_token_reposition_fn` nor a
+## non-empty `target` reach ResolveDodgeStepUseCase.resolve() unless a hex was
+## actually chosen, which itself requires both `_step_hex_query_fn` and
+## `_hex_choice_resolver_fn` to already be injected.
 func _resolve_dodge_step_prompt(target: Dictionary, partial: Dictionary) -> void:
 	if not partial.get("defender_stepped", false):
 		return
@@ -546,7 +565,10 @@ func _resolve_dodge_step_prompt(target: Dictionary, partial: Dictionary) -> void
 		legal_hexes = _step_hex_query_fn.call(defender_id)
 
 	var use_case := ResolveDodgeStepUseCaseClass.new()
-	await use_case.resolve(defender_id, true, legal_hexes, _hex_choice_resolver_fn)
+	await use_case.resolve(
+		defender_id, true, legal_hexes, _hex_choice_resolver_fn,
+		_token_reposition_fn, target
+	)
 
 
 ## _debug_trace_enabled — FEAT-007 (US-002/US-003/US-007, ADR-007): OFF by

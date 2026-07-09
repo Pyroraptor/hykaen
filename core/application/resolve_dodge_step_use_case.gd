@@ -62,19 +62,49 @@
 ##     this use case does not re-validate that invariant itself — it is the
 ##     injected resolver's job, exactly as it already is for every other
 ##     caller of that seam.
+##
+## FEAT-004 (US-004, Dodge-Step steel thread — "Relocate defender to
+## player-chosen hex via shared token-reposition seam"): once a hex has
+## actually been chosen (`chosen_hex != null`), this use case now ALSO
+## relocates the defender through the SAME two-step sequence
+## core/application/round_session.gd's `_reposition_token_after_ai_stride()`
+## already establishes for an AI-issued Stride (ADR-002 "no duplicate seam" —
+## never a second, parallel reposition implementation):
+##   1. `token_reposition_fn.call(defender_id, chosen_hex)` — the injected
+##      ITokenRepositionPort Callable (the SAME `_token_reposition_fn` seam
+##      round_session.gd already threads through for AI-Stride, bound at the
+##      REAL MainScene.gd composition root to
+##      `Callable(hex_grid_view, "move_token")` — never a second reposition
+##      function), so the on-screen token visibly moves to `chosen_hex`.
+##   2. `target["hex_coord"] = chosen_hex` — updates the defender's own
+##      Combatant.hex_coord Dictionary field directly (the same mutation
+##      shape core/rules/movement.gd's `_set_hex()` already applies for a
+##      Dictionary-shaped combatant), so subsequent reach/adjacency
+##      computations observe the defender's NEW position immediately.
+## Both `token_reposition_fn` and `target` are OPTIONAL, defaulting to an
+## invalid Callable / an empty Dictionary respectively — every pre-existing
+## 4-argument call site (this use case's own pre-FEAT-004 contract, still
+## exercised directly by tests/gut/test_dodge_step_prompt.gd's and
+## tests/gut/test_dodge_step_no_legal_hex.gd's own isolation coverage) keeps
+## behaving byte-for-byte identically: an invalid `token_reposition_fn` is
+## never invoked (mirrors `_reposition_token_after_ai_stride()`'s own no-op
+## guard), and an empty `target` is never mutated.
 class_name ResolveDodgeStepUseCase
 extends RefCounted
 
 
-## resolve(defender_id, defender_stepped, legal_hexes, hex_choice_resolver_fn)
-## -> Dictionary
+## resolve(defender_id, defender_stepped, legal_hexes, hex_choice_resolver_fn,
+##         token_reposition_fn, target) -> Dictionary
 ##
 ## defender_id             — the defending combatant's stable id (String),
 ##                            carried through on the returned Dictionary
 ##                            purely for the caller's/a test's observability;
 ##                            never consulted by this use case's own logic
 ##                            (mirrors HexChoiceResolverPort.choose_step_hex()'s
-##                            own documented `defender_id` contract).
+##                            own documented `defender_id` contract), but also
+##                            the `token_id` handed to `token_reposition_fn`
+##                            below (the SAME identity convention
+##                            `_reposition_token_after_ai_stride()` uses).
 ## defender_stepped         — bool, the Resolution.resolve_to_hit() result's
 ##                            "defender_stepped" flag for THIS Strike (true
 ##                            only after a genuinely successful Dodge).
@@ -88,6 +118,27 @@ extends RefCounted
 ##                            -> HexCoord | null` (the SAME contract
 ##                            round_session.gd's `_hex_choice_resolver_fn`
 ##                            already documents/consumes).
+## token_reposition_fn      — OPTIONAL (FEAT-004). Callable satisfying
+##                            `func(token_id: String, new_hex_coord) -> void`
+##                            — the SAME ITokenRepositionPort seam
+##                            round_session.gd's `_token_reposition_fn`
+##                            already documents/consumes for AI-Stride.
+##                            Invoked with `(defender_id, chosen_hex)` ONLY
+##                            when a hex was actually chosen AND this Callable
+##                            is valid — never on the "no prompt"/"no hex
+##                            chosen" guard-clause paths above. Defaults to an
+##                            invalid Callable, matching every pre-FEAT-004
+##                            caller's behavior (no reposition call at all).
+## target                   — OPTIONAL (FEAT-004). The defender's own
+##                            combatant Dictionary (the SAME Dictionary
+##                            round_session.gd's `_entries` holds a live
+##                            reference to). When non-empty AND a hex was
+##                            actually chosen, this use case sets
+##                            `target["hex_coord"] = chosen_hex` directly —
+##                            the sole Combatant.hex_coord mutation this
+##                            feature introduces. Defaults to an empty
+##                            Dictionary, matching every pre-FEAT-004 caller's
+##                            behavior (no mutation at all).
 ##
 ## Returns Dictionary:
 ##   "prompted"    — bool, true iff the Step-selection prompt was actually
@@ -99,7 +150,9 @@ func resolve(
 	defender_id: String,
 	defender_stepped: bool,
 	legal_hexes: Array,
-	hex_choice_resolver_fn: Callable
+	hex_choice_resolver_fn: Callable,
+	token_reposition_fn: Callable = Callable(),
+	target: Dictionary = {}
 ) -> Dictionary:
 	if not defender_stepped:
 		return {"prompted": false, "defender_id": defender_id, "chosen_hex": null}
@@ -111,4 +164,18 @@ func resolve(
 		return {"prompted": false, "defender_id": defender_id, "chosen_hex": null}
 
 	var chosen_hex = await hex_choice_resolver_fn.call(legal_hexes)
+
+	if chosen_hex != null:
+		# FEAT-004: mirrors _reposition_token_after_ai_stride()'s own
+		# "reposition the on-screen token, via the shared seam" step — same
+		# call shape (token_id, new_hex_coord), only the seam's origin
+		# (Dodge-Step vs AI-Stride) differs.
+		if token_reposition_fn.is_valid():
+			token_reposition_fn.call(defender_id, chosen_hex)
+		# FEAT-004: the sole Combatant.hex_coord mutation this feature
+		# introduces — mirrors core/rules/movement.gd's own `_set_hex()`
+		# Dictionary-branch mutation shape.
+		if not target.is_empty():
+			target["hex_coord"] = chosen_hex
+
 	return {"prompted": true, "defender_id": defender_id, "chosen_hex": chosen_hex}
