@@ -675,39 +675,58 @@ func set_event_log_record_attack_fn(fn: Callable) -> void:
 	_event_log_record_attack_fn = fn
 
 
-## _record_structured_attack(combatant, target, resolved_event) -> String —
-## FEAT-007: builds a core/log/attack_event.gd AttackEvent from a JUST-
-## resolved Strike's RoundEvents.AttackEvent (`resolved_event` — the SAME
-## instance resolve_action_use_case.gd already emitted via EventSinkPort;
-## never a second, re-derived roll/damage computation) plus the acting
-## combatant/target's stable ids and weapon id, and — ONLY when a
-## record_attack Callable has been injected — forwards it to that Callable.
-## Always returns the freshly generated attack_event_id (a future feature's
-## reaction-pairing call, within this SAME advance_ai_turn() invocation, will
-## need it), whether or not a Callable was injected, so a caller/test can
-## observe the id even without wiring a fake sink.
-func _record_structured_attack(combatant: Dictionary, target: Dictionary, resolved_event) -> String:
-	var attack_event_id: String = _generate_attack_event_id()
-	if not _event_log_record_attack_fn.is_valid():
-		return attack_event_id
+## _event_log_entry_count_fn — FEAT-006 (US-006 / FR-006, Iteration J-R2 Part
+## D): an OPTIONAL, injected, duck-typed Callable satisfying the design's
+## ICombatLogPort query half — `func() -> int` — mirroring
+## _event_log_record_attack_fn immediately above. Bound by the composition
+## root (MainScene.gd's rewire_session()) to event_log_view.get_entry_count(),
+## the SAME query MainScene.gd's `_verb_bar_strike_execute()` (FEAT-005,
+## the player-strikes-enemy path) already calls directly, so advance_ai_turn()
+## can capture the append-order index the plain-format on_attack_event() row
+## is ABOUT to land at BEFORE resolving the enemy Strike — the SAME
+## "capture-then-overwrite-in-place" convention that keeps a killing blow's
+## own, separate defeat row chronologically AFTER the Strike's row (see
+## overwrite_entry_as_rich()'s doc, presentation/event_log_view.gd). Left as
+## an invalid (unbound) Callable — the default — for every pre-existing
+## caller/test double, which never sets one (NFR-004).
+var _event_log_entry_count_fn: Callable = Callable()
 
-	var weapon: Dictionary = combatant.get("weapon", {})
-	var attack_event = AttackEventClass.new(
-		attack_event_id,
-		_round_number,
-		combatant.get("combatant_id", combatant.get("name", "")),
-		target.get("combatant_id", target.get("name", "")),
-		weapon.get("weapon_id", weapon.get("name", "")),
-		resolved_event.roll,
-		resolved_event.hit,
-		resolved_event.crit,
-		resolved_event.damage_final,
-		resolved_event.damage_final,
-		false,
-		false
-	)
-	_event_log_record_attack_fn.call(attack_event)
-	return attack_event_id
+## set_event_log_entry_count_fn(fn) -> void — FEAT-006: injects the Callable
+## described above.
+func set_event_log_entry_count_fn(fn: Callable) -> void:
+	_event_log_entry_count_fn = fn
+
+
+## _event_log_render_attack_entry_fn — FEAT-006: an OPTIONAL, injected,
+## duck-typed Callable satisfying the design's ICombatLogPort rich-render
+## half — `func(attack_event_id) -> String` — mirroring
+## _event_log_record_attack_fn. Bound by the composition root to
+## event_log_view.render_attack_entry(), the SAME formatter FEAT-005's player
+## path already calls directly. Left invalid (no-op guarded, NFR-004) for
+## every pre-existing caller/test double.
+var _event_log_render_attack_entry_fn: Callable = Callable()
+
+## set_event_log_render_attack_entry_fn(fn) -> void — FEAT-006: injects the
+## Callable described above.
+func set_event_log_render_attack_entry_fn(fn: Callable) -> void:
+	_event_log_render_attack_entry_fn = fn
+
+
+## _event_log_overwrite_entry_fn — FEAT-006: an OPTIONAL, injected,
+## duck-typed Callable satisfying the design's ICombatLogPort
+## suppress-and-append-rich half — `func(index, text, attack_event_id) ->
+## bool` — mirroring _event_log_record_attack_fn. Bound by the composition
+## root to event_log_view.overwrite_entry_as_rich(), the SAME in-place
+## overwrite FEAT-005's player path already calls directly, so exactly one
+## rich row (never a basic+rich duplicate pair) is visible per resolved
+## enemy Strike. Left invalid (no-op guarded, NFR-004) for every pre-existing
+## caller/test double.
+var _event_log_overwrite_entry_fn: Callable = Callable()
+
+## set_event_log_overwrite_entry_fn(fn) -> void — FEAT-006: injects the
+## Callable described above.
+func set_event_log_overwrite_entry_fn(fn: Callable) -> void:
+	_event_log_overwrite_entry_fn = fn
 
 
 ## _trace(message) -> void — FEAT-007: appends "DEBUG: <message>" to
@@ -1305,6 +1324,18 @@ func advance_ai_turn() -> Dictionary:
 			# choice (a defensive/malformed-resolver case) -- active_defense/
 			# defense_context stay "none"/{}, matching Pass.
 
+		# FEAT-006 (US-006 / FR-006, Iteration J-R2 Part D): capture the
+		# append-order index the plain-format on_attack_event() row is ABOUT
+		# to land at -- inside whichever resolve path below synchronously
+		# emits this Strike's AttackEvent via EventSinkPort -- BEFORE
+		# resolving, mirroring MainScene.gd's `_verb_bar_strike_execute()`
+		# player-path convention (FEAT-005) exactly. -1 (a safe no-op sentinel
+		# for the overwrite call below) when no entry-count Callable was
+		# injected -- every pre-existing caller/test double (NFR-004).
+		var pending_entry_index: int = (
+			_event_log_entry_count_fn.call() if _event_log_entry_count_fn.is_valid() else -1
+		)
+
 		var resolve_result: Dictionary = {}
 
 		if two_phase_commit_pending:
@@ -1405,18 +1436,61 @@ func advance_ai_turn() -> Dictionary:
 
 		any_action_taken = resolve_result.get("resolved", false)
 
-		# FEAT-007 (US-007 / FR-008): forward a STRUCTURED AttackEvent
-		# (core/log/attack_event.gd) for this JUST-resolved Strike to whatever
-		# record_attack Callable the composition root injected via
-		# set_event_log_record_attack_fn() -- a complete no-op for every
-		# pre-existing caller/test double (NFR-004; see
-		# _record_structured_attack()'s own doc). Deliberately built from the
-		# SAME resolve_result["event"] instance emitted via EventSinkPort above
-		# -- never a second, re-derived roll/damage computation.
+		# FEAT-007 (US-007 / FR-008) / FEAT-006 (US-006 / FR-006): forward a
+		# STRUCTURED AttackEvent (core/log/attack_event.gd) for this
+		# JUST-resolved Strike to whatever record_attack Callable the
+		# composition root injected via set_event_log_record_attack_fn() --
+		# a complete no-op for every pre-existing caller/test double
+		# (NFR-004). Deliberately built from the SAME resolve_result["event"]
+		# instance emitted via EventSinkPort above -- never a second,
+		# re-derived roll/damage computation. FEAT-006 additionally renders
+		# and overwrites the plain-format row in place (see the inline doc
+		# immediately below) -- exactly one rich row per resolved enemy
+		# Strike, mirroring MainScene.gd's player-path wiring (FEAT-005).
 		if action_name == "Strike" and any_action_taken:
 			var resolved_attack_event_for_log = resolve_result.get("event", null)
 			if resolved_attack_event_for_log != null:
-				_record_structured_attack(combatant, target, resolved_attack_event_for_log)
+				var attack_event_id: String = _generate_attack_event_id()
+				var log_weapon: Dictionary = combatant.get("weapon", {})
+				var structured_attack_event = AttackEventClass.new(
+					attack_event_id,
+					_round_number,
+					combatant.get("combatant_id", combatant.get("name", "")),
+					target.get("combatant_id", target.get("name", "")),
+					log_weapon.get("weapon_id", log_weapon.get("name", "")),
+					resolved_attack_event_for_log.roll,
+					resolved_attack_event_for_log.hit,
+					resolved_attack_event_for_log.crit,
+					resolved_attack_event_for_log.damage_final,
+					resolved_attack_event_for_log.damage_final,
+					false,
+					false
+				)
+
+				if _event_log_record_attack_fn.is_valid():
+					_event_log_record_attack_fn.call(structured_attack_event)
+
+				# FEAT-006 (US-006 / FR-006, Iteration J-R2 Part D): mirror
+				# MainScene.gd's `_verb_bar_strike_execute()` player-path rich-log
+				# rendering (FEAT-005) for this enemy-strikes-player call site.
+				# render_attack_entry() formats the roll/raw/final-damage rich text
+				# from the JUST-recorded structured AttackEvent above (never a
+				# second, re-derived roll/damage computation), and
+				# overwrite_entry_as_rich() overwrites the plain-format row
+				# on_attack_event() appended (at pending_entry_index, captured
+				# above BEFORE this Strike resolved) in place -- so exactly one,
+				# rich-format row is visible for this Strike, never a basic+rich
+				# duplicate pair. A complete no-op (the plain row is left as-is)
+				# when either Callable was never injected, or no entry-count
+				# Callable was injected (pending_entry_index stays -1) — every
+				# pre-existing caller/test double (NFR-004).
+				if (
+					_event_log_render_attack_entry_fn.is_valid()
+					and _event_log_overwrite_entry_fn.is_valid()
+					and pending_entry_index != -1
+				):
+					var rich_text: String = _event_log_render_attack_entry_fn.call(attack_event_id)
+					_event_log_overwrite_entry_fn.call(pending_entry_index, rich_text, attack_event_id)
 
 		# FEAT-005 (US-005 / FR-005, Iteration J Part A) / FEAT-003 (G3
 		# remediation): the SECOND await point this feature introduces into

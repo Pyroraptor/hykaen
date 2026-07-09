@@ -957,14 +957,26 @@ func rewire_session() -> void:
 
 		# FEAT-213 (Iteration J V&V fix): wire the structured combat-log recorder
 		# into the REAL composition root, mirroring the reaction-resolver seams
-		# above. round_session._record_structured_attack() (called from
-		# advance_ai_turn on every resolved Strike) forwards the AttackEvent to
-		# this Callable; without this binding the live log only ever rendered the
-		# old plain on_attack_event() string ("Hit for D damage."), never Part D-1's
-		# rich roll/defense-outcome format — the composition-root gap V&V flagged.
+		# above. round_session's inline recording (inside advance_ai_turn, on
+		# every resolved Strike) forwards the AttackEvent to this Callable;
+		# without this binding the live log only ever rendered the old plain
+		# on_attack_event() string ("Hit for D damage."), never Part D-1's rich
+		# roll/defense-outcome format — the composition-root gap V&V flagged.
 		# Re-applied on every rewire_session() call like the resolvers above.
+		#
+		# FEAT-006 (US-006 / FR-006, Iteration J-R2 Part D): additionally wires
+		# the entry-count query + render_attack_entry()/overwrite_entry_as_rich()
+		# seams round_session.advance_ai_turn() uses to render the SAME rich,
+		# single-row format for the enemy-strikes-player path that MainScene.gd's
+		# `_verb_bar_strike_execute()` (FEAT-005) already renders directly for
+		# the player-strikes-enemy path -- exactly one rich row per resolved
+		# enemy Strike, never a basic+rich duplicate pair. Re-applied on every
+		# rewire_session() call like every other seam above.
 		if event_log_view != null:
 			round_session.set_event_log_record_attack_fn(Callable(event_log_view, "record_attack"))
+			round_session.set_event_log_entry_count_fn(Callable(event_log_view, "get_entry_count"))
+			round_session.set_event_log_render_attack_entry_fn(Callable(event_log_view, "render_attack_entry"))
+			round_session.set_event_log_overwrite_entry_fn(Callable(event_log_view, "overwrite_entry_as_rich"))
 
 		# ── FEAT-002 (US-002, Dodge-Step steel thread): wire RoundSession's
 		# Dodge-Step seams to the REAL composition-root adapters -- the SAME
