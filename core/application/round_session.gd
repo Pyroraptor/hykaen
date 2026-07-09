@@ -63,6 +63,17 @@ const ActionsClass = preload("res://core/rules/actions.gd")
 ## violation.
 const ReactionWindowClass = preload("res://core/application/reaction_window.gd")
 
+## AttackEventClass — FEAT-007 (US-007 / FR-008): preloaded ONLY to construct
+## the STRUCTURED, storage-shaped AttackEvent record_attack() (event_log_view.gd,
+## a same-layer-adjacent Presentation adapter) accepts — a different value
+## object from RoundEventsClass.AttackEvent above (that one carries names for
+## immediate rendering; this one carries ids for structured storage/pairing —
+## see core/log/attack_event.gd's file-level doc). RoundSession never
+## instantiates event_log_view.gd itself (ADR-001/ADR-002) — only this value
+## object, handed to whatever Callable a composition root injects via
+## set_event_log_record_attack_fn() below.
+const AttackEventClass = preload("res://core/log/attack_event.gd")
+
 var _entries: Array
 var _party: Array
 var _enemies: Array
@@ -427,6 +438,91 @@ var _reaction_budget_violations: Array = []
 ## above).
 func get_reaction_budget_violations() -> Array:
 	return _reaction_budget_violations.duplicate()
+
+
+## _attack_event_id_counter — FEAT-007 (US-007 / FR-008): monotonically
+## incremented once per resolved Strike inside advance_ai_turn() (see
+## _generate_attack_event_id() below) — the SOLE source of the
+## attack_event_id core/log/attack_event.gd's AttackEvent carries. This is
+## the id US-007's storage-level pairing invariant (composite
+## attack_event_id + window_id, event_log_view.gd's record_reaction()) is
+## built on. Never reset mid-round; a fresh RoundSession (one per round, per
+## this file's own doc) starts a fresh sequence, so ids are unique within a
+## round's own structured log but NOT guaranteed globally unique across
+## rounds — acceptable for this steel thread's in-memory-only storage
+## (design notes: "no persistence tier this iteration").
+var _attack_event_id_counter: int = 0
+
+
+## _generate_attack_event_id() -> String — FEAT-007: returns a fresh,
+## round-scoped-unique id ("R<round_number>-A<n>").
+func _generate_attack_event_id() -> String:
+	_attack_event_id_counter += 1
+	return "R%d-A%d" % [_round_number, _attack_event_id_counter]
+
+
+## _event_log_record_attack_fn — FEAT-007 (US-007 / FR-008): an OPTIONAL,
+## injected, duck-typed Callable satisfying the design's EventLogPort
+## record_attack(attack_event) half — `func(attack_event) -> void` — mirroring
+## every other Dependency-Inversion seam already established in this file
+## (_token_reposition_fn / _reaction_resolver_fn / _prehit_avoidance_resolver_fn
+## / _onhit_mitigation_resolver_fn): a typed-Callable seam, never a concrete
+## Presentation/Infrastructure reference (ADR-001/ADR-002) — RoundSession
+## never imports/references presentation/event_log_view.gd by type. Left as
+## an invalid (unbound) Callable — the default — for every pre-existing
+## caller/test double, which never sets one; see
+## _record_structured_attack()'s no-op guard below. Wiring a REAL adapter
+## (event_log_view.gd's record_attack()) into the composition root
+## (MainScene.gd) is explicitly OUT of this feature's file scope — a
+## follow-on feature's job (mirrors this file's own established convention
+## of "establishing this seam is this feature's entire scope", e.g.
+## _reaction_resolver_fn's original FEAT-002 doc).
+var _event_log_record_attack_fn: Callable = Callable()
+
+
+## set_event_log_record_attack_fn(fn) -> void — FEAT-007: injects the
+## Callable described above. Intended to be called once by the composition
+## root, the SAME way set_token_reposition_fn() already is. Never calling
+## this method (every pre-existing caller/test double) leaves RoundSession's
+## behavior byte-for-byte unchanged (NFR-004) — see
+## _record_structured_attack()'s no-op guard.
+func set_event_log_record_attack_fn(fn: Callable) -> void:
+	_event_log_record_attack_fn = fn
+
+
+## _record_structured_attack(combatant, target, resolved_event) -> String —
+## FEAT-007: builds a core/log/attack_event.gd AttackEvent from a JUST-
+## resolved Strike's RoundEvents.AttackEvent (`resolved_event` — the SAME
+## instance resolve_action_use_case.gd already emitted via EventSinkPort;
+## never a second, re-derived roll/damage computation) plus the acting
+## combatant/target's stable ids and weapon id, and — ONLY when a
+## record_attack Callable has been injected — forwards it to that Callable.
+## Always returns the freshly generated attack_event_id (a future feature's
+## reaction-pairing call, within this SAME advance_ai_turn() invocation, will
+## need it), whether or not a Callable was injected, so a caller/test can
+## observe the id even without wiring a fake sink.
+func _record_structured_attack(combatant: Dictionary, target: Dictionary, resolved_event) -> String:
+	var attack_event_id: String = _generate_attack_event_id()
+	if not _event_log_record_attack_fn.is_valid():
+		return attack_event_id
+
+	var weapon: Dictionary = combatant.get("weapon", {})
+	var attack_event = AttackEventClass.new(
+		attack_event_id,
+		_round_number,
+		combatant.get("combatant_id", combatant.get("name", "")),
+		target.get("combatant_id", target.get("name", "")),
+		weapon.get("weapon_id", weapon.get("name", "")),
+		resolved_event.roll,
+		resolved_event.hit,
+		resolved_event.crit,
+		resolved_event.damage_final,
+		resolved_event.damage_final,
+		false,
+		false
+	)
+	_event_log_record_attack_fn.call(attack_event)
+	return attack_event_id
 
 
 ## _trace(message) -> void — FEAT-007: appends "DEBUG: <message>" to
@@ -1013,6 +1109,19 @@ func advance_ai_turn() -> Dictionary:
 			"", active_defense, defense_context
 		)
 		any_action_taken = resolve_result.get("resolved", false)
+
+		# FEAT-007 (US-007 / FR-008): forward a STRUCTURED AttackEvent
+		# (core/log/attack_event.gd) for this JUST-resolved Strike to whatever
+		# record_attack Callable the composition root injected via
+		# set_event_log_record_attack_fn() -- a complete no-op for every
+		# pre-existing caller/test double (NFR-004; see
+		# _record_structured_attack()'s own doc). Deliberately built from the
+		# SAME resolve_result["event"] instance emitted via EventSinkPort above
+		# -- never a second, re-derived roll/damage computation.
+		if action_name == "Strike" and any_action_taken:
+			var resolved_attack_event_for_log = resolve_result.get("event", null)
+			if resolved_attack_event_for_log != null:
+				_record_structured_attack(combatant, target, resolved_attack_event_for_log)
 
 		# FEAT-005 (US-005 / FR-005, Iteration J Part A): the SECOND await point
 		# this feature introduces into advance_ai_turn's coroutine chain -- a

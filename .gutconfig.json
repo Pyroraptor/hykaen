@@ -1,5 +1,5 @@
 {
-    "dirs": ["res://tests", "res://core/rules/tests", "res://core/application/tests"],
+    "dirs": ["res://tests", "res://core/rules/tests", "res://core/application/tests", "res://core/log/tests"],
     "include_subdirs": true,
     "should_exit": true,
     "log_level": 1,

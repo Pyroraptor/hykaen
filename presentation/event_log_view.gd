@@ -48,6 +48,28 @@ extends Control
 ## strict append (dispatch) order. Each entry: {sequence_number, round, text}.
 var _entries: Array = []
 
+## _attack_records — FEAT-007 (US-007 / FR-008): structured storage keyed by
+## attack_event_id (str(AttackEvent.id)), COMPLETELY SEPARATE from `_entries`
+## above. Each value: {"attack_event": AttackEvent, "reactions": {window_id:
+## ReactionResolvedEvent}}. Populated exclusively via record_attack()/
+## record_reaction() below — never touched by on_attack_event()/
+## on_round_event()'s pre-existing Dictionary-driven formatted-string path,
+## so an entry lacking a structured pairing (i.e. every entry appended the
+## OLD way) renders exactly as it always has (test_criteria #4). This is the
+## steel thread's in-memory "repository adapter" for the design's AttackEvent
+## 1—0..2 ReactionResolvedEvent relation (composite attack_event_id+window_id
+## uniqueness — see record_reaction()'s duplicate-rejection doc below).
+var _attack_records: Dictionary = {}
+
+## _rejected_duplicate_reactions — FEAT-007: every duplicate-window-firing
+## rejection record_reaction() has flagged (mirrors core/application/
+## round_session.gd's established `_reaction_budget_violations` convention —
+## this project's Godot 4.3 engine cannot capture GDScript's assert()/
+## push_error() output from GUT, so a rejection must ALSO be recorded here to
+## be observable by a test). Always empty for a caller that never fires the
+## same (attack_event_id, window_id) pair twice.
+var _rejected_duplicate_reactions: Array = []
+
 ## _next_sequence_number — the sequence_number the NEXT appended entry will
 ## receive; incremented on every append, guaranteeing strict monotonicity
 ## regardless of what `round` value the underlying event carries.
@@ -110,6 +132,97 @@ func get_row_text(index: int) -> String:
 		return ""
 	var label: Label = _labels[index]
 	return label.text if label != null else ""
+
+
+## record_attack(attack_event) → void — FEAT-007 (US-007 / FR-008): stores a
+## structured core/log/attack_event.gd AttackEvent in `_attack_records`,
+## keyed by str(attack_event.id), with an initially-empty "reactions" pairing
+## slot. A COMPLETELY SEPARATE storage channel from `_entries`/
+## on_attack_event() (test_criteria #4) — calling this never appends,
+## mutates, or removes any pre-existing formatted-string entry. Overwrites
+## any prior record for the SAME id (an id collision is a caller contract
+## violation — core/application/round_session.gd's generator guarantees
+## uniqueness within a round; this method does not itself re-derive that
+## guarantee).
+func record_attack(attack_event) -> void:
+	var attack_event_id: String = str(attack_event.id)
+	_attack_records[attack_event_id] = {
+		"attack_event": attack_event,
+		"reactions":    {},
+	}
+
+
+## record_reaction(reaction_event, correlated_attack_id) → bool — FEAT-007
+## (US-007 / FR-008): pairs a structured core/log/reaction_resolved_event.gd
+## ReactionResolvedEvent to the AttackEvent previously stored via
+## record_attack(correlated_attack_id), keyed by `reaction_event.window_id`
+## ("PreHitAvoidance" | "OnHitMitigation") — the composite
+## attack_event_id+window_id key the design's data_model specifies. Returns
+## true iff the pairing was recorded. Returns false (and records the
+## rejection in `_rejected_duplicate_reactions`, see that field's doc) for
+## either failure:
+##   - `correlated_attack_id` does not match any AttackEvent record_attack()
+##     has stored — an unpaired/unknown correlation.
+##   - a ReactionResolvedEvent has ALREADY been recorded for this EXACT
+##     (attack_event_id, window_id) pair — this is the storage-level
+##     expression of the <=1-reaction-per-Strike budget rule (a genuinely
+##     new PreHitAvoidance AND OnHitMitigation pairing for the SAME
+##     AttackEvent is legal and distinct — only a SECOND firing of the SAME
+##     window is rejected). The original pairing is left completely
+##     untouched — never silently overwritten.
+func record_reaction(reaction_event, correlated_attack_id) -> bool:
+	var attack_event_id: String = str(correlated_attack_id)
+	if not _attack_records.has(attack_event_id):
+		push_error(
+			"EventLogView.record_reaction: no AttackEvent recorded for attack_event_id='%s'; rejecting pairing"
+			% attack_event_id
+		)
+		return false
+
+	var window_id: String = str(reaction_event.window_id)
+	var reactions: Dictionary = _attack_records[attack_event_id]["reactions"]
+	if reactions.has(window_id):
+		push_error(
+			"EventLogView.record_reaction: duplicate window firing rejected for attack_event_id='%s' window_id='%s'"
+			% [attack_event_id, window_id]
+		)
+		_rejected_duplicate_reactions.append({
+			"attack_event_id": attack_event_id,
+			"window_id":       window_id,
+		})
+		return false
+
+	reactions[window_id] = reaction_event
+	return true
+
+
+## get_structured_attack(attack_event_id) → AttackEvent or null — FEAT-007:
+## the accessor for structured data test_criteria #1 requires. Returns null
+## when no AttackEvent has been recorded for `attack_event_id` (an "unpaired"
+## lookup, never an error).
+func get_structured_attack(attack_event_id):
+	var key: String = str(attack_event_id)
+	if not _attack_records.has(key):
+		return null
+	return _attack_records[key]["attack_event"]
+
+
+## get_paired_reaction(attack_event_id, window_id) → ReactionResolvedEvent or
+## null — FEAT-007: the accessor half of record_reaction()'s composite-key
+## pairing. Returns null when either `attack_event_id` was never recorded, or
+## no reaction has been paired to that (attack_event_id, window_id) slot yet.
+func get_paired_reaction(attack_event_id, window_id):
+	var key: String = str(attack_event_id)
+	if not _attack_records.has(key):
+		return null
+	return _attack_records[key]["reactions"].get(str(window_id), null)
+
+
+## get_rejected_duplicate_reactions() → Array — a read-only copy of every
+## duplicate-window-firing rejection recorded so far (see
+## `_rejected_duplicate_reactions`'s doc above).
+func get_rejected_duplicate_reactions() -> Array:
+	return _rejected_duplicate_reactions.duplicate()
 
 
 ## on_round_event(event) → void — dispatch entry point for typed round
