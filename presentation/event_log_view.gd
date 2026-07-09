@@ -55,7 +55,10 @@ class_name EventLogView
 extends Control
 
 ## _entries — ordered Array[Dictionary] of every appended log entry, in
-## strict append (dispatch) order. Each entry: {sequence_number, round, text}.
+## strict append (dispatch) order. Each entry: {sequence_number, round, text,
+## attack_event_id} -- attack_event_id (FEAT-005) is "" for every plain-format
+## entry and the correlating structured-storage id for a rich-rendered entry
+## (see append_rich_attack_entry()).
 var _entries: Array = []
 
 ## _attack_records — FEAT-007 (US-007 / FR-008): structured storage keyed by
@@ -111,8 +114,8 @@ func get_entry_count() -> int:
 
 
 ## get_entry(index) → Dictionary — a snapshot Dictionary
-## ({sequence_number, round, text}) for the entry at append-order `index`, or
-## an empty Dictionary if `index` is out of range.
+## ({sequence_number, round, text, attack_event_id}) for the entry at
+## append-order `index`, or an empty Dictionary if `index` is out of range.
 func get_entry(index: int) -> Dictionary:
 	if index < 0 or index >= _entries.size():
 		return {}
@@ -330,6 +333,45 @@ func render_attack_entry(attack_event_id) -> String:
 	return text
 
 
+## overwrite_entry_as_rich(index, text, attack_event_id) → bool — FEAT-005
+## (US-005, Iteration J-R2 Part D): overwrites the ALREADY-APPENDED entry at
+## append-order `index` (its `_entries[index]`/`_labels[index]` pairing) in
+## place with an already-rendered rich text (the caller renders it via
+## render_attack_entry() first; this method never renders/formats anything
+## itself), tagging `attack_event_id` onto that SAME entry so a caller/test
+## can correlate the visible row back to its structured AttackEvent (see
+## get_structured_attack()).
+##
+## This keeps the row's ORIGINAL chronological position (sequence_number,
+## append-order index) intact -- critical when a Strike's synchronous
+## EventSinkPort dispatch (the Application-layer Strike-resolution call)
+## ALSO triggers a same-call CombatantDefeatedEvent immediately afterward:
+## the attack row must stay chronologically BEFORE its own consequence, so
+## a live call site (MainScene.gd's `_verb_bar_strike_execute()`) captures
+## the entry index the plain-format on_attack_event() append will land at
+## (event_log_view.get_entry_count() BEFORE triggering that Strike
+## resolution) and, once it returns with the resolved roll/damage fields,
+## overwrites THAT SAME index in place -- rather than appending a SECOND row
+## at the end, which would land the rich row AFTER any already-dispatched
+## defeat entry and leave the stale plain-format row behind as a duplicate.
+## Returns false (no-op) when `index` is out of range.
+func overwrite_entry_as_rich(index: int, text: String, attack_event_id: String) -> bool:
+	if index < 0 or index >= _entries.size():
+		return false
+
+	var entry: Dictionary = _entries[index]
+	entry["text"] = text
+	entry["attack_event_id"] = str(attack_event_id)
+	_entries[index] = entry
+
+	if index < _labels.size():
+		var label: Label = _labels[index]
+		if label != null:
+			label.text = text
+
+	return true
+
+
 ## on_round_event(event) → void — dispatch entry point for typed round
 ## events (ADR-003). `event` is duck-typed: any RefCounted value object from
 ## core/rules/round_events.gd, or a plain Dictionary. Recognizes:
@@ -404,11 +446,14 @@ func on_encounter_result_event(event) -> void:
 
 # ── Internal helpers ─────────────────────────────────────────────────────
 
-## _append_entry(round_number, text) → void — appends one entry with the
-## next strictly-increasing sequence_number, and creates its Label in the
-## SAME append order (never re-sorted), guaranteeing chronological
-## (dispatch-order) rendering.
-func _append_entry(round_number: int, text: String) -> void:
+## _append_entry(round_number, text, attack_event_id) → void — appends one
+## entry with the next strictly-increasing sequence_number, and creates its
+## Label in the SAME append order (never re-sorted), guaranteeing
+## chronological (dispatch-order) rendering. `attack_event_id` (FEAT-005,
+## optional, "" by default for every pre-existing plain-format caller) tags
+## the appended entry with the structured AttackEvent it was rendered from,
+## when any — see overwrite_entry_as_rich()'s doc.
+func _append_entry(round_number: int, text: String, attack_event_id: String = "") -> void:
 	var sequence_number: int = _next_sequence_number
 	_next_sequence_number += 1
 
@@ -416,6 +461,7 @@ func _append_entry(round_number: int, text: String) -> void:
 		"sequence_number": sequence_number,
 		"round": round_number,
 		"text": text,
+		"attack_event_id": attack_event_id,
 	})
 
 	var label := Label.new()

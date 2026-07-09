@@ -189,6 +189,7 @@ const CancelControllerClass            = preload("res://presentation/cancel_cont
 const ReactionWindowClass              = preload("res://core/application/reaction_window.gd")
 const PlayerReactionChooserClass       = preload("res://presentation/player_reaction_chooser.gd")
 const HexChoiceResolverPortClass       = preload("res://core/application/ports/hex_choice_resolver_port.gd")
+const AttackEventClass                 = preload("res://core/log/attack_event.gd")
 
 ## The steel-thread's entry_point: the one encounter this composition root boots into.
 const PROLOGUE_ENCOUNTER_PATH: String = "res://data/encounters/prologue_encounter.tres"
@@ -441,6 +442,17 @@ var run_round_use_case
 var resolve_action_use_case
 var determine_outcome_use_case
 var round_history_port
+
+## _player_attack_event_id_counter — FEAT-005 (US-005, Iteration J-R2 Part
+## D): monotonically incremented once per resolved PLAYER Strike
+## (_verb_bar_strike_execute() below), the source of the attack_event_id
+## this call site's structured/rich log entries are keyed by. Uses a
+## "R<round>-P<n>" shape -- a "P" (Player) infix distinct from
+## core/application/round_session.gd's own "R<round>-A<n>" AI-path
+## generator (_generate_attack_event_id()) -- so ids from these two
+## independent call sites can never collide within the SAME event_log_view
+## instance's structured storage.
+var _player_attack_event_id_counter: int = 0
 
 ## outcome — '' | 'won' | 'lost'; mirrors round_session.outcome() and is
 ## refreshed once the round concludes (see _on_round_over()). Exposed for
@@ -1192,7 +1204,62 @@ func _verb_bar_strike_execute(selection) -> Dictionary:
 	# Enemy active_defense hardcoded to "none" via resolve()'s own default
 	# parameter (Part A pass-through, FEAT-005) -- no active_defense/
 	# defense_context is passed here.
-	return resolve_action_use_case.resolve(actor, action_economy, target, ACTION_NAME_STRIKE, ROUND_NUMBER, 0)
+
+	# FEAT-005 (US-005, Iteration J-R2 Part D): capture the append-order index
+	# the plain-format row event_log_view's on_attack_event() is ABOUT to
+	# append at -- inside resolve_action_use_case.resolve()'s synchronous
+	# EventSinkPort emit, immediately below -- BEFORE calling resolve(), so
+	# that index can be overwritten in place with the rich rendering once
+	# resolve() returns with the resolved roll/damage fields. Capturing the
+	# index up front (rather than suppressing the append and appending a
+	# fresh row afterward) keeps the row's ORIGINAL chronological position
+	# intact even when this SAME resolve() call also synchronously emits a
+	# CombatantDefeatedEvent immediately after the AttackEvent (a killing
+	# blow) -- the attack's own row must stay chronologically BEFORE that
+	# consequence, never appended after it.
+	var pending_entry_index: int = event_log_view.get_entry_count() if event_log_view != null else -1
+
+	var result: Dictionary = resolve_action_use_case.resolve(actor, action_economy, target, ACTION_NAME_STRIKE, ROUND_NUMBER, 0)
+
+	# FEAT-005: wire record_attack()/render_attack_entry() into this LIVE
+	# player-attack call site. Builds a core/log/attack_event.gd AttackEvent
+	# from `result["event"]` -- the SAME RoundEvents.AttackEvent instance
+	# resolve_action_use_case.gd already emitted via EventSinkPort above,
+	# never a second, re-derived roll/damage computation (mirrors
+	# core/application/round_session.gd's own _record_structured_attack()
+	# convention for the enemy-strikes-player path). record_attack() stores
+	# it into the REAL, live event_log_view; render_attack_entry() formats
+	# the roll/raw/final-damage rich text, which overwrites the plain-format
+	# row captured above in place -- so exactly one, rich-format row is
+	# visible for this Strike (steel-thread exit condition), never a
+	# basic+rich duplicate pair.
+	if event_log_view != null and pending_entry_index != -1 and result.get("resolved", false):
+		var resolved_attack_event = result.get("event", null)
+		if resolved_attack_event != null:
+			_player_attack_event_id_counter += 1
+			var attack_event_id: String = "R%d-P%d" % [ROUND_NUMBER, _player_attack_event_id_counter]
+
+			var weapon: Dictionary = actor.get("weapon", {})
+			var structured_attack_event = AttackEventClass.new(
+				attack_event_id,
+				ROUND_NUMBER,
+				actor.get("combatant_id", actor.get("name", "")),
+				target.get("combatant_id", target.get("name", "")),
+				weapon.get("weapon_id", weapon.get("name", "")),
+				resolved_attack_event.roll,
+				resolved_attack_event.hit,
+				resolved_attack_event.crit,
+				resolved_attack_event.damage_final,
+				resolved_attack_event.damage_final,
+				false,
+				false
+			)
+
+			event_log_view.record_attack(structured_attack_event)
+			var rich_text: String = event_log_view.render_attack_entry(attack_event_id)
+			event_log_view.overwrite_entry_as_rich(pending_entry_index, rich_text, attack_event_id)
+
+	return result
 
 
 ## _strike_reachable_targets() -> Array — FEAT-006 (US-006): the in-reach
