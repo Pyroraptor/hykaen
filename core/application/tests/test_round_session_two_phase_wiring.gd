@@ -366,11 +366,18 @@ func test_hit_then_parry_scenario_fires_prehit_then_onhit_in_order_without_stall
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
 	# attack_d20=10 -> roll_total=15, hits ac(10). damage die=4 -> damage_raw=7.
-	# Two-phase mode never lets resolve_action_use_case itself roll a parry/
-	# block die (active_defense stays "none" for that call) -- only 2 draws.
-	var rng := ScriptedRandomNumberPort.new([10, 4])
+	# FEAT-003 (G3 remediation): the on-hit window's chosen Parry is now
+	# GENUINELY applied via Resolution.apply_on_hit_defense() -- a third RNG
+	# draw is the parry d20 check: parry_d20=15 -> parry_roll=15+parry_bonus(3)
+	# =18, which STRICTLY exceeds the attacker's roll_total(15) -> Parry
+	# SUCCEEDS -> damage_final=0. Previously (the trace-only bug this feature
+	# fixes) only 2 draws were ever consumed because the chosen reaction was
+	# asked about and discarded without ever calling apply_on_hit_defense().
+	var rng := ScriptedRandomNumberPort.new([10, 4, 15])
 	var rig: Dictionary = _make_session(entries, [alpha], [bravo], rng)
 	var session = rig["session"]
+
+	var hp_before: int = alpha.get("hp_current", 0)
 
 	var resolver := RecordingTwoPhaseResolver.new()
 	resolver.choice_for_trigger_type["PreHitAvoidance"] = "none"
@@ -392,6 +399,11 @@ func test_hit_then_parry_scenario_fires_prehit_then_onhit_in_order_without_stall
 	assert_eq(onhit_trigger.get("attacker_id", ""), "bravo")
 	assert_eq(onhit_trigger.get("target_id", ""), "alpha")
 
+	# FEAT-003 (G3 remediation): the chosen Parry must GENUINELY reduce the
+	# committed damage -- not merely be asked about and discarded.
+	assert_eq(rig["event_sink"].events[0].damage_final, 0, "a successful Parry must reduce the committed final damage to 0 (FR-001 mitigation formula)")
+	assert_eq(alpha.get("hp_current", 0), hp_before, "Alpha must take ZERO damage once Parry genuinely mitigates the hit")
+
 	assert_eq(session.current_actor().get("name", ""), "Alpha", "the cursor must still advance -- no stall")
 
 
@@ -405,9 +417,17 @@ func test_hit_then_block_scenario_fires_prehit_then_onhit_in_order_without_stall
 	var alpha: Dictionary = _defender()
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
-	var rng := ScriptedRandomNumberPort.new([10, 4])
+	# FEAT-003 (G3 remediation): the on-hit window's chosen Block is now
+	# GENUINELY applied -- a third RNG draw is the block-reduction die:
+	# block_reduction_die=3 -> block_reduction=3+block_value(2)=5 ->
+	# damage_final=max(0, damage_raw(7)-5)=2 (mirrors core/application/tests/
+	# test_reaction_budget_gate.gd's identical fixture/math for the legacy
+	# WeaponAttack path -- same underlying Resolution.apply_on_hit_defense()).
+	var rng := ScriptedRandomNumberPort.new([10, 4, 3])
 	var rig: Dictionary = _make_session(entries, [alpha], [bravo], rng)
 	var session = rig["session"]
+
+	var hp_before: int = alpha.get("hp_current", 0)
 
 	var resolver := RecordingTwoPhaseResolver.new()
 	resolver.choice_for_trigger_type["PreHitAvoidance"] = "none"
@@ -422,6 +442,12 @@ func test_hit_then_block_scenario_fires_prehit_then_onhit_in_order_without_stall
 
 	assert_eq(resolver.call_order, ["PreHitAvoidance", "OnHitMitigation"], "a Passed PreHitAvoidance + a hit must fire OnHitMitigation SECOND, in order")
 	_assert_valid_firing_order(resolver.call_order, "hit-then-block")
+
+	# FEAT-003 (G3 remediation): the chosen Block must GENUINELY reduce the
+	# committed damage -- not merely be asked about and discarded.
+	assert_eq(rig["event_sink"].events[0].damage_final, 2, "Block must reduce the committed final damage per FR-001's mitigation formula: raw(7) - reduction(5) = 2")
+	assert_eq(hp_before - alpha.get("hp_current", 0), 2, "Alpha must take exactly the mitigated (not raw) damage once Block genuinely applies")
+
 	assert_eq(session.current_actor().get("name", ""), "Alpha", "the cursor must still advance -- no stall")
 
 
@@ -438,7 +464,10 @@ func test_advance_ai_turn_awaits_a_genuinely_delayed_resolver_for_both_windows_w
 	var alpha: Dictionary = _defender()
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
-	var rng := ScriptedRandomNumberPort.new([10, 4])
+	# FEAT-003 (G3 remediation): the chosen Block is now genuinely applied, so
+	# a third RNG draw (the block-reduction die) is consumed -- see the
+	# hit-then-block scenario above for the identical math.
+	var rng := ScriptedRandomNumberPort.new([10, 4, 3])
 	var rig: Dictionary = _make_session(entries, [alpha], [bravo], rng)
 	var session = rig["session"]
 

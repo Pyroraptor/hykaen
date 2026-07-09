@@ -42,26 +42,21 @@ extends GutTest
 ## pinned to an extreme value so the outcome is deterministic regardless of
 ## the actual roll drawn.
 ##
-## ⚠ KNOWN, DOCUMENTED INTERIM CHARACTERISTIC this suite surfaces rather than
-## papers over (see core/application/round_session.gd's own
-## "documented interim scope limitation" comment on advance_ai_turn()'s
-## OnHitMitigation branch, introduced by an earlier feature in this same
-## iteration — out of THIS feature's file scope; files_to_modify is empty):
-## the OnHitMitigation ask is opened, offered, and the player's choice is
-## accepted and traced, but is NOT YET retroactively applied to the
-## already-resolved Strike's damage (that would require exposing
-## resolve_action_use_case.gd's internal two-phase resolve_to_hit()/
-## apply_on_hit_defense() split to round_session.gd, explicitly left to a
-## follow-on feature). Consequently, for every "dodge-fail+…" scenario below,
-## damage_raw/damage_final are byte-for-byte equal REGARDLESS of whether
-## Parry/Block/Pass is chosen at the OnHitMitigation window, and no reaction
-## is actually spent from Titus's ActionEconomy for that choice either. This
-## suite asserts that REAL, current behavior explicitly (rather than
-## fabricating an un-earned "parry-succeeded"/"block reduced-by-N" outcome
-## the resolved Strike never actually produced) — this is precisely the kind
-## of "correct in isolation, wrong-or-incomplete when wired" evidence the
-## design notes' observability section calls for surfacing to a human
-## reviewer, not hiding.
+## FEAT-003 (US-002 / FR-002, G3 remediation) update: the OnHitMitigation ask
+## is now GENUINELY applied to the Strike it was asked about, rather than
+## merely traced and discarded (the prior "KNOWN, DOCUMENTED INTERIM
+## CHARACTERISTIC" this file used to pin here). round_session.gd's
+## advance_ai_turn() now defers the commit — via
+## resolve_to_hit_uc/apply_on_hit_defense_uc — until AFTER the OnHitMitigation
+## choice is known, so the structured AttackEvent this suite observes is not
+## recorded until the ENTIRE Strike (both reaction windows) has resolved, and
+## a real Parry/Block choice genuinely changes damage_final vs. damage_raw.
+## _run_dodge_declined_hit_scenario() below deterministically forces
+## Parry/Block to fully succeed (mirrors this file's own established
+## "mutate the live combatant Dictionary a production call path already
+## reads" technique for ac/skills) by pinning Titus's own weapon's
+## parry_bonus/block_value to an overwhelming value, so damage_final is
+## pinned to 0 for those two scenarios regardless of the real dice drawn.
 ##
 ## The combat-log seam (core/application/round_session.gd's
 ## set_event_log_record_attack_fn()) is wired by THIS suite directly against
@@ -396,6 +391,17 @@ func _run_dodge_declined_hit_scenario(instance, onhit_choice: String) -> Diction
 	# overwhelmingly low passive ac guarantees roll_total always meets it.
 	titus["ac"] = -1000
 
+	# FEAT-003 (G3 remediation): deterministic on-hit mitigation, mirroring
+	# the ac/skills mutation technique above -- an overwhelming parry_bonus
+	# guarantees a chosen Parry's (d20 + parry_bonus) roll always strictly
+	# exceeds the attacker's roll_total, and an overwhelming block_value
+	# guarantees a chosen Block's reduction always meets or exceeds any
+	# possible damage_raw -- so damage_final is deterministically 0 for BOTH
+	# the "parry" and "block" scenarios below, regardless of the real dice
+	# the RNG actually draws for the mitigation roll itself.
+	titus["weapon"]["parry_bonus"] = 9999
+	titus["weapon"]["block_value"] = 9999
+
 	var recorded_attacks: Array = _wire_event_log_seam(instance)
 	_advance_to_enemy_turn(instance)
 
@@ -415,9 +421,15 @@ func _run_dodge_declined_hit_scenario(instance, onhit_choice: String) -> Diction
 			# presses.
 			"expected_options": ["parry", "block", "none"],
 			"choice": onhit_choice,
+			# FEAT-003 (G3 remediation): the structured AttackEvent is now
+			# recorded only AFTER the ENTIRE Strike (both reaction windows,
+			# including this OnHitMitigation choice) has resolved -- the
+			# genuine two-phase deferred commit this feature wires in. At the
+			# moment this window OPENS (before its choice is pressed), the
+			# Strike's damage has NOT yet been committed/recorded.
 			"assert_fn": func(): assert_eq(
-				recorded_attacks.size(), 1,
-				"OnHitMitigation must fire AFTER the attack roll -- the structured AttackEvent must already be recorded"
+				recorded_attacks.size(), 0,
+				"OnHitMitigation must fire BEFORE the structured AttackEvent is recorded -- the commit is deferred until this choice is known"
 			),
 		},
 	])
@@ -438,25 +450,40 @@ func _run_dodge_declined_hit_scenario(instance, onhit_choice: String) -> Diction
 	assert_eq(onhit_opens.size(), 1, "a hit with no prior reaction spend must open exactly one OnHitMitigation window")
 
 	# ── Budget (test_criteria #4) ────────────────────────────────────────────
-	# See file-level "KNOWN, DOCUMENTED INTERIM CHARACTERISTIC" doc: neither
-	# window in THIS scenario ever actually reaches ActionEconomy.spend_reaction()
-	# on the REAL live budget (PreHitAvoidance was declined; OnHitMitigation's
-	# choice here is traced-only) -- so the observed delta is 0, which still
-	# honestly satisfies the <=1-reaction-per-Strike invariant.
+	# FEAT-003 (G3 remediation): a real, non-Pass OnHitMitigation choice
+	# (parry/block) now GENUINELY spends one reaction from Titus's live
+	# ActionEconomy via Resolution.apply_on_hit_defense()'s own
+	# _try_spend_reaction() gate; declining (onhit_choice == "none") spends
+	# none -- PreHitAvoidance was declined in every scenario this helper
+	# drives, so this IS the entire Strike's reaction spend.
 	var reactions_spent: int = budget_before - titus_action_economy.get_remaining()
 	assert_true(reactions_spent <= 1, "at most one reaction may be spent per Strike")
+	var expected_reactions_spent: int = 0 if onhit_choice == "none" else 1
+	assert_eq(reactions_spent, expected_reactions_spent, "a real Parry/Block choice must spend exactly one reaction; Pass must spend none")
 
 	var attack_event = recorded_attacks[0]
 	assert_eq(attack_event.attacker_id, skeleton.get("combatant_id", ""))
 	assert_eq(attack_event.target_id, titus.get("combatant_id", ""))
 	assert_true(attack_event.is_hit)
-	# See file-level doc's KNOWN, DOCUMENTED INTERIM CHARACTERISTIC: the
-	# currently-wired advance_ai_turn() does not yet retroactively apply the
-	# OnHitMitigation choice to this already-resolved Strike's damage, so
-	# damage_raw/damage_final are always equal here regardless of which
-	# on-hit reaction was chosen.
-	assert_eq(attack_event.damage_raw, attack_event.damage_final)
-	assert_true(attack_event.damage_final > 0, "a real hit must deal real damage")
+	# FEAT-003 (G3 remediation): the OnHitMitigation choice is now GENUINELY
+	# applied to this Strike's committed damage (never merely traced). Titus's
+	# weapon parry_bonus/block_value were pinned to an overwhelming value
+	# above, so both "parry" and "block" deterministically reduce the
+	# COMMITTED final damage to 0, while "none" (declined) leaves the full,
+	# unmitigated damage committed (> 0). NOTE: this structured log event
+	# (core/log/attack_event.gd, built by round_session.gd's
+	# _record_structured_attack()) mirrors its own "raw_damage" field from the
+	# SAME already-final resolve_result -- it was never a second, independent
+	# pre-mitigation snapshot (unrelated to this feature; see
+	# core/application/tests/test_round_session_reaction_window.gd for a
+	# direct application-layer proof that damage_final differs from the TRUE
+	# pre-mitigation raw damage), so damage_raw == damage_final always holds
+	# here regardless of mitigation and is not itself an interesting
+	# assertion -- only damage_final (the genuinely committed amount) is.
+	if onhit_choice == "none":
+		assert_true(attack_event.damage_final > 0, "declining (Pass) must leave the Strike's full, unmitigated damage committed")
+	else:
+		assert_eq(attack_event.damage_final, 0, "a chosen Parry/Block, pinned to overwhelmingly succeed, must reduce committed damage to 0 (FR-001 mitigation formula)")
 
 	return {"attack_event": attack_event, "titus": titus, "skeleton": skeleton}
 

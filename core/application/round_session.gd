@@ -999,6 +999,17 @@ func advance_ai_turn() -> Dictionary:
 		# outcome" test_criterion.
 		var active_defense: String = "none"
 		var defense_context: Dictionary = {}
+		# FEAT-003 (US-002 / FR-002, G3 remediation): true once this Strike has
+		# opted into GENUINE two-phase commit -- see the `else` branch below
+		# (immediately preceding the removed trace-only stub this feature
+		# replaces). When true, the atomic call to _resolve_action_use_case's
+		# resolve() method a few lines down is SKIPPED ENTIRELY in favor of the deferred
+		# resolve_to_hit_uc -> await OnHitMitigation -> apply_on_hit_defense_uc
+		# sequence inlined below (still literally inside advance_ai_turn()'s own
+		# body -- see tests/gut's/core/application/tests' static source-shape
+		# audit, which requires the SECOND await point to remain coded directly
+		# in this function, never delegated to a helper it merely calls).
+		var two_phase_commit_pending: bool = false
 		# FEAT-003 (US-003 / FR-002): declared here (rather than inside the
 		# nested "Strike" branch below) so the budget-delta gate after
 		# resolve_action_use_case.resolve() below -- which needs
@@ -1066,16 +1077,16 @@ func advance_ai_turn() -> Dictionary:
 				# combined "WeaponAttack" ask below (Dodge+Parry+Block unioned
 				# BEFORE the roll even happens) is retired in favor of asking
 				# Block/Parry strictly AFTER the hit result is known -- see the
-				# post-resolve OnHitMitigation ask below (the SECOND await point
-				# this feature introduces into this coroutine). active_defense/
-				# defense_context are deliberately left "none"/{} here so
-				# resolve_action_use_case.resolve() below applies NO on-hit
-				# mitigation of its own for this call -- that decision is deferred
-				# to the post-resolve block.
+				# two-phase commit block below (the SECOND await point this
+				# coroutine awaits). active_defense/defense_context are
+				# deliberately left "none"/{} here -- when two_phase_commit_pending
+				# is set, they are never even handed to
+				# _resolve_action_use_case's atomic resolve() at all (that atomic call is
+				# skipped entirely in favor of the deferred commit below).
 				#
 				# Every pre-existing caller/test double that never calls
 				# set_onhit_mitigation_resolver_fn() (NFR-004 default-safety) takes
-				# the unchanged legacy path in the `else` branch instead, so this
+				# the unchanged legacy path in the `if` branch instead, so this
 				# feature introduces zero behavior change for them.
 				if not _onhit_mitigation_resolver_fn.is_valid():
 					var trigger: Dictionary = _build_reaction_trigger(combatant, target, target_action_economy)
@@ -1100,14 +1111,113 @@ func advance_ai_turn() -> Dictionary:
 					)
 					active_defense = _reaction_choice_to_active_defense(reaction_result)
 					defense_context = _build_defense_context(target, target_action_economy)
+				else:
+					# FEAT-003 (US-002 / FR-002, G3 remediation): two-phase mode --
+					# defer to the genuine deferred-commit block below instead of
+					# the atomic resolve() call.
+					two_phase_commit_pending = true
 			# else: prehit_on_hit_suppressed with no explicit dodge/steel
 			# choice (a defensive/malformed-resolver case) -- active_defense/
 			# defense_context stay "none"/{}, matching Pass.
 
-		var resolve_result: Dictionary = _resolve_action_use_case.resolve(
-			combatant, action_economy, target, action_name, _round_number, _cycle_index,
-			"", active_defense, defense_context
-		)
+		var resolve_result: Dictionary = {}
+
+		if two_phase_commit_pending:
+			# FEAT-003 (US-002 / FR-002, G3 remediation): the GENUINE two-phase
+			# Strike commit -- replaces the old trace-but-don't-apply stub this
+			# feature exists to fix (see this file's FEAT-003 top-level doc; the
+			# anti-pattern that caused DEF-001, previously at ~line 1141-1167).
+			# Spends the action, rolls ONLY the to-hit phase via
+			# _resolve_action_use_case.get_resolve_to_hit_use_case() (NO
+			# hp_current mutation, NO event emitted -- ResolveToHitUseCase's own
+			# documented contract), AWAITS the OnHitMitigation window -- the
+			# SECOND await point this coroutine awaits, coded directly here so
+			# it stays inside advance_ai_turn()'s own body -- ONLY when the roll
+			# actually hit (ReactionWindowClass.is_on_hit_mitigation_eligible()'s
+			# own gate, never re-derived a second way; reaction_already_spent is
+			# always false at this call site -- prehit already proved it did not
+			# suppress this Strike's one reaction), and ONLY THEN commits via
+			# _resolve_action_use_case.get_apply_on_hit_defense_use_case().apply()
+			# -- the SOLE hp_current mutation / AttackEvent emission for this
+			# Strike. A resolved Parry/Block choice therefore genuinely reduces
+			# the damage actually committed, rather than being asked about and
+			# discarded (test_criteria: Parry/Block mitigation actually applies;
+			# Pass reproduces the raw/unmitigated outcome byte-for-byte).
+			#
+			# Precondition checks deliberately mirror ONLY
+			# _resolve_action_use_case's atomic resolve()'s action-economy spend
+			# (ERR_NO_ACTION_REMAINING) -- the melee-reach precondition is
+			# intentionally NOT re-derived here: this branch's sole caller
+			# (advance_ai_turn()'s enemy-Strikes-player path) only ever reaches a
+			# target core/combat/ai.gd's decide_action() already chose as
+			# adjacent/in-range (ai.gd's own job -- see
+			# tests/unit/core/combat/test_ai_reach_strike.gd); re-deriving the
+			# same reach math here would be a second, drifting copy of a rule
+			# resolve_action_use_case.gd already owns, not a genuine
+			# defense-in-depth gain for this call path.
+			var spend_result: Dictionary = action_economy.spend_action({"name": action_name, "traits": []})
+			if not spend_result.get("success", false):
+				resolve_result = {"resolved": false, "ok": false, "error": "ERR_NO_ACTION_REMAINING"}
+			else:
+				var weapon: Dictionary = combatant.get("weapon", {})
+				var to_hit_uc = _resolve_action_use_case.get_resolve_to_hit_use_case()
+				var partial: Dictionary = to_hit_uc.resolve_to_hit(combatant, target, weapon, "ac", "none", {})
+				var attack_hit: bool = partial.get("hit", false)
+				var on_hit_defense: String = "none"
+
+				if ReactionWindowClass.is_on_hit_mitigation_eligible(false, attack_hit):
+					var onhit_trigger: Dictionary = _build_onhit_mitigation_trigger(combatant, target, attack_hit)
+					_trace(
+						"onhit_mitigation_trigger_built attacker_id=%s target_id=%s round=%d"
+						% [onhit_trigger.get("attacker_id", ""), onhit_trigger.get("target_id", ""), _round_number]
+					)
+					var onhit_result: Dictionary = await _resolve_onhit_mitigation(onhit_trigger)
+					on_hit_defense = _reaction_choice_to_active_defense(onhit_result)
+					_trace(
+						"onhit_mitigation_resolved choice=%s round=%d"
+						% [on_hit_defense, _round_number]
+					)
+
+				var onhit_defense_context: Dictionary = _build_defense_context(target, target_action_economy)
+				var actor_updated_action_budget: Dictionary = {
+					"remaining": spend_result.get("remaining", -1),
+					"spent":     action_economy.is_spent(),
+				}
+
+				var apply_uc = _resolve_action_use_case.get_apply_on_hit_defense_use_case()
+				var apply_result: Dictionary = apply_uc.apply(
+					partial, combatant, target, on_hit_defense, onhit_defense_context,
+					_round_number, actor_updated_action_budget
+				)
+
+				var history_entry = RoundEventsClass.RoundHistoryEntry.new(
+					_round_number, _cycle_index, combatant.get("name", ""), action_name, spend_result.get("remaining", -1)
+				)
+				_round_history_port.append({
+					"attacker":         combatant,
+					"action":           action_name,
+					"target":           target,
+					"roll":             partial.get("roll_total", 0),
+					"damage_final":     apply_result.get("damage_final", 0),
+					"budget_remaining": spend_result.get("remaining", -1),
+					"round":            _round_number,
+					"cycle_index":      _cycle_index,
+					"entry":            history_entry
+				})
+
+				resolve_result = {
+					"resolved":        true,
+					"ok":              true,
+					"event":           apply_result.get("event", null),
+					"target_defeated": apply_result.get("defender_defeated", false),
+					"damage_final":    apply_result.get("damage_final", 0),
+				}
+		else:
+			resolve_result = _resolve_action_use_case.resolve(
+				combatant, action_economy, target, action_name, _round_number, _cycle_index,
+				"", active_defense, defense_context
+			)
+
 		any_action_taken = resolve_result.get("resolved", false)
 
 		# FEAT-007 (US-007 / FR-008): forward a STRUCTURED AttackEvent
@@ -1123,48 +1233,25 @@ func advance_ai_turn() -> Dictionary:
 			if resolved_attack_event_for_log != null:
 				_record_structured_attack(combatant, target, resolved_attack_event_for_log)
 
-		# FEAT-005 (US-005 / FR-005, Iteration J Part A): the SECOND await point
-		# this feature introduces into advance_ai_turn's coroutine chain -- a
-		# genuinely POST-HIT "OnHitMitigation" ask (Parry/Block only), fired
-		# strictly AFTER resolve_action_use_case.resolve() above has already
-		# determined this Strike's hit/miss result, and ONLY when: (a) this is a
-		# Strike, (b) two-phase mode was opted into (a dedicated
-		# OnHitMitigation resolver was injected -- see the elif branch above),
-		# and (c) no reaction has been spent yet this Strike (active_defense is
-		# still "none" -- a Dodge/Steel choice from the PreHitAvoidance window
-		# always sets active_defense to something else, correctly skipping this
-		# block per the <=1-reaction-per-Strike budget rule). Firing order is
+		# FEAT-005 (US-005 / FR-005, Iteration J Part A) / FEAT-003 (G3
+		# remediation): the SECOND await point this feature introduces into
+		# advance_ai_turn's coroutine chain -- a genuinely POST-HIT
+		# "OnHitMitigation" ask (Parry/Block only) -- now lives directly inside
+		# the `two_phase_commit_pending` block above (still coded literally
+		# inside advance_ai_turn()'s own body), fired strictly AFTER the to-hit
+		# phase has already determined this Strike's hit/miss result, and ONLY
+		# when: (a) this is a Strike, (b) two-phase mode was opted into (a
+		# dedicated OnHitMitigation resolver was injected -- see the elif
+		# branch above), and (c) no reaction has been spent yet this Strike (a
+		# Dodge/Steel choice from the PreHitAvoidance window always sets
+		# active_defense to something else, correctly skipping two-phase mode
+		# entirely per the <=1-reaction-per-Strike budget rule). Firing order is
 		# therefore always PreHitAvoidance (above) THEN, conditionally,
-		# OnHitMitigation (here) -- never reversed, never duplicated (this block
-		# runs at most once per Strike).
-		#
-		# NOTE (documented interim scope limitation): the chosen on-hit
-		# mitigation is asked for, validated, and traced here, proving the
-		# coroutine's second await point fires in the correct order without
-		# ever stalling and safely defaults to Pass for an un-injected/
-		# declining/misbehaving resolver (this feature's test_criteria). It does
-		# NOT yet retroactively reduce this Strike's already-finalized damage --
-		# doing so would require exposing resolve_action_use_case.gd's internal
-		# two-phase resolve_to_hit()/apply_on_hit_defense() split to this
-		# caller, which is out of this feature's file scope (round_session.gd /
-		# MainScene.gd only) and is left to a follow-on feature.
-		if action_name == "Strike" and _onhit_mitigation_resolver_fn.is_valid() and active_defense == "none":
-			var attack_hit: bool = false
-			var resolved_event = resolve_result.get("event", null)
-			if resolved_event != null:
-				attack_hit = resolved_event.hit
-			if ReactionWindowClass.is_on_hit_mitigation_eligible(false, attack_hit):
-				var onhit_trigger: Dictionary = _build_onhit_mitigation_trigger(combatant, target, attack_hit)
-				_trace(
-					"onhit_mitigation_trigger_built attacker_id=%s target_id=%s round=%d"
-					% [onhit_trigger.get("attacker_id", ""), onhit_trigger.get("target_id", ""), _round_number]
-				)
-				var onhit_result: Dictionary = await _resolve_onhit_mitigation(onhit_trigger)
-				var onhit_choice: String = _reaction_choice_to_active_defense(onhit_result)
-				_trace(
-					"onhit_mitigation_resolved choice=%s round=%d"
-					% [onhit_choice, _round_number]
-				)
+		# OnHitMitigation (in the two_phase_commit_pending block above) --
+		# never reversed, never duplicated (fires at most once per Strike). The
+		# resolved choice GENUINELY reduces the damage committed -- see the
+		# two_phase_commit_pending block's own doc; this is the G3 remediation
+		# fix (previously a trace-but-don't-apply stub lived here).
 
 		# FEAT-003 (US-003 / FR-002): the shared budget-delta gate — proves
 		# AT MOST ONE reaction was actually spent from the defender's
