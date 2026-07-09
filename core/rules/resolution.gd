@@ -170,6 +170,21 @@ func _init(rng) -> void:
 ##   3. [Hit only] _rng.roll(...)     — damage roll(s)
 ##   4. [Block only] _rng.roll(...)   — block-reduction roll
 ##   5. [Parry only] _rng.d20()       — parry attack roll
+##
+## FEAT-001 (US-001 / FR-004, Iteration J Part A): this function is now a THIN
+## COMPOSING WRAPPER over resolve_to_hit() (phase 1: pre-hit Dodge/Steel check
+## + attack roll + damage roll) and apply_on_hit_defense() (phase 2: post-hit
+## Block/Parry mitigation). It performs ZERO resolution math of its own —
+## every formula above still lives in exactly one place (resolve_to_hit or
+## apply_on_hit_defense), never duplicated here. This split exists so
+## core/application callers (e.g. the two-phase reaction window
+## re-architecture) can learn the hit/miss result BEFORE deciding whether to
+## open a post-hit Block/Parry window, instead of committing to an
+## active_defense choice up front. The default/"none" path (and every other
+## active_defense value, since only one is ever passed per call) is
+## byte-for-byte identical to the pre-split implementation — see
+## tests/characterization/test_strike_characterization.gd, the pinned
+## regression oracle for this contract.
 func resolve_weapon_attack(
 	attacker: Dictionary,
 	target: Dictionary,
@@ -198,6 +213,84 @@ func resolve_weapon_attack(
 	if not (active_defense in VALID_ACTIVE_DEFENSES):
 		active_defense = "none"
 
+	# A single resolve_weapon_attack() call only ever carries ONE
+	# active_defense choice, so pre-hit (Dodge/Steel) and on-hit
+	# (Block/Parry) are mutually exclusive by construction here — no budget
+	# arbitration needed at this layer (that lives in the two-phase caller).
+	var pre_hit_defense: String = active_defense if (active_defense == "dodge" or active_defense == "steel") else "none"
+
+	var partial: Dictionary = resolve_to_hit(attacker, target, weapon, defense_type, pre_hit_defense, defense_context)
+
+	var damage_final: int = partial["damage_raw"]
+	var active_defense_applied: String = partial.get("active_defense_applied", "none")
+	var on_hit_suppressed: bool = false
+
+	if partial["hit"]:
+		var on_hit_defense: String = active_defense if (active_defense == "block" or active_defense == "parry") else "none"
+		var post: Dictionary = apply_on_hit_defense(partial, on_hit_defense, defense_context)
+		damage_final = post["damage_final"]
+		active_defense_applied = post["active_defense_applied"]
+		on_hit_suppressed = post["on_hit_suppressed"]
+
+	return {
+		"hit":                    partial["hit"],
+		"crit":                   partial["crit"],
+		"roll_total":             partial["roll_total"],
+		"damage_raw":             partial["damage_raw"],
+		"active_defense_applied": active_defense_applied,
+		"damage_final":           damage_final,
+		"defender_stepped":       partial["defender_stepped"],
+		"next_check_bonus":       partial.get("next_check_bonus", 0),
+		"on_hit_suppressed":      on_hit_suppressed,
+		"defense_value":          partial["defense_value"]
+	}
+
+
+## resolve_to_hit(attacker, target, weapon, defense_type, pre_hit_defense,
+##                ctx) → Dictionary
+##
+## FEAT-001 (US-001 / FR-004, Iteration J Part A): PHASE 1 of the two-phase
+## split — resolves everything that happens BEFORE the hit/miss result is
+## known: the pre-hit Dodge/Steel check (if `pre_hit_defense` requests one
+## and its trigger conditions hold), the attacker's attack roll, and — on a
+## hit — the damage roll. This is the ENTIRE contents of the RNG-consumption
+## positions 1–3 documented above; resolve_weapon_attack() and
+## apply_on_hit_defense() never re-derive any of this math.
+##
+## Parameters:
+##   attacker, target, weapon, defense_type — identical to
+##     resolve_weapon_attack()'s parameters of the same name.
+##   pre_hit_defense — String, one of "none" | "dodge" | "steel" — the
+##     ON-ATTACKED reaction to attempt (Block/Parry are ON-HIT and are never
+##     passed here; see apply_on_hit_defense()).
+##   ctx — Dictionary, defaults to {} — same shape as resolve_weapon_attack()'s
+##     defense_context ("action_economy", "open_space_available", …).
+##
+## Returns Dictionary — the pinned two-phase contract (test_criteria #1)
+## ALWAYS carries these keys:
+##   "hit"              — bool
+##   "crit"             — bool
+##   "roll_total"        — int: attacker's total attack roll
+##   "damage_raw"        — int: damage before any on-hit mitigation
+##   "defender_stepped"  — bool: true after a SUCCESSFUL Dodge (miss)
+## Plus bookkeeping fields threaded through ONLY for
+## resolve_weapon_attack()'s thin-wrapper recomposition (never re-derived by
+## a caller — apply_on_hit_defense() reads "defense_type"/"weapon" back out
+## of this same Dictionary rather than being passed them separately):
+##   "active_defense_applied" — "dodge" | "steel" | "none" (pre-hit outcome only)
+##   "next_check_bonus"       — int: +2 after a successful Steel resist, else 0
+##   "defense_value"          — int: effective defense value the roll was compared to
+##   "defense_type"           — String: echoed back for apply_on_hit_defense()
+##   "weapon"                 — Dictionary: echoed back (block_die fallback needs it)
+func resolve_to_hit(
+	attacker: Dictionary,
+	target: Dictionary,
+	weapon: Dictionary,
+	defense_type: String,
+	pre_hit_defense: String = "none",
+	ctx: Dictionary = {}
+) -> Dictionary:
+
 	# ── Pre-attack phase: Dodge and Steel roll BEFORE the attack roll ──────────
 	# Both are reactions triggered when TARGETED, so their checks precede the
 	# attacker's roll (ADR-002 RNG sequence, position 1).
@@ -206,14 +299,14 @@ func resolve_weapon_attack(
 	var determination_check: int = -1  # >= 0 when Steel was successfully activated
 
 	# DODGE — trigger: defense_type in ["ac","reflex"] AND NOT Immobilized AND open space
-	if active_defense == "dodge":
+	if pre_hit_defense == "dodge":
 		var is_dodge_trigger: bool = (defense_type == "ac" or defense_type == "reflex")
 		var is_immobilized: bool = ("Immobilized" in target.get("conditions", []))
-		var open_space: bool = defense_context.get("open_space_available", true)
+		var open_space: bool = ctx.get("open_space_available", true)
 
 		if is_dodge_trigger and not is_immobilized and open_space:
 			# Attempt to spend one reaction from the action economy (if provided)
-			var reaction_ok: bool = _try_spend_reaction(defense_context)
+			var reaction_ok: bool = _try_spend_reaction(ctx)
 			if reaction_ok:
 				# Roll Mobility check: d20 + Mobility skill (FEAT-007 / US-007 /
 				# FR-008 / ADR-015 — real skills['mobility'], not the former
@@ -222,12 +315,12 @@ func resolve_weapon_attack(
 				mobility_check = mob_roll + target.get("skills", {}).get("mobility", 0)
 
 	# STEEL — trigger: defense_type in ["fortitude","will"] AND conscious
-	if active_defense == "steel":
+	if pre_hit_defense == "steel":
 		var is_steel_trigger: bool = (defense_type == "fortitude" or defense_type == "will")
 		var is_conscious: bool = target.get("conscious", true)
 
 		if is_steel_trigger and is_conscious:
-			var reaction_ok: bool = _try_spend_reaction(defense_context)
+			var reaction_ok: bool = _try_spend_reaction(ctx)
 			if reaction_ok:
 				# Roll Determination check: d20 + Determination skill (FEAT-007 /
 				# US-007 / FR-008 / ADR-015 — real skills['determination'], not
@@ -268,12 +361,11 @@ func resolve_weapon_attack(
 			# Normal hit: roll 1 die + attribute modifier
 			damage_raw = _rng.roll(weapon["damage_die"], 1) + attribute_mod
 
-	# ── Post-resolution: finalize active defense outcomes ─────────────────────
-	var damage_final: int = damage_raw
+	# ── Pre-hit outcome bookkeeping (Dodge/Steel only; Block/Parry are
+	#    resolved later, in apply_on_hit_defense()) ────────────────────────────
 	var active_defense_applied: String = "none"
 	var defender_stepped: bool = false
 	var next_check_bonus: int = 0
-	var on_hit_suppressed: bool = false
 
 	# Dodge outcome: if mobility_check was rolled, the defense was applied
 	if mobility_check >= 0:
@@ -292,12 +384,79 @@ func resolve_weapon_attack(
 			# Attack was RESISTED — grant +2 to the next check made this round
 			next_check_bonus = 2
 
-	# BLOCK — post-hit reaction; trigger: hit AND defense_type == "ac"
-	elif active_defense == "block" and hit and defense_type == "ac":
-		var reaction_ok: bool = _try_spend_reaction(defense_context)
+	return {
+		"hit":                    hit,
+		"crit":                   crit,
+		"roll_total":             roll_total,
+		"damage_raw":             damage_raw,
+		"defender_stepped":       defender_stepped,
+		"active_defense_applied": active_defense_applied,
+		"next_check_bonus":       next_check_bonus,
+		"defense_value":          defense_value,
+		"defense_type":           defense_type,
+		"weapon":                 weapon
+	}
+
+
+## apply_on_hit_defense(partial, on_hit_defense, ctx) → Dictionary
+##
+## FEAT-001 (US-001 / FR-004, Iteration J Part A): PHASE 2 of the two-phase
+## split — resolves the POST-HIT Block/Parry mitigation, given the partial
+## result already produced by resolve_to_hit(). This is the ENTIRE contents
+## of RNG-consumption positions 4–5 documented above (block-reduction roll /
+## parry roll); resolve_weapon_attack() and resolve_to_hit() never re-derive
+## any of this math.
+##
+## PRECONDITION: must NEVER be called when partial.hit == false (US-004 task
+## 5 — Block/Parry only exist as ON-HIT reactions; a miss never opens that
+## window). Contract violation: push_error()'d and a safe no-op Dictionary is
+## returned rather than corrupting damage math — this project's established
+## pattern for programmer-error guards (mirrors core/rules/action_economy.gd's
+## null-combatant guards), since GUT's push_error capture is unavailable on
+## this project's Godot 4.3 engine (see tests/unit/test_action_economy.gd's
+## documented note) and callers must not crash/hang in a release build.
+##
+## Parameters:
+##   partial — the Dictionary returned by resolve_to_hit() (or an equivalent
+##     Dictionary carrying at least "hit", "damage_raw", "roll_total",
+##     "defense_type", "weapon", "active_defense_applied").
+##   on_hit_defense — String, one of "none" | "block" | "parry" — the ON-HIT
+##     reaction to attempt (Dodge/Steel are ON-ATTACKED and are never passed
+##     here; see resolve_to_hit()).
+##   ctx — Dictionary, defaults to {} — same shape as resolve_weapon_attack()'s
+##     defense_context ("action_economy", "blocking_weapon",
+##     "blocking_weapon_tier", "parrying_weapon", …).
+##
+## Returns Dictionary — ALWAYS carries these keys:
+##   "damage_final"           — int, ALWAYS >= 0
+##   "active_defense_applied" — String: "block" | "parry" | whatever pre-hit
+##                               phase 1 already recorded (e.g. "dodge"/
+##                               "steel"/"none") when on_hit_defense is "none"
+##   "on_hit_suppressed"      — bool
+func apply_on_hit_defense(partial: Dictionary, on_hit_defense: String = "none", ctx: Dictionary = {}) -> Dictionary:
+	if not partial.get("hit", false):
+		push_error("Resolution.apply_on_hit_defense() called with partial.hit == false — Block/Parry are ON-HIT-only reactions (US-004 task 5); no-op returned")
+		return {
+			"damage_final": 0,
+			"active_defense_applied": partial.get("active_defense_applied", "none"),
+			"on_hit_suppressed": false
+		}
+
+	var damage_raw: int = partial.get("damage_raw", 0)
+	var defense_type: String = partial.get("defense_type", "")
+	var roll_total: int = partial.get("roll_total", 0)
+	var weapon: Dictionary = partial.get("weapon", {})
+
+	var damage_final: int = damage_raw
+	var active_defense_applied: String = partial.get("active_defense_applied", "none")
+	var on_hit_suppressed: bool = false
+
+	# BLOCK — post-hit reaction; trigger: hit (guaranteed above) AND defense_type == "ac"
+	if on_hit_defense == "block" and defense_type == "ac":
+		var reaction_ok: bool = _try_spend_reaction(ctx)
 		if reaction_ok:
-			var bw: Dictionary = defense_context.get("blocking_weapon", {})
-			var tier: int = defense_context.get("blocking_weapon_tier", 1)
+			var bw: Dictionary = ctx.get("blocking_weapon", {})
+			var tier: int = ctx.get("blocking_weapon_tier", 1)
 			# Shields use a dedicated block_die; other weapons use their damage_die
 			var block_die_size: int = bw.get("block_die", bw.get("damage_die", weapon.get("damage_die", 6)))
 			var block_value_mod: int = bw.get("block_value", 0)
@@ -307,11 +466,11 @@ func resolve_weapon_attack(
 			on_hit_suppressed = true
 			active_defense_applied = "block"
 
-	# PARRY — post-hit reaction; trigger: hit AND defense_type == "ac"
-	elif active_defense == "parry" and hit and defense_type == "ac":
-		var reaction_ok: bool = _try_spend_reaction(defense_context)
+	# PARRY — post-hit reaction; trigger: hit (guaranteed above) AND defense_type == "ac"
+	elif on_hit_defense == "parry" and defense_type == "ac":
+		var reaction_ok: bool = _try_spend_reaction(ctx)
 		if reaction_ok:
-			var pw: Dictionary = defense_context.get("parrying_weapon", {})
+			var pw: Dictionary = ctx.get("parrying_weapon", {})
 			var parry_bonus_val: int = pw.get("parry_bonus", 0)
 			# Parry attack roll: d20 + parry_bonus (ADR-002 RNG position 5)
 			var parry_roll: int = _rng.d20() + parry_bonus_val
@@ -321,17 +480,13 @@ func resolve_weapon_attack(
 				on_hit_suppressed = true
 			active_defense_applied = "parry"
 
+	# Invariant: damage_final is NEVER negative, regardless of path taken above.
+	damage_final = max(0, damage_final)
+
 	return {
-		"hit":                    hit,
-		"crit":                   crit,
-		"roll_total":             roll_total,
-		"damage_raw":             damage_raw,
+		"damage_final": damage_final,
 		"active_defense_applied": active_defense_applied,
-		"damage_final":           damage_final,
-		"defender_stepped":       defender_stepped,
-		"next_check_bonus":       next_check_bonus,
-		"on_hit_suppressed":      on_hit_suppressed,
-		"defense_value":          defense_value
+		"on_hit_suppressed": on_hit_suppressed
 	}
 
 
