@@ -40,6 +40,16 @@
 ## "simulate" an event without depending on a concrete adapter/event-sink
 ## wiring). Both helpers read a field from either shape uniformly (mirrors
 ## presentation/status_panel_view.gd and presentation/initiative_view.gd).
+##
+## FEAT-008 (US-008 / FR-007) adds render_attack_entry() and
+## get_active_defense_outcome_string() on top of FEAT-007's `_attack_records`
+## structured storage: roll_total/hit/crit/damage_raw/damage_final plus a
+## derived active-defense outcome string ("none" | "dodge-succeeded" |
+## "dodge-failed" | "parry-succeeded" | "parry-failed" | "block
+## reduced-by-N"), read from the paired core/log/reaction_resolved_event.gd
+## ReactionResolvedEvent. Purely a reformatting of already-computed data —
+## this file never rolls dice, never computes damage, and never imports or
+## calls into core/rules/resolution.gd.
 
 class_name EventLogView
 extends Control
@@ -223,6 +233,101 @@ func get_paired_reaction(attack_event_id, window_id):
 ## `_rejected_duplicate_reactions`'s doc above).
 func get_rejected_duplicate_reactions() -> Array:
 	return _rejected_duplicate_reactions.duplicate()
+
+
+## _OUTCOME_DISPLAY — FEAT-008 (US-008 / FR-007): maps a
+## core/log/reaction_resolved_event.gd ReactionResolvedEvent.outcome value
+## (underscore_case, the storage-layer vocabulary FEAT-007 established) to
+## the hyphenated display string this feature's rendering surfaces
+## (matches design notes' "none/dodge-succeeded/dodge-failed/
+## parry-succeeded/parry-failed/block reduced-by-N" vocabulary exactly).
+## "block_reduced_by_n" is handled separately (get_active_defense_outcome_string()
+## below) since it needs `reduced_by` interpolated into the "-N" suffix.
+const _OUTCOME_DISPLAY: Dictionary = {
+	"none":             "none",
+	"dodge_succeeded":  "dodge-succeeded",
+	"dodge_failed":     "dodge-failed",
+	"parry_succeeded":  "parry-succeeded",
+	"parry_failed":     "parry-failed",
+}
+
+## _REACTION_WINDOW_PRIORITY — FEAT-008: the order in which paired reaction
+## windows are inspected when deriving the single active-defense outcome
+## string for an AttackEvent. core/rules/resolution.gd's <=1-reaction-per-
+## Strike budget (enforced by core/application/round_session.gd's shared
+## spend_reaction() gate, see design notes' `security` section) guarantees
+## AT MOST ONE of these two windows will ever carry a non-"none" outcome for
+## the same Strike, so "first non-none wins" never has to arbitrate a real
+## conflict — it only has to skip a window that was never spent (whose
+## paired reaction, if any, records the explicit "none"/Pass outcome).
+const _REACTION_WINDOW_PRIORITY: Array = ["PreHitAvoidance", "OnHitMitigation"]
+
+
+## get_active_defense_outcome_string(attack_event_id) → String — FEAT-008
+## (US-008 / FR-007): derives the single human-readable active-defense
+## outcome string for the AttackEvent recorded at `attack_event_id`, purely
+## by reading the already-computed `outcome` (and, for a block, `reduced_by`)
+## fields off whichever paired core/log/reaction_resolved_event.gd
+## ReactionResolvedEvent actually fired — this method performs NO dice
+## rolling, no math, and never touches core/rules/resolution.gd; it only
+## reformats data resolution.gd (via round_session.gd) already produced.
+## Returns one of: "none", "dodge-succeeded", "dodge-failed",
+## "parry-succeeded", "parry-failed", "block reduced-by-N" (N = reduced_by).
+## Returns "none" when `attack_event_id` has no recorded AttackEvent, or
+## when neither paired window (if any) reports an outcome other than "none"
+## (mirrors get_paired_reaction()'s "unpaired lookup, never an error"
+## convention).
+func get_active_defense_outcome_string(attack_event_id) -> String:
+	for window_id in _REACTION_WINDOW_PRIORITY:
+		var reaction = get_paired_reaction(attack_event_id, window_id)
+		if reaction == null:
+			continue
+		if reaction.outcome == "block_reduced_by_n":
+			var reduced_by: int = int(reaction.reduced_by) if reaction.reduced_by != null else 0
+			return "block reduced-by-%d" % reduced_by
+		if reaction.outcome != "none" and _OUTCOME_DISPLAY.has(reaction.outcome):
+			return _OUTCOME_DISPLAY[reaction.outcome]
+	return "none"
+
+
+## render_attack_entry(attack_event_id) → String — FEAT-008 (US-008 /
+## FR-007): renders the RICH, structured-data formatted string for the
+## AttackEvent recorded at `attack_event_id` via record_attack() — showing
+## roll_total, the hit/crit flag, damage_raw AND damage_final, plus the
+## active-defense outcome derived from the paired ReactionResolvedEvent (see
+## get_active_defense_outcome_string() above). This is a NEW, ADDITIVE
+## rendering path layered on top of FEAT-007's `_attack_records` structured
+## storage — it is completely separate from on_attack_event()'s pre-existing
+## Dictionary-driven `_entries` path (test_criteria #4 of FEAT-007's suite:
+## that path must stay byte-for-byte unchanged), and from resolution.gd's
+## RNG/math (this method only reformats data already computed elsewhere).
+## Returns "" when `attack_event_id` has no recorded AttackEvent (an
+## "unpaired" lookup, never an error).
+func render_attack_entry(attack_event_id) -> String:
+	var attack_event = get_structured_attack(attack_event_id)
+	if attack_event == null:
+		return ""
+
+	var text: String
+	if attack_event.is_hit:
+		var hit_label: String = "Critical Hit" if attack_event.is_crit else "Hit"
+		text = "Round %d: %s attacks %s — %s (roll %d) for %d raw / %d final damage." % [
+			attack_event.round_number, attack_event.attacker_id, attack_event.target_id,
+			hit_label, attack_event.roll_total, attack_event.damage_raw, attack_event.damage_final,
+		]
+	else:
+		text = "Round %d: %s attacks %s — Miss (roll %d)." % [
+			attack_event.round_number, attack_event.attacker_id, attack_event.target_id,
+			attack_event.roll_total,
+		]
+
+	var defense_outcome: String = get_active_defense_outcome_string(attack_event_id)
+	if defense_outcome != "none":
+		text += " Defense: %s." % defense_outcome
+	else:
+		text += " Defense: none."
+
+	return text
 
 
 ## on_round_event(event) → void — dispatch entry point for typed round
