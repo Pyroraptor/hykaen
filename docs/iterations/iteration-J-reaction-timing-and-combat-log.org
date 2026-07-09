@@ -1,0 +1,173 @@
+#+TITLE: Iteration J — Reaction Timing Correction + Richer Combat Log (AUTHORITATIVE — APPROVED by Guy 2026-07-09)
+#+DATE: 2026-07-09
+#+STATUS: APPROVED — user-facing decisions settled. Base HEAD = cca639e (Iteration I Part A shipped + real-play-verified). Ready to launch.
+#+NOTE: Scope SPLIT from the original 4-part draft (Guy's call): this sprint = Part A (reaction timing)
+#+NOTE: + Part D (combat log). Enemy reaction AI (was Part B) + Opportunistic Strike (was Part C) move
+#+NOTE: to ITERATION K — already fully scoped in docs/iterations/iteration-I-deferred.org.
+
+* Context (why this sprint exists)
+Iteration I shipped defensive reactions LIVE and real-play-verified: an enemy Strike on Titus opens
+the blocking pop-up (Dodge/Parry/Block/Pass), the choice threads through the async round loop into
+resolution.gd, spends the reaction, and alters the outcome. Real-play then surfaced two items this
+sprint fixes: (1) the reaction pop-up TIMING is wrong — one window opens up front offering everything,
+but Dodge/Steel are "on-attacked" reactions and Block/Parry are "on-hit" reactions; (2) the combat log
+is too sparse (hit/miss + damage only — no rolls, no active-defense outcome).
+
+** ⚠ PRECISION NOTE (read first)
+Same discipline as the Iteration H/I briefs: every item states the EXACT mechanic, the EXACT file:line
+it touches TODAY, and flags a PROPOSED value where a rule is a judgment call. Do NOT invent mechanics;
+do NOT rebuild what "already built" notes list. If a needed rule is missing, STOP and flag it.
+
+** ⚠ MANDATORY CROSS-CUTTING ACCEPTANCE GATES (apply to BOTH parts)
+1. REAL-PLAY VERIFICATION: headless-green is NOT sufficient. Iteration H shipped reactions dead-but-
+   green; Iteration I shipped Parry/Block un-offerable-but-green. A human MUST verify each part in the
+   running game before it is accepted. The convergence gate MUST NOT accept headless evidence alone.
+2. ⭐ BOOT-THE-REAL-MAINSCENE TEST RULE (learned the hard way THREE times — H Gap #1, FEAT-006's dead
+   wiring, and FEAT-006's Parry/Block real-play gap): every reaction / combatant-data / UI feature MUST
+   have at least one automated test that BOOTS res://MainScene.tscn and asserts behavior through the
+   REAL composition-root objects — NEVER only hand-built fixtures. A feature whose only tests hand-build
+   their inputs is treated as UNVERIFIED regardless of green count.
+   THE RECURRING BUG CLASS: the data + machinery are correct, but MainScene's real object construction
+   (e.g. _build_player_combatant dropping parry_bonus/block_value) is the missing link — invisible to
+   fixture-only tests. Reference exemplar to mirror: tests/gut/test_mainscene_reaction_resolver_wiring.gd's
+   test_live_reaction_window_offers_dodge_parry_and_block_for_the_real_player.
+
+* SCOPE & PRIORITY
+- PART A (P0, MUST): reaction TIMING correction — split the single up-front pop-up into two phased
+  windows. Corrects shipped Part-A behavior. Ships FIRST (Iteration K's enemy AI builds on it).
+- PART D (P1): richer combat log — inline rolls + active-defense outcome; click-an-entry → full
+  breakdown pop-up as an explicit stretch.
+- DROP ORDER (first to cut): (1) Part D-2's click-to-expand breakdown pop-up (keep D-1 inline
+  richness); NEVER drop Part A or Part D-1. Record any drop in docs/iterations/iteration-J-deferred.org
+  before finishing (silent truncation is a failure).
+- NOT IN THIS SPRINT (→ Iteration K): enemy reaction AI policy + Opportunistic Strike — fully scoped in
+  docs/iterations/iteration-I-deferred.org; Iteration K bases off Part A's corrected reaction flow.
+
+────────────────────────────────────────────────────────────────────────────────
+* PART A — P0: Reaction timing correction (Dodge/Steel on-attacked; Block/Parry on-hit)
+
+** The rule (Guy, 2026-07-09)
+- Dodge / Steel are ON-ATTACKED reactions: the window opens when the actor is TARGETED, BEFORE the
+  attack roll resolves. A successful Dodge (Mobility check) avoids the attack entirely.
+- Block / Parry are ON-HIT reactions: the window opens only AFTER the attack roll lands a HIT, to
+  MITIGATE damage (Parry: parry-roll > attack roll → negate to 0; Block: reduce by 1[W]+block_value).
+  If the attack MISSES, no Block/Parry window opens.
+- ✓ BUDGET RULE (Guy 2026-07-09): AT MOST ONE reaction per incoming Strike. If the defender attempts
+  Dodge (whether it succeeds or fails), a reaction is spent and the on-hit Block/Parry window does NOT
+  open. The on-hit window opens ONLY when no reaction was spent on-attacked (i.e. the defender Passed
+  the Dodge/Steel window) AND the attack hits. So a single Strike provokes at most one spent reaction.
+
+** ⚠ KEY FINDING — the resolution MATH already phases this; the WINDOW flow does not
+core/rules/resolution.gd resolve_weapon_attack() ALREADY applies Dodge as a PRE-hit Mobility check and
+Parry/Block as POST-hit branches (see its own doc: "pre-hit Mobility check" / "post-hit Parry/Block
+branch"). The defect is purely at the WINDOW/UI layer: the live path opens ONE window up front
+(round_session.gd _build_reaction_trigger → trigger_type "WeaponAttack" → reaction_window.gd's
+WeaponAttack case unions Dodge+Parry+Block into ONE pop-up) and passes the single chosen active_defense
+into resolve_weapon_attack(). This SUPERSEDES the Iteration-I brief's since-shipped "pop-up opens ONCE
+up front" decision — that decision was wrong per the ruleset.
+
+** The re-architecture (Part A's real work; the sprint's highest-risk async change)
+On the enemy-strikes-player path (round_session.advance_ai_turn — currently the sole live reaction path):
+1. ON TARGETED (before the roll): open a DODGE/STEEL window (new trigger_type e.g. "PreHitAvoidance" —
+   union of Dodge + Steel-when-eligible; add the case to reaction_window.gd _compute_legal_reactions
+   alongside the existing WeaponAttack aggregation, reusing is_dodge_eligible/is_steel_eligible). If the
+   defender Dodges and the Mobility check succeeds → attack avoided; resolve nothing further. If they
+   Dodge and FAIL → reaction spent, proceed to the roll but SKIP the on-hit window (budget rule). If
+   they Pass → proceed to the roll with the on-hit window still available.
+2. RESOLVE THE ATTACK ROLL (hit/miss). The caller must learn the hit result BEFORE applying Parry/Block.
+   Today resolve_weapon_attack() takes active_defense up front and sequences internally. ⚠ PROPOSED
+   split (CONFIRM with the resolution owner; do NOT duplicate the math): add a two-phase entry —
+   resolve_to_hit(attacker, target, weapon, defense_type, pre_hit_defense, ctx) → {hit, crit,
+   roll_total, damage_raw, defender_stepped}, then apply_on_hit_defense(partial, on_hit_defense, ctx) →
+   {damage_final, active_defense_applied, on_hit_suppressed}. The existing single-call
+   resolve_weapon_attack() stays as a thin wrapper over the two (preserving the pinned characterization
+   test byte-for-byte for the default/"none" path).
+3. ON HIT (roll succeeded) AND no reaction spent on-attacked: open a BLOCK/PARRY window (new
+   trigger_type e.g. "OnHitMitigation" — union of Parry + Block-when-eligible). Apply the chosen
+   mitigation. On a MISS, or if a reaction was already spent, skip this window.
+- Both windows spend via spend_reaction(); the budget rule guarantees ≤1 spend per Strike.
+- ⚠ ASYNC: this adds a second await point in advance_ai_turn — audit the coroutine chain exactly as
+  Iteration I's FEAT-003 did (the highest-risk edit). Reuse the existing reaction_resolver_fn seam;
+  the resolver is called up to twice per Strike now (pre-hit, then on-hit), never more.
+
+** Part A acceptance (REAL-PLAY + boot-real-MainScene test)
+- Live: enemy targets Titus → Dodge/(Steel) pop-up appears BEFORE the roll. Successful Dodge → attack
+  avoided, no damage, no second pop-up. Pass the Dodge window, attack HITS → a SECOND pop-up offers
+  Parry/Block; Parry negates, Block reduces. Attack MISSES → no second pop-up. Dodge attempted-and-
+  failed → reaction spent, NO second pop-up (budget rule). Budgets never drop by >1 per Strike.
+- Boot-real-MainScene test asserting: (a) the two windows fire in order for a passed-Dodge + hit;
+  (b) the on-hit window is SKIPPED on a miss; (c) the on-hit window is SKIPPED when Dodge was attempted
+  (≤1 reaction spent per Strike).
+
+────────────────────────────────────────────────────────────────────────────────
+* PART D — P1: Richer combat log (Guy, 2026-07-09)
+
+** The gap
+presentation/event_log_view.gd formats an AttackEvent as "Round N: X attacks Y — Hit for D damage. /
+— Miss." — hiding the rolls and whether an active defense fired. The resolution result ALREADY carries
+the data: resolve_weapon_attack() returns {hit, crit, roll_total, damage_raw, active_defense_applied,
+damage_final, on_hit_suppressed, defender_stepped}; the reaction path emits ReactionResolvedEvent
+{window_id, choice, resolved_by}.
+
+** D-1 (P1, core): inline richness
+Surface, per attack in the log: the attack roll_total (⚠ PROPOSED also the raw d20 + modifiers if
+resolution.gd already exposes them — CONFIRM how much of the roll breakdown is available vs. would need
+threading; do NOT change the RNG or math to expose it), hit/crit, raw→final damage, and the ACTIVE-
+DEFENSE OUTCOME (none / dodge-succeeded / dodge-failed / parry-succeeded / parry-failed / block reduced-
+by-N). Reuse ReactionResolvedEvent for the defense-outcome half rather than re-deriving it.
+⚠ Observability ONLY: the AttackEvent PAYLOAD grows; NO resolution math changes; the deterministic
+balance sim (sim_results.json win_rate 0.747/avg_rounds 1.081 + 7-key provenance) MUST NOT drift.
+
+** D-2 (P2, stretch — FIRST drop candidate): click-an-attack → full breakdown pop-up
+Make each combat-log entry selectable; selecting opens a pop-up with the full breakdown of that attack
+(attacker/defender, weapon, each roll + modifiers, defense chosen + its roll and success/fail,
+raw→final damage). Requires retaining per-attack STRUCTURED records (not just formatted strings) —
+event_log_view already stores entries; extend them to carry the structured AttackEvent +
+ReactionResolvedEvent pair. New scenes/ui/attack_breakdown_popup.gd, mirroring the reaction_prompt_ui
+modal pattern. This is the EXPLICIT first drop if scope is tight — D-1 ships the value, D-2 is polish.
+
+** Part D acceptance
+- Live: the log shows rolls + hit/crit + raw/final damage + active-defense outcome for each attack.
+- (D-2) clicking a log entry opens a breakdown pop-up matching that attack's real resolution result.
+- Boot-real-MainScene test: a scripted attack + reaction produces a log entry carrying the roll +
+  defense-outcome fields (and, for D-2, that selecting it surfaces the matching breakdown).
+
+────────────────────────────────────────────────────────────────────────────────
+* FOLLOW-ON — ITERATION K (NOT this sprint)
+Enemy reaction AI policy + Opportunistic Strike, fully scoped in docs/iterations/iteration-I-deferred.org.
+Iteration K bases off Iteration J's corrected two-phase reaction flow (the enemy AI must choose on BOTH
+the on-attacked and on-hit windows under the ≤1-reaction-per-Strike budget rule), and must apply the
+enemy-combatant weapon-dict fix (parry_bonus/block_value/block_die at ~MainScene.gd:1764 — the mirror of
+the FEAT-006 player fix; enemies currently lack these).
+
+* DECISIONS — status (all user-facing decisions settled 2026-07-09; ⚠ items are run/resolution-owner impl details)
+- ✓ Reaction timing: Dodge/Steel on-attacked (pre-roll window); Block/Parry on-hit (post-hit, skipped
+  on a miss).
+- ✓ Budget: AT MOST ONE reaction spent per incoming Strike (Dodge attempt consumes the reaction and
+  suppresses the on-hit window).
+- ✓ Scope split: J = timing + combat log; enemy AI + opportunistic strike → Iteration K.
+- ✓ Boot-real-MainScene test rule is a hard acceptance gate for every part.
+- ✓ Combat log shows rolls + active-defense success/failure; click-to-breakdown is the stretch/first drop.
+- ⚠ (impl detail, run to confirm with resolution owner) the resolve_weapon_attack() two-phase split
+  shape (resolve_to_hit + apply_on_hit_defense) — must not duplicate math; single-call wrapper preserves
+  the pinned characterization test.
+- ⚠ (impl detail) how much attack-roll breakdown resolution.gd exposes today vs. needs threading for D-1.
+
+* PRESERVE (must not regress) — green as of HEAD cca639e (GUT 1453, pytest 308/1 skip)
+- The Iteration-I reaction suite (test_steel_thread_e2e.gd, test_mainscene_reaction_resolver_wiring.gd
+  incl. the offer-dodge-parry-block test, test_round_continuation_and_enemy_budget_display.gd), the
+  pinned Strike characterization test, and balance-sim determinism (7-key provenance +
+  win_rate 0.747/avg_rounds 1.081).
+- Part A's window-split must not reintroduce the round-stall or budget-display desync fixed earlier,
+  and must not exceed one reaction spent per Strike.
+
+* Out of scope (do NOT build)
+- No new attack types (Steel stays dormant — no Fort/Will attack exists; it rides in the on-attacked
+  window only when eligible). No new reactions. No resolution.gd MATH changes (only the phase-split
+  plumbing). No enemy reaction AI / Opportunistic Strike (→ Iteration K). No multi-enemy scaling.
+
+* Verification (gate green AND real-play confirmed AND boot-real-MainScene tested)
+1. Full GUT + pytest green; new boot-real-MainScene tests for the two-phase window ordering + ≤1-
+   reaction budget (Part A) and the log roll/defense-outcome fields + breakdown pop-up (Part D).
+2. ⚠ REAL-PLAY (human) for every shipped part.
+3. Any dropped item recorded in docs/iterations/iteration-J-deferred.org.
