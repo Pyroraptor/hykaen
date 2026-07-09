@@ -50,6 +50,17 @@
 ## to the button — which, as a Control, consumes it — before the backdrop
 ## underneath it would ever see it.
 ##
+## FEAT-002 (US-002 / FR-001, Iteration J Part B): core/application/
+## reaction_window.gd's new "PreHitAvoidance" trigger_type (Dodge/Steel only,
+## opened BEFORE the attack roll) requires NO changes to this file — its
+## legal_reactions Array (e.g. ["dodge","steel"]) is rendered by the SAME
+## generic "one Button per entry, capitalize() for the label" loop in
+## _rebuild_buttons() below that already renders every other trigger_type's
+## offered reactions (Dodge/Parry/Block/Steel/WeaponAttack alike). This file
+## never branches on trigger_type or reaction identity — see
+## presentation/turn_controller.gd's resolve_reaction() for where a
+## PreHitAvoidance trigger would eventually be opened/awaited.
+##
 ## Single UI input stack (test_criteria: "no parallel input stack is
 ## forked"): this file declares NO _input()/_unhandled_input()/_gui_input()
 ## override of its own — every interaction flows through standard Control

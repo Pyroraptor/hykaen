@@ -262,6 +262,53 @@ func _resolve_reaction(trigger: Dictionary) -> Dictionary:
 	return {"choice": "none"}
 
 
+## _prehit_avoidance_resolver_fn — OPTIONAL (FEAT-002 / US-002 / FR-001,
+## Iteration J Part B): an injected, duck-typed Callable satisfying the SAME
+## ReactionResolverPort shape `_reaction_resolver_fn` above does — `async
+## func(trigger: Dictionary) -> Dictionary`, returning at least {choice:
+## String} — but `await`ed for a DIFFERENT, EARLIER reaction window:
+## "PreHitAvoidance" (Dodge/Steel only), opened BEFORE the existing
+## "WeaponAttack" window this session already awaits via `_resolve_reaction`
+## above. This mirrors `_reaction_resolver_fn`'s own seam-establishment
+## pattern exactly (a typed-Callable Dependency Inversion seam, ADR-002) and
+## is deliberately a SEPARATE Callable rather than overloading the existing
+## one, so a caller can inject a PreHitAvoidance resolver (e.g. one backed by
+## core/application/reaction_window.gd's
+## open_and_resolve_prehit_avoidance()) without disturbing the existing
+## WeaponAttack resolver's contract or any of its pinned tests. Left as an
+## invalid (unbound) Callable — the default — for every pre-existing
+## caller/test double, including every headless/sim caller, which never sets
+## one; see _resolve_prehit_avoidance()'s default-safety fallback below.
+var _prehit_avoidance_resolver_fn: Callable = Callable()
+
+
+## set_prehit_avoidance_resolver_fn(fn) -> void — FEAT-002: injects the
+## PreHitAvoidance ReactionResolverPort Callable described above. Intended to
+## be called once by the composition root, the SAME way
+## set_reaction_resolver_fn() already is. Never calling this method (every
+## pre-existing caller/test double) leaves RoundSession's behavior for those
+## callers byte-for-byte unchanged — see _resolve_prehit_avoidance()'s
+## synchronous fallback below.
+func set_prehit_avoidance_resolver_fn(fn: Callable) -> void:
+	_prehit_avoidance_resolver_fn = fn
+
+
+## _resolve_prehit_avoidance(trigger) -> Dictionary — FEAT-002: the internal
+## seam advance_ai_turn()'s Strike branch `await`s BEFORE the existing
+## WeaponAttack window / before any call in the chain ever reaches
+## core/rules/resolution.gd's resolve_to_hit() (test_criteria #5). When a
+## resolver has been injected via set_prehit_avoidance_resolver_fn(), awaits
+## and returns its result verbatim. When NO resolver has been injected —
+## every headless/sim caller, and every pre-existing test — this is a
+## SYNCHRONOUS, zero-await fallback to {"choice": "none"} (equivalent to a
+## PASS), preserving byte-for-byte pre-change behavior for those callers
+## (NFR-004), exactly mirroring _resolve_reaction()'s own contract.
+func _resolve_prehit_avoidance(trigger: Dictionary) -> Dictionary:
+	if _prehit_avoidance_resolver_fn.is_valid():
+		return await _prehit_avoidance_resolver_fn.call(trigger)
+	return {"choice": "none"}
+
+
 ## _debug_trace_enabled — FEAT-007 (US-002/US-003/US-007, ADR-007): OFF by
 ## default (NFR-004/NFR-005 default-safety — no observable behavior change,
 ## not even an extra print() line, for any pre-existing caller/test). When
@@ -426,6 +473,39 @@ func _build_reaction_trigger(attacker: Dictionary, target: Dictionary, _target_a
 		"target":                 target,
 		"reactor_action_economy": null,
 		"trigger_type":           "WeaponAttack",
+		"reactor":                target,
+		"weapon":                 target.get("weapon", {}),
+	}
+
+
+## _build_prehit_avoidance_trigger(attacker, target) -> Dictionary — FEAT-002
+## (US-002 / FR-001, Iteration J Part B): the ReactionTrigger built for the
+## NEW "PreHitAvoidance" window, `await`ed by advance_ai_turn() BEFORE the
+## existing "WeaponAttack" trigger/window below (test_criteria #5). Shaped
+## identically to _build_reaction_trigger()'s "WeaponAttack" trigger (same
+## attacker/target/round_number/attack_context/weapon derivation — never a
+## second, drifting convention), differing ONLY in "trigger_type":
+## "PreHitAvoidance" so core/application/reaction_window.gd's
+## _compute_legal_reactions() offers exactly Dodge/Steel (never Parry/Block —
+## see that branch's own doc) for this earlier, ON-ATTACKED-only ask.
+## "reactor_action_economy" is withheld (null) for the SAME reason
+## _build_reaction_trigger() withholds it — this session's OWN
+## _build_defense_context() remains the single, canonical spend authority
+## once the resolved choice reaches resolve_action_use_case.resolve()/
+## resolution.gd, so a resolver driving reaction_window.gd's own open()/
+## resume() pair (rather than its open_and_resolve_prehit_avoidance()
+## convenience method) never double-spends the same reaction.
+func _build_prehit_avoidance_trigger(attacker: Dictionary, target: Dictionary) -> Dictionary:
+	return {
+		"attacker_id":            attacker.get("combatant_id", attacker.get("name", "")),
+		"target_id":              target.get("combatant_id", target.get("name", "")),
+		"defense_type":           "ac",
+		"attack_context":         {"attacker_weapon": attacker.get("weapon", {})},
+		"round_number":           _round_number,
+		"attacker":               attacker,
+		"target":                 target,
+		"reactor_action_economy": null,
+		"trigger_type":           "PreHitAvoidance",
 		"reactor":                target,
 		"weapon":                 target.get("weapon", {}),
 	}
@@ -685,28 +765,63 @@ func advance_ai_turn() -> Dictionary:
 		var defense_context: Dictionary = {}
 		if action_name == "Strike":
 			var target_action_economy = _find_action_economy_for(target)
-			var trigger: Dictionary = _build_reaction_trigger(combatant, target, target_action_economy)
-			# FEAT-007 (observability #2): trigger-built trace point.
-			_trace(
-				"reaction_trigger_built attacker_id=%s target_id=%s round=%d"
-				% [trigger.get("attacker_id", ""), trigger.get("target_id", ""), _round_number]
-			)
-			# FEAT-007: awaiting-resolver-start trace point -- emitted
-			# immediately BEFORE the await below, so a genuinely hung/
-			# never-resolving resolver is visible as "this line printed, but
-			# resolver_resolved never did" rather than a silent freeze.
-			_trace(
-				"awaiting_resolver_start attacker_id=%s target_id=%s round=%d"
-				% [trigger.get("attacker_id", ""), trigger.get("target_id", ""), _round_number]
-			)
-			var reaction_result: Dictionary = await _resolve_reaction(trigger)
-			# FEAT-007: resolver-resolved trace point.
-			_trace(
-				"resolver_resolved choice=%s round=%d"
-				% [str(reaction_result.get("choice", "")), _round_number]
-			)
-			active_defense = _reaction_choice_to_active_defense(reaction_result)
-			defense_context = _build_defense_context(target, target_action_economy)
+
+			# FEAT-002 (US-002 / FR-001, Iteration J Part B): the
+			# PreHitAvoidance window (Dodge/Steel only) is awaited FIRST --
+			# BEFORE the existing WeaponAttack trigger is even built, and
+			# before any call in this chain ever reaches
+			# core/rules/resolution.gd's resolve_to_hit() (test_criteria
+			# #5). For every existing caller/test double (no
+			# set_prehit_avoidance_resolver_fn() call -- see that seam's own
+			# doc), _resolve_prehit_avoidance() resolves against its
+			# synchronous {"choice": "none"} default-safety fallback, so
+			# prehit_choice below is always "none" and this branch's
+			# behavior is byte-for-byte unchanged (NFR-004).
+			var prehit_trigger: Dictionary = _build_prehit_avoidance_trigger(combatant, target)
+			var prehit_result: Dictionary = await _resolve_prehit_avoidance(prehit_trigger)
+			var prehit_choice: String = _reaction_choice_to_active_defense(prehit_result)
+			var prehit_on_hit_suppressed: bool = prehit_result.get("on_hit_suppressed", false)
+
+			if prehit_choice == "dodge" or prehit_choice == "steel":
+				# A pre-hit reaction was already decided by the
+				# PreHitAvoidance window -- resolve_action_use_case.resolve()'s
+				# own resolve_to_hit() call (FEAT-001) remains the SOLE place
+				# the actual dodge/steel roll happens (this session never
+				# re-derives it); this window only ever decided the CHOICE.
+				# The existing WeaponAttack window is deliberately never
+				# asked in this branch -- the <=1-reaction-per-Strike budget
+				# invariant means a reactor who already chose Dodge/Steel
+				# here must never ALSO be offered a second reaction for the
+				# same Strike (dodge-fail's "on_hit_suppressed" contract,
+				# test_criteria #3).
+				active_defense = prehit_choice
+				defense_context = _build_defense_context(target, target_action_economy)
+			elif not prehit_on_hit_suppressed:
+				var trigger: Dictionary = _build_reaction_trigger(combatant, target, target_action_economy)
+				# FEAT-007 (observability #2): trigger-built trace point.
+				_trace(
+					"reaction_trigger_built attacker_id=%s target_id=%s round=%d"
+					% [trigger.get("attacker_id", ""), trigger.get("target_id", ""), _round_number]
+				)
+				# FEAT-007: awaiting-resolver-start trace point -- emitted
+				# immediately BEFORE the await below, so a genuinely hung/
+				# never-resolving resolver is visible as "this line printed, but
+				# resolver_resolved never did" rather than a silent freeze.
+				_trace(
+					"awaiting_resolver_start attacker_id=%s target_id=%s round=%d"
+					% [trigger.get("attacker_id", ""), trigger.get("target_id", ""), _round_number]
+				)
+				var reaction_result: Dictionary = await _resolve_reaction(trigger)
+				# FEAT-007: resolver-resolved trace point.
+				_trace(
+					"resolver_resolved choice=%s round=%d"
+					% [str(reaction_result.get("choice", "")), _round_number]
+				)
+				active_defense = _reaction_choice_to_active_defense(reaction_result)
+				defense_context = _build_defense_context(target, target_action_economy)
+			# else: prehit_on_hit_suppressed with no explicit dodge/steel
+			# choice (a defensive/malformed-resolver case) -- active_defense/
+			# defense_context stay "none"/{}, matching Pass.
 
 		var resolve_result: Dictionary = _resolve_action_use_case.resolve(
 			combatant, action_economy, target, action_name, _round_number, _cycle_index,

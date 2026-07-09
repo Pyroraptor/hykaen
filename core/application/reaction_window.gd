@@ -342,6 +342,141 @@ func open_and_resolve_attack(
 	return outcome
 
 
+## open_and_resolve_prehit_avoidance(trigger, resolution, attacker, weapon,
+##                                    chooser, resolved_by) -> Dictionary —
+## FEAT-002 (US-002 / FR-001, Iteration J Part B): the ON-ATTACKED-only
+## sibling of open_and_resolve_attack() above — wires a "PreHitAvoidance"
+## reaction (Dodge/Steel only) into a LIVE attack's PHASE 1 resolution,
+## reusing core/rules/resolution.gd's resolve_to_hit() (FEAT-001's two-phase
+## split) instead of the single-call resolve_weapon_attack(), so a caller
+## learns whether the reaction protected the reactor BEFORE any post-hit
+## (Block/Parry / OnHitMitigation, a later feature) window would ever need to
+## open. This method NEVER calls apply_on_hit_defense() itself — that phase
+## is out of this feature's scope entirely; a hit always resolves with
+## whatever damage_raw resolve_to_hit() produced.
+##
+## trigger      — same shape as open()'s trigger argument (see file-level
+##                doc); `trigger["reactor"]` doubles as resolve_to_hit()'s
+##                `target` argument (the reactor IS the party being
+##                attacked).
+## resolution   — a core/rules/resolution.gd Resolution instance.
+## attacker     — resolve_to_hit()'s `attacker` argument.
+## weapon       — resolve_to_hit()'s `weapon` argument (the ATTACKER's
+##                weapon — not the reactor's).
+## chooser      — a ReactionChooserPort implementation.
+## resolved_by  — stamped on the emitted ReactionResolvedEvent.
+##
+## Returns resolve_to_hit()'s full result Dictionary (hit/crit/roll_total/
+## damage_raw/defender_stepped/active_defense_applied/next_check_bonus/
+## defense_value/...), PLUS:
+##   "reaction_choice"   — the String actually applied: "dodge" | "steel" |
+##                         ReactionChooserPort.PASS.
+##   "window_id"          — "" when the reactor was already Spent (window
+##                         never opened), else the opened window's id.
+##   "reaction_spent"     — bool: true iff a real pre-hit defense (dodge or
+##                         steel) actually TRIGGERED inside resolve_to_hit()
+##                         (mirrors resolve_to_hit()'s own trigger gate —
+##                         defense_type/eligibility/Immobilized/open-space —
+##                         never re-derived here). false for PASS, and false
+##                         when the chosen reaction's trigger conditions did
+##                         not hold (e.g. Dodge chosen while Immobilized).
+##   "short_circuited"    — bool: true iff a triggered pre-hit reaction
+##                         PROTECTED the reactor (partial["hit"] == false) —
+##                         test_criteria "successful Dodge/Steel short-
+##                         circuits": no damage was dealt, and — since
+##                         apply_on_hit_defense() is never called on a miss
+##                         (its own documented precondition) — no on-hit
+##                         window may ever be offered for this Strike.
+##   "on_hit_suppressed"  — bool: true iff a triggered pre-hit reaction
+##                         FAILED to protect the reactor (partial["hit"] ==
+##                         true) — the reactor's ONE reaction for this Strike
+##                         was already spent, so a subsequent on-hit
+##                         (Block/Parry) window must be suppressed/never
+##                         offered (the ≤1-reaction-per-Strike budget
+##                         invariant). Distinct from resolve_to_hit()'s own
+##                         result, which carries no on_hit_suppressed key at
+##                         all (that field belongs to apply_on_hit_defense()'s
+##                         phase-2 contract) — this method synthesizes it here
+##                         purely to let a PreHitAvoidance-only caller (e.g.
+##                         round_session.gd) know whether it is safe to open
+##                         a later on-hit window.
+##
+## When the reactor's ActionEconomy is already Spent (ALREADY_SPENT), no
+## window opens and no reaction is offered — resolve_to_hit() is still
+## invoked exactly once, with pre_hit_defense "none" (equivalent to the
+## chooser having declined), matching open_and_resolve_attack()'s existing
+## ALREADY_SPENT contract.
+func open_and_resolve_prehit_avoidance(
+	trigger: Dictionary,
+	resolution,
+	attacker: Dictionary,
+	weapon: Dictionary,
+	chooser,
+	resolved_by: String = "auto"
+) -> Dictionary:
+	var reactor: Dictionary = trigger.get("reactor", {})
+	var defense_type: String = trigger.get("defense_type", "")
+	var attack_context: Dictionary = trigger.get("attack_context", {})
+	var reactor_action_economy = trigger.get("reactor_action_economy", null)
+
+	var opened: Dictionary = open(trigger)
+	var choice: String = ReactionChooserPortClass.PASS
+
+	if opened.get("opened", false):
+		var legal_reactions: Array = opened.get("legal_reactions", [])
+		var requested_choice: String = chooser.choose(legal_reactions, attack_context)
+		# Safety net matching resume()'s ERR_ILLEGAL_CHOICE guard: a
+		# misbehaving chooser answering with something not offered degrades
+		# to PASS rather than being forwarded to resolve_to_hit().
+		if requested_choice == ReactionChooserPortClass.PASS or legal_reactions.has(requested_choice):
+			choice = requested_choice
+
+	var pre_hit_defense: String = choice if choice != ReactionChooserPortClass.PASS else "none"
+
+	var ctx: Dictionary = attack_context.duplicate()
+	if pre_hit_defense != "none":
+		# Only when a real reaction was chosen do we hand resolve_to_hit()
+		# the reactor's ActionEconomy — permitting its internal
+		# _try_spend_reaction() call. Declining (PASS) must never spend a
+		# reaction, so the economy is withheld entirely (mirrors
+		# open_and_resolve_attack()'s identical discipline).
+		ctx["action_economy"] = reactor_action_economy
+
+	var partial: Dictionary = resolution.resolve_to_hit(attacker, reactor, weapon, defense_type, pre_hit_defense, ctx)
+
+	# reaction_spent mirrors resolve_to_hit()'s own trigger gate: it only
+	# ever stamps active_defense_applied as "dodge"/"steel" when the
+	# defense_type/eligibility/Immobilized/open-space conditions actually
+	# held AND a reaction was actually spent — never re-derived here.
+	var reaction_spent: bool = partial.get("active_defense_applied", "none") != "none"
+	var short_circuited: bool = reaction_spent and not partial.get("hit", false)
+	var on_hit_suppressed: bool = reaction_spent and partial.get("hit", false)
+
+	var applied_choice: String = choice if reaction_spent else ReactionChooserPortClass.PASS
+
+	if opened.get("opened", false):
+		# Close the window (mirrors resume()'s one-shot closing behavior) —
+		# resolve_to_hit() has already applied/spent the reaction itself, so
+		# no second spend happens here.
+		_open_window_id       = ""
+		_open_trigger         = {}
+		_open_legal_reactions = []
+
+		_event_sink_port.emit(RoundEventsClass.ReactionResolvedEvent.new(
+			trigger.get("round_number", 0),
+			opened.get("window_id", ""),
+			applied_choice,
+			resolved_by
+		))
+
+	partial["reaction_choice"]  = applied_choice
+	partial["window_id"]        = opened.get("window_id", "")
+	partial["reaction_spent"]   = reaction_spent
+	partial["short_circuited"]  = short_circuited
+	partial["on_hit_suppressed"] = on_hit_suppressed
+	return partial
+
+
 ## _compute_legal_reactions(trigger) -> Array — evaluates the
 ## trigger-type-specific eligibility predicate (test_criteria #1) via
 ## core/rules/resolution.gd's FEAT-009 static predicates, never
@@ -378,6 +513,22 @@ func _compute_legal_reactions(trigger: Dictionary) -> Array:
 			if attack_context.get("melee_reach", false):
 				return [REACTION_OPPORTUNISTIC_STRIKE]
 			return []
+		"PreHitAvoidance":
+			# FEAT-002 (US-002 / FR-001, Iteration J Part B — reaction-timing
+			# correction): the ON-ATTACKED-only counterpart to "WeaponAttack"'s
+			# combined ask above — offers ONLY Dodge/Steel (never Parry/Block,
+			# which are ON-HIT reactions and must never be offered before the
+			# attack roll even happens; see this file's OnHitMitigation
+			# counterpart, a later feature). Computed via the SAME
+			# is_dodge_eligible()/is_steel_eligible() predicates the single-type
+			# "Dodge"/"Steel" branches above already use — never a re-derived
+			# rule (test_criteria #1).
+			var legal_prehit: Array = []
+			if ResolutionClass.is_dodge_eligible(defense_type, reactor, attack_context):
+				legal_prehit.append(REACTION_DODGE)
+			if ResolutionClass.is_steel_eligible(defense_type, reactor):
+				legal_prehit.append(REACTION_STEEL)
+			return legal_prehit
 		"WeaponAttack":
 			# FEAT-008 (steel-thread smoke test) regression fix: the composite
 			# trigger_type a live enemy-Strikes-player Strike opens (see
