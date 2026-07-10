@@ -175,6 +175,7 @@ const ViewModelBuilderClass            = preload("res://presentation/view_model_
 const RoundSessionHolderClass          = preload("res://infrastructure/round_session_holder.gd")
 const TurnPresentationControllerClass  = preload("res://presentation/turn_presentation_controller.gd")
 const ReactionControllerClass          = preload("res://presentation/reaction_controller.gd")
+const EndTurnActionControllerClass     = preload("res://presentation/end_turn_action_controller.gd")
 const ConsoleEventSinkAdapterClass     = preload("res://infrastructure/console_event_sink_adapter.gd")
 const EncounterTurnOrderAdapterClass   = preload("res://infrastructure/encounter_turn_order_adapter.gd")
 const InMemoryRoundHistoryAdapterClass = preload("res://infrastructure/in_memory_round_history_adapter.gd")
@@ -559,6 +560,7 @@ var reaction_window = null
 ## so building once is behavior-identical to the old inline live reads.
 var _turn_presentation_instance = null
 var _reaction_instance = null
+var _end_turn_action_instance = null
 
 ## _party / _enemies — the live combatant Dictionaries built at boot,
 ## mutated in place by every resolved Strike throughout the interactive
@@ -1716,23 +1718,21 @@ func _verb_bar_stride_execute(selection) -> Dictionary:
 	return result
 
 
+## The END_TURN verb's availability/enter_selection/execute are delegated to
+## presentation/end_turn_action_controller.gd (EndTurnActionController, a concrete
+## ActionController subclass). These thin shims keep the VerbBarRegistry's
+## Callable(self, "_verb_bar_end_turn_*") registrations and the direct-call tests
+## unchanged.
 func _verb_bar_end_turn_availability() -> bool:
-	return true
+	return _end_turn_action().availability()
 
 
-## End Turn has no Layer 2 (design notes: "no Layer 2, per spec") -- this
-## closure exists only so the generic dispatch contract is uniform across
-## every verb; VerbBarView.press() calls execute() directly for END_TURN and
-## never enter_selection() in practice (mirrors core/application/
-## verb_registry.py's end_turn_enter_selection() doc exactly).
 func _verb_bar_end_turn_enter_selection() -> Dictionary:
-	return {"verb_id": "END_TURN", "candidate_hexes": [], "candidate_targets": []}
+	return _end_turn_action().enter_selection()
 
 
 func _verb_bar_end_turn_execute(_selection = null) -> Dictionary:
-	if end_turn_control == null:
-		return {"ok": false}
-	return end_turn_control.press()
+	return _end_turn_action().execute(_selection)
 
 
 ## _on_verb_bar_selection_entered(verb_id, selection) -> void — FEAT-008 /
@@ -1807,6 +1807,15 @@ func _reaction():
 			hex_grid_view
 		)
 	return _reaction_instance
+
+
+## _end_turn_action() — lazily builds (once) and returns the EndTurnActionController
+## (the first concrete ActionController subclass). Lazy like the other controllers
+## so it serves both a booted MainScene and a `.new()` test driving the verb.
+func _end_turn_action():
+	if _end_turn_action_instance == null:
+		_end_turn_action_instance = EndTurnActionControllerClass.new(_round_session_holder, end_turn_control)
+	return _end_turn_action_instance
 
 
 ## _on_active_actor_changed(combatant) -> void - thin delegation to
