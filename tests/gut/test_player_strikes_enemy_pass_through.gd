@@ -37,6 +37,17 @@ extends GutTest
 ## tests/integration/test_mainscene_player_strike_enemy_reaction.gd
 ## (iteration K FEAT-004's own dedicated suite) — this file stays scoped to
 ## the composition-root WIRING shape and the "no pop-up" guarantee.
+##
+## FEAT-230 (DEF-003) UPDATE: at the time this doc-comment was originally
+## written, the file path above named a suite that did not exist yet — a
+## forward reference that, left unresolved, silently masked a real coverage
+## gap (only Dodge was ever boot-real tested on this path; Parry was only
+## ever exercised via hand-built dictionaries, and Block had no coverage at
+## all). tests/integration/test_mainscene_player_strike_enemy_reaction.gd
+## now EXISTS and carries exactly that boot-real Parry/Block coverage
+## (test_forced_parry_success_yields_higher_skeleton_hp_current_vs_unmitigated
+## / test_forced_block_yields_higher_skeleton_hp_current_vs_unmitigated) —
+## the reference above is no longer stale.
 
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 
