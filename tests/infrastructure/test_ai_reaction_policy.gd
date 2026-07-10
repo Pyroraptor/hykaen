@@ -30,6 +30,7 @@ extends GutTest
 
 const AIReactionPolicyClass = preload("res://infrastructure/ai_reaction_policy.gd")
 const ReactionChooserPortClass = preload("res://core/application/ports/reaction_chooser_port.gd")
+const ActionEconomyClass = preload("res://core/rules/action_economy.gd")
 
 const AI_REACTION_POLICY_PATH: String = "res://infrastructure/ai_reaction_policy.gd"
 const AUTO_REACTION_CHOOSER_PATH: String = "res://infrastructure/auto_reaction_chooser.gd"
@@ -266,3 +267,163 @@ func test_ai_reaction_policy_is_a_reaction_chooser_port_instance() -> void:
 	var policy: AIReactionPolicyClass = _policy()
 	assert_true(policy is ReactionChooserPortClass,
 		"AIReactionPolicy must satisfy the ReactionChooserPort contract")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# iteration K FEAT-003 (US-003, ADR-003): budget-aware RESERVE gate.
+#
+# RESERVE gate: reacting always costs exactly one action; choose() must
+# force Pass whenever action_current - 1 < ActionEconomyClass.RESERVE,
+# checked BEFORE any Dodge/Parry/Block rule is evaluated, for BOTH the
+# PreHitAvoidance (Dodge) and OnHitMitigation (Parry/Block) windows.
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_reserve_gate_forces_pass_at_action_current_one_even_though_dodge_worthwhile() -> void:
+	var policy: AIReactionPolicyClass = _policy()
+	var context: Dictionary = {
+		"mobility": 5, "targeted_defense_value": 10,  # 10+5=15 > 10 -> Dodge would fire
+		"action_current": 1,
+	}
+
+	var choice: String = policy.choose(["dodge"], context)
+
+	assert_eq(choice, ReactionChooserPortClass.PASS,
+		"action_current=1: reacting would leave 0 actions (< RESERVE=1) for the reactor's next turn -> Pass, even though Dodge's own rule is worthwhile")
+
+
+func test_reserve_gate_forces_pass_at_action_current_one_even_though_parry_worthwhile() -> void:
+	var policy: AIReactionPolicyClass = _policy()
+	var context: Dictionary = {
+		"parry_attack_bonus": 4, "parry_bonus": 4, "roll_total": 17,  # Parry would fire
+		"damage_raw": 0, "hp_current": 20,
+		"action_current": 1,
+	}
+
+	var choice: String = policy.choose(["parry", "block"], context)
+
+	assert_eq(choice, ReactionChooserPortClass.PASS,
+		"action_current=1 must force Pass on the OnHitMitigation window even though Parry's own rule is worthwhile")
+
+
+func test_reserve_gate_forces_pass_at_action_current_one_even_though_block_worthwhile() -> void:
+	var policy: AIReactionPolicyClass = _policy()
+	var context: Dictionary = {
+		"damage_raw": 10, "hp_current": 20,  # Block would fire
+		"action_current": 1,
+	}
+
+	var choice: String = policy.choose(["block"], context)
+
+	assert_eq(choice, ReactionChooserPortClass.PASS,
+		"action_current=1 must force Pass on the OnHitMitigation window even though Block's own rule is worthwhile")
+
+
+func test_reserve_gate_forces_pass_at_action_current_zero() -> void:
+	var policy: AIReactionPolicyClass = _policy()
+	var context: Dictionary = {
+		"mobility": 5, "targeted_defense_value": 10,
+		"action_current": 0,
+	}
+
+	var choice: String = policy.choose(["dodge"], context)
+
+	assert_eq(choice, ReactionChooserPortClass.PASS,
+		"action_current=0 must also force Pass (reacting would go negative)")
+
+
+func test_reserve_gate_allows_dodge_at_action_current_two() -> void:
+	var policy: AIReactionPolicyClass = _policy()
+	var context: Dictionary = {
+		"mobility": 5, "targeted_defense_value": 10,
+		"action_current": 2,
+	}
+
+	var choice: String = policy.choose(["dodge"], context)
+
+	assert_eq(choice, "dodge",
+		"action_current=2: reacting leaves exactly 1 action (== RESERVE) -> the reserve is preserved, Dodge proceeds")
+
+
+func test_reserve_gate_boundary_action_current_equal_to_reserve_forces_pass() -> void:
+	# Directly pins the exact inequality this feature's test_criteria names:
+	# RESERVE enforces action_current-1>=1 (i.e. action_current>=RESERVE+1)
+	# before evaluating Dodge/Parry/Block.
+	var policy: AIReactionPolicyClass = _policy()
+	var context: Dictionary = {
+		"damage_raw": 10, "hp_current": 20,
+		"action_current": ActionEconomyClass.RESERVE,
+	}
+
+	var choice: String = policy.choose(["block"], context)
+
+	assert_eq(choice, ReactionChooserPortClass.PASS,
+		"action_current == RESERVE must still force Pass: action_current-1 (0) < RESERVE (1)")
+
+
+## "Boot-real" style: drains a REAL core/rules/action_economy.gd ActionEconomy
+## instance down to a budget of 1 via its own spend_reaction() calls (never a
+## bare int literal fixture), then feeds its real get_remaining() straight
+## into the policy's context -- proving the gate reacts correctly to the
+## actual domain object the composition root will eventually wire in, not
+## merely to a hand-authored integer.
+func test_reserve_gate_forces_pass_using_real_action_economy_drained_to_one() -> void:
+	var ae: ActionEconomyClass = ActionEconomyClass.new()
+	ae.start_of_round()
+	for _i in range(ActionEconomyClass.MAX_BUDGET - 1):
+		ae.spend_reaction()
+	assert_eq(ae.get_remaining(), 1, "fixture assumption: real ActionEconomy must be drained to exactly 1")
+
+	var policy: AIReactionPolicyClass = _policy()
+	var context: Dictionary = {
+		"mobility": 5, "targeted_defense_value": 10,
+		"parry_attack_bonus": 10, "parry_bonus": 10, "roll_total": 17,
+		"damage_raw": 20, "hp_current": 20,
+		"action_current": ae.get_remaining(),
+	}
+
+	var choice: String = policy.choose(["dodge", "parry", "block"], context)
+
+	assert_eq(choice, ReactionChooserPortClass.PASS,
+		"a real ActionEconomy drained to budget=1 must force Pass regardless of how worthwhile every reaction rule looks")
+
+
+## Regression (test_criteria #3): FEAT-002's own Dodge/Parry/Block outcomes
+## must be byte-for-byte unchanged when the budget is sufficient -- whether
+## action_current is entirely omitted (pre-FEAT-003 caller shape) or
+## explicitly supplied at a healthy value, the RESERVE gate must be a
+## complete no-op.
+func test_regression_dodge_outcome_unchanged_when_action_current_omitted_or_healthy() -> void:
+	var policy: AIReactionPolicyClass = _policy()
+	var context_no_key: Dictionary = {"mobility": 1, "targeted_defense_value": 10}
+	var context_healthy: Dictionary = {
+		"mobility": 1, "targeted_defense_value": 10,
+		"action_current": ActionEconomyClass.MAX_BUDGET,
+	}
+
+	assert_eq(policy.choose(["dodge"], context_no_key), "dodge",
+		"omitting action_current must default to a healthy budget and preserve FEAT-002's Dodge outcome")
+	assert_eq(policy.choose(["dodge"], context_healthy), "dodge",
+		"an explicit healthy action_current must preserve FEAT-002's Dodge outcome")
+
+
+func test_regression_parry_and_block_outcomes_unchanged_when_budget_sufficient() -> void:
+	var policy: AIReactionPolicyClass = _policy()
+	var parry_context: Dictionary = {
+		"parry_attack_bonus": 4, "parry_bonus": 4, "roll_total": 17,
+		"damage_raw": 0, "hp_current": 20, "action_current": 7,
+	}
+	var block_context: Dictionary = {
+		"parry_attack_bonus": 1, "parry_bonus": 1, "roll_total": 17,
+		"damage_raw": 6, "hp_current": 20, "action_current": 7,
+	}
+	var pass_context: Dictionary = {
+		"parry_attack_bonus": 1, "parry_bonus": 1, "roll_total": 17,
+		"damage_raw": 2, "hp_current": 20, "action_current": 7,
+	}
+
+	assert_eq(policy.choose(["parry", "block"], parry_context), "parry",
+		"FEAT-002's Parry outcome must be unchanged when the budget is sufficient")
+	assert_eq(policy.choose(["parry", "block"], block_context), "block",
+		"FEAT-002's Block outcome must be unchanged when the budget is sufficient")
+	assert_eq(policy.choose(["parry", "block"], pass_context), ReactionChooserPortClass.PASS,
+		"FEAT-002's Pass outcome must be unchanged when the budget is sufficient")

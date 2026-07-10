@@ -1,4 +1,5 @@
-## infrastructure/ai_reaction_policy.gd — AIReactionPolicy (FEAT-002 / US-002)
+## infrastructure/ai_reaction_policy.gd — AIReactionPolicy (FEAT-002 / US-002;
+## RESERVE gate: iteration K FEAT-003 / US-003, ADR-003)
 ##
 ## Infrastructure/adapter layer (Clean Architecture): a deterministic,
 ## RNG-free implementation of core/application/ports/reaction_chooser_port.gd's
@@ -61,6 +62,30 @@
 ##                                total (Parry).
 ##   "damage_raw"             — int — the already-rolled raw damage (Block).
 ##   "hp_current"             — int — the reactor's current hp (Block).
+##   "action_current"         — int — the reactor's CURRENT shared per-round
+##                                action budget (core/rules/action_economy.gd's
+##                                ActionEconomy.get_remaining()), consulted by
+##                                the RESERVE gate below (iteration K FEAT-003
+##                                / US-003, ADR-003). Defaults to
+##                                ActionEconomy.MAX_BUDGET (a full, unspent
+##                                budget) when omitted, so callers that never
+##                                populate this key (e.g. every pre-FEAT-003
+##                                test) observe the gate as a no-op and see
+##                                unchanged Dodge/Parry/Block/Pass behavior.
+##
+## Budget-aware RESERVE gate (iteration K FEAT-003 / US-003, ADR-003) —
+## applies to BOTH windows this policy ever answers for (PreHitAvoidance
+## Dodge; OnHitMitigation Parry/Block): reacting always costs exactly one
+## action via ActionEconomy.spend_reaction(), so choose() forces PASS
+## whenever action_current - 1 < ActionEconomyClass.RESERVE — i.e. whenever
+## reacting would leave the reactor with fewer than RESERVE (>=1) actions
+## for its own next turn — BEFORE ever evaluating the Dodge/Mobility, Parry,
+## or Block rules below. This is checked FIRST and unconditionally: even a
+## legal, worthwhile Dodge/Parry/Block is downgraded to Pass once the
+## reserve would be broken. No RNG, no mutation of `context` — purely a
+## read of context["action_current"] against the single authoritative
+## ActionEconomyClass.RESERVE constant (never a re-derived/duplicated
+## literal here).
 ##
 ## Domain purity boundary (ADR-001): extends RefCounted only (via
 ## ReactionChooserPort) — no Node/Control/SceneTree inheritance. Lives in
@@ -80,6 +105,7 @@ extends "res://core/application/ports/reaction_chooser_port.gd"
 
 const MobilityDodgeRuleClass = preload("res://core/domain/mobility_dodge_rule.gd")
 const DefenseMitigationCalculatorClass = preload("res://core/domain/defense_mitigation_calculator.gd")
+const ActionEconomyClass = preload("res://core/rules/action_economy.gd")
 
 ## Lowercase reaction names — matches core/application/reaction_window.gd's
 ## REACTION_DODGE/REACTION_PARRY/REACTION_BLOCK constants (this file
@@ -97,6 +123,16 @@ const REACTION_BLOCK: String = "block"
 ## `legal_reactions`/`context`, and always returns either one of
 ## `legal_reactions`' own entries or ReactionChooserPort.PASS.
 func choose(legal_reactions: Array, context: Dictionary) -> String:
+	# Budget-aware RESERVE gate (iteration K FEAT-003 / US-003, ADR-003):
+	# checked FIRST, before any Dodge/Parry/Block rule is evaluated, and
+	# applies uniformly to whichever window (PreHitAvoidance or
+	# OnHitMitigation) this call represents. Reacting always spends exactly
+	# one action; forcing Pass here guarantees the reactor never reacts
+	# itself down to zero actions for its own next turn.
+	var action_current: int = context.get("action_current", ActionEconomyClass.MAX_BUDGET)
+	if action_current - 1 < ActionEconomyClass.RESERVE:
+		return PASS
+
 	if legal_reactions.has(REACTION_DODGE):
 		var mobility: int = context.get("mobility", 0)
 		var targeted_defense_value: int = context.get("targeted_defense_value", 0)

@@ -40,6 +40,20 @@ class_name ActionEconomy
 ## Maximum action budget per round (ADR-006).
 const MAX_BUDGET: int = 7
 
+## RESERVE (iteration K FEAT-003 / US-003, ADR-003) — the minimum number of
+## actions a combatant's shared per-round budget_remaining must retain AFTER
+## spending a reaction, so the combatant never reacts itself into having
+## zero actions available for its own next turn. Consulted by
+## infrastructure/ai_reaction_policy.gd's budget-aware reserve GATE, which
+## applies to BOTH the PreHitAvoidance (Dodge) and OnHitMitigation
+## (Parry/Block) windows: reacting costs exactly one action
+## (spend_reaction()); the gate forces Pass whenever
+## action_current - 1 < RESERVE, even when the Dodge/Parry/Block rules
+## themselves would otherwise choose to react. Surfaced here (rather than
+## buried as a literal in the policy) so the constant has exactly one
+## authoritative source, matching MAX_BUDGET's own role.
+const RESERVE: int = 1
+
 
 var _budget: int = MAX_BUDGET
 var _is_spent: bool = false
