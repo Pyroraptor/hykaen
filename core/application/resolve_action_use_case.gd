@@ -100,6 +100,11 @@ const ResolutionClass  = preload("res://core/rules/resolution.gd")
 const ResolveToHitUseCaseClass      = preload("res://core/application/resolve_to_hit_uc.gd")
 const ApplyOnHitDefenseUseCaseClass = preload("res://core/application/apply_on_hit_defense_uc.gd")
 
+## iteration K FEAT-004 (US-004, ADR-004): the two collaborators
+## resolve_reactive() (below) is built from — see that method's own doc.
+const OpenReactionWindowUseCaseClass = preload("res://core/application/open_reaction_window_use_case.gd")
+const BuildDefenseContextClass       = preload("res://core/application/_build_defense_context.gd")
+
 
 ## _PortRNGAdapter (FEAT-008 / US-008, CR-001) — internal adapter wrapping
 ## an injected RandomNumberPort (the dice_spec-shaped `roll(dice_spec)`
@@ -213,6 +218,10 @@ var _apply_on_hit_defense_use_case      ## ApplyOnHitDefenseUseCase (FEAT-002) �
 ## called by resolve()/_resolve_strike() below; exposed via
 ## get_apply_on_hit_defense_use_case().
 
+var _open_reaction_window_use_case      ## OpenReactionWindowUseCase (iteration K
+## FEAT-004) — constructed once in _init(); consumed ONLY by resolve_reactive()
+## (below), never by resolve()/_resolve_strike().
+
 
 ## _init(random_number_port, event_sink_port, round_history_port) — stores
 ## the injected ports. All three are duck-typed (no static port type on the
@@ -243,6 +252,11 @@ func _init(random_number_port, event_sink_port, round_history_port) -> void:
 	_apply_on_hit_defense_use_case = ApplyOnHitDefenseUseCaseClass.new(
 		_resolve_to_hit_use_case.get_resolution(), event_sink_port
 	)
+
+	# iteration K FEAT-004 (US-004, ADR-004): the reaction-window opener
+	# resolve_reactive() (below) shares — stateless, so a single instance is
+	# reused for both windows.
+	_open_reaction_window_use_case = OpenReactionWindowUseCaseClass.new()
 
 
 ## get_resolve_to_hit_use_case() -> ResolveToHitUseCase — FEAT-002: the
@@ -368,22 +382,9 @@ func resolve(
 	active_defense: String = "none",
 	defense_context: Dictionary = {}
 ) -> Dictionary:
-	if active_combatant_id != "" and _combatant_identifier(combatant) != active_combatant_id:
-		return {"resolved": false, "ok": false, "error": ERR_NOT_ACTIVE_COMBATANT}
-
-	if _is_target_invalid(target):
-		return {"resolved": false, "ok": false, "error": ERR_TARGET_INVALID}
-
-	if _is_melee_action(action_name) and _requires_reach_check(combatant, target):
-		if _is_ranged_weapon(combatant):
-			if not _is_in_range(combatant, target):
-				return {"resolved": false, "ok": false, "error": ERR_TARGET_OUT_OF_REACH}
-		elif not _is_adjacent(combatant, target):
-			return {"resolved": false, "ok": false, "error": ERR_TARGET_NOT_ADJACENT}
-
-	var spend_result: Dictionary = action_economy.spend_action({"name": action_name, "traits": []})
-	if not spend_result.get("success", false):
-		return {"resolved": false, "ok": false, "error": ERR_NO_ACTION_REMAINING}
+	var precheck: Dictionary = _check_preconditions_and_spend(combatant, action_economy, target, action_name, active_combatant_id)
+	if not precheck.get("ok", false):
+		return precheck["error_result"]
 
 	var weapon: Dictionary = combatant.get("weapon", {})
 	# FEAT-007 (US-003/US-007, ADR-007, api_contracts #4): sanitize BEFORE
@@ -397,6 +398,141 @@ func resolve(
 	var sanitized_active_defense: String = _sanitize_active_defense(active_defense)
 	var strike_result: Dictionary = _resolve_strike(combatant, target, weapon, sanitized_active_defense, defense_context)
 
+	return _finalize_strike_result(
+		combatant, action_economy, target, action_name, round_number, cycle_index, precheck["spend_result"], strike_result
+	)
+
+
+## resolve_reactive(combatant, action_economy, target, action_name,
+##                  round_number, cycle_index, target_action_economy,
+##                  reaction_chooser_port, active_combatant_id) -> Dictionary
+##
+## Iteration K FEAT-004 (US-004, ADR-004): the two-phase, reaction-ENABLED
+## sibling of resolve() above — opens the DEFENDER's (`target`'s) own
+## PreHitAvoidance window BEFORE the to-hit roll and OnHitMitigation window
+## AFTER a hit, synchronously asking `reaction_chooser_port` (e.g.
+## infrastructure/ai_reaction_policy.gd's AIReactionPolicy) for each via
+## core/application/open_reaction_window_use_case.gd's OpenReactionWindowUseCase
+## — no pop-up, no `await`, no coroutine (this method itself is plain,
+## synchronous GDScript, exactly like resolve()). The resolved choice is
+## threaded into core/application/resolve_to_hit_uc.gd's ResolveToHitUseCase /
+## the SAME shared Resolution instance apply_on_hit_defense_uc.gd's
+## ApplyOnHitDefenseUseCase draws from (ADR-002 RNG-sequence sharing) — see
+## _resolve_strike_with_reactions() below.
+##
+## Deliberately a SEPARATE public method rather than new trailing parameters
+## on resolve() — every pre-existing resolve() call site/pinned test (e.g.
+## tests/gut/test_resolve_action_use_case_active_defense.gd's call-site arg-
+## count audit) is therefore untouched by this feature; resolve()'s own
+## behavior/signature is byte-for-byte unchanged. Shares resolve()'s
+## preconditions/finalization tail via _check_preconditions_and_spend()/
+## _finalize_strike_result() so no rule is duplicated between the two entry
+## points (the ONLY difference between resolve() and resolve_reactive() is
+## HOW the strike_result Dictionary handed to _finalize_strike_result() gets
+## produced).
+##
+## target_action_economy — the DEFENDER's (`target`'s) own live ActionEconomy
+##   instance (core/rules/action_economy.gd) — required for the reaction to
+##   actually spend a budget point (this feature's "spending the enemy's
+##   reaction via ActionEconomy" requirement) and for the RESERVE gate. May be
+##   null (no reaction ever spent/tracked — resolution.gd's own
+##   _try_spend_reaction() documented "untracked/always allowed" fallback).
+## reaction_chooser_port — a ReactionChooserPort implementation. When null,
+##   this method degrades to the exact same unmitigated behavior as
+##   resolve()'s own default "none" active_defense path (no window ever
+##   opens) — see _resolve_strike_with_reactions()'s own null-guard.
+##
+## Only action_name == "Strike" engages the reaction machinery (Strike is
+## this project's sole melee action with reactions defined today) — any other
+## action_name falls back to the identical unmitigated _resolve_strike() path
+## resolve() itself would take for that action.
+func resolve_reactive(
+	combatant: Dictionary,
+	action_economy,
+	target: Dictionary,
+	action_name: String,
+	round_number: int,
+	cycle_index: int,
+	target_action_economy = null,
+	reaction_chooser_port = null,
+	active_combatant_id: String = ""
+) -> Dictionary:
+	var precheck: Dictionary = _check_preconditions_and_spend(combatant, action_economy, target, action_name, active_combatant_id)
+	if not precheck.get("ok", false):
+		return precheck["error_result"]
+
+	var weapon: Dictionary = combatant.get("weapon", {})
+	var strike_result: Dictionary
+	if reaction_chooser_port != null and action_name == "Strike":
+		strike_result = _resolve_strike_with_reactions(combatant, target, weapon, target_action_economy, reaction_chooser_port)
+	else:
+		strike_result = _resolve_strike(combatant, target, weapon, "none", {})
+
+	return _finalize_strike_result(
+		combatant, action_economy, target, action_name, round_number, cycle_index, precheck["spend_result"], strike_result
+	)
+
+
+## _check_preconditions_and_spend(combatant, action_economy, target,
+##                                action_name, active_combatant_id) ->
+##                                Dictionary — FEAT-004: the precondition
+## checks + action-budget spend shared VERBATIM (a pure extraction, no logic
+## change) by resolve() and resolve_reactive() above — see resolve()'s own
+## file-level doc for the full precondition-ordering contract this preserves.
+##
+## Returns {"ok": false, "error_result": Dictionary} on ANY precondition
+## failure (the exact Dictionary resolve()/resolve_reactive() must return
+## verbatim), or {"ok": true, "spend_result": Dictionary} once the action has
+## been successfully spent.
+func _check_preconditions_and_spend(
+	combatant: Dictionary,
+	action_economy,
+	target: Dictionary,
+	action_name: String,
+	active_combatant_id: String
+) -> Dictionary:
+	if active_combatant_id != "" and _combatant_identifier(combatant) != active_combatant_id:
+		return {"ok": false, "error_result": {"resolved": false, "ok": false, "error": ERR_NOT_ACTIVE_COMBATANT}}
+
+	if _is_target_invalid(target):
+		return {"ok": false, "error_result": {"resolved": false, "ok": false, "error": ERR_TARGET_INVALID}}
+
+	if _is_melee_action(action_name) and _requires_reach_check(combatant, target):
+		if _is_ranged_weapon(combatant):
+			if not _is_in_range(combatant, target):
+				return {"ok": false, "error_result": {"resolved": false, "ok": false, "error": ERR_TARGET_OUT_OF_REACH}}
+		elif not _is_adjacent(combatant, target):
+			return {"ok": false, "error_result": {"resolved": false, "ok": false, "error": ERR_TARGET_NOT_ADJACENT}}
+
+	var spend_result: Dictionary = action_economy.spend_action({"name": action_name, "traits": []})
+	if not spend_result.get("success", false):
+		return {"ok": false, "error_result": {"resolved": false, "ok": false, "error": ERR_NO_ACTION_REMAINING}}
+
+	return {"ok": true, "spend_result": spend_result}
+
+
+## _finalize_strike_result(combatant, action_economy, target, action_name,
+##                         round_number, cycle_index, spend_result,
+##                         strike_result) -> Dictionary — FEAT-004: the
+## damage-application / event-emission / history-append / return-shape tail
+## shared VERBATIM (a pure extraction, no logic change) by resolve() and
+## resolve_reactive() above — see resolve()'s own file-level doc for the full
+## contract this preserves byte-for-byte. `strike_result` must be shaped like
+## core/rules/resolution.gd's resolve_weapon_attack() return Dictionary
+## (hit/crit/roll_total/damage_raw/damage_final/active_defense_applied/
+## defender_stepped/defense_value/on_hit_suppressed) — both _resolve_strike()
+## and _resolve_strike_with_reactions() (below) produce exactly this shape,
+## so this method never branches on which path produced it.
+func _finalize_strike_result(
+	combatant: Dictionary,
+	action_economy,
+	target: Dictionary,
+	action_name: String,
+	round_number: int,
+	cycle_index: int,
+	spend_result: Dictionary,
+	strike_result: Dictionary
+) -> Dictionary:
 	var damage: int = strike_result.get("damage_final", 0)
 	if damage > 0:
 		target["hp_current"] = target.get("hp_current", 0) - damage
@@ -462,6 +598,15 @@ func resolve(
 		# so RoundSession.advance_ai_turn() can drive the live Dodge-Step prompt
 		# (defender_stepped is otherwise buried in the strike_result dict).
 		"defender_stepped": strike_result.get("defender_stepped", false),
+		# FEAT-004 (iteration K): the reactor's actually-applied reaction
+		# choice ("dodge"/"steel"/"parry"/"block"/"none") and whether it
+		# suppressed damage — additive keys (every pre-existing caller that
+		# never reads them is unaffected), consumed by
+		# MainScene.gd's _verb_bar_strike_execute() to render the rich combat
+		# log's Defense segment with the REAL outcome instead of a hardcoded
+		# "none".
+		"reaction_choice":   strike_result.get("active_defense_applied", "none"),
+		"on_hit_suppressed": strike_result.get("on_hit_suppressed", false),
 	}
 
 
@@ -596,3 +741,113 @@ func _resolve_strike(
 	defense_context: Dictionary = {}
 ) -> Dictionary:
 	return _resolution.resolve_weapon_attack(attacker, target, weapon, "ac", active_defense, defense_context)
+
+
+## _resolve_strike_with_reactions(attacker, target, weapon,
+##                                target_action_economy, reaction_chooser_port)
+##                                -> Dictionary
+##
+## Iteration K FEAT-004 (US-004, ADR-004): resolve_reactive()'s two-phase
+## Strike resolution — opens the DEFENDER's own PreHitAvoidance window BEFORE
+## the to-hit roll and, on a hit, its OnHitMitigation window BEFORE damage is
+## applied, feeding both through `reaction_chooser_port` (e.g.
+## infrastructure/ai_reaction_policy.gd's AIReactionPolicy) via
+## core/application/open_reaction_window_use_case.gd's OpenReactionWindowUseCase
+## — synchronously, no `await`. Returns a Dictionary shaped IDENTICALLY to
+## core/rules/resolution.gd's resolve_weapon_attack() (hit/crit/roll_total/
+## damage_raw/active_defense_applied/damage_final/defender_stepped/
+## next_check_bonus/on_hit_suppressed/defense_value) so
+## _finalize_strike_result() never needs to know which of _resolve_strike()/
+## this method produced it — this method itself NEVER mutates target.hp_current
+## and NEVER emits an event; that remains _finalize_strike_result()'s sole job
+## (mirrors resolve_weapon_attack()'s own "pure calculator" contract exactly).
+##
+## PHASE 1 (PreHitAvoidance, Dodge/Steel): legal reactions computed via
+## _resolve_to_hit_use_case.legal_prehit_reactions() (never re-derived here),
+## the reactor's context built via core/application/_build_defense_context.gd's
+## BuildDefenseContext.build_prehit_context() (mobility/targeted_defense_value/
+## action_current, plus the DefenseContext resolve_to_hit() itself needs), then
+## `_resolve_to_hit_use_case.resolve_to_hit()` is called with whichever
+## pre_hit_defense was chosen (or "none" on Pass/no legal reactions) — the
+## SAME Application-layer use case (sharing this instance's `_resolution`,
+## ADR-002) resolve()'s own get_resolve_to_hit_use_case() exposes.
+##
+## PHASE 2 (OnHitMitigation, Parry/Block): only reached on a hit AND only when
+## the pre-hit phase did not already trigger a reaction (the
+## <=1-reaction-per-Strike budget invariant — mirrors core/application/
+## reaction_window.gd's is_on_hit_mitigation_eligible() gate). Legal reactions
+## computed via _apply_on_hit_defense_use_case.legal_onhit_reactions(), the
+## reactor's context built via BuildDefenseContext.build_onhit_context()
+## (parry_bonus/roll_total/damage_raw/hp_current/action_current). The actual
+## mitigation math is applied via `_resolution.apply_on_hit_defense()` — the
+## SAME shared Resolution instance _apply_on_hit_defense_use_case itself draws
+## from (ADR-002 RNG-sequence sharing) — rather than
+## _apply_on_hit_defense_use_case.apply() directly, since that method ALSO
+## commits target.hp_current and emits its own AttackEvent; this method must
+## return a PURE, unmutated/unemitted result so _finalize_strike_result()
+## remains the ONE place either happens for resolve_reactive() (avoiding a
+## double-commit/double-emit).
+##
+## The reaction is actually SPENT (ActionEconomy.spend_reaction()) internally
+## by core/rules/resolution.gd's _try_spend_reaction(), exactly like every
+## other active-defense path in this codebase — see
+## core/application/_build_defense_context.gd's build() doc for why
+## "action_economy" is always populated in the context Dictionaries this
+## method builds, regardless of whether a reaction is ultimately chosen.
+func _resolve_strike_with_reactions(
+	attacker: Dictionary,
+	target: Dictionary,
+	weapon: Dictionary,
+	target_action_economy,
+	reaction_chooser_port
+) -> Dictionary:
+	# ── PHASE 1: PreHitAvoidance (Dodge/Steel) ──────────────────────────────
+	var legal_prehit: Array = _resolve_to_hit_use_case.legal_prehit_reactions(target, "ac")
+	var prehit_context: Dictionary = BuildDefenseContextClass.build_prehit_context(target, target_action_economy, "ac")
+	var prehit_choice: String = _open_reaction_window_use_case.open(
+		OpenReactionWindowUseCaseClass.WINDOW_PRE_HIT_AVOIDANCE, legal_prehit, prehit_context, reaction_chooser_port
+	)
+	var pre_hit_defense: String = prehit_choice if (prehit_choice == "dodge" or prehit_choice == "steel") else "none"
+
+	var partial: Dictionary = _resolve_to_hit_use_case.resolve_to_hit(attacker, target, weapon, "ac", pre_hit_defense, prehit_context)
+
+	# The <=1-reaction-per-Strike budget invariant: a pre-hit reaction that
+	# actually TRIGGERED (partial.active_defense_applied != "none") already
+	# spent this Strike's one reaction — the OnHitMitigation window must never
+	# open in that case, mirrors core/application/reaction_window.gd's
+	# is_on_hit_mitigation_eligible()'s "reaction_already_spent" gate.
+	var reaction_already_spent: bool = partial.get("active_defense_applied", "none") != "none"
+
+	var on_hit_defense: String = "none"
+	if partial.get("hit", false) and not reaction_already_spent:
+		# ── PHASE 2: OnHitMitigation (Parry/Block) ──────────────────────────
+		var legal_onhit: Array = _apply_on_hit_defense_use_case.legal_onhit_reactions(target.get("weapon", {}))
+		var onhit_context: Dictionary = BuildDefenseContextClass.build_onhit_context(target, target_action_economy, partial)
+		var onhit_choice: String = _open_reaction_window_use_case.open(
+			OpenReactionWindowUseCaseClass.WINDOW_ON_HIT_MITIGATION, legal_onhit, onhit_context, reaction_chooser_port
+		)
+		on_hit_defense = onhit_choice if (onhit_choice == "block" or onhit_choice == "parry") else "none"
+
+	var damage_final: int = partial.get("damage_raw", 0)
+	var active_defense_applied: String = partial.get("active_defense_applied", "none")
+	var on_hit_suppressed: bool = false
+
+	if partial.get("hit", false):
+		var apply_ctx: Dictionary = BuildDefenseContextClass.build_onhit_context(target, target_action_economy, partial)
+		var post: Dictionary = _resolution.apply_on_hit_defense(partial, on_hit_defense, apply_ctx)
+		damage_final           = post["damage_final"]
+		active_defense_applied = post["active_defense_applied"]
+		on_hit_suppressed      = post["on_hit_suppressed"]
+
+	return {
+		"hit":                    partial["hit"],
+		"crit":                   partial["crit"],
+		"roll_total":             partial["roll_total"],
+		"damage_raw":             partial["damage_raw"],
+		"active_defense_applied": active_defense_applied,
+		"damage_final":           damage_final,
+		"defender_stepped":       partial["defender_stepped"],
+		"next_check_bonus":       partial.get("next_check_bonus", 0),
+		"on_hit_suppressed":      on_hit_suppressed,
+		"defense_value":          partial["defense_value"],
+	}

@@ -40,6 +40,7 @@ class_name ApplyOnHitDefenseUseCase
 extends RefCounted
 
 const RoundEventsClass = preload("res://core/rules/round_events.gd")
+const ResolutionClass  = preload("res://core/rules/resolution.gd")
 
 
 var _resolution       ## Resolution — the SAME instance the to-hit phase
@@ -57,6 +58,36 @@ var _event_sink_port   ## EventSinkPort — injected; every AttackEvent/
 func _init(resolution, event_sink_port) -> void:
 	_resolution      = resolution
 	_event_sink_port = event_sink_port
+
+
+## legal_onhit_reactions(weapon) -> Array — iteration K FEAT-004 (US-004,
+## ADR-004): the OnHitMitigation-window sibling of core/application/
+## resolve_to_hit_uc.gd's legal_prehit_reactions() — returns the SUBSET of
+## ["parry", "block"] the REACTOR's own `weapon` Dictionary is currently
+## eligible for, computed via the SAME core/rules/resolution.gd static
+## predicates (is_parry_eligible()/is_block_eligible())
+## core/application/reaction_window.gd's _compute_legal_reactions()
+## "OnHitMitigation" branch already uses — never a re-derived rule. Consumed
+## by core/application/resolve_action_use_case.gd's resolve_reactive() (this
+## feature) to build the `legal_reactions` argument
+## core/application/open_reaction_window_use_case.gd's OpenReactionWindowUseCase.
+## open() expects for the ON-HIT ask — never Dodge/Steel (those are
+## PRE-hit-only, see legal_prehit_reactions()). The caller is responsible for
+## the eligibility gate's OTHER two preconditions (the attack actually hit,
+## and no reaction was already spent earlier this Strike) BEFORE ever calling
+## this method — mirrors core/rules/resolution.gd's is_on_hit_mitigation_eligible()
+## style split (this method only ever answers "which weapon-driven reactions
+## exist", never "is a window allowed to open at all").
+##
+## weapon — the REACTOR's (defender's) own weapon Dictionary (NOT the
+##          attacker's weapon).
+func legal_onhit_reactions(weapon: Dictionary) -> Array:
+	var legal: Array = []
+	if ResolutionClass.is_parry_eligible(weapon):
+		legal.append("parry")
+	if ResolutionClass.is_block_eligible(weapon):
+		legal.append("block")
+	return legal
 
 
 ## apply(partial, attacker, target, on_hit_defense, ctx, round_number,

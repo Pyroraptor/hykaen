@@ -101,6 +101,35 @@ func get_resolution():
 	return _resolution
 
 
+## legal_prehit_reactions(target, defense_type, ctx) -> Array — iteration K
+## FEAT-004 (US-004, ADR-004): the PreHitAvoidance-window sibling of
+## core/application/apply_on_hit_defense_uc.gd's legal_onhit_reactions() —
+## returns the SUBSET of ["dodge", "steel"] `target` is currently eligible for
+## against an attack targeting `defense_type`, computed via the SAME
+## core/rules/resolution.gd static predicates (is_dodge_eligible()/
+## is_steel_eligible()) core/application/reaction_window.gd's
+## _compute_legal_reactions() "PreHitAvoidance" branch already uses — never a
+## re-derived rule. Consumed by core/application/resolve_action_use_case.gd's
+## resolve_reactive() (this feature) to build the `legal_reactions` argument
+## core/application/open_reaction_window_use_case.gd's OpenReactionWindowUseCase.
+## open() expects, so a defender's PreHitAvoidance choice is always offered
+## exactly the reactions they are legally entitled to right now — never Parry/
+## Block (those are ON-HIT-only, see legal_onhit_reactions()).
+##
+## target        — the DEFENDER combatant Dictionary being targeted.
+## defense_type  — String, one of "ac" | "reflex" | "fortitude" | "will".
+## ctx           — Dictionary, OPTIONAL (default {}) — same shape as
+##                  resolve_to_hit()'s own `ctx` (only "open_space_available"
+##                  is consulted, by is_dodge_eligible()).
+func legal_prehit_reactions(target: Dictionary, defense_type: String = "ac", ctx: Dictionary = {}) -> Array:
+	var legal: Array = []
+	if ResolutionClass.is_dodge_eligible(defense_type, target, ctx):
+		legal.append("dodge")
+	if ResolutionClass.is_steel_eligible(defense_type, target):
+		legal.append("steel")
+	return legal
+
+
 ## resolve_to_hit(attacker, target, weapon, defense_type, pre_hit_defense,
 ##                ctx) -> Dictionary
 ##

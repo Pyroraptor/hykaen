@@ -192,6 +192,14 @@ const HexChoiceResolverPortClass       = preload("res://core/application/ports/h
 const AttackEventClass                 = preload("res://core/log/attack_event.gd")
 const RenderCombatLogUseCaseClass      = preload("res://core/application/render_combat_log_use_case.gd")
 
+## AIReactionPolicyClass — iteration K FEAT-004 (US-004, ADR-004):
+## infrastructure/ai_reaction_policy.gd's AIReactionPolicy, the enemy AI's
+## deterministic, synchronous ReactionChooserPort implementation. Wired ONLY
+## here (see `enemy_reaction_chooser` field below) — MainScene is the ONE
+## place a concrete adapter is ever bound to a port (ADR-002/G2), mirroring
+## `player_reaction_chooser`'s identical precedent for the player-facing pop-up.
+const AIReactionPolicyClass            = preload("res://infrastructure/ai_reaction_policy.gd")
+
 ## The steel-thread's entry_point: the one encounter this composition root boots into.
 const PROLOGUE_ENCOUNTER_PATH: String = "res://data/encounters/prologue_encounter.tres"
 
@@ -598,6 +606,21 @@ var cancel_controller = CancelControllerClass.new()
 ## verification.
 var player_reaction_chooser = null
 
+## enemy_reaction_chooser — iteration K FEAT-004 (US-004, ADR-004): the
+## AIReactionPolicy (infrastructure/ai_reaction_policy.gd) this composition
+## root constructs in _ready() and hands to `resolve_action_use_case`'s
+## resolve_reactive() as the enemy DEFENDER's ReactionChooserPort for the
+## player-Strikes-enemy path (_verb_bar_strike_execute() below) — a
+## deterministic, RNG-free, SYNCHRONOUS chooser: no pop-up, no `await`, no
+## coroutine ever opens for the enemy's own reaction decision (this feature's
+## "no pop-up UI opens during the enemy's reaction window" test_criterion).
+## Distinct from `player_reaction_chooser` (which wraps the REAL, blocking
+## `reaction_prompt_ui` pop-up for the player's own reactions on the
+## enemy-Strikes-player path, core/application/round_session.gd) — the two
+## are independent adapters behind the SAME ReactionChooserPort, never
+## confused with one another. Exposed for verification.
+var enemy_reaction_chooser = null
+
 ## hex_choice_resolver — the HexChoiceResolverPort (core/application/ports/
 ## hex_choice_resolver_port.gd, FEAT-001 / US-004, ADR-002/G2) this
 ## composition root wires in _ready() around `hex_grid_view`
@@ -766,6 +789,13 @@ func _ready() -> void:
 		player_reaction_chooser = PlayerReactionChooserClass.new(reaction_prompt_ui)
 	if turn_controller != null:
 		turn_controller.configure_reactions(reaction_window, player_reaction_chooser)
+
+	# ── iteration K FEAT-004 (US-004, ADR-004): construct the enemy AI's own
+	# deterministic, synchronous ReactionChooserPort (AIReactionPolicy) — the
+	# composition-root seam _verb_bar_strike_execute() below hands to
+	# resolve_action_use_case.resolve_reactive() so a player Strike's target
+	# (the enemy) genuinely reacts (Dodge/Parry/Block) with NO pop-up. ───────
+	enemy_reaction_chooser = AIReactionPolicyClass.new()
 
 	# ── FEAT-001 (US-004, ADR-002/G2): construct the production default
 	# HexChoiceResolverPort adapter around `hex_grid_view` — the ONE place
@@ -1204,22 +1234,23 @@ func _verb_bar_strike_enter_selection() -> Dictionary:
 ## FEAT-005 (US-004 / FR-004, ADR-005 — CR-001 accepted debt; docs/
 ## iterations/iteration-I-reactions-live-wiring-and-offensive-reactions.org
 ## Part A-3): this is the PLAYER-strikes-ENEMY call site (historically
-## documented as "MainScene.gd:1008"). Iteration I's Part A wires a REAL,
-## awaited reaction window onto the OTHER live call site into
-## ResolveActionUseCase.resolve() -- core/application/round_session.gd's
-## advance_ai_turn() (enemy-strikes-player, where the PLAYER is the
-## defender) -- but deliberately does NOT touch this one. The call below
-## intentionally passes NO active_defense/defense_context argument, so
-## resolve()'s own default parameters ("none", {}) apply verbatim: the
-## enemy always "Passes" on this path -- no reaction window is opened, no
-## reaction pop-up/prompt is ever shown for the enemy, and Strike outcomes
-## here are byte-for-byte identical to the pre-sprint (Iteration H)
-## baseline. A later feature (Part B, a real enemy reaction AI policy) is
-## the one that opts THIS call site into an explicit active_defense --
-## until it lands, this pass-through is pinned by tests/gut/
-## test_player_strikes_enemy_pass_through.gd; do not add trailing
-## active_defense/defense_context arguments here without updating that
-## suite consciously.
+## documented as "MainScene.gd:1008").
+##
+## Iteration K FEAT-004 (US-004, ADR-004) — Part B: the enemy target now
+## GENUINELY reacts on this path. `enemy_reaction_chooser` (AIReactionPolicy,
+## constructed in _ready()) and the target's own live ActionEconomy
+## (`_action_economy_for()` below) are handed to
+## resolve_action_use_case.resolve_reactive() (core/application/
+## resolve_action_use_case.gd), which opens the target's PreHitAvoidance
+## window BEFORE the to-hit roll and OnHitMitigation window AFTER a hit,
+## synchronously — no `await`, no coroutine, so NO pop-up/UI ever opens for
+## the enemy's own reaction (this feature's "no pop-up UI opens" test
+## criterion; contrast with core/application/round_session.gd's
+## enemy-Strikes-PLAYER path, where the PLAYER reacts via the REAL,
+## awaited `reaction_prompt_ui` pop-up). This supersedes the earlier "Part A
+## pass-through" (the enemy always Passing, pinned by tests/gut/
+## test_player_strikes_enemy_pass_through.gd) — that suite has been updated
+## for Part B by this same feature.
 func _verb_bar_strike_execute(selection) -> Dictionary:
 	if round_session == null or resolve_action_use_case == null:
 		return {"ok": false}
@@ -1230,25 +1261,50 @@ func _verb_bar_strike_execute(selection) -> Dictionary:
 
 	var actor: Dictionary = round_session.current_actor()
 	var action_economy = round_session.current_action_economy()
-	# Enemy active_defense hardcoded to "none" via resolve()'s own default
-	# parameter (Part A pass-through, FEAT-005) -- no active_defense/
-	# defense_context is passed here.
+
+	# ── iteration K FEAT-004 (US-004, ADR-004): the enemy target's OWN live
+	# ActionEconomy — required so a chosen reaction genuinely spends a budget
+	# point (visible on StatusPanelView below) and so the RESERVE gate reads
+	# real data. May resolve to null (a target this session has no bookkeeping
+	# for, e.g. a test double) — resolve_reactive()/resolution.gd both
+	# degrade safely to "reaction untracked" in that case. ──────────────────
+	var target_action_economy = _action_economy_for(target)
+	var target_budget_before: int = target_action_economy.get_remaining() if target_action_economy != null else -1
 
 	# FEAT-005 (US-005, Iteration J-R2 Part D): capture the append-order index
 	# the plain-format row event_log_view's on_attack_event() is ABOUT to
-	# append at -- inside resolve_action_use_case.resolve()'s synchronous
-	# EventSinkPort emit, immediately below -- BEFORE calling resolve(), so
-	# that index can be overwritten in place with the rich rendering once
-	# resolve() returns with the resolved roll/damage fields. Capturing the
-	# index up front (rather than suppressing the append and appending a
-	# fresh row afterward) keeps the row's ORIGINAL chronological position
-	# intact even when this SAME resolve() call also synchronously emits a
+	# append at -- inside resolve_action_use_case.resolve_reactive()'s
+	# synchronous EventSinkPort emit, immediately below -- BEFORE resolving,
+	# so that index can be overwritten in place with the rich rendering once
+	# resolve_reactive() returns with the resolved roll/damage fields.
+	# Capturing the index up front (rather than suppressing the append and
+	# appending a fresh row afterward) keeps the row's ORIGINAL chronological
+	# position intact even when this SAME call also synchronously emits a
 	# CombatantDefeatedEvent immediately after the AttackEvent (a killing
 	# blow) -- the attack's own row must stay chronologically BEFORE that
 	# consequence, never appended after it.
 	var pending_entry_index: int = event_log_view.get_entry_count() if event_log_view != null else -1
 
-	var result: Dictionary = resolve_action_use_case.resolve(actor, action_economy, target, ACTION_NAME_STRIKE, ROUND_NUMBER, 0)
+	var result: Dictionary = resolve_action_use_case.resolve_reactive(
+		actor, action_economy, target, ACTION_NAME_STRIKE, ROUND_NUMBER, 0,
+		target_action_economy, enemy_reaction_chooser
+	)
+
+	# ── iteration K FEAT-004: reflect the enemy's own reaction spend (if any)
+	# on the REAL StatusPanelView -- "the Skeleton's action budget visibly
+	# drops by the reaction spend amount when it reacts" test criterion --
+	# reusing the SAME on_verb_action_budget_changed() seam
+	# presentation/status_panel_view.gd already exposes for a Stride's budget
+	# spend (FEAT-178), never a new/second projection path. A no-op when
+	# nothing was spent (remaining unchanged) or when the target has no
+	# tracked ActionEconomy/status row at all. ──────────────────────────────
+	if target_action_economy != null and status_panel_view != null:
+		var target_budget_after: int = target_action_economy.get_remaining()
+		if target_budget_after != target_budget_before:
+			var target_id: String = target.get("combatant_id", target.get("name", ""))
+			status_panel_view.on_verb_action_budget_changed(
+				target_id, target_budget_after, target_action_economy.is_spent()
+			)
 
 	# FEAT-005: wire record_attack()/render_attack_entry() into this LIVE
 	# player-attack call site. Builds a core/log/attack_event.gd AttackEvent
@@ -1280,7 +1336,7 @@ func _verb_bar_strike_execute(selection) -> Dictionary:
 				resolved_attack_event.crit,
 				resolved_attack_event.damage_final,
 				resolved_attack_event.damage_final,
-				false,
+				result.get("on_hit_suppressed", false),
 				false
 			)
 
@@ -1290,20 +1346,28 @@ func _verb_bar_strike_execute(selection) -> Dictionary:
 			# to the JUST-recorded structured AttackEvent via
 			# RenderCombatLogUseCase.record_reaction_outcome() -- mirrors
 			# core/application/round_session.gd's identical wiring for the
-			# enemy-strikes-player path. This call site's Strike is always
-			# resolved with active_defense "none" (this file's own FEAT-005
-			# "Part A pass-through" doc above -- the enemy never reacts on
-			# THIS call site yet), so `choice` is always "none" here today;
-			# still invoking RenderCombatLogUseCase (rather than leaving this
-			# call site out of the pipeline entirely) keeps BOTH live call
-			# sites uniformly wired through the SAME reaction-recording seam,
-			# ready for a later feature (a real enemy reaction policy) to
-			# start passing a genuine choice through this SAME path with zero
-			# further plumbing.
+			# enemy-strikes-player path.
+			#
+			# Iteration K FEAT-004 (US-004, ADR-004) — Part B: `choice` now
+			# reflects the enemy's REAL reaction outcome
+			# (resolve_action_use_case.gd's resolve_reactive() additive
+			# "reaction_choice"/"on_hit_suppressed" keys — see that method's
+			# own doc) instead of always "none". `window_id` is selected to
+			# match which window the choice actually belongs to (Dodge/Steel
+			# are PreHitAvoidance; Parry/Block are OnHitMitigation) so the
+			# rich log's Defense segment attributes the outcome to the
+			# correct window, mirroring core/application/round_session.gd's
+			# own per-window recording.
+			var enemy_reaction_choice: String = result.get("reaction_choice", "none")
+			var enemy_reaction_window: String = (
+				RenderCombatLogUseCaseClass.WINDOW_ON_HIT_MITIGATION
+				if (enemy_reaction_choice == "parry" or enemy_reaction_choice == "block")
+				else RenderCombatLogUseCaseClass.WINDOW_PRE_HIT_AVOIDANCE
+			)
 			var render_combat_log_use_case := RenderCombatLogUseCaseClass.new()
 			render_combat_log_use_case.record_reaction_outcome(
-				attack_event_id, RenderCombatLogUseCaseClass.WINDOW_PRE_HIT_AVOIDANCE, "none",
-				"auto", false, 0,
+				attack_event_id, enemy_reaction_window, enemy_reaction_choice,
+				"auto", result.get("on_hit_suppressed", false), 0,
 				Callable(event_log_view, "record_reaction")
 			)
 
@@ -1395,6 +1459,42 @@ func _find_strike_reachable_target(target_id: String) -> Dictionary:
 		if _strike_target_id(target) == target_id:
 			return target
 	return {}
+
+
+## _action_economy_for(combatant) -> ActionEconomy or null — iteration K
+## FEAT-004 (US-004, ADR-004): looks up the live ActionEconomy `encounter`
+## (core/combat/encounter.gd) already holds for `combatant`, so
+## _verb_bar_strike_execute() can hand the enemy TARGET's own (not the
+## acting player's) live budget into resolve_action_use_case.resolve_reactive()
+## — the reactor's reaction must spend from ITS OWN budget, never the
+## attacker's. Mirrors core/application/round_session.gd's private
+## _find_action_economy_for() identity convention exactly (object-identity
+## match first, falling back to the combatant_id/name convention used
+## throughout this codebase) — a NEW, independent copy here since
+## round_session.gd is out of this feature's file scope, but `encounter`'s
+## ActionEconomy instances are the SAME live objects RunRoundUseCase.begin_round()
+## handed to `round_session` (see rewire_session()'s own doc), so a spend here
+## is visible everywhere else that reads the same instance.
+## Returns null when `encounter` is unwired or no matching entry exists —
+## resolve_reactive()/resolution.gd both degrade safely to "reaction
+## untracked" in that case (never a crash).
+func _action_economy_for(combatant: Dictionary):
+	if encounter == null:
+		return null
+
+	var order: Array = encounter.get_turn_order()
+	for i in range(order.size()):
+		if is_same(order[i], combatant):
+			return encounter.get_action_economy(i)
+
+	var combatant_id: String = combatant.get("combatant_id", combatant.get("name", ""))
+	if combatant_id != "":
+		for i in range(order.size()):
+			var candidate: Dictionary = order[i]
+			if candidate.get("combatant_id", candidate.get("name", "")) == combatant_id:
+				return encounter.get_action_economy(i)
+
+	return null
 
 
 ## _verb_bar_step_availability() -> bool -- FEAT-002 (US-002 / FR-003 /

@@ -175,3 +175,46 @@ func test_get_resolution_returns_the_same_instance_across_calls() -> void:
 		res_a, res_b,
 		"get_resolution() must return the SAME Resolution instance every call, so a shared apply-phase use case continues the identical RNG sequence (ADR-002)"
 	)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Iteration K FEAT-004 (US-004, ADR-004): legal_prehit_reactions() — the
+# PreHitAvoidance-window eligibility helper consumed by
+# core/application/resolve_action_use_case.gd's resolve_reactive().
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_legal_prehit_reactions_offers_dodge_for_an_ac_defense_type_with_open_space() -> void:
+	var uc = ResolveToHitUseCaseClass.new(ScriptedRandomNumberPort.new([]))
+	var target: Dictionary = {"name": "Target", "ac": 10}
+	assert_eq(uc.legal_prehit_reactions(target, "ac"), ["dodge"])
+
+
+func test_legal_prehit_reactions_excludes_dodge_when_immobilized() -> void:
+	var uc = ResolveToHitUseCaseClass.new(ScriptedRandomNumberPort.new([]))
+	var target: Dictionary = {"name": "Target", "ac": 10, "conditions": ["Immobilized"]}
+	assert_eq(uc.legal_prehit_reactions(target, "ac"), [])
+
+
+func test_legal_prehit_reactions_excludes_dodge_when_no_open_space() -> void:
+	var uc = ResolveToHitUseCaseClass.new(ScriptedRandomNumberPort.new([]))
+	var target: Dictionary = {"name": "Target", "ac": 10}
+	assert_eq(uc.legal_prehit_reactions(target, "ac", {"open_space_available": false}), [])
+
+
+func test_legal_prehit_reactions_offers_steel_for_a_will_defense_type_when_conscious() -> void:
+	var uc = ResolveToHitUseCaseClass.new(ScriptedRandomNumberPort.new([]))
+	var target: Dictionary = {"name": "Target", "will": 10, "conscious": true}
+	assert_eq(uc.legal_prehit_reactions(target, "will"), ["steel"])
+
+
+func test_legal_prehit_reactions_is_empty_for_a_will_defense_type_when_unconscious() -> void:
+	var uc = ResolveToHitUseCaseClass.new(ScriptedRandomNumberPort.new([]))
+	var target: Dictionary = {"name": "Target", "will": 10, "conscious": false}
+	assert_eq(uc.legal_prehit_reactions(target, "will"), [])
+
+
+func test_legal_prehit_reactions_never_consumes_rng() -> void:
+	var rng := ScriptedRandomNumberPort.new([])
+	var uc = ResolveToHitUseCaseClass.new(rng)
+	uc.legal_prehit_reactions({"name": "Target", "ac": 10}, "ac")
+	assert_eq(rng._index, 0, "legal_prehit_reactions() must be a pure eligibility read, never rolling RNG")

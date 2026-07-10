@@ -265,3 +265,40 @@ func test_combatant_defeated_event_never_emitted_when_hit_missed() -> void:
 	assert_eq(target.get("hp_current", -1), 1, "a miss must never reduce hp_current")
 	var defeated_events: Array = rig["event_sink"].events.filter(func(e): return e is RoundEventsClass.CombatantDefeatedEvent)
 	assert_eq(defeated_events.size(), 0)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Iteration K FEAT-004 (US-004, ADR-004): legal_onhit_reactions() — the
+# OnHitMitigation-window eligibility helper consumed by
+# core/application/resolve_action_use_case.gd's resolve_reactive().
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_legal_onhit_reactions_offers_both_parry_and_block_for_a_dual_capable_weapon() -> void:
+	var rig: Dictionary = _rig([])
+	var weapon: Dictionary = {"parry_bonus": 4, "block_value": 2}
+	assert_eq(rig["apply_uc"].legal_onhit_reactions(weapon), ["parry", "block"])
+
+
+func test_legal_onhit_reactions_offers_only_parry_when_block_value_is_zero() -> void:
+	var rig: Dictionary = _rig([])
+	var weapon: Dictionary = {"parry_bonus": 4, "block_value": 0}
+	assert_eq(rig["apply_uc"].legal_onhit_reactions(weapon), ["parry"])
+
+
+func test_legal_onhit_reactions_offers_only_block_when_parry_bonus_is_zero() -> void:
+	var rig: Dictionary = _rig([])
+	var weapon: Dictionary = {"parry_bonus": 0, "block_value": 2}
+	assert_eq(rig["apply_uc"].legal_onhit_reactions(weapon), ["block"])
+
+
+func test_legal_onhit_reactions_is_empty_for_a_weapon_with_neither_stat() -> void:
+	var rig: Dictionary = _rig([])
+	assert_eq(rig["apply_uc"].legal_onhit_reactions({}), [])
+
+
+func test_legal_onhit_reactions_never_consumes_rng() -> void:
+	var rng := ScriptedRandomNumberPort.new([])
+	var to_hit_uc = ResolveToHitUseCaseClass.new(rng)
+	var apply_uc = ApplyOnHitDefenseUseCaseClass.new(to_hit_uc.get_resolution(), FakeEventSinkPort.new())
+	apply_uc.legal_onhit_reactions({"parry_bonus": 4, "block_value": 2})
+	assert_eq(rng._index, 0, "legal_onhit_reactions() must be a pure eligibility read, never rolling RNG")

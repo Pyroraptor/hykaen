@@ -285,12 +285,24 @@ func test_ranged_shortbow_strike_against_target_three_hexes_away_is_selectable_a
 	# needing to control MainScene's live, real (seeded but shared) RNG roll
 	# order -- isolates this scenario's "successful"/logged assertion from
 	# exactly which value that shared RNG happens to yield here.
+	#
+	# Iteration K FEAT-004 (US-004, ADR-004): the enemy target now genuinely
+	# reacts on this call site (resolve_action_use_case.resolve_reactive(),
+	# MainScene.gd's _verb_bar_strike_execute()) -- an ac this low makes a
+	# PreHitAvoidance Dodge always "worthwhile" (MobilityDodgeRule), which
+	# would SUBSTITUTE a fresh Mobility check for this fixture's absurd ac,
+	# defeating the "guaranteed hit" isolation this scenario needs (it is
+	# testing ranged-reach selectability/logging, not reactions). Marking the
+	# target Immobilized keeps it ineligible for Dodge (core/rules/
+	# resolution.gd's is_dodge_eligible()), restoring the deterministic
+	# guaranteed-hit contract this scenario has always relied on.
 	var target: Dictionary = {
 		"name":        "SteelThreadRangedTarget",
 		"combatant_id": "steel_thread_ranged_target",
 		"hp_current":  50,
 		"ac":          -1000,
-		"hex_coord":   target_hex
+		"hex_coord":   target_hex,
+		"conditions":  ["Immobilized"]
 	}
 	instance._enemies.append(target)
 

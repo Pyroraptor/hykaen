@@ -333,11 +333,23 @@ func test_application_layer_contains_no_new_port_or_use_case_class() -> void:
 	# defaulting to "none" (see that file's own header doc, and
 	# core/application/round_session.gd's `advance_ai_turn()` /
 	# MainScene.gd's `_verb_bar_strike_execute()` wiring doc).
+	#
+	# Iteration K FEAT-004 (US-004, ADR-004) deliberately extends this
+	# whitelist by TWO more files: core/application/_build_defense_context.gd
+	# (BuildDefenseContext) and core/application/open_reaction_window_use_case.gd
+	# (OpenReactionWindowUseCase) -- the two APPLICATION-layer helpers that
+	# wire the enemy's two-phase (PreHitAvoidance/OnHitMitigation) reaction
+	# windows into the player-Strike path, synchronously, via
+	# infrastructure/ai_reaction_policy.gd's AIReactionPolicy (see each
+	# file's own header doc, and core/application/resolve_action_use_case.gd's
+	# resolve_reactive() doc).
 	var expected_files: Array = [
+		"_build_defense_context.gd",
 		"ai_decision_port.gd",
 		"apply_on_hit_defense_uc.gd",
 		"determine_outcome_use_case.gd",
 		"event_sink_port.gd",
+		"open_reaction_window_use_case.gd",
 		"reaction_window.gd",
 		"render_combat_log_use_case.gd",
 		"resolve_action_use_case.gd",

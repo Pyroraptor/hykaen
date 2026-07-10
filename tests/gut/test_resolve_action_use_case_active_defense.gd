@@ -40,6 +40,18 @@ extends GutTest
 ##      run_autonomous_to_completion(), which never offers a reaction --
 ##      must remain default-only, so this audit still catches an
 ##      undocumented/accidental new reactive call site anywhere else.
+##
+##      UPDATE (iteration K FEAT-004, US-004, ADR-004): MainScene.gd's
+##      player-Strike path no longer calls resolve() at all -- it now calls
+##      the SEPARATE resolve_reactive() entry point (core/application/
+##      resolve_action_use_case.gd) so the enemy target genuinely reacts via
+##      infrastructure/ai_reaction_policy.gd's AIReactionPolicy,
+##      synchronously (no pop-up). resolve()'s own signature/behavior is
+##      completely untouched by this -- resolve_reactive() is a deliberately
+##      separate public method precisely so this criterion's audit (and
+##      every other resolve()-call-site pin in this file) needed no further
+##      changes beyond MainScene.gd now contributing zero sites to it (see
+##      test_audit_finds_the_two_known_live_call_sites() below).
 
 const ResolveActionUseCaseClass = preload("res://core/application/resolve_action_use_case.gd")
 const ActionEconomyClass        = preload("res://core/rules/action_economy.gd")
@@ -477,10 +489,22 @@ func test_audit_finds_the_two_known_live_call_sites() -> void:
 		"round_session.gd is expected to have exactly one 6-arg (autonomous) and one 9-arg (reactive interactive) call site"
 	)
 
+	# UPDATED by iteration K FEAT-004 (US-004, ADR-004): MainScene.gd's
+	# player-strikes-enemy call site no longer calls resolve() at all -- it
+	# now calls the SEPARATE resolve_reactive() entry point (see
+	# core/application/resolve_action_use_case.gd's own doc) so the enemy
+	# target can genuinely react (Dodge/Parry/Block) via
+	# infrastructure/ai_reaction_policy.gd's AIReactionPolicy, synchronously
+	# (no pop-up). resolve_reactive()'s name does not match this audit's
+	# `_action_use_case.resolve(` needle (it requires the literal substring
+	# to be followed immediately by "(", never "_reactive(") -- by design,
+	# this is a SEPARATE method precisely so every pre-existing resolve()
+	# call site/pinned audit above (round_session.gd's own two sites) stays
+	# byte-for-byte untouched. MainScene.gd therefore now contributes ZERO
+	# sites to this particular audit.
 	var main_scene_content: String = _read_file("res://MainScene.gd")
 	var main_scene_sites: Array = _find_call_sites(main_scene_content)
 	assert_eq(
-		main_scene_sites.size(), 1,
-		"MainScene.gd is expected to have exactly 1 live resolve() call site"
+		main_scene_sites.size(), 0,
+		"MainScene.gd is expected to have zero '_action_use_case.resolve(' call sites -- it now calls resolve_reactive() instead (iteration K FEAT-004)"
 	)
-	assert_eq(_count_top_level_args(main_scene_sites[0]["args_text"]), 6, "MainScene.gd's call site passes exactly 6 positional args today")
