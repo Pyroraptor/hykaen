@@ -1851,6 +1851,27 @@ func _verb_bar_stride_enter_selection() -> Dictionary:
 ## remains at his start hex (no hex_coord mutation occurs), and this method
 ## returns a rejected result carrying ERR_MOVER_DOWNED_BY_OPPORTUNISTIC_STRIKE
 ## rather than the movement controller's own ok/resolved shape.
+##
+## FEAT-228 (resolves FIND-224 / FR-007): `_living_combatants(_enemies)`
+## yields candidates in ENCOUNTER SPAWN ORDER (`_enemies`'s own array order,
+## fixed at boot before `encounter.initialize()` ever rolls initiative) --
+## NOT the rolled-initiative order this feature's ADR on deterministic-replay
+## ordering requires ResolveStrideUseCase.execute() to receive (that use
+## case's own doc explicitly states it "resolves reactors strictly in the
+## order given, never re-sorting them itself" -- the caller, this method, is
+## the sole party responsible for supplying initiative order). This method
+## now runs that living-enemy pool through _order_candidate_reactors_by_initiative()
+## (sorted by each combatant's own "_initiative_roll", stamped by
+## `encounter.initialize()` before this method is ever reachable) before
+## handing it to the use case, and additionally runs the SORTED result
+## through _assert_candidate_reactors_ordering() -- a defensive, fail-loud
+## check (mirrors core/application/reaction_window.gd's
+## assert_reaction_budget_delta() convention: assert()+push_error(), plus a
+## bool return so a GUT test can observe the violation directly, since this
+## project's Godot 4.3 engine cannot capture assert()/push_error() output
+## from GUT) confirming the sorted order is genuinely consistent with
+## `encounter.get_turn_order()` (the authoritative initiative table) rather
+## than merely internally sorted.
 func _verb_bar_stride_execute(selection) -> Dictionary:
 	var actor_id: String = round_session.current_actor().get("combatant_id", "") if round_session != null else ""
 	var action_economy = _verb_bar_current_action_economy()
@@ -1858,7 +1879,9 @@ func _verb_bar_stride_execute(selection) -> Dictionary:
 	var actor: Dictionary = round_session.current_actor() if round_session != null else {}
 	var mover_start_hex = actor.get("hex_coord", null)
 	if not actor.is_empty() and mover_start_hex != null:
-		var candidate_reactors: Array = _living_combatants(_enemies)
+		var candidate_reactors: Array = _order_candidate_reactors_by_initiative(_living_combatants(_enemies))
+		if encounter != null:
+			_assert_candidate_reactors_ordering(candidate_reactors, encounter.get_turn_order())
 		var use_case := ResolveStrideUseCaseClass.new()
 		var opportunistic_result: Dictionary = await use_case.execute(
 			actor, mover_start_hex, candidate_reactors,
@@ -2300,6 +2323,120 @@ func _living_combatants(combatants: Array) -> Array:
 		if c.get("hp_current", 0) > 0:
 			living.append(c)
 	return living
+
+
+## _order_candidate_reactors_by_initiative(candidates) -> Array — FEAT-228
+## (resolves FIND-224 / FR-007, US-008): returns a NEW Array containing every
+## Dictionary in `candidates`, sorted DESCENDING by each combatant's own
+## "_initiative_roll" (the value core/combat/encounter.gd's initialize()
+## stamps onto every party/enemy combatant Dictionary while rolling and
+## sorting the encounter's real turn order — see that file's own
+## get_turn_order() doc: "combatant dicts in descending initiative order").
+## `candidates` itself is never mutated (a fresh Array is returned) and a
+## combatant missing "_initiative_roll" entirely (e.g. a bare unit-test
+## fixture, or a caller invoked before encounter.initialize() ever ran) reads
+## as roll 0 rather than crashing, matching this file's established
+## default-safe Dictionary.get() convention throughout.
+##
+## Ties (equal "_initiative_roll") are broken by preserving `candidates`'
+## OWN original relative order — i.e. this sort is STABLE — rather than
+## leaving tie order to whatever Array.sort_custom()'s underlying
+## implementation happens to do, which the ADR on deterministic-replay
+## ordering this feature closes out requires: an identical (seed, roster)
+## pairing must always yield the identical candidate order, never a
+## once-in-a-while divergence from an unstable comparator.
+##
+## This is this feature's actual fix for FIND-224: prior to FEAT-228,
+## _verb_bar_stride_execute() fed `_living_combatants(_enemies)` — plain
+## ENCOUNTER SPAWN ORDER (`_enemies`'s own Array order, fixed at boot BEFORE
+## encounter.initialize() ever rolls initiative) — directly into
+## ResolveStrideUseCase.execute(), which resolves reactors "strictly in the
+## order given, never re-sorting them itself" (that file's own doc). Any
+## enemy roster whose spawn order didn't already happen to match its rolled
+## initiative order silently resolved Opportunistic Strikes out of turn
+## order, with nothing to catch the discrepancy.
+func _order_candidate_reactors_by_initiative(candidates: Array) -> Array:
+	var indexed: Array = []
+	for i in range(candidates.size()):
+		indexed.append({"candidate": candidates[i], "spawn_index": i})
+
+	indexed.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var roll_a: int = a["candidate"].get("_initiative_roll", 0)
+		var roll_b: int = b["candidate"].get("_initiative_roll", 0)
+		if roll_a == roll_b:
+			return a["spawn_index"] < b["spawn_index"]
+		return roll_a > roll_b
+	)
+
+	var ordered: Array = []
+	for entry in indexed:
+		ordered.append(entry["candidate"])
+	return ordered
+
+
+## _assert_candidate_reactors_ordering(ordered_candidates, turn_order) -> bool
+## — FEAT-228 (resolves FIND-224 / FR-007, US-008): the defensive, fail-loud
+## guard this feature's design notes require ("add a defensive assertion
+## that fires if ordering is ever inconsistent with the initiative table")
+## — checked immediately after _order_candidate_reactors_by_initiative()
+## above, so a future regression (e.g. a caller bypassing that helper, or a
+## bug in it) is caught at the exact seam FIND-224 identified, rather than
+## silently resolving Opportunistic Strikes out of order again.
+##
+## `turn_order` is `encounter.get_turn_order()`'s own return value — the
+## authoritative, already-rolled initiative table (descending, one entry per
+## combatant, per that file's doc) — NOT re-derived or re-sorted here.
+## `ordered_candidates` is genuinely consistent with that table iff, walking
+## `ordered_candidates` in order, each combatant's position within
+## `turn_order` is non-decreasing (i.e. `ordered_candidates` is a
+## subsequence of `turn_order`, preserving the table's own relative order).
+## Combatants are matched by the SAME "combatant_id" falling back to "name"
+## identity convention used throughout this file (e.g.
+## _other_living_combatants()).
+##
+## Returns true when consistent. On a violation (a candidate resolves out of
+## the table's order, OR a candidate is entirely absent from `turn_order`),
+## mirrors core/application/reaction_window.gd's own
+## assert_reaction_budget_delta() convention exactly: a real GDScript
+## assert() fires (failing loudly in a dev/test build — Godot only compiles
+## assert() into debug builds) AND push_error() logs the same message as
+## defense-in-depth (this project's Godot 4.3 engine cannot capture
+## push_error() output from GUT — see resolution.gd's identical documented
+## limitation) — then returns false so a GUT test can observe the violation
+## directly via this method's own return value, exactly as
+## assert_reaction_budget_delta() already established.
+func _assert_candidate_reactors_ordering(ordered_candidates: Array, turn_order: Array) -> bool:
+	var turn_order_index: Dictionary = {}
+	for i in range(turn_order.size()):
+		var entry_id: String = turn_order[i].get("combatant_id", turn_order[i].get("name", ""))
+		turn_order_index[entry_id] = i
+
+	var last_index: int = -1
+	for candidate in ordered_candidates:
+		var candidate_id: String = candidate.get("combatant_id", candidate.get("name", ""))
+
+		if not turn_order_index.has(candidate_id):
+			var missing_message: String = (
+				"MainScene: Opportunistic Strike candidate reactor '%s' is absent from encounter.get_turn_order() -- ordering cannot be verified against the rolled initiative table"
+				% candidate_id
+			)
+			assert(false, missing_message)
+			push_error(missing_message)
+			return false
+
+		var index: int = turn_order_index[candidate_id]
+		if index < last_index:
+			var order_message: String = (
+				"MainScene: Opportunistic Strike candidate_reactors ordering violates the rolled initiative table -- '%s' (turn_order index %d) resolved out of initiative order (previous candidate's turn_order index %d)"
+				% [candidate_id, index, last_index]
+			)
+			assert(false, order_message)
+			push_error(order_message)
+			return false
+
+		last_index = index
+
+	return true
 
 
 ## _refresh_off_guard_conditions() -> void — FEAT-015 (US-015 / FR-016);
