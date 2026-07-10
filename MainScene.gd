@@ -324,10 +324,18 @@ class _UIHexChoiceResolver:
 	func resolve(legal_hexes: Array):
 		if legal_hexes.is_empty():
 			return null
+		# Highlight the legal Dodge-Step destinations on the battlefield, reusing
+		# the SAME hex_grid_view.set_selectable_hexes() overlay the Step verb's
+		# movement_input_controller uses — so a Dodge-Step reads visually
+		# identical to a normal Step instead of silently waiting for a click.
+		# Cleared the instant a legal hex is picked so the highlight never
+		# lingers into the attacker's continuing turn or the next actor.
+		_hex_grid_view.set_selectable_hexes(legal_hexes)
 		while true:
 			var clicked = await _hex_grid_view.hex_clicked
 			for hex in legal_hexes:
 				if hex.equals(clicked):
+					_hex_grid_view.set_selectable_hexes([])
 					return hex
 
 

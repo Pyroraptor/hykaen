@@ -1056,9 +1056,21 @@ func _find_action_economy_for(combatant: Dictionary):
 ##                             method's other keys).
 func _build_defense_context(target: Dictionary, target_action_economy) -> Dictionary:
 	var target_weapon: Dictionary = target.get("weapon", {})
+	# A Parry is an opposed ATTACK roll by the defender: d20 + the defender's
+	# full attack bonus (attribute modifier + weapon proficiency) + the weapon's
+	# parry_bonus — mirroring resolution.gd resolve_to_hit()'s attacker roll
+	# (raw + attacker[damage_modifier_attribute] + weapon.proficiency_bonus).
+	# Precomputed here (RoundSession owns the defender combatant + its
+	# attributes) and passed to Resolution.apply_on_hit_defense() via ctx so the
+	# rules layer stays a pure reformatter of already-resolved inputs.
+	var parry_attribute: String = target_weapon.get("damage_modifier_attribute", "")
+	var parry_attack_bonus: int = (
+		int(target.get(parry_attribute, 0)) + int(target_weapon.get("proficiency_bonus", 0))
+	)
 	return {
 		"action_economy":       target_action_economy,
 		"parrying_weapon":      target_weapon,
+		"parry_attack_bonus":   parry_attack_bonus,
 		"blocking_weapon":      target_weapon,
 		"open_space_available": true,
 	}
@@ -1631,6 +1643,20 @@ func advance_ai_turn() -> Dictionary:
 				):
 					var rich_text: String = _event_log_render_attack_entry_fn.call(attack_event_id)
 					_event_log_overwrite_entry_fn.call(pending_entry_index, rich_text, attack_event_id)
+
+		# ── Dodge-Step (US-002) LIVE INVOCATION: a successful Dodge sets
+		# defender_stepped=true (resolution.gd, surfaced through resolve()), which
+		# entitles the defender to a follow-up Step to a legal adjacent hex.
+		# advance_ai_turn()'s enemy-Strikes-player path is exactly where Titus's
+		# Dodge resolves, so THIS is where _resolve_dodge_step_prompt() (the
+		# player-picks-hex prompt + token-reposition seam) must actually fire in
+		# real play — previously it was only ever called directly from tests, so
+		# the whole Dodge-Step chain was dead in the running game. A no-op for
+		# every non-dodged Strike (defender_stepped false) and for the two-phase
+		# Parry/Block path (its resolve_result never carries the flag). The await
+		# is safe: advance_ai_turn() is already a coroutine.
+		if action_name == "Strike" and resolve_result.get("defender_stepped", false):
+			await _resolve_dodge_step_prompt(target, resolve_result)
 
 		# FEAT-005 (US-005 / FR-005, Iteration J Part A) / FEAT-003 (G3
 		# remediation): the SECOND await point this feature introduces into

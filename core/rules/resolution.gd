@@ -469,8 +469,18 @@ func apply_on_hit_defense(partial: Dictionary, on_hit_defense: String = "none", 
 		if reaction_ok:
 			var bw: Dictionary = ctx.get("blocking_weapon", {})
 			var tier: int = ctx.get("blocking_weapon_tier", 1)
-			# Shields use a dedicated block_die; other weapons use their damage_die
-			var block_die_size: int = bw.get("block_die", bw.get("damage_die", weapon.get("damage_die", 6)))
+			# Shields use a dedicated block_die; other weapons block with their
+			# own damage_die. block_die is 0/absent on every non-shield weapon
+			# (WeaponResource.block_die defaults to 0) and the composition root
+			# passes that 0 through explicitly — so a bare `.get("block_die", …)`
+			# reads the literal 0 (key present) and rolls a 0-sided die,
+			# collapsing Block to just its flat block_value. Treat block_die <= 0
+			# as "absent" and fall back to the damage_die (WeaponResource.block_die's
+			# documented contract), so e.g. a Longsword Blocks for damage_die[W] +
+			# block_value (1d12 + 1), not block_value alone.
+			var block_die_size: int = bw.get("block_die", 0)
+			if block_die_size <= 0:
+				block_die_size = bw.get("damage_die", weapon.get("damage_die", 6))
 			var block_value_mod: int = bw.get("block_value", 0)
 			# 1[W] at tier 1, 2[W] at tier 2, 3[W] at tier 3 (ADR-002 RNG position 4)
 			var block_reduction: int = _rng.roll(block_die_size, tier) + block_value_mod
@@ -484,8 +494,14 @@ func apply_on_hit_defense(partial: Dictionary, on_hit_defense: String = "none", 
 		if reaction_ok:
 			var pw: Dictionary = ctx.get("parrying_weapon", {})
 			var parry_bonus_val: int = pw.get("parry_bonus", 0)
-			# Parry attack roll: d20 + parry_bonus (ADR-002 RNG position 5)
-			var parry_roll: int = _rng.d20() + parry_bonus_val
+			# Parry is an opposed ATTACK roll: d20 + the defender's full attack
+			# bonus (attribute modifier + weapon proficiency, precomputed into
+			# ctx.parry_attack_bonus by the caller — mirrors resolve_to_hit()'s
+			# attacker roll) + the weapon's parry_bonus (ADR-002 RNG position 5).
+			# Previously this rolled only d20 + parry_bonus, making Parry fail far
+			# too often (it ignored the parrier's proficiency/attribute entirely).
+			var parry_attack_bonus: int = ctx.get("parry_attack_bonus", 0)
+			var parry_roll: int = _rng.d20() + parry_attack_bonus + parry_bonus_val
 			# Parry succeeds ONLY if it STRICTLY EXCEEDS the attacker's roll_total
 			if parry_roll > roll_total:
 				damage_final = 0

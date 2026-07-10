@@ -95,6 +95,13 @@ func _boot_main_scene_with_seed(seed_value: int):
 	var instance = packed.instantiate()
 	instance.seed_override = seed_value
 	add_child_autofree(instance)
+	# This suite exercises reaction TIMING/logging, not the Dodge-Step follow-up.
+	# A successful Dodge now fires the live Dodge-Step hex prompt inside
+	# advance_ai_turn() (round_session.gd), which the REAL _UIHexChoiceResolver
+	# would block on, awaiting a battlefield click no headless test can deliver.
+	# Null the resolver so MainScene.resolve_hex_choice() returns null → the
+	# Dodge-Step is a clean no-op here (the Dodge itself still negates the hit).
+	instance.hex_choice_resolver = null
 	return instance
 
 

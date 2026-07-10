@@ -456,7 +456,12 @@ func resolve(
 		"ok":              true,
 		"event":           attack_event,
 		"target_defeated": target_defeated,
-		"damage_final":    damage
+		"damage_final":    damage,
+		# A successful Dodge (resolution.gd sets defender_stepped=true on the
+		# resulting miss) entitles the defender to a follow-up Step. Surface it
+		# so RoundSession.advance_ai_turn() can drive the live Dodge-Step prompt
+		# (defender_stepped is otherwise buried in the strike_result dict).
+		"defender_stepped": strike_result.get("defender_stepped", false),
 	}
 
 

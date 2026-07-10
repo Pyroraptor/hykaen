@@ -54,12 +54,36 @@ class _FixedChoiceResolver:
 		return {"choice": choice}
 
 
+## _ScriptedHexChoiceResolver — a HexChoiceResolverPort double that always
+## answers with a pre-scripted legal hex (the "player's pick"). Used by the
+## live-path Dodge-Step regression test below to script the hex choice the
+## production _UIHexChoiceResolver would otherwise await as a battlefield click.
+class _ScriptedHexChoiceResolver:
+	extends "res://core/application/ports/hex_choice_resolver_port.gd"
+	var chosen_hex
+
+	func _init(p_chosen_hex) -> void:
+		chosen_hex = p_chosen_hex
+
+	func resolve(legal_hexes: Array):
+		if legal_hexes.is_empty():
+			return null
+		return chosen_hex
+
+
 func _boot_main_scene_with_seed(seed_value: int):
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = seed_value
 	add_child_autofree(instance)
+	# This suite asserts the Defense-segment outcome, not the Dodge-Step follow-up.
+	# A successful Dodge now fires the live Dodge-Step hex prompt inside
+	# advance_ai_turn(); the REAL _UIHexChoiceResolver would block awaiting a
+	# battlefield click no headless test can deliver. Null it so
+	# MainScene.resolve_hex_choice() returns null → Dodge-Step no-ops here
+	# (the Dodge resolution and its "Defense: dodge" segment are unaffected).
+	instance.hex_choice_resolver = null
 	return instance
 
 
@@ -142,6 +166,40 @@ func test_dodge_reaction_renders_the_dodge_succeeded_defense_segment() -> void:
 	if paired_reaction != null:
 		assert_eq(paired_reaction.choice, "dodge")
 		assert_eq(paired_reaction.outcome, "dodge_succeeded")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# REGRESSION (dodge-step dead-in-live-play): a successful Dodge must actually
+# relocate the defender when resolved through advance_ai_turn()'s LIVE
+# coroutine — NOT only when round_session._resolve_dodge_step_prompt() is
+# called directly (which is all every other Dodge-Step test did, so none
+# caught that advance_ai_turn() never invoked it in real play). This drives a
+# REAL enemy Strike that Titus Dodges and asserts the live path moved him.
+# ══════════════════════════════════════════════════════════════════════════
+func test_successful_dodge_through_advance_ai_turn_relocates_defender_via_live_wiring() -> void:
+	var instance = _boot_main_scene_with_seed(42)
+	await get_tree().process_frame
+
+	var titus = instance._party[0]
+	var titus_id: String = titus.get("combatant_id", titus.get("name", ""))
+	var original_hex = titus.get("hex_coord", null)
+	assert_not_null(original_hex, "fixture: Titus must carry a hex_coord at boot")
+
+	# Pick a REAL legal Step destination and script the player's hex pick to it,
+	# replacing the boot helper's null resolver — THIS test exercises the Step.
+	var legal_hexes: Array = instance._query_selectable_step_hexes(titus_id)
+	assert_true(legal_hexes.size() > 0, "fixture: Titus must have at least one legal Step destination at boot")
+	var chosen_hex = legal_hexes[0]
+	assert_false(chosen_hex.equals(original_hex), "fixture: the chosen hex must differ from Titus's current hex")
+	instance.hex_choice_resolver = _ScriptedHexChoiceResolver.new(chosen_hex)
+
+	_force_guaranteed_dodge_success(instance)
+	_resolve_one_real_enemy_strike(instance, "dodge", "none")
+
+	assert_true(
+		titus.get("hex_coord", null).equals(chosen_hex),
+		"a successful Dodge resolved through advance_ai_turn()'s LIVE coroutine must relocate Titus to the player-picked hex — the wiring that was dead in play until round_session.advance_ai_turn() invoked _resolve_dodge_step_prompt()"
+	)
 
 
 func test_parry_reaction_renders_the_parry_succeeded_defense_segment() -> void:

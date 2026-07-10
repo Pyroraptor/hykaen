@@ -66,6 +66,12 @@ func _boot_main_scene_with_seed(seed_value: int):
 	var instance = packed.instantiate()
 	instance.seed_override = seed_value
 	add_child_autofree(instance)
+	# This suite asserts the enemy-path rich log, not the Dodge-Step follow-up.
+	# A successful Dodge now fires the live Dodge-Step hex prompt inside
+	# advance_ai_turn(); the REAL _UIHexChoiceResolver would block awaiting a
+	# battlefield click no headless test can deliver. Null it so
+	# MainScene.resolve_hex_choice() returns null → Dodge-Step no-ops here.
+	instance.hex_choice_resolver = null
 	return instance
 
 
