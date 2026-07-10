@@ -169,6 +169,14 @@ func open(trigger: Dictionary) -> Dictionary:
 ## doc / ReactionWindowPort's contract doc. Applies `choice` and closes the
 ## window in a single, synchronous, non-blocking call — no loop/wait of any
 ## kind, so the engine thread is never blocked by this method.
+##
+## iteration K FEAT-007 (US-007, ADR-005): an "OpportunisticStrike" trigger
+## is deliberately EXEMPT from the spend_reaction() call below — see the
+## dedicated comment at that guard for why. Every OTHER trigger_type
+## (Dodge/Steel/Parry/Block) is completely unaffected: resume() IS their
+## entire resolution (there is no further "apply the effect" step for them
+## to reach), so they still spend right here, exactly as before this
+## feature.
 func resume(window_id: String, choice: String, resolved_by: String = "unknown") -> Dictionary:
 	if window_id == "" or window_id != _open_window_id:
 		return {"ok": false, "error": ERR_STALE_WINDOW}
@@ -180,7 +188,25 @@ func resume(window_id: String, choice: String, resolved_by: String = "unknown") 
 	var reactor_action_economy = trigger.get("reactor_action_economy", null)
 	var applied_choice: String = choice
 
-	if applied_choice != ReactionChooserPortClass.PASS and reactor_action_economy != null:
+	# iteration K FEAT-007 (US-007, ADR-005): an OpportunisticStrike's
+	# reaction is spent by whichever caller actually resolves its EFFECT
+	# (core/application/use_cases/resolve_stride_use_case.gd, via the SAME
+	# consolidated resolve_action_use_case/resolve_weapon_attack path an
+	# ordinary Strike takes, paid through core/application/ports/
+	# action_economy_port.gd's ReactionPaidActionEconomy adapter) — NEVER
+	# here. Spending it a SECOND time in this generic resume() (on top of
+	# the spend resolve_stride_use_case.gd's own resolution already performs)
+	# would double-charge the reactor's shared per-round budget for a single
+	# Opportunistic Strike — this is the exact "resume() records the choice +
+	# spends today, applies nothing" gap this feature closes: resume() now
+	# defers BOTH the spend and the effect to the caller for this ONE trigger
+	# type, rather than doing half the job (spend, no effect) itself.
+	var window_trigger_type: String = trigger.get("trigger_type", "")
+	if (
+		applied_choice != ReactionChooserPortClass.PASS
+		and reactor_action_economy != null
+		and window_trigger_type != "OpportunisticStrike"
+	):
 		var spend_result: Dictionary = reactor_action_economy.spend_reaction()
 		if not spend_result.get("success", false):
 			# Race guard (open()..resume() straddling another spend): fall
