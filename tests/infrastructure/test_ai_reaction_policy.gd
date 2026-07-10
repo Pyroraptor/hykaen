@@ -27,6 +27,12 @@ extends GutTest
 ##      policy choices.
 ##   4. Static/code-inspection: ai_reaction_policy.gd does not import or
 ##      alias auto_reaction_chooser.gd.
+##
+## Also verifies (iteration K FEAT-225, resolves DEF-001): the
+## "opportunistic_strike" legal-reaction branch — take the strike when
+## melee-legal (context["melee_reach"] true) AND the >=1-action RESERVE gate
+## allows it, else Pass, mirroring the existing reserve-gate pattern already
+## applied to Dodge/Parry/Block.
 
 const AIReactionPolicyClass = preload("res://infrastructure/ai_reaction_policy.gd")
 const ReactionChooserPortClass = preload("res://core/application/ports/reaction_chooser_port.gd")
@@ -427,3 +433,131 @@ func test_regression_parry_and_block_outcomes_unchanged_when_budget_sufficient()
 		"FEAT-002's Block outcome must be unchanged when the budget is sufficient")
 	assert_eq(policy.choose(["parry", "block"], pass_context), ReactionChooserPortClass.PASS,
 		"FEAT-002's Pass outcome must be unchanged when the budget is sufficient")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# iteration K FEAT-225 (resolves DEF-001): "opportunistic_strike"
+# legal-reaction branch.
+#
+# Rule: take the strike when "opportunistic_strike" is legal AND
+# context["melee_reach"] is true, subject to the SAME >=1-action RESERVE
+# gate already applied to Dodge/Parry/Block, else Pass.
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_opportunistic_strike_chosen_when_melee_legal_and_reserve_allows() -> void:
+	var policy: AIReactionPolicyClass = _policy()
+	var context: Dictionary = {"melee_reach": true, "action_current": ActionEconomyClass.MAX_BUDGET}
+
+	var choice: String = policy.choose(["opportunistic_strike"], context)
+
+	assert_eq(choice, "opportunistic_strike",
+		"melee_reach=true and a healthy action budget must take the Opportunistic Strike")
+
+
+func test_opportunistic_strike_passes_when_not_melee_legal() -> void:
+	var policy: AIReactionPolicyClass = _policy()
+	var context: Dictionary = {"melee_reach": false, "action_current": ActionEconomyClass.MAX_BUDGET}
+
+	var choice: String = policy.choose(["opportunistic_strike"], context)
+
+	assert_eq(choice, ReactionChooserPortClass.PASS,
+		"melee_reach=false must fall through to Pass even though the reaction is offered")
+
+
+func test_opportunistic_strike_passes_when_melee_reach_key_omitted() -> void:
+	var policy: AIReactionPolicyClass = _policy()
+	var context: Dictionary = {"action_current": ActionEconomyClass.MAX_BUDGET}
+
+	var choice: String = policy.choose(["opportunistic_strike"], context)
+
+	assert_eq(choice, ReactionChooserPortClass.PASS,
+		"an omitted melee_reach key must default to false (never silently assumed melee-legal) -> Pass")
+
+
+func test_opportunistic_strike_passes_when_reserve_gate_would_be_broken() -> void:
+	var policy: AIReactionPolicyClass = _policy()
+	var context: Dictionary = {"melee_reach": true, "action_current": 1}
+
+	var choice: String = policy.choose(["opportunistic_strike"], context)
+
+	assert_eq(choice, ReactionChooserPortClass.PASS,
+		"action_current=1: reacting would leave 0 actions (< RESERVE=1) -> Pass, even though melee-legal")
+
+
+func test_opportunistic_strike_passes_when_reserve_gate_broken_at_action_current_zero() -> void:
+	var policy: AIReactionPolicyClass = _policy()
+	var context: Dictionary = {"melee_reach": true, "action_current": 0}
+
+	var choice: String = policy.choose(["opportunistic_strike"], context)
+
+	assert_eq(choice, ReactionChooserPortClass.PASS,
+		"action_current=0 must also force Pass (reacting would go negative)")
+
+
+func test_opportunistic_strike_allowed_at_reserve_boundary_action_current_two() -> void:
+	var policy: AIReactionPolicyClass = _policy()
+	var context: Dictionary = {"melee_reach": true, "action_current": 2}
+
+	var choice: String = policy.choose(["opportunistic_strike"], context)
+
+	assert_eq(choice, "opportunistic_strike",
+		"action_current=2: reacting leaves exactly 1 action (== RESERVE) -> the reserve is preserved, strike proceeds")
+
+
+func test_opportunistic_strike_not_offered_alongside_dodge_parry_block_still_resolves_correctly() -> void:
+	# Defensive: even if a future caller ever combined "opportunistic_strike"
+	# with dodge/parry/block in one legal_reactions list (reaction_window.gd
+	# never does this today), the strike branch must not swallow/short-circuit
+	# an unrelated Dodge decision it wasn't offered.
+	var policy: AIReactionPolicyClass = _policy()
+	var context: Dictionary = {
+		"mobility": 5, "targeted_defense_value": 10,
+		"action_current": ActionEconomyClass.MAX_BUDGET,
+	}
+
+	var choice: String = policy.choose(["dodge"], context)
+
+	assert_eq(choice, "dodge",
+		"opportunistic_strike absent from legal_reactions must never be returned")
+
+
+## "Boot-real" style companion to the pre-existing RESERVE gate regression
+## test above: drains a REAL ActionEconomy to a budget of 1 and confirms the
+## Opportunistic Strike branch reacts correctly to the actual domain object.
+func test_opportunistic_strike_reserve_gate_using_real_action_economy_drained_to_one() -> void:
+	var ae: ActionEconomyClass = ActionEconomyClass.new()
+	ae.start_of_round()
+	for _i in range(ActionEconomyClass.MAX_BUDGET - 1):
+		ae.spend_reaction()
+	assert_eq(ae.get_remaining(), 1, "fixture assumption: real ActionEconomy must be drained to exactly 1")
+
+	var policy: AIReactionPolicyClass = _policy()
+	var context: Dictionary = {"melee_reach": true, "action_current": ae.get_remaining()}
+
+	var choice: String = policy.choose(["opportunistic_strike"], context)
+
+	assert_eq(choice, ReactionChooserPortClass.PASS,
+		"a real ActionEconomy drained to budget=1 must force Pass even though melee-legal")
+
+
+## Determinism (test_criteria #3, extended to cover the new branch):
+## two independent AIReactionPolicy instances given identical
+## opportunistic_strike inputs must agree, and a single instance must
+## reproduce the identical answer across 50 repeated calls.
+func test_determinism_opportunistic_strike_two_instances_and_fifty_repeats() -> void:
+	var context: Dictionary = {"melee_reach": true, "action_current": ActionEconomyClass.MAX_BUDGET}
+	var legal_reactions: Array = ["opportunistic_strike"]
+
+	var policy_a: AIReactionPolicyClass = _policy()
+	var policy_b: AIReactionPolicyClass = _policy()
+
+	var choice_a: String = policy_a.choose(legal_reactions, context)
+	var choice_b: String = policy_b.choose(legal_reactions, context)
+
+	assert_eq(choice_a, choice_b,
+		"two independent AIReactionPolicy instances given identical opportunistic_strike inputs must agree")
+	assert_eq(choice_a, "opportunistic_strike")
+
+	for i in range(50):
+		assert_eq(policy_a.choose(legal_reactions, context), choice_a,
+			"call #%d must reproduce the identical opportunistic_strike choice with no RNG involved" % i)

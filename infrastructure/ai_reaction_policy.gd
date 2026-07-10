@@ -1,10 +1,11 @@
 ## infrastructure/ai_reaction_policy.gd — AIReactionPolicy (FEAT-002 / US-002;
-## RESERVE gate: iteration K FEAT-003 / US-003, ADR-003)
+## RESERVE gate: iteration K FEAT-003 / US-003, ADR-003;
+## Opportunistic Strike branch: iteration K FEAT-225, resolves DEF-001)
 ##
 ## Infrastructure/adapter layer (Clean Architecture): a deterministic,
 ## RNG-free implementation of core/application/ports/reaction_chooser_port.gd's
 ## ReactionChooserPort contract — the enemy AI's actual reaction "brain" for
-## Dodge/Parry/Block. This is a NEW, INDEPENDENT ReactionChooserPort
+## Dodge/Parry/Block/Opportunistic Strike. This is a NEW, INDEPENDENT ReactionChooserPort
 ## implementation, distinct from infrastructure/auto_reaction_chooser.gd's
 ## AutoReactionChooser: that file is a headless TEST DOUBLE
 ## (pass/first-legal only, no rule-driven reasoning at all — see its own
@@ -40,6 +41,21 @@
 ##               evaluated first, matching the real turn order — Dodge
 ##               happens BEFORE the attack roll, Parry/Block only after).
 ##
+## Opportunistic Strike (iteration K FEAT-225, resolves DEF-001): a
+## standalone OpportunisticStrike-window rule, evaluated ahead of the
+## Dodge/Parry/Block priority chain above (inert in practice, since
+## reaction_window.gd never offers "opportunistic_strike" alongside
+## dodge/parry/block in the same legal_reactions list — see this file's own
+## choose() comment for detail):
+##
+##   0. Opportunistic Strike — chosen when "opportunistic_strike" is offered
+##      (legal_reactions) AND context["melee_reach"] is true, subject to the
+##      SAME RESERVE gate below (a Stride by either side can trigger this
+##      window; FR-005 exit criterion "a Stride by either side"). No
+##      worthwhileness calculus beyond melee-legality — mirrors the existing
+##      reserve-gate pattern already applied to Dodge/Parry/Block, per this
+##      feature's design notes.
+##
 ## No RNG of any kind is consumed by choose() — every input is read verbatim
 ## from `context` (the SAME Dictionary reaction_window.gd forwards straight
 ## through from trigger["attack_context"]), so two calls with identical
@@ -72,6 +88,13 @@
 ##                                populate this key (e.g. every pre-FEAT-003
 ##                                test) observe the gate as a no-op and see
 ##                                unchanged Dodge/Parry/Block/Pass behavior.
+##   "melee_reach"            — bool — true iff the reactor's weapon has
+##                                melee reach (Opportunistic Strike; iteration
+##                                K FEAT-225). Defaults to false when omitted,
+##                                so callers that never populate this key
+##                                observe an offered "opportunistic_strike"
+##                                as declined (Pass) rather than silently
+##                                assumed melee-legal.
 ##
 ## Budget-aware RESERVE gate (iteration K FEAT-003 / US-003, ADR-003) —
 ## applies to BOTH windows this policy ever answers for (PreHitAvoidance
@@ -116,6 +139,7 @@ const ActionEconomyClass = preload("res://core/rules/action_economy.gd")
 const REACTION_DODGE: String = "dodge"
 const REACTION_PARRY: String = "parry"
 const REACTION_BLOCK: String = "block"
+const REACTION_OPPORTUNISTIC_STRIKE: String = "opportunistic_strike"
 
 
 ## choose(legal_reactions, context) -> String — see class-level doc for the
@@ -132,6 +156,29 @@ func choose(legal_reactions: Array, context: Dictionary) -> String:
 	var action_current: int = context.get("action_current", ActionEconomyClass.MAX_BUDGET)
 	if action_current - 1 < ActionEconomyClass.RESERVE:
 		return PASS
+
+	# Opportunistic Strike (iteration K FEAT-225 / DEF-001): reaction_window.gd
+	# only ever offers "opportunistic_strike" on its own, standalone
+	# OpportunisticStrike trigger_type (never combined with dodge/parry/block
+	# in the same legal_reactions list), so this branch's position relative
+	# to the Dodge/Parry/Block branches below is inert in practice -- it is
+	# placed first purely because it answers a different reaction window.
+	# Melee-legality has ALREADY been screened upstream by
+	# core/domain/opportunistic_strike_eligibility.gd's OpportunisticStrikeEligibility
+	# (resolve_stride_use_case.gd, before a window is ever opened) AND by
+	# reaction_window.gd's own "melee_reach" gate before "opportunistic_strike"
+	# is ever added to `legal_reactions`; this policy re-confirms the same
+	# context["melee_reach"] flag (mirroring the Dodge/Parry/Block branches'
+	# own pattern of reading their governing context key directly rather than
+	# trusting legal_reactions membership alone) and, since the RESERVE gate
+	# above has already passed, takes the strike deterministically -- no
+	# further worthwhileness calculus, matching this feature's design notes
+	# ("take the strike when melee-legal and the >=1-action reserve gate
+	# allows it, else Pass").
+	if legal_reactions.has(REACTION_OPPORTUNISTIC_STRIKE):
+		var melee_reach: bool = context.get("melee_reach", false)
+		if melee_reach:
+			return REACTION_OPPORTUNISTIC_STRIKE
 
 	if legal_reactions.has(REACTION_DODGE):
 		var mobility: int = context.get("mobility", 0)
