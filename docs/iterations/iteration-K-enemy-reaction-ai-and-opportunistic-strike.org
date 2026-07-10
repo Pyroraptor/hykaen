@@ -1,0 +1,245 @@
+#+TITLE: Iteration K — Enemy Reaction AI (Part B) + Opportunistic Strike (Part C)
+#+DATE: 2026-07-10
+#+STATUS: APPROVED by Guy 2026-07-10. Base HEAD = 53efaa6 (J-R2 + real-play Dodge-Step/Block/Parry fixes + Weapons.pdf-table reconcile all landed). Guy-approved decisions baked in: Skeleton wields the Arming Sword; the Dodge/Parry/Block precedence cutoffs; the enemy Dodge-Step AI hex heuristic (keep-melee-reach-else-first-legal); and the one-time sim re-baseline from the Arming Sword's Prof +2.
+
+* Context (why this sprint exists)
+Defensive reactions are now GENUINELY live for the PLAYER: an enemy Strike opens the two-phase
+pop-ups (Dodge/Steel on-attacked, Parry/Block on-hit), a successful Dodge relocates Titus (with the
+legal hexes highlighted), Block reduces by 1[W]+block_value, Parry rolls d20+attack_bonus+parry_bonus,
+and the rich combat log shows it all. But TWO halves of the reaction system are still stubs:
+1. The ENEMY never reacts. On the player-strikes-enemy path the enemy always Passes ("none") — the
+   AI has no defensive brain. (Deferred from Iteration I as Part B / FR-006/FR-007.)
+2. NOBODY gets an Opportunistic Strike. An adjacent hostile Striding away provokes nothing — the
+   legality exists in reaction_window.gd but no trigger is ever emitted and no effect is resolved.
+   (Deferred from Iteration I as Part C / FR-008/FR-009.)
+
+This sprint finishes the reaction system: give the enemy a deterministic defensive policy (Part B),
+then add the movement-triggered Opportunistic Strike for BOTH movers (Part C). Full prior scope lives
+in docs/iterations/iteration-I-deferred.org; this brief supersedes it with launch-ready detail +
+the guardrails the reaction work has repeatedly needed.
+
+⚠️ HARD-WON LESSON THIS BRIEF EXISTS TO ENFORCE: the reaction system has shipped "green tests, dead
+in play" FIVE times (H Gap#1, FEAT-006, J DEF-001, J-R2 Dodge-Step, and the Block/Parry weapon-dict
+gaps). The root cause is ALWAYS the same: the logic/data is correct and a test asserts THE FUNCTION,
+but nothing wires it into the live composition root, and the test passes anyway because it calls the
+internal method directly instead of driving the REAL trigger path. The most recent (2026-07-10):
+_resolve_dodge_step_prompt() was fully built + capstone-tested, but advance_ai_turn() never called
+it — every test invoked the prompt directly. Part B (enemy AI on the player-strike path) and Part C
+(movement-triggered windows) are BOTH exactly this shape. The guardrails below are the heart of the
+brief.
+
+* ⭐⭐ GUARDRAILS — READ FIRST. These override normal item flow. Violating one FAILS the item.
+- G1 — ACCEPTANCE IS OBSERVABLE LIVE STATE, NEVER FUNCTION EXISTENCE. Each item is "done" ONLY when a
+  boot-real-MainScene test drives the REAL end-to-end path and asserts the user-visible / game-state
+  RESULT changed: the enemy's hp is higher by the mitigated amount / its action budget dropped after
+  it reacted / the mover took Strike damage BEFORE its token moved / a lethal opportunistic Strike
+  cancelled the Stride. "The policy function returns 'parry'" or "the trigger builder returns a dict"
+  is NOT acceptance.
+- G2 — NO SELF-WIRING, DRIVE THE REAL TRIGGER PATH (generalizes the Dodge-Step failure). A test may
+  NOT call the policy's choose(), the trigger-builder, or the reaction-window resume() DIRECTLY as its
+  proof. It MUST drive the real player-facing action — a PLAYER Strike (for Part B) or a REAL Stride
+  through ai.gd/decide_action or _verb_bar_stride_execute (for Part C) — and assert the reaction fired
+  through the real MainScene composition-root wiring. If a test needs to call the internal method to
+  pass, the PRODUCTION wiring is missing — fix that, not the test.
+- G3 — NO "INTERIM SCOPE LIMITATION" / TRACE-BUT-DON'T-APPLY PUNTS. It is FORBIDDEN to ship a stub that
+  opens a window / builds a trigger / records a choice without APPLYING its effect (open enemy window
+  but never mitigate; emit the opportunistic trigger but never resolve the Strike; the exact
+  reaction_window.resume() "records the choice + spends but resolves no effect" gap Part C must close).
+  Can't wire it in scope → STOP and flag Guy — never trace-and-move-on.
+- G4 — NO NEW DEFERRALS. Both parts ship wired. A deferred doc may be created ONLY for a genuinely
+  out-of-scope NEW discovery, and ONLY with an explicit Guy-facing STOP flag — never a quiet drop.
+  "Descoped the enemy weapon fields / the effect resolution" is an automatic failure.
+- G5 — MANDATORY V&V LIVE-BEHAVIOR AUDIT + HUMAN REAL-PLAY SIGN-OFF. V&V MUST confirm each observable
+  by DRIVING the booted scene (not reading green counts) AND grep the live-path call sites to prove
+  the wiring exists AND that no trace-only handling remains. The convergence gate MUST NOT accept
+  function-level green. A recorded human real-play sign-off is a hard completion gate — Guy must see
+  the Skeleton react to his Strike and take/deal an Opportunistic Strike in the running game.
+- G6 — CAPSTONE "REACTIONS ARE FULLY LIVE" E2E on real MainScene asserting BOTH new observables
+  together: a player Strike where the enemy AI-reacts and mitigates, and a Stride that provokes a
+  resolved Opportunistic Strike landing before the move. No injected doubles for the reaction path.
+- G7 — DETERMINISM PRESERVED, WITH ONE SANCTIONED RE-BASELINE. The enemy reaction policy is
+  DETERMINISTIC / seed-stable (no RNG in the choice), and the autonomous balance sim stays PASS-only —
+  no REACTION variance may leak into it. sim_results.json may change in EXACTLY ONE sanctioned way this
+  sprint: the Arming Sword lifts the Skeleton's weapon proficiency +1→+2 (Part B piece 1), a deliberate
+  attack-bonus balance change that re-baselines win_rate/avg_rounds. That single re-baseline must be
+  intentional and RECORDED (new numbers in the design output, provenance test re-pinned, Guy sign-off)
+  — never a silent regen. ANY OTHER movement in those numbers (especially reaction variance sneaking
+  into the pass-only sim) is a defect: STOP and flag Guy.
+
+────────────────────────────────────────────────────────────────────────────────
+* PART B (P1) — Enemy reaction AI policy (player-strikes-enemy path)
+** Live-path gap
+On the player-strikes-enemy path (MainScene _verb_bar_strike_execute → resolve_action_use_case.resolve),
+active_defense is hardwired to "none" — the enemy never opens a reaction window, so it always eats the
+full hit. The two-phase reaction machinery (PreHitAvoidance Dodge/Steel + OnHitMitigation Parry/Block)
+that round_session.advance_ai_turn() runs for the PLAYER defender has no mirror on this path, and the
+enemy has no chooser. Additionally, the enemy weapon dict (MainScene enemy-combatant build) + EnemyResource
+/ skeleton.tres carry NO parry_bonus / block_value / block_die — so even if a window opened, is_parry_eligible
+/ is_block_eligible read 0 and Parry/Block would be filtered out (the SAME composition-root data gap that
+shipped the player's Parry/Block dead until commit cca639e).
+
+** Fix — three coupled pieces (all required; none ships alone per G4)
+1. ENEMY DEFENSIVE DATA — the Skeleton wields an ARMING SWORD (✓ Guy 2026-07-10, from the
+   docs/hollow-world-v0-spec.org weapons table). Add parry_bonus / block_value / block_die to
+   EnemyResource (mirror WeaponResource's fields + the "block_die <= 0 ⇒ fall back to damage_die"
+   contract the player fix established) and thread them into MainScene's enemy-combatant weapon dict
+   build (mirror the player weapon dict — this is the composition-root data gap that shipped the
+   PLAYER's Parry/Block dead; the enemy must not repeat it). Set skeleton.tres's weapon to the Arming
+   Sword's TABLE values:
+     - damage_die = 6 (1d6 S), proficiency_bonus = 2, block_value = 2, parry_bonus = 4,
+       block_die = 0 (no Block-die property ⇒ Block rolls the 1d6 damage die → Block reduces by
+       1d6 + 2), damage_modifier_attribute = strength (unchanged).
+   The Skeleton's Mobility skill is already correct (skeleton.tres skills.mobility=1 == its dexterity=1,
+   i.e. Dexterity + not-yet-existing modifiers, mirroring Titus's mobility=2==dexterity=2 — ✓ Guy). At
+   10+1=11 vs AC ~14 the Skeleton will NOT Dodge in live play; that is EXPECTED (higher-Mobility enemies
+   come later). Keep the Dodge rule live for those future enemies; the Skeleton only ever Parries/Blocks.
+   ⚠ BALANCE NOTE (G7): the Skeleton's weapon proficiency rises from its current +1 to the Arming
+   Sword's +2 (its attack bonus goes up by 1). That is the ONE sim-affecting change here (the
+   parry/block fields never touch the pass-only sim). It WILL move sim_results.json (win_rate /
+   avg_rounds), so this is a DELIBERATE, one-time re-baseline (✓ Guy approved 2026-07-10): regenerate
+   sim_results.json and re-pin the provenance test, and record the new win_rate/avg_rounds in the design
+   output — NOT a silent regen, and distinct from the forbidden "reaction variance leaking into the sim."
+   (DONE 2026-07-10, pre-K: all weapon .tres were reconciled to this table as ground truth —
+   longsword block_value 1→3/parry_bonus 2→4, quarterstaff block 1→2, longbow block 0→1 — with their
+   dependent tests re-pinned. So the player's Longsword already matches the table entering this sprint.)
+2. THE POLICY. NEW infrastructure/ai_reaction_policy.gd implementing
+   core/application/ports/reaction_chooser_port.gd's choose(legal_reactions, context) -> String with a
+   DETERMINISTIC, seed-stable policy (do NOT reuse infrastructure/auto_reaction_chooser.gd — that is
+   only the headless "pass"/"first_legal" double). The rules map onto the TWO reaction windows exactly
+   (Dodge is a PRE-hit decision; Parry/Block are POST-hit, once roll_total and damage are known) —
+   NOT a single-window precedence (✓ Guy 2026-07-10, exact cutoffs below):
+
+   ┌ PreHitAvoidance window (before the attack roll — roll_total NOT yet known):
+   │  • DODGE if  10 + (enemy Mobility skill)  >  the targeted defense value  (the passive defense the
+   │    incoming Strike resolves against, i.e. the enemy's AC for a weapon Strike). Rationale: 10+Mobility
+   │    is a take-10 Mobility check; if it exceeds the passive AC, Dodging RAISES the enemy's effective
+   │    defense (harder to hit), so Dodge is worthwhile; otherwise it lowers it — Pass.
+   │  • else Pass (fall through to the OnHitMitigation window if the attack hits).
+   └
+   ┌ OnHitMitigation window (only if the attack HIT and no reaction was already spent — roll_total and
+   │  damage_raw ARE known here):
+   │  • PARRY if the Parry has a > 50% chance to succeed. Parry succeeds when d20 + B > roll_total, with
+   │    B = parry_attack_bonus + parry_bonus (the defender's full attack bonus + weapon parry_bonus, the
+   │    SAME B resolution.gd/apply_on_hit_defense now uses). P(success) = (20 − (roll_total − B)) / 20,
+   │    so > 50% is the EXACT deterministic test:  B >= roll_total − 9  (no RNG — a closed-form check on
+   │    the already-known roll_total).
+   │  • else BLOCK if the Parry chance is <= 50% (i.e. NOT the above) AND the hit is heavy:
+   │    damage_raw  >  enemy.hp_current / 4  (more than a quarter of the enemy's CURRENT health).
+   │  • else Pass.
+   └
+   - Budget-aware GATE (applies to BOTH windows): never react below RESERVE = keep >= 1 action for the
+     enemy's own next turn; if reacting would break the reserve, Pass regardless of the rules above.
+   - Seed-stable: no RNG in the choice itself (the resolution roll still uses the seeded RNG). Surface
+     the chosen constants (the 10-take on Mobility, the >50%/≤50% Parry split, the 1/4-HP Block cutoff,
+     the ≥1 reserve) in the design output — do not bury them.
+   ⚠ DEPENDENCY: the DODGE rule needs the enemy to carry a Mobility SKILL value (EnemyResource.skills,
+   added in Iteration G). The Skeleton currently has none/0 → 10+0 vs AC ~14 means it would never Dodge.
+   Give the Skeleton a Mobility value if Dodging is desired (Guy to confirm) — otherwise document that
+   the Skeleton only ever Parries/Blocks, and keep the Dodge rule live for future enemies.
+3. THE WIRING (the piece the trap keeps eating). Give the player-strikes-enemy path the SAME two-phase
+   structure advance_ai_turn() has, but driven by the policy SYNCHRONOUSLY (choose(), NO pop-up)
+   instead of the player pop-up: open the ENEMY's PreHitAvoidance window (Dodge/Steel) before the
+   roll and its OnHitMitigation window (Parry/Block) after a hit, feed each through
+   ai_reaction_policy.choose(), thread the chosen active_defense / on_hit_defense into the SAME
+   consolidated resolution path (resolve_to_hit → apply_on_hit_defense), spend the enemy's reaction
+   via the ActionEconomy, and honor the ≤1-reaction-per-Strike budget rule. Reuse the EXISTING seams
+   (resolve_to_hit_uc / apply_on_hit_defense_uc / _build_defense_context — which already computes the
+   defender's parry_attack_bonus generically, so it works for the enemy defender for free).
+4. ENEMY DODGE-STEP (the enemy-side mirror of R-2 — ✓ Guy 2026-07-10: "the enemy should also pick a hex
+   to Step into on a successful Dodge"). When the ENEMY defender's Dodge succeeds (defender_stepped=true
+   on the player-strikes-enemy path), the enemy must ALSO Step to a legal adjacent hex and its token must
+   move — exactly like Titus does, but the hex is chosen by a DETERMINISTIC AI policy, NOT the player
+   pop-up + highlight. Reuse the SAME dodge-step machinery the player path already has
+   (round_session._resolve_dodge_step_prompt / ResolveDodgeStepUseCase / the _token_reposition_fn seam +
+   _step_hex_query_fn legal-move computation) — do NOT build a second reposition/step path — but swap the
+   hex-choice resolver: for an enemy defender inject an AI hex chooser (synchronous, no pop-up, no
+   set_selectable_hexes highlight) instead of the player's _UIHexChoiceResolver. The AI hex-choice
+   heuristic is DETERMINISTIC/seed-stable (✓ Guy 2026-07-10): the legal adjacent hex that KEEPS the enemy
+   in melee reach of its attacker if any such hex exists, else the first legal hex. Surface the rule in
+   the design output. If no legal adjacent hex exists, the Dodge still negates the hit but
+   no Step occurs (same edge as the player path). NOTE: this is currently un-exercised in live play
+   because the Skeleton won't Dodge (low Mobility, piece 1), but it MUST be correct + wired for the
+   higher-Mobility enemies coming later — and G1/G2 still apply: prove it with a boot-real test that
+   drives a PLAYER Strike, forces the enemy's Dodge to succeed, and asserts the enemy combatant's
+   hex_coord + token actually moved to the AI-chosen hex (NOT by calling _resolve_dodge_step_prompt
+   directly — the exact trap that shipped the player Dodge-Step dead).
+** OBSERVABLE ACCEPTANCE (G1/G2): boot real MainScene; the PLAYER Strikes the Skeleton; assert (a) the
+   Skeleton's hp_current is higher by the mitigated amount vs an unmitigated identical strike (Block/
+   Parry actually reduced damage) OR the attack missed (Dodge) AND — on a successful Dodge — the enemy
+   combatant's hex_coord + token moved to the AI-chosen adjacent hex (piece 4), (b) the Skeleton's
+   action budget dropped by the reaction spend, (c) NO pop-up opened (AI choice + AI hex-choice are both
+   synchronous), (d) the outcome is identical across two runs at the same seed (determinism). Drive it
+   via the REAL player-strike verb path, never by calling choose()/_resolve_dodge_step_prompt() directly.
+   Human real-play: Striking the Skeleton, it sometimes
+   Dodges/Blocks/Parries with a visible budget drop, and Passes when it can't help/afford it.
+
+────────────────────────────────────────────────────────────────────────────────
+* PART C (P2) — Opportunistic Strike (movement-triggered offensive reaction)
+** Already BUILT (do NOT rebuild)
+Legality: core/application/reaction_window.gd already returns [opportunistic_strike] for a
+{trigger_type:"OpportunisticStrike", attack_context:{melee_reach:true}} trigger (see
+REACTION_OPPORTUNISTIC_STRIKE + the "OpportunisticStrike"/melee_reach branch, ~line 659); the choice
+constant + the reaction-spend in resume() exist; tests/unit/test_reaction_window.gd pins the legality.
+
+** Live-path gaps (BOTH must land — the second is the real work)
+1. TRIGGER EMISSION on the mover's Stride path (symmetric — BOTH movers, Guy-approved). For each OTHER
+   combatant that is adjacent to the mover's START hex, hostile, not Spent, and has melee reach: build
+   the OpportunisticStrike trigger and open its window BEFORE the Stride mutates position.
+   - Enemy mover: core/combat/ai.gd's decide_action executes the Stride as part of a composite
+     "Stride-then-Strike" decision — the window must open BEFORE Movement.stride() commits.
+   - Player mover: MainScene _verb_bar_stride_execute → movement path, before the Stride commits.
+   - Reactor = player ⇒ the real pop-up (turn_controller.resolve_reaction). Reactor = enemy ⇒ the
+     Part B ai_reaction_policy decides (so Part C's enemy side DEPENDS on Part B — do B first).
+2. EFFECT RESOLUTION (the real gap — resume() only records the choice + spends today, applies nothing,
+   the exact G3 anti-pattern). On an opportunistic_strike choice, resolve a melee Strike from the
+   reactor against the MOVER through the SAME consolidated resolution path Part A/J established
+   (resolve_action_use_case.resolve / resolve_weapon_attack), landing BEFORE the mover's Stride
+   commits. Pay via spend_reaction (how resume() already spends), NOT spend_action. Melee-only via the
+   existing relaxable predicate.
+** Ordering / interrupt semantics (Guy-approved, settled)
+Resolve the opportunistic Strike, THEN — if the mover survives and the Stride is still legal — complete
+the Stride; if the mover is DOWNED, CANCEL the Stride. Multiple eligible reactors resolve in INITIATIVE
+order. ⚠ ASYNC: this adds reaction await point(s) into the movement path (player pop-up) — audit the
+coroutine chain the same way J's two-phase await work did.
+** OBSERVABLE ACCEPTANCE (G1/G2): boot real MainScene; drive a REAL Stride (Skeleton Strides out of
+   Titus's reach via the ai.gd decision path, and the mirror: Titus Strides past the Skeleton via the
+   Stride verb); assert (a) the reactor's Strike resolved against the mover — the mover's hp dropped —
+   BEFORE the mover's token moved, (b) the reactor's reaction was spent, (c) a lethal opportunistic
+   Strike CANCELLED the Stride (mover stays put, defeated), (d) with two eligible reactors they fire in
+   initiative order. Drive it through the REAL Stride trigger path, never by building the trigger or
+   calling resume() directly. Human real-play: the Skeleton Strides away, Titus gets the Opportunistic
+   Strike pop-up, taking it damages the Skeleton before it moves; a kill cancels the move; symmetric
+   for the enemy reactor via the Part B policy.
+
+────────────────────────────────────────────────────────────────────────────────
+* PRESERVE (must not regress) — green as of HEAD 1a70bfe
+- All J-R2 + real-play work: two-phase reaction TIMING, player Dodge-Step (relocation + hex highlight),
+  Block (1[W]+block_value) / Parry (d20+attack_bonus+parry_bonus) math, the rich combat log, and their
+  observable boot-real tests (incl. tests/integration/test_mainscene_hit_reaction_apply.gd and
+  tests/gut/test_defense_segment_reaction_outcomes.gd's live-path Dodge-Step guard).
+- The ≤1-reaction-per-Strike budget invariant and the round-loop/budget-display fixes.
+- Balance-sim determinism: sim_results.json (win_rate 0.747 / avg_rounds 1.081, 7-key provenance). The
+  sim stays PASS-only — enemy reactions are INTERACTIVE-path only and must NOT leak reaction variance
+  into the autonomous sim (G7).
+
+* Out of scope (→ later)
+- Sophisticated enemy tactics (threat assessment, target selection changes) — the simple heuristic is
+  the accepted target. Non-melee Opportunistic Strikes (the predicate stays melee-only). Steel remains
+  dormant (no Fort/Will attack exists to trigger it). Part D-2 click-to-breakdown log pop-up
+  (iteration-J-deferred.org). No new reaction TYPES or resolution MATH changes beyond the enemy weapon
+  data + the wiring.
+
+* Verification (all THREE gates required — none substitutes for another)
+1. Full GUT + pytest green, INCLUDING the Part B + Part C observable boot-real tests + the G6 capstone —
+   none self-wiring the seam under test, each driving the REAL player-strike / real-Stride trigger path.
+2. V&V live-behavior audit per G5 (drive the booted scene; grep the wiring; assert no trace-only punt;
+   confirm sim_results.json unchanged per G7).
+3. Human real-play sign-off recorded in a committed doc — the hard completion gate.
+
+* Suggested build order
+1. Part B piece 1 (enemy defensive data: Arming Sword) — smallest, unblocks the enemy parrying/blocking.
+2. Part B pieces 2+3 (policy + two-phase wiring on the player-strike path).
+3. Part B piece 4 (enemy Dodge-Step via the AI hex chooser — reuses the player dodge-step machinery).
+4. Part C piece 1 (trigger emission on both Stride paths) — enemy reactor reuses Part B's policy.
+5. Part C piece 2 (effect resolution + strike-before-move ordering + downed-mover-cancels + initiative).
+6. G6 capstone E2E.
