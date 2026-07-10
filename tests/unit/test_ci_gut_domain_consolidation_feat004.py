@@ -399,6 +399,17 @@ class TestConsolidatedGutConfig:
 # accordingly so this guard still catches the ORIGINAL regression it targets
 # without falsely flagging this expected, intentional growth from 16 to 17
 # scripts.
+#
+# FEAT-002 (US-002) note: tests/unit/core/domain/test_mobility_dodge_rule.gd
+# and tests/unit/core/domain/test_defense_mitigation_calculator.gd (the
+# domain-pure Dodge-worthwhile / Parry-worthwhile / Block-worthwhile
+# predicate suites backing infrastructure/ai_reaction_policy.gd's
+# deterministic enemy AI reaction policy) were added under
+# tests/unit/core/domain/ by the identical established convention. The
+# consolidated domain suite therefore now legitimately collects 19 scripts,
+# not 17; the assertions below were updated accordingly so this guard still
+# catches the ORIGINAL regression it targets without falsely flagging this
+# expected, intentional growth from 17 to 19 scripts.
 
 # FEAT-136 / DEF-002 / DEF-003: the domain-suite command is now extracted
 # from scripts/test_command.sh (the canonical script), not from the
@@ -456,6 +467,8 @@ class TestConsolidatedDomainSuiteReallyPasses:
             "test_ai_target_selection",
             "test_ai_stride_then_strike",
             "test_ai_action_budget",
+            "test_mobility_dodge_rule",
+            "test_defense_mitigation_calculator",
         ):
             assert expected in output, (
                 f"Consolidated GUT run output must mention {expected}.gd"
@@ -465,8 +478,8 @@ class TestConsolidatedDomainSuiteReallyPasses:
         self, repo_root, canonical_script_text
     ):
         """US-014's consolidated domain suite must actually be SCOPED to the
-        domain/application test scripts under tests/unit/core (17, as of
-        FEAT-007 -- see the module-level note above), not silently fall back
+        domain/application test scripts under tests/unit/core (19, as of
+        FEAT-002 -- see the module-level note above), not silently fall back
         to running the whole project's ~46 GUT scripts. This guards against
         the -gconfig-ignored regression described above."""
         result = self._run(repo_root, canonical_script_text)
@@ -474,8 +487,8 @@ class TestConsolidatedDomainSuiteReallyPasses:
         match = re.search(r"Scripts\s+(\d+)", output)
         assert match, f"Could not find a 'Scripts  N' summary line. Output:\n{output}"
         scripts_run = int(match.group(1))
-        assert scripts_run == 17, (
-            "The consolidated domain GUT suite stage must run exactly the 17 "
+        assert scripts_run == 19, (
+            "The consolidated domain GUT suite stage must run exactly the 19 "
             f"domain/application test scripts under tests/unit/core, but ran "
             f"{scripts_run}. This means scripts/test_command.sh's domain "
             f"suite stage is not actually scoped via tests/.gutconfig.json."
