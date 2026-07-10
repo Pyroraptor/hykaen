@@ -176,6 +176,8 @@ const RoundSessionHolderClass          = preload("res://infrastructure/round_ses
 const TurnPresentationControllerClass  = preload("res://presentation/turn_presentation_controller.gd")
 const ReactionControllerClass          = preload("res://presentation/reaction_controller.gd")
 const EndTurnActionControllerClass     = preload("res://presentation/end_turn_action_controller.gd")
+const StepActionControllerClass        = preload("res://presentation/step_action_controller.gd")
+const StrideActionControllerClass      = preload("res://presentation/stride_action_controller.gd")
 const ConsoleEventSinkAdapterClass     = preload("res://infrastructure/console_event_sink_adapter.gd")
 const EncounterTurnOrderAdapterClass   = preload("res://infrastructure/encounter_turn_order_adapter.gd")
 const InMemoryRoundHistoryAdapterClass = preload("res://infrastructure/in_memory_round_history_adapter.gd")
@@ -561,6 +563,8 @@ var reaction_window = null
 var _turn_presentation_instance = null
 var _reaction_instance = null
 var _end_turn_action_instance = null
+var _step_action_instance = null
+var _stride_action_instance = null
 
 ## _party / _enemies — the live combatant Dictionaries built at boot,
 ## mutated in place by every resolved Strike throughout the interactive
@@ -1570,14 +1574,11 @@ func _resolve_enemy_opportunistic_strike_reaction(reactor: Dictionary, context: 
 ## one legal Step destination" check. This function only READS
 ## can_take_movement_action(); it never mutates the domain gate itself.
 func _verb_bar_step_availability() -> bool:
-	var action_economy = _verb_bar_current_action_economy()
-	if action_economy != null and not action_economy.can_take_movement_action():
-		return false
-	return movement_input_controller.get_selectable_step_hexes().size() > 0
+	return _step_action().availability()
 
 
 func _verb_bar_step_enter_selection() -> Dictionary:
-	return {"verb_id": "STEP", "candidate_hexes": movement_input_controller.get_selectable_step_hexes(), "candidate_targets": []}
+	return _step_action().enter_selection()
 
 
 ## _verb_bar_step_execute(selection) -> Dictionary — FEAT-007 (this
@@ -1589,10 +1590,7 @@ func _verb_bar_step_enter_selection() -> Dictionary:
 ## success, runs the SAME post-move refresh
 ## (_after_successful_move()) that handler used to run.
 func _verb_bar_step_execute(selection) -> Dictionary:
-	var result: Dictionary = movement_input_controller.step_to(selection)
-	if result.get("ok", false):
-		_after_successful_move()
-	return result
+	return _step_action().execute(selection)
 
 
 ## _verb_bar_stride_availability() -> bool -- FEAT-002 (US-002 / FR-003 /
@@ -1612,15 +1610,11 @@ func _verb_bar_step_execute(selection) -> Dictionary:
 ## only READS can_take_movement_action()/can_take_action(); it never mutates
 ## either domain gate itself.
 func _verb_bar_stride_availability() -> bool:
-	var action_economy = _verb_bar_current_action_economy()
-	if action_economy != null and not action_economy.can_take_movement_action():
-		return false
-	var can_act: bool = action_economy.can_take_action() if action_economy != null else false
-	return can_act and movement_input_controller.get_selectable_stride_hexes().size() > 0
+	return _stride_action().availability()
 
 
 func _verb_bar_stride_enter_selection() -> Dictionary:
-	return {"verb_id": "STRIDE", "candidate_hexes": movement_input_controller.get_selectable_stride_hexes(), "candidate_targets": []}
+	return _stride_action().enter_selection()
 
 
 ## _verb_bar_stride_execute(selection) -> Dictionary — FEAT-007 (this
@@ -1686,36 +1680,7 @@ func _verb_bar_stride_enter_selection() -> Dictionary:
 ## `encounter.get_turn_order()` (the authoritative initiative table) rather
 ## than merely internally sorted.
 func _verb_bar_stride_execute(selection) -> Dictionary:
-	var actor_id: String = round_session.current_actor().get("combatant_id", "") if round_session != null else ""
-	var action_economy = _verb_bar_current_action_economy()
-
-	var actor: Dictionary = round_session.current_actor() if round_session != null else {}
-	var mover_start_hex = actor.get("hex_coord", null)
-	if not actor.is_empty() and mover_start_hex != null:
-		var candidate_reactors: Array = _order_candidate_reactors_by_initiative(_living_combatants(_enemies))
-		if encounter != null:
-			_assert_candidate_reactors_ordering(candidate_reactors, encounter.get_turn_order())
-		var use_case := ResolveStrideUseCaseClass.new()
-		var opportunistic_result: Dictionary = await use_case.execute(
-			actor, mover_start_hex, candidate_reactors,
-			Callable(self, "_is_reactor_reaction_spent"),
-			Callable(self, "_resolve_enemy_opportunistic_strike_reaction"),
-			resolve_action_use_case,
-			Callable(self, "_action_economy_for"),
-			ROUND_NUMBER,
-			0
-		)
-		if not opportunistic_result.get("stride_should_commit", true):
-			return {"ok": false, "resolved": false, "error": "ERR_MOVER_DOWNED_BY_OPPORTUNISTIC_STRIKE"}
-
-	var result: Dictionary = movement_input_controller.stride_to(selection)
-	if result.get("ok", false):
-		_after_successful_move()
-		if status_panel_view != null and actor_id != "" and action_economy != null:
-			status_panel_view.on_verb_action_budget_changed(
-				actor_id, action_economy.get_remaining(), action_economy.is_spent()
-			)
-	return result
+	return await _stride_action().execute(selection)
 
 
 ## The END_TURN verb's availability/enter_selection/execute are delegated to
@@ -1816,6 +1781,47 @@ func _end_turn_action():
 	if _end_turn_action_instance == null:
 		_end_turn_action_instance = EndTurnActionControllerClass.new(_round_session_holder, end_turn_control)
 	return _end_turn_action_instance
+
+
+## _step_action() / _stride_action() - lazily build the STEP/STRIDE
+## ActionController subclasses (see _end_turn_action()).
+func _step_action():
+	if _step_action_instance == null:
+		_step_action_instance = StepActionControllerClass.new(
+			_round_session_holder,
+			movement_input_controller,
+			Callable(self, "_after_successful_move")
+		)
+	return _step_action_instance
+
+
+func _stride_action():
+	if _stride_action_instance == null:
+		_stride_action_instance = StrideActionControllerClass.new(
+			_round_session_holder,
+			movement_input_controller,
+			status_panel_view,
+			resolve_action_use_case,
+			_reaction(),
+			Callable(self, "_action_economy_for"),
+			Callable(self, "_current_round_number"),
+			Callable(self, "_after_successful_move"),
+			Callable(self, "_living_enemy_reactors"),
+			Callable(self, "_current_turn_order")
+		)
+	return _stride_action_instance
+
+
+## _living_enemy_reactors() -> the living-enemy reactor pool (spawn order)
+## StrideActionController orders by initiative. _current_turn_order() -> the
+## authoritative rolled initiative table (or null when no encounter yet), for the
+## fail-loud ordering guard.
+func _living_enemy_reactors() -> Array:
+	return _living_combatants(_enemies)
+
+
+func _current_turn_order():
+	return encounter.get_turn_order() if encounter != null else null
 
 
 ## _on_active_actor_changed(combatant) -> void - thin delegation to
