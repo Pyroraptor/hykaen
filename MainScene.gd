@@ -1649,8 +1649,8 @@ func _is_reactor_reaction_spent(reactor: Dictionary) -> bool:
 
 
 ## _resolve_enemy_stride_opportunistic_window(mover, mover_start_hex,
-## candidate_reactors) -> void — iteration K FEAT-006 (US-006, ADR-004): the
-## Callable core/combat/ai.gd's `_stride_reaction_resolver_fn` seam awaits
+## candidate_reactors) -> Dictionary — iteration K FEAT-006 (US-006, ADR-004):
+## the Callable core/combat/ai.gd's `_stride_reaction_resolver_fn` seam awaits
 ## for the ENEMY-mover Stride path (a Skeleton Striding toward Titus) —
 ## injected onto `ai_decision_port` in _ready() above. Drives
 ## ResolveStrideUseCaseClass.execute() with this composition root's own
@@ -1661,45 +1661,51 @@ func _is_reactor_reaction_spent(reactor: Dictionary) -> bool:
 ## ai.gd's own Movement.stride() call (immediately following this seam,
 ## still inside the SAME decide_action() call) ever mutates `mover`'s
 ## hex_coord.
-func _resolve_enemy_stride_opportunistic_window(mover: Dictionary, mover_start_hex, candidate_reactors: Array) -> void:
+##
+## iteration K FEAT-008 (US-008): now wires `resolve_action_use_case`/
+## `_action_economy_for` through as ResolveStrideUseCase.execute()'s
+## `strike_use_case`/`reactor_action_economy_fn` (previously omitted
+## entirely — an "opportunistic_strike" choice on this path resolved NO
+## effect at all in live play, despite core/application/use_cases/
+## resolve_stride_use_case.gd's own FEAT-007 effect-resolution machinery —
+## see that file's own FEAT-008 doc), and now returns the use case's own
+## result Dictionary (`-> void` previously) so core/combat/ai.gd's
+## `_stride_toward_target()` can read `"mover_downed"` and cancel the Stride
+## when a lethal opportunistic Strike defeats `mover`.
+func _resolve_enemy_stride_opportunistic_window(mover: Dictionary, mover_start_hex, candidate_reactors: Array) -> Dictionary:
 	var use_case := ResolveStrideUseCaseClass.new()
-	await use_case.execute(
+	return await use_case.execute(
 		mover, mover_start_hex, candidate_reactors,
 		Callable(self, "_is_reactor_reaction_spent"),
-		Callable(self, "_resolve_player_opportunistic_strike_reaction")
+		Callable(self, "_resolve_player_opportunistic_strike_reaction"),
+		resolve_action_use_case,
+		Callable(self, "_action_economy_for"),
+		ROUND_NUMBER,
+		0
 	)
 
 
 ## _resolve_player_opportunistic_strike_reaction(reactor, context) ->
 ## Dictionary — iteration K FEAT-006 (US-006): the player-reactor half of
 ## this feature's required routing ("reactor=player -> the real
-## turn_controller.resolve_reaction pop-up"). Builds the SAME ReactionTrigger
-## shape core/application/reaction_window.gd's own "OpportunisticStrike"
-## trigger_type branch already expects (_compute_legal_reactions() —
-## unmodified, reused verbatim) and awaits turn_controller.resolve_reaction()
-## — the SAME live integration point the enemy-Strikes-player path already
-## awaits via this composition root's own `reaction_window`/
-## `player_reaction_chooser` (wired in _ready()) — so a genuinely blocking
-## pop-up decides whether the player takes the opportunistic strike, BEFORE
-## the enemy mover's Stride below ever commits a position change. Degrades
-## safely to Pass ({"choice": "none"}) when `turn_controller` is unwired
-## (never crashes/hangs).
+## turn_controller.resolve_reaction pop-up"). Delegates to
+## turn_controller.resolve_opportunistic_strike_reaction() (iteration K
+## FEAT-008 — see that method's own doc for the "OpportunisticStrike"
+## ReactionTrigger shape it builds internally) — the SAME live integration
+## point the enemy-Strikes-player path already awaits via this composition
+## root's own `reaction_window`/`player_reaction_chooser` (wired in
+## _ready()), so a genuinely blocking pop-up decides whether the player
+## takes the opportunistic strike, BEFORE the enemy mover's Stride below
+## ever commits a position change. Degrades safely to Pass
+## ({"choice": "none"}) when `turn_controller` is unwired (never
+## crashes/hangs).
 func _resolve_player_opportunistic_strike_reaction(reactor: Dictionary, context: Dictionary) -> Dictionary:
 	if turn_controller == null:
 		return {"choice": "none"}
 
-	var trigger: Dictionary = {
-		"attacker_id":            reactor.get("combatant_id", reactor.get("name", "")),
-		"target_id":              reactor.get("combatant_id", reactor.get("name", "")),
-		"defense_type":           "ac",
-		"attack_context":         context,
-		"round_number":           ROUND_NUMBER,
-		"reactor_action_economy": _action_economy_for(reactor),
-		"trigger_type":           "OpportunisticStrike",
-		"reactor":                reactor,
-		"weapon":                 reactor.get("weapon", {}),
-	}
-	return await turn_controller.resolve_reaction(trigger, "player")
+	return await turn_controller.resolve_opportunistic_strike_reaction(
+		reactor, context, _action_economy_for(reactor), ROUND_NUMBER
+	)
 
 
 ## _resolve_enemy_opportunistic_strike_reaction(reactor, context) ->
@@ -1820,6 +1826,18 @@ func _verb_bar_stride_enter_selection() -> Dictionary:
 ## when round_session/current_actor carries no hex_coord (e.g. a test double
 ## that never populates positional data) — the pre-existing Stride contract
 ## is otherwise completely unaffected.
+##
+## iteration K FEAT-008 (US-008): now wires `resolve_action_use_case`/
+## `_action_economy_for` through as ResolveStrideUseCase.execute()'s
+## `strike_use_case`/`reactor_action_economy_fn` (previously omitted
+## entirely — see _resolve_enemy_stride_opportunistic_window()'s own
+## FEAT-008 doc for the identical enemy-mover-path gap this closes), and now
+## reads the returned Dictionary's `"stride_should_commit"` — when false (a
+## lethal Opportunistic Strike defeated Titus before his Stride could ever
+## commit), movement_input_controller.stride_to() is NEVER called: Titus
+## remains at his start hex (no hex_coord mutation occurs), and this method
+## returns a rejected result carrying ERR_MOVER_DOWNED_BY_OPPORTUNISTIC_STRIKE
+## rather than the movement controller's own ok/resolved shape.
 func _verb_bar_stride_execute(selection) -> Dictionary:
 	var actor_id: String = round_session.current_actor().get("combatant_id", "") if round_session != null else ""
 	var action_economy = _verb_bar_current_action_economy()
@@ -1829,11 +1847,17 @@ func _verb_bar_stride_execute(selection) -> Dictionary:
 	if not actor.is_empty() and mover_start_hex != null:
 		var candidate_reactors: Array = _living_combatants(_enemies)
 		var use_case := ResolveStrideUseCaseClass.new()
-		await use_case.execute(
+		var opportunistic_result: Dictionary = await use_case.execute(
 			actor, mover_start_hex, candidate_reactors,
 			Callable(self, "_is_reactor_reaction_spent"),
-			Callable(self, "_resolve_enemy_opportunistic_strike_reaction")
+			Callable(self, "_resolve_enemy_opportunistic_strike_reaction"),
+			resolve_action_use_case,
+			Callable(self, "_action_economy_for"),
+			ROUND_NUMBER,
+			0
 		)
+		if not opportunistic_result.get("stride_should_commit", true):
+			return {"ok": false, "resolved": false, "error": "ERR_MOVER_DOWNED_BY_OPPORTUNISTIC_STRIKE"}
 
 	var result: Dictionary = movement_input_controller.stride_to(selection)
 	if result.get("ok", false):

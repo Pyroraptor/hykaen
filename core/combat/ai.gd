@@ -156,6 +156,15 @@ const MovementClass = preload("res://core/rules/movement.gd")
 ## unconditional no-op for them, so decide_action()'s pre-existing
 ## byte-for-byte contract (a Stride is committed synchronously, with zero new
 ## await-driven suspension) is completely unaffected (NFR-004).
+##
+## iteration K FEAT-008 (US-008): the Variant this Callable resolves to is
+## now READ by _stride_toward_target() (previously discarded) — when it is a
+## Dictionary carrying `"mover_downed": true` (core/application/use_cases/
+## resolve_stride_use_case.gd's own return contract), the Stride below is
+## CANCELLED — `combatant` is never repositioned. Any other answer (a bare
+## `{}`, a non-Dictionary/void return, or a Dictionary with `"mover_downed"`
+## false/absent) is treated as "the Stride may proceed", matching this
+## field's pre-existing default-safe convention.
 var _stride_reaction_resolver_fn: Callable = Callable()
 
 
@@ -324,8 +333,27 @@ func _stride_toward_target(
 	# point for this decision, so this call site is guaranteed to run before
 	# `combatant`'s position changes. A no-op for every pre-existing caller
 	# (see `_stride_reaction_resolver_fn`'s own doc).
+	#
+	# iteration K FEAT-008 (US-008): the resolver's own return value is now
+	# read (previously discarded — see core/application/use_cases/
+	# resolve_stride_use_case.gd's own FEAT-008 doc for the full "caller
+	# never consulted the result" gap this closes). Any non-Dictionary
+	# answer (every pre-FEAT-008 caller/test double, whose resolver returns
+	# nothing / void) is treated exactly like `{}` -- "mover_downed" reads
+	# false via the same default-safe `.get()` below, so this change is a
+	# pure no-op for every existing caller (NFR-004).
+	var opportunistic_window_result = {}
 	if _stride_reaction_resolver_fn.is_valid():
-		await _stride_reaction_resolver_fn.call(combatant, origin, occupancy)
+		opportunistic_window_result = await _stride_reaction_resolver_fn.call(combatant, origin, occupancy)
+
+	if opportunistic_window_result is Dictionary and opportunistic_window_result.get("mover_downed", false):
+		# A lethal Opportunistic Strike defeated `combatant` before its
+		# Stride could ever commit -- cancel the Stride entirely.
+		# Movement.stride() below is never called, so `combatant.hex_coord`
+		# is never mutated; `combatant` remains at `origin`, exactly like
+		# the "no legal Stride destination" no-op decide_action() already
+		# returns above.
+		return {"action_type": "", "target": {}, "destination": null, "will_strike": false}
 
 	var stride_result: Dictionary = MovementClass.stride(combatant, best_destination, action_economy, occupancy)
 	if not stride_result.get("ok", false):

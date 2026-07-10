@@ -56,6 +56,25 @@
 ##     itself calls it — exactly like `_verb_bar_view` above, so every
 ##     pre-existing caller/test double that never calls
 ##     configure_reactions() sees no behavior change whatsoever.
+##   - FEAT-008 (iteration K, US-008): resolve_opportunistic_strike_reaction()
+##     (below) is a THIN, named wrapper around resolve_reaction() above,
+##     building the "OpportunisticStrike" ReactionTrigger shape once so a
+##     Stride's player-reactor pop-up (opened deep inside core/application/
+##     use_cases/resolve_stride_use_case.gd's execute() call chain, via
+##     core/combat/ai.gd's `_stride_reaction_resolver_fn` seam or
+##     MainScene.gd's `_verb_bar_stride_execute()`) is driven through the
+##     SAME single coroutine/await point every other reaction pop-up already
+##     uses — never a second, parallel trigger-building/await path. Genuinely
+##     re-entrant safe: GDScript coroutines are cooperative/single-threaded,
+##     so a Stride's opportunistic-strike pop-up awaited from deep inside
+##     RoundSession.advance_ai_turn()'s own already-suspended `_drive()` loop
+##     (an Enemy Stride triggering the PLAYER's reaction) never races this
+##     node's other state — `_drive()`'s loop only re-reads
+##     `_round_session.current_actor()`/`is_round_over()` AFTER its own
+##     `await advance_ai_turn()` call (which subsumes this nested await)
+##     fully settles, so subsequent turn flow (EndTurnControl/VerbBarView
+##     refresh, the next actor broadcast) is never corrupted by the nested
+##     suspension.
 ##
 ## TurnController never mutates domain state directly, never constructs a
 ## RoundSession itself, and never reaches into Infrastructure — it is handed
@@ -243,6 +262,59 @@ func resolve_reaction(trigger: Dictionary, resolved_by: String = "player") -> Di
 	)
 
 	return result
+
+
+## resolve_opportunistic_strike_reaction(reactor, context, reactor_action_economy,
+##                                       round_number) -> Dictionary — FEAT-008
+## (US-008): the dedicated, named integration point for a Stride's
+## OpportunisticStrike reaction window — the SAME `resolve_reaction()`
+## coroutine above (a real, awaited pop-up; no auto-timeout), but with the
+## "OpportunisticStrike" ReactionTrigger's shape built ONCE, here, rather
+## than duplicated ad hoc at every mover-Stride call site. Formalizes "the
+## movement coroutine's await point" (this feature's own description) as
+## its own single-owner, independently testable TurnController API instead
+## of inline trigger-construction living in a composition-root helper (the
+## SAME "single source of truth" rationale that motivated
+## resolve_reaction() itself, FEAT-207) — core/combat/ai.gd's Stride path
+## (via MainScene.gd's `_stride_reaction_resolver_fn` seam) and
+## MainScene.gd's own `_verb_bar_stride_execute()` both funnel a
+## player-reactor OpportunisticStrike window through this ONE method.
+##
+## `context` — the Dictionary core/application/use_cases/
+## resolve_stride_use_case.gd's ResolveStrideUseCase passes its
+## `reactor_resolver_fn` (currently just `{"melee_reach": true}`) — forwarded
+## verbatim as the trigger's `attack_context`, exactly mirroring
+## resolve_reaction()'s own `attack_context` contract.
+## `reactor_action_economy` — the reactor's OWN live core/rules/
+## action_economy.gd ActionEconomy instance (or null — degrades safely,
+## exactly like resolve_reaction()'s own `reactor_action_economy`-less
+## trigger shapes already do via reaction_window.gd's own null-safe reads).
+## `round_number` — OPTIONAL (default 0), stamped onto the trigger/the debug
+## trace exactly like `resolve_reaction()`'s own `trigger["round_number"]`.
+##
+## Returns exactly what `resolve_reaction()` returns (see its own doc) — a
+## no-op {"ok": false, "error": "ERR_NO_REACTION_WINDOW"} when
+## configure_reactions() was never called, so this can also be called
+## speculatively without a null-guard, matching resolve_reaction()'s own
+## contract.
+func resolve_opportunistic_strike_reaction(
+	reactor: Dictionary,
+	context: Dictionary,
+	reactor_action_economy = null,
+	round_number: int = 0
+) -> Dictionary:
+	var trigger: Dictionary = {
+		"attacker_id":            reactor.get("combatant_id", reactor.get("name", "")),
+		"target_id":              reactor.get("combatant_id", reactor.get("name", "")),
+		"defense_type":           "ac",
+		"attack_context":         context,
+		"round_number":           round_number,
+		"reactor_action_economy": reactor_action_economy,
+		"trigger_type":           "OpportunisticStrike",
+		"reactor":                reactor,
+		"weapon":                 reactor.get("weapon", {}),
+	}
+	return await resolve_reaction(trigger, "player")
 
 
 ## set_session(round_session, end_turn_control, strike_action_control,

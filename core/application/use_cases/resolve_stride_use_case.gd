@@ -68,7 +68,8 @@
 ##                        an unwired seam degrades safely rather than crashing
 ##                        or guessing an answer).
 ##
-## Returns {"reactions": Array[Dictionary], "mover_downed": bool}:
+## Returns {"reactions": Array[Dictionary], "mover_downed": bool,
+##          "stride_should_commit": bool}:
 ##   "reactions"    — one entry per reactor a window was ACTUALLY opened for:
 ##                     {"reactor": Dictionary, "choice": String,
 ##                     "strike_result": Dictionary (OPTIONAL, see below)}. A
@@ -82,6 +83,12 @@
 ##                     feature's own doc below for the full contract. Always
 ##                     false when `strike_use_case` is never wired (every
 ##                     pre-FEAT-007 caller/test).
+##   "stride_should_commit" — bool, iteration K FEAT-008 (US-008): the
+##                     EXPLICIT inverse of "mover_downed" (`not mover_downed`)
+##                     — see this feature's own "Ordering / multi-reactor
+##                     semantics" doc below for the full commit/cancel
+##                     contract. Always true when "mover_downed" is false,
+##                     including every pre-FEAT-008 caller/test.
 ##
 ## Once execute() returns, every eligible reactor's reaction has been fully
 ## resolved (chosen and, if applicable, spent AND its effect applied — see
@@ -165,6 +172,44 @@
 ## be rejected by resolve_action_use_case.gd's own ERR_TARGET_INVALID
 ## precondition anyway (defeated targets are invalid), so stopping here
 ## avoids that wasted/no-op call entirely.
+##
+## ── iteration K FEAT-008 (US-008) — CALLER-SIDE COMMIT/CANCEL CONTRACT ─────
+##
+## FEAT-006/FEAT-007 (above) built and returned `mover_downed`, but NEITHER
+## of this use case's two live call sites (core/combat/ai.gd's
+## `_stride_reaction_resolver_fn` seam -> MainScene.gd's
+## `_resolve_enemy_stride_opportunistic_window()`, and MainScene.gd's own
+## `_verb_bar_stride_execute()`) ever wired `strike_use_case`/
+## `reactor_action_economy_fn` through to this method, NOR did either call
+## site ever consult the returned Dictionary at all — the Stride's own
+## Movement.stride()/movement_input_controller.stride_to() commit ran
+## UNCONDITIONALLY immediately afterward, regardless of what execute()
+## reported. This is exactly the "records the choice, resolves no effect"
+## (and, once FEAT-007 added effect resolution, "resolves the effect but
+## the caller never acts on the result") gap this project's guardrails call
+## out (G1/G2/G3): a lethal Opportunistic Strike would correctly deal
+## damage and correctly report `mover_downed: true`, yet the mover's Stride
+## would STILL commit, moving a defeated combatant's token and leaving the
+## game in a state a human real-play session would immediately see as
+## broken.
+##
+## This feature closes that gap at BOTH call sites: `_stride_toward_target()`
+## (core/combat/ai.gd) now reads the Dictionary `_stride_reaction_resolver_fn`
+## returns (MainScene.gd's `_resolve_enemy_stride_opportunistic_window()` was
+## changed from `-> void` to `-> Dictionary` to carry it) and skips its own
+## `MovementClass.stride()` call — returning the SAME "no action taken"
+## sentinel `{"action_type": "", ...}` decide_action() already returns for
+## "no legal Stride destination" — whenever `"mover_downed"` comes back
+## true; `_verb_bar_stride_execute()` (MainScene.gd) performs the identical
+## check before ever calling `movement_input_controller.stride_to()`. Both
+## call sites also now wire `strike_use_case`/`reactor_action_economy_fn`
+## for the first time, so an "opportunistic_strike" choice genuinely
+## resolves a Strike in live play, not merely in this use case's own unit
+## tests. This use case ITSELF still never mutates `mover.hex_coord` or
+## calls Movement.stride() — the commit/cancel decision remains entirely
+## the caller's responsibility, exactly as this file's own header doc has
+## always stated; FEAT-008 only ensures BOTH real callers actually honor
+## the Dictionary this method already promised.
 
 class_name ResolveStrideUseCase
 extends RefCounted
@@ -238,7 +283,26 @@ func execute(
 		if mover_downed:
 			break
 
-	return {"reactions": reactions, "mover_downed": mover_downed}
+	# iteration K FEAT-008 (US-008): "stride_should_commit" is the EXPLICIT,
+	# self-documenting inverse of `mover_downed` -- added so BOTH live call
+	# sites (core/combat/ai.gd's enemy-mover path via MainScene.gd's
+	# `_stride_reaction_resolver_fn` seam, and MainScene.gd's own
+	# player-mover `_verb_bar_stride_execute()`) consult ONE shared, named
+	# field for "may the caller now commit the Stride's hex_coord mutation?"
+	# rather than each independently inverting `mover_downed` at its own
+	# call site (ADR-002: single source of truth for the commit/cancel
+	# decision this use case's own contract already establishes -- see this
+	# method's file-level doc, "Once execute() returns ... the caller may
+	# now safely commit the mover's position change (UNLESS mover_downed is
+	# true...)"). Always true when `mover_downed` is false -- including
+	# every pre-FEAT-008 caller/test that never resolves a strike_use_case
+	# at all (the field is additive; no existing consumer of "mover_downed"
+	# is affected).
+	return {
+		"reactions": reactions,
+		"mover_downed": mover_downed,
+		"stride_should_commit": not mover_downed,
+	}
 
 
 ## _resolve_opportunistic_strike_effect(reactor, mover, strike_use_case,
