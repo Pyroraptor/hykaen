@@ -90,6 +90,14 @@ var _selectable_hexes: Array = []
 ## decide whether the clicked hex is actually a legal Step destination.
 signal hex_clicked(hex_coord)
 
+## token_move_failed(combatant_id) -- FEAT-226 / US-005 (resolves FIND-222):
+## emitted by move_token() whenever `combatant_id` has no on-screen token on
+## record (e.g. load_combatants() was never called, or the id is unknown/
+## stale). A purely observational signal for callers/tests that watch signals
+## rather than (or in addition to) checking move_token()'s own bool return
+## value -- see move_token()'s own doc for the full TOKEN_NOT_FOUND contract.
+signal token_move_failed(combatant_id)
+
 
 func _draw() -> void:
 	for q in range(-GRID_RADIUS, GRID_RADIUS + 1):
@@ -208,17 +216,31 @@ func set_selectable_hexes(hexes: Array) -> void:
 	queue_redraw()
 
 
-## move_token(combatant_id, new_hex_coord) → void — FEAT-013 / US-013:
+## move_token(combatant_id, new_hex_coord) → bool — FEAT-013 / US-013:
 ## repositions the already-instantiated CombatantTokenView for
 ## `combatant_id` (via its existing reposition() hook — see
 ## combatant_token_view.gd's file-level doc, which was built specifically
-## for this purpose) to `new_hex_coord`. A no-op when no token is on record
-## for `combatant_id` (e.g. load_combatants() was never called, or the id is
-## unknown) — this view never crashes on a stale/unknown id.
-func move_token(combatant_id: String, new_hex_coord) -> void:
+## for this purpose) to `new_hex_coord`. Still never crashes on a stale/
+## unknown id — this view never raises/throws.
+##
+## FEAT-226 / US-005 (resolves FIND-222): previously a SILENT no-op on an
+## unknown `combatant_id`, which let callers (e.g. core/application/
+## resolve_dodge_step_use_case.gd) mutate Combatant.hex_coord even though the
+## on-screen token never actually moved, desyncing the two with no signal at
+## all. Now returns `true` when the token was found and repositioned, `false`
+## (TOKEN_NOT_FOUND) when no token is on record for `combatant_id` — and
+## additionally emits `token_move_failed(combatant_id)` on that same `false`
+## path, so a caller wired only via signal (rather than checking the return
+## value) can still observe the failure. ResolveDodgeStepUseCase.resolve()
+## checks this return value (see its own FEAT-226 doc) and skips the
+## Combatant.hex_coord mutation whenever it is `false`, closing the desync.
+func move_token(combatant_id: String, new_hex_coord) -> bool:
 	var token = _tokens.get(combatant_id, null)
 	if token != null:
 		token.reposition(new_hex_coord, _origin_offset)
+		return true
+	token_move_failed.emit(combatant_id)
+	return false
 
 
 ## load_combatants(combatants) → void — instantiates one CombatantTokenView

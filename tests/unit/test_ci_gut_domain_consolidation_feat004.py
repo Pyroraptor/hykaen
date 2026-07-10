@@ -421,6 +421,15 @@ class TestConsolidatedGutConfig:
 # not 19; the assertions below were updated accordingly so this guard still
 # catches the ORIGINAL regression it targets without falsely flagging this
 # expected, intentional growth from 19 to 21 scripts.
+#
+# iteration K FEAT-226 (US-005, FR-004, resolves FIND-221/FIND-222) note:
+# tests/unit/core/application/use_cases/test_resolve_dodge_step_use_case.gd
+# (the ResolveDodgeStepUseCase ILLEGAL_HEX_CHOICE/TOKEN_NOT_FOUND guard
+# suite) was added under tests/unit/core/ by the identical established
+# convention. The consolidated domain suite therefore now legitimately
+# collects 22 scripts, not 21; the assertions below were updated accordingly
+# so this guard still catches the ORIGINAL regression it targets without
+# falsely flagging this expected, intentional growth from 21 to 22 scripts.
 
 # FEAT-136 / DEF-002 / DEF-003: the domain-suite command is now extracted
 # from scripts/test_command.sh (the canonical script), not from the
@@ -482,6 +491,7 @@ class TestConsolidatedDomainSuiteReallyPasses:
             "test_defense_mitigation_calculator",
             "test_opportunistic_strike_eligibility",
             "test_resolve_stride_use_case",
+            "test_resolve_dodge_step_use_case",
         ):
             assert expected in output, (
                 f"Consolidated GUT run output must mention {expected}.gd"
@@ -491,8 +501,8 @@ class TestConsolidatedDomainSuiteReallyPasses:
         self, repo_root, canonical_script_text
     ):
         """US-014's consolidated domain suite must actually be SCOPED to the
-        domain/application test scripts under tests/unit/core (21, as of
-        iteration K FEAT-006 -- see the module-level note above), not
+        domain/application test scripts under tests/unit/core (22, as of
+        iteration K FEAT-226 -- see the module-level note above), not
         silently fall back to running the whole project's ~46 GUT scripts.
         This guards against the -gconfig-ignored regression described
         above."""
@@ -501,8 +511,8 @@ class TestConsolidatedDomainSuiteReallyPasses:
         match = re.search(r"Scripts\s+(\d+)", output)
         assert match, f"Could not find a 'Scripts  N' summary line. Output:\n{output}"
         scripts_run = int(match.group(1))
-        assert scripts_run == 21, (
-            "The consolidated domain GUT suite stage must run exactly the 21 "
+        assert scripts_run == 22, (
+            "The consolidated domain GUT suite stage must run exactly the 22 "
             f"domain/application test scripts under tests/unit/core, but ran "
             f"{scripts_run}. This means scripts/test_command.sh's domain "
             f"suite stage is not actually scoped via tests/.gutconfig.json."

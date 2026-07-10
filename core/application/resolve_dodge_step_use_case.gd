@@ -103,6 +103,40 @@
 ## behaving byte-for-byte identically: an invalid `token_reposition_fn` is
 ## never invoked (mirrors `_reposition_token_after_ai_stride()`'s own no-op
 ## guard), and an empty `target` is never mutated.
+##
+## FEAT-226 (US-005, FR-004, resolves FIND-221/FIND-222 — "Guard illegal hex
+## choice and silent token-move no-op in dodge-step path"): closes two
+## carried-forward gaps in the FEAT-004 sequence above, both surfaced via a
+## new `"error"` key on the returned Dictionary (null on every non-error
+## path, matching this use case's existing "never throw across a use-case
+## boundary for expected game-state cases" discipline — see the
+## error_handling design note; this is upgraded to an explicit-but-non-throwing
+## signal, not an exception):
+##   1. ILLEGAL_HEX_CHOICE guard — `chosen_hex` is now checked for
+##      membership in `legal_hexes` (via HexCoord.equals(), this codebase's
+##      established value-equality convention) BEFORE either the
+##      `token_reposition_fn` call OR the `target["hex_coord"]` mutation
+##      above. A buggy/future hex_choice_resolver_fn (e.g. an AI resolver)
+##      that answers with a hex NOT present in `legal_hexes` can therefore
+##      never relocate the defender — the on-screen token is never moved and
+##      Combatant.hex_coord is never touched. Returns
+##      `{"prompted": true, "defender_id": defender_id, "chosen_hex": null,
+##      "error": "ILLEGAL_HEX_CHOICE"}`.
+##   2. TOKEN_NOT_FOUND guard — `token_reposition_fn` (bound at the REAL
+##      composition root to `hex_grid_view.move_token()`) now returns `true`/
+##      `false` rather than void (see that method's own FEAT-226 doc). When
+##      it explicitly returns `false` (no on-screen token on record for
+##      `defender_id`), this use case stops BEFORE mutating
+##      `target["hex_coord"]` — the exact `Combatant.hex_coord`/on-screen-token
+##      desync FIND-222 named is now impossible, since the domain-state
+##      mutation is gated on the presentation-state mutation actually
+##      succeeding. Returns `{"prompted": true, "defender_id": defender_id,
+##      "chosen_hex": chosen_hex, "error": "TOKEN_NOT_FOUND"}`. A
+##      `token_reposition_fn` that returns void/null (every pre-FEAT-226
+##      test double, e.g. tests/gut/test_dodge_step_token_reposition.gd's own
+##      isolation coverage) is treated as success, not failure — only an
+##      explicit `false` trips this guard — preserving byte-for-byte backward
+##      compatibility with every existing caller/test double.
 class_name ResolveDodgeStepUseCase
 extends RefCounted
 
@@ -159,7 +193,17 @@ extends RefCounted
 ##                   invoked (i.e. `hex_choice_resolver_fn` was awaited).
 ##   "defender_id" — the `defender_id` argument, verbatim.
 ##   "chosen_hex"  — the resolver's answer (a HexCoord, or null when no
-##                   prompt was ever invoked, per the guard clauses above).
+##                   prompt was ever invoked per the guard clauses above, OR
+##                   when the ILLEGAL_HEX_CHOICE guard rejected it — see
+##                   below).
+##   "error"       — null on every non-error path (FEAT-226). Otherwise one
+##                   of:
+##                     "ILLEGAL_HEX_CHOICE" — hex_choice_resolver_fn answered
+##                       with a hex not present in `legal_hexes`; neither
+##                       `token_reposition_fn` nor `target` was touched.
+##                     "TOKEN_NOT_FOUND" — token_reposition_fn explicitly
+##                       returned `false` (no on-screen token on record);
+##                       `target["hex_coord"]` was NOT mutated.
 func resolve(
 	defender_id: String,
 	defender_stepped: bool,
@@ -169,27 +213,61 @@ func resolve(
 	target: Dictionary = {}
 ) -> Dictionary:
 	if not defender_stepped:
-		return {"prompted": false, "defender_id": defender_id, "chosen_hex": null}
+		return {"prompted": false, "defender_id": defender_id, "chosen_hex": null, "error": null}
 
 	if legal_hexes.is_empty():
-		return {"prompted": false, "defender_id": defender_id, "chosen_hex": null}
+		return {"prompted": false, "defender_id": defender_id, "chosen_hex": null, "error": null}
 
 	if not hex_choice_resolver_fn.is_valid():
-		return {"prompted": false, "defender_id": defender_id, "chosen_hex": null}
+		return {"prompted": false, "defender_id": defender_id, "chosen_hex": null, "error": null}
 
 	var chosen_hex = await hex_choice_resolver_fn.call(legal_hexes)
 
 	if chosen_hex != null:
+		# FEAT-226 / FIND-221: an illegal hex-choice guard-clause — never
+		# mutate Combatant.hex_coord (nor move the on-screen token) for a hex
+		# the resolver invented outside `legal_hexes`. Checked BEFORE either
+		# mutation below, via HexCoord.equals() (this codebase's established
+		# value-equality convention — see e.g. _hex_arrays_equal() in
+		# tests/gut/test_dodge_step_prompt.gd), never reference/`==` identity.
+		if not _is_legal_hex_choice(chosen_hex, legal_hexes):
+			return {"prompted": true, "defender_id": defender_id, "chosen_hex": null, "error": "ILLEGAL_HEX_CHOICE"}
+
 		# FEAT-004: mirrors _reposition_token_after_ai_stride()'s own
 		# "reposition the on-screen token, via the shared seam" step — same
 		# call shape (token_id, new_hex_coord), only the seam's origin
 		# (Dodge-Step vs AI-Stride) differs.
 		if token_reposition_fn.is_valid():
-			token_reposition_fn.call(defender_id, chosen_hex)
+			var reposition_result = token_reposition_fn.call(defender_id, chosen_hex)
+			# FEAT-226 / FIND-222: hex_grid_view.move_token() now reports
+			# TOKEN_NOT_FOUND via an explicit `false` return (see that
+			# method's own FEAT-226 doc) rather than silently no-op'ing. Only
+			# an explicit `false` trips this guard — a void/null return (every
+			# pre-FEAT-226 token_reposition_fn test double) is still treated
+			# as success, preserving byte-for-byte backward compatibility.
+			if reposition_result == false:
+				return {"prompted": true, "defender_id": defender_id, "chosen_hex": chosen_hex, "error": "TOKEN_NOT_FOUND"}
 		# FEAT-004: the sole Combatant.hex_coord mutation this feature
 		# introduces — mirrors core/rules/movement.gd's own `_set_hex()`
-		# Dictionary-branch mutation shape.
+		# Dictionary-branch mutation shape. FEAT-226: only ever reached once
+		# both the ILLEGAL_HEX_CHOICE and TOKEN_NOT_FOUND guards above have
+		# passed, so Combatant.hex_coord can no longer desync from either an
+		# illegal resolver answer or a token that was never actually moved.
 		if not target.is_empty():
 			target["hex_coord"] = chosen_hex
 
-	return {"prompted": true, "defender_id": defender_id, "chosen_hex": chosen_hex}
+	return {"prompted": true, "defender_id": defender_id, "chosen_hex": chosen_hex, "error": null}
+
+
+## _is_legal_hex_choice(chosen_hex, legal_hexes) -> bool — FEAT-226 / FIND-221:
+## value-equality membership check (HexCoord.equals(), never reference/`==`
+## identity — this codebase's established convention, see e.g.
+## _hex_arrays_equal() in tests/gut/test_dodge_step_prompt.gd) used solely by
+## the ILLEGAL_HEX_CHOICE guard above. Introduces no new adjacency/legality
+## rule of its own (ADR-001) — `legal_hexes` remains entirely the caller's
+## (movement_input_controller.get_selectable_step_hexes()-derived) input.
+func _is_legal_hex_choice(chosen_hex, legal_hexes: Array) -> bool:
+	for legal_hex in legal_hexes:
+		if legal_hex.equals(chosen_hex):
+			return true
+	return false
