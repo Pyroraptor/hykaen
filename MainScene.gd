@@ -2059,7 +2059,16 @@ func _build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String 
 		"weapon": {
 			"damage_modifier_attribute": weapon_attribute,
 			"proficiency_bonus":         enemy.weapon.get("proficiency_bonus", 1),
-			"damage_die":                enemy.weapon.get("die", 6)
+			"damage_die":                enemy.weapon.get("die", 6),
+			# FEAT-001 (iteration K): carry the DEFENSIVE reaction fields too
+			# (mirrors _build_party_combatant()'s identical FEAT-006 fix above)
+			# so is_parry_eligible()/is_block_eligible() read non-zero values
+			# for enemy defenders too — without these, an enemy's weapon dict
+			# always read 0 and the reaction window could never offer the
+			# enemy a Parry/Block choice.
+			"parry_bonus":               enemy.parry_bonus,
+			"block_value":               enemy.block_value,
+			"block_die":                 enemy.block_die
 		}
 	}
 	if hex_coord != null:

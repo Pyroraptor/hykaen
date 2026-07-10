@@ -50,8 +50,17 @@ def test_provenance_keys_are_non_empty() -> None:
 
 
 def test_result_values_are_unchanged_from_pinned_gate() -> None:
-    # The fix restores metadata ONLY — the deterministic balance outcome must not drift.
+    # FEAT-001 (iteration K, US-009 re-baseline): skeleton.tres' Arming Sword
+    # weapon table moved proficiency_bonus from 1 to 2 (ground truth per the
+    # Weapons.pdf table, reconciled 2026-07-10), which genuinely shifts the
+    # Skeleton's attack bonus and therefore the deterministic N=1000 balance
+    # outcome at the pinned seed (12345). This re-pins the gate to the new,
+    # freshly regenerated deterministic values (win_rate 0.747 -> 0.688,
+    # avg_rounds 1.081 -> 1.068) — still comfortably inside test_balance_sim.gd's
+    # [0.40, 0.80] balance invariant — rather than masking the intentional data
+    # change. Any FUTURE drift away from these values (a different sim-behavior
+    # regression) still fails this gate, exactly as before.
     data = _load()
-    assert data["win_rate"] == 0.747, "win_rate must stay the pinned 0.747 (no sim-behavior drift)"
-    assert data["avg_rounds"] == 1.081, "avg_rounds must stay the pinned 1.081 (no sim-behavior drift)"
+    assert data["win_rate"] == 0.688, "win_rate must stay the pinned 0.688 (no sim-behavior drift beyond FEAT-001's Arming Sword re-baseline)"
+    assert data["avg_rounds"] == 1.068, "avg_rounds must stay the pinned 1.068 (no sim-behavior drift beyond FEAT-001's Arming Sword re-baseline)"
     assert data["total_battles"] == 1000, "total_battles must remain 1000"

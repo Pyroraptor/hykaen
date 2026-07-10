@@ -11,7 +11,9 @@ extends GutTest
 ##   4. skeleton.str == 2
 ##   5. skeleton.dex == 1
 ##   6. skeleton.weapon.die == 6
-##   7. skeleton.weapon.proficiency_bonus == 1
+##   7. skeleton.weapon.proficiency_bonus == 2 (FEAT-001/iteration K: Arming
+##      Sword table — reconciled 2026-07-10, updated from the prior
+##      iteration's proficiency_bonus=1 placeholder)
 ##   8. skeleton.weapon.attribute == 'str'
 ##   9. enemy_resource.gd contains no 'extends Node' or 'extends Control' (domain purity)
 
@@ -107,14 +109,16 @@ func test_skeleton_weapon_die_is_6() -> void:
 	)
 
 
-func test_skeleton_weapon_proficiency_bonus_is_1() -> void:
+func test_skeleton_weapon_proficiency_bonus_is_2() -> void:
+	## FEAT-001 (iteration K): the Arming Sword table pins proficiency_bonus=2
+	## (reconciled 2026-07-10, ground truth) — was 1 in the prior iteration.
 	var res = ResourceLoader.load("res://data/enemies/skeleton.tres")
 	assert_not_null(res, "skeleton.tres must load")
 	if res == null:
 		return
 	assert_eq(
-		res.weapon.get("proficiency_bonus", -1), 1,
-		"skeleton.weapon.proficiency_bonus must be 1; got: %d" % res.weapon.get("proficiency_bonus", -1)
+		res.weapon.get("proficiency_bonus", -1), 2,
+		"skeleton.weapon.proficiency_bonus must be 2 (Arming Sword table, FEAT-001); got: %d" % res.weapon.get("proficiency_bonus", -1)
 	)
 
 

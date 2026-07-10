@@ -123,10 +123,24 @@ const MAX_ROUNDS_GUARD: int = 50
 ## data-layer prerequisite for the future Dodge/Steel check rewiring), so
 ## this change is not expected to shift win_rate. See
 ## tests/unit/test_skills_dictionary.gd for the FEAT-002 data suite.
+##
+## FEAT-001 (iteration K, US-001) intentionally re-pins the skeleton.tres
+## hash below AGAIN: this feature adds parry_bonus/block_value/block_die
+## fields (mirroring WeaponResource) and authors the Arming Sword table
+## onto skeleton.tres, including moving weapon.proficiency_bonus from 1 to
+## 2 (ground truth per the Weapons.pdf table). Unlike the skills/defense
+## field additions above, proficiency_bonus DOES feed core/sim/simulator.gd's
+## _build_skeleton_combatant() (skeleton_res.weapon.get("proficiency_bonus")),
+## so this change genuinely shifts the N=1000 win_rate (0.747 -> 0.688,
+## avg_rounds 1.081 -> 1.068 at the pinned seed) — still comfortably inside
+## the [0.40, 0.80] balance invariant. See
+## tests/pytest/test_sim_results_provenance.py (re-pinned to the same new
+## values) and tests/unit/test_enemy_resource_weapon_defense_fields.gd for
+## the FEAT-001 data suite.
 const _EXPECTED_HASHES: Dictionary = {
 	"res://core/sim/simulator.gd":      "a0caa3aa612bd7532187d4074d49b4ab",
 	"res://data/characters/titus.tres": "da31ef348d95fd313c1a895ca02e0417",
-	"res://data/enemies/skeleton.tres": "4df46de7d181f7d9273234efef462cd4",
+	"res://data/enemies/skeleton.tres": "a197dd1bc0c15c016b1ee33dc202951c",
 	"res://data/weapons/longsword.tres": "248339f6e3f256d6cdc6a943ca824587",
 	"res://data/armor/chain_shirt.tres": "6be0c7c1b55b7a91233bca0f62fadd16",
 	"res://data/armor/scale_mail.tres":  "7c724303a7db4ad78a7341bc9e7f46f1",

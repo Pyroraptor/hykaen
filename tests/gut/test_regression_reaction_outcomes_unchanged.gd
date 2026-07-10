@@ -40,7 +40,7 @@ extends GutTest
 ##      the absolute starting HP (e.g. a max_hp/class_hp constant edit) would
 ##      still be caught.
 ##
-## Fixture derivation note: every literal value below (roll=21, crit=true,
+## Fixture derivation note: every literal value below (roll=22, crit=true,
 ## damage_final=12/10/0, hp deltas) was captured by directly instrumenting
 ## this exact boot sequence at this commit and is therefore, by construction,
 ## the "pre-wiring baseline" this feature's test_criteria requires — the
@@ -63,10 +63,16 @@ const OVERWHELMING_MITIGATION_STAT: int = 9999
 ## Parry now rolls d20 + the defender's FULL attack bonus + parry_bonus (was
 ## d20 + parry_bonus only); and the longsword was reconciled to its table row.
 ## These are the CORRECTED oracle values, not the earlier pre-fix baseline.
-const PINNED_ROLL: int = 21
+##
+## Re-pinned again 2026-07-10 (iteration K, FEAT-001): the Skeleton's Arming
+## Sword proficiency_bonus moves 1->2 (Weapons.pdf ground truth, G7-sanctioned),
+## which raises the Skeleton's attack roll total from 21 to 22. Every reaction
+## OUTCOME below (crit, parry/block/pass damage_final, and Titus's HP deltas) is
+## unchanged — only the recorded attack-roll total shifts by the +1 proficiency.
+const PINNED_ROLL: int = 22
 const PINNED_CRIT: bool = true
 const PINNED_HP_BEFORE: int = 18
-const PINNED_DAMAGE_PARRY_SUCCEEDS: int = 0    # real B = attack_bonus(7)+parry_bonus(4)=11 beats roll_total(21)
+const PINNED_DAMAGE_PARRY_SUCCEEDS: int = 0    # real B = attack_bonus + parry_bonus(4) beats roll_total(22); parry succeeds
 const PINNED_HP_AFTER_PARRY_SUCCEEDS: int = 18
 const PINNED_DAMAGE_BLOCK_PARTIAL: int = 1     # 12 raw - (block roll[1d12] + block_value(3))
 const PINNED_HP_AFTER_BLOCK_PARTIAL: int = 17
@@ -131,7 +137,7 @@ func test_real_stats_parry_outcome_matches_pinned_corrected_baseline() -> void:
 
 	assert_eq(event.roll, PINNED_ROLL, "REGRESSION: the Skeleton's attack roll must be unchanged from the pinned baseline")
 	assert_eq(event.crit, PINNED_CRIT, "REGRESSION: crit determination must be unchanged from the pinned baseline")
-	assert_eq(event.damage_final, PINNED_DAMAGE_PARRY_SUCCEEDS, "REGRESSION: Parry with real table stats (d20 + attack_bonus 7 + parry_bonus 4 = B 11 beats roll_total 21) now SUCCEEDS and fully negates the hit — the corrected parry-attack-bonus math")
+	assert_eq(event.damage_final, PINNED_DAMAGE_PARRY_SUCCEEDS, "REGRESSION: Parry with real table stats (d20 + attack_bonus 7 + parry_bonus 4 = attack_bonus + parry_bonus 4 beats roll_total 22) now SUCCEEDS and fully negates the hit — the corrected parry-attack-bonus math")
 	assert_eq(_hp_of(instance, titus_id), PINNED_HP_AFTER_PARRY_SUCCEEDS, "REGRESSION: Titus takes zero damage from a successful real-stats Parry")
 
 
