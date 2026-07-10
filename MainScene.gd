@@ -174,6 +174,11 @@ const CombatantFactoryClass            = preload("res://infrastructure/combatant
 const ViewModelBuilderClass            = preload("res://presentation/view_model_builder.gd")
 const RoundSessionHolderClass          = preload("res://infrastructure/round_session_holder.gd")
 const TurnPresentationControllerClass  = preload("res://presentation/turn_presentation_controller.gd")
+const ConsoleEventSinkAdapterClass     = preload("res://infrastructure/console_event_sink_adapter.gd")
+const EncounterTurnOrderAdapterClass   = preload("res://infrastructure/encounter_turn_order_adapter.gd")
+const InMemoryRoundHistoryAdapterClass = preload("res://infrastructure/in_memory_round_history_adapter.gd")
+const UIHexChoiceResolverClass         = preload("res://infrastructure/ui_hex_choice_resolver.gd")
+const VerbBarRegistryAdapterClass      = preload("res://infrastructure/verb_bar_registry_adapter.gd")
 const ResolveActionUseCaseClass        = preload("res://core/application/resolve_action_use_case.gd")
 const DetermineOutcomeUseCaseClass     = preload("res://core/application/determine_outcome_use_case.gd")
 const RunRoundUseCaseClass             = preload("res://core/application/run_round_use_case.gd")
@@ -276,170 +281,6 @@ var ROUND_NUMBER: int = 1
 ## constant ("Strike" is the one melee action that exists in the current
 ## ruleset).
 const ACTION_NAME_STRIKE: String = "Strike"
-
-
-## ConsoleEventSinkAdapter — concrete EventSinkPort adapter (ADR-006):
-## mirrors every emitted round event to stdout via print() AND forwards it to
-## every Presentation projection registered in `forward_to` (FEAT-123) — the
-## ONE integration point between the Application-layer round events this
-## composition root's use cases emit and every subscribed Presentation
-## projection (StatusPanelView/InitiativeView/EventLogView/ResultScreenView),
-## whether the event happens synchronously at boot or later as a result of
-## live player/AI input.
-class ConsoleEventSinkAdapter:
-	extends "res://core/application/event_sink_port.gd"
-
-	var log: Array = []
-
-	## forward_to — Presentation nodes exposing on_round_event(event); set by
-	## this composition root once every subscriber has been instantiated.
-	var forward_to: Array = []
-
-	func emit(event) -> void:
-		log.append(event)
-		if event.has_method("to_dict"):
-			print("INFO: round event ", event.to_dict())
-		else:
-			print("INFO: round event ", event)
-		for target in forward_to:
-			if target != null:
-				target.on_round_event(event)
-
-
-## _EncounterTurnOrderAdapter — implements TurnOrderPort (core/application/
-## turn_order_port.gd) over an already-initialize()d Encounter's PUBLIC
-## accessors (get_turn_order() / get_action_economy()) — reusing Encounter's
-## existing, tested initiative-rolling/ActionEconomy bookkeeping (step 7
-## above) without reaching into its private fields or calling its
-## autonomous run_round() (FEAT-123 / FIND-120).
-class _EncounterTurnOrderAdapter:
-	extends "res://core/application/turn_order_port.gd"
-
-	var _encounter
-
-	func _init(p_encounter) -> void:
-		_encounter = p_encounter
-
-	func get_turn_order() -> Array:
-		var order: Array = _encounter.get_turn_order()
-		var entries: Array = []
-		for i in range(order.size()):
-			entries.append({"combatant": order[i], "action_economy": _encounter.get_action_economy(i)})
-		return entries
-
-
-## InMemoryRoundHistoryAdapter — implements RoundHistoryPort (core/
-## application/round_history_port.gd) over a plain in-memory Array owned by
-## this composition root, mirroring the pattern already established by
-## core/combat/encounter.gd's own private _RoundHistoryAdapter.
-class InMemoryRoundHistoryAdapter:
-	extends "res://core/application/round_history_port.gd"
-
-	var _entries: Array = []
-
-	func append(entry: Dictionary) -> void:
-		_entries.append(entry)
-
-	func get_history() -> Array:
-		return _entries
-
-
-## _UIHexChoiceResolver — the production, composition-root-only default
-## implementation of core/application/ports/hex_choice_resolver_port.gd's
-## HexChoiceResolverPort (FEAT-001 / US-004, ADR-002/G2). Wired ONLY here
-## (see `hex_choice_resolver` field + resolve_hex_choice() below) — this
-## class is never instantiated by a test, mirroring the ADR-002/G2
-## discipline every other seam in this file already follows
-## (PlayerReactionChooser, the AI-Stride token-reposition Callable, etc.).
-## Establishes the seam a future Dodge-Step selection window (US-005/US-006/
-## US-007) will use; nothing in this feature yet wires it into
-## round_session/turn_controller.
-##
-## resolve(legal_hexes) blocks on `hex_grid_view`'s REAL hex_clicked signal
-## (presentation/hex_grid_view.gd — the same click channel the Step/Stride
-## Layer-2 selection flow already uses) and loops until the player actually
-## clicks one of `legal_hexes` — an off-target click is silently ignored and
-## the wait continues, so this adapter can NEVER fabricate/guess an answer
-## of its own (this feature's G3 anti-punt discipline: "requires/blocks on
-## real human/UI input when not scripted, never silently returns an
-## arbitrary hex"). An empty `legal_hexes` short-circuits to null
-## immediately — there is nothing to click, so there is nothing to wait for
-## (the one legal case for a null return, per the port's own contract).
-class _UIHexChoiceResolver:
-	extends "res://core/application/ports/hex_choice_resolver_port.gd"
-
-	var _hex_grid_view
-
-	func _init(p_hex_grid_view) -> void:
-		_hex_grid_view = p_hex_grid_view
-
-	func resolve(legal_hexes: Array):
-		if legal_hexes.is_empty():
-			return null
-		# Highlight the legal Dodge-Step destinations on the battlefield, reusing
-		# the SAME hex_grid_view.set_selectable_hexes() overlay the Step verb's
-		# movement_input_controller uses — so a Dodge-Step reads visually
-		# identical to a normal Step instead of silently waiting for a click.
-		# Cleared the instant a legal hex is picked so the highlight never
-		# lingers into the attacker's continuing turn or the next actor.
-		_hex_grid_view.set_selectable_hexes(legal_hexes)
-		while true:
-			var clicked = await _hex_grid_view.hex_clicked
-			for hex in legal_hexes:
-				if hex.equals(clicked):
-					_hex_grid_view.set_selectable_hexes([])
-					return hex
-
-
-## _VerbBarRegistryAdapter — the presentation/verb_bar_view.gd VerbBarView
-## registry contract (FEAT-004 / US-004/FR-001), realized here as a small,
-## GENERIC, data-driven dispatch table exactly mirroring the shape/discipline
-## of core/application/verb_registry.py's pytest-only VerbRegistry (ADR-004):
-## register() is the ONLY way a verb enters `_descriptors`, and
-## list_verbs()/is_available()/enter_selection()/execute() are plain dict
-## lookups followed by a delegate Callable.call() — there is deliberately NO
-## verb-name branching in ANY of those four methods, so a hypothetical fifth
-## verb could be registered here without touching this class (the SAME
-## extensibility guarantee the Python VerbRegistry proves at the pytest
-## layer). The only place verb-specific wiring exists is where this
-## composition root calls register() below (MainScene._ready()), via small
-## Callables bound to this file's own _verb_bar_*_availability/
-## _verb_bar_*_enter_selection/_verb_bar_*_execute helper methods — those
-## helpers, in turn, introduce NO new domain/application logic of their own;
-## each simply forwards to the SAME already-instantiated, already-tested
-## presentation control (strike_action_control / movement_input_controller /
-## end_turn_control) this composition root wires elsewhere (ADR-002/CR-001:
-## no duplicate action/movement/turn-ending path).
-class _VerbBarRegistryAdapter:
-	var _availability_fns: Dictionary = {}
-	var _enter_selection_fns: Dictionary = {}
-	var _execute_fns: Dictionary = {}
-	var _order: Array = []
-
-	## register(verb_id, availability_fn, enter_selection_fn, execute_fn) —
-	## the ONLY method that special-cases a verb_id; every dispatch method
-	## below is a generic dict lookup over whatever has been register()ed.
-	func register(verb_id: String, availability_fn: Callable, enter_selection_fn: Callable, execute_fn: Callable) -> void:
-		if not _availability_fns.has(verb_id):
-			_order.append(verb_id)
-		_availability_fns[verb_id] = availability_fn
-		_enter_selection_fns[verb_id] = enter_selection_fn
-		_execute_fns[verb_id] = execute_fn
-
-	func list_verbs() -> Array:
-		var descriptors: Array = []
-		for verb_id in _order:
-			descriptors.append({"verb_id": verb_id})
-		return descriptors
-
-	func is_available(verb_id: String) -> bool:
-		return bool(_availability_fns[verb_id].call())
-
-	func enter_selection(verb_id: String):
-		return _enter_selection_fns[verb_id].call()
-
-	func execute(verb_id: String, selection = null):
-		return _execute_fns[verb_id].call(selection)
 
 
 ## seed_override — in-process injectable seed policy (FEAT-002 / US-002;
@@ -778,7 +619,7 @@ func _ready() -> void:
 	resolved_seed = SeedPolicyClass.resolve_from_environment(seed_override, int(Time.get_ticks_usec()))
 
 	random_port = GodotRandomAdapterClass.new(resolved_seed)
-	event_sink = ConsoleEventSinkAdapter.new()
+	event_sink = ConsoleEventSinkAdapterClass.new()
 
 	_party = []
 	for i in range(encounter_resource.party_resource_paths.size()):
@@ -814,8 +655,8 @@ func _ready() -> void:
 	# ── FEAT-123 / FIND-120: build the interactive pipeline (RunRoundUseCase
 	# .begin_round() -> RoundSession) instead of driving the autonomous
 	# core/combat/encounter.gd run_round() while-loop. ─────────────────────
-	var turn_order_port = _EncounterTurnOrderAdapter.new(encounter)
-	round_history_port = InMemoryRoundHistoryAdapter.new()
+	var turn_order_port = EncounterTurnOrderAdapterClass.new(encounter)
+	round_history_port = InMemoryRoundHistoryAdapterClass.new()
 	resolve_action_use_case = ResolveActionUseCaseClass.new(random_port, event_sink, round_history_port)
 	determine_outcome_use_case = DetermineOutcomeUseCaseClass.new()
 	var ai_decision_port = AIClass.new()
@@ -878,7 +719,7 @@ func _ready() -> void:
 	# use; see hex_choice_resolver's own field doc above and
 	# _UIHexChoiceResolver's doc. ───────────────────────────────────────────
 	if hex_grid_view != null:
-		hex_choice_resolver = _UIHexChoiceResolver.new(hex_grid_view)
+		hex_choice_resolver = UIHexChoiceResolverClass.new(hex_grid_view)
 
 	if end_turn_control != null:
 		end_turn_control.turn_ended.connect(_on_end_turn_control_turn_ended)
@@ -1230,8 +1071,8 @@ func _presentation_event_subscribers() -> Array:
 ## get_selectable_stride_hexes()/stride_to(), or end_turn_control.press() --
 ## the SAME reach/movement/turn-ending paths those controls already expose
 ## and this file already relies on elsewhere.
-func _build_verb_registry() -> _VerbBarRegistryAdapter:
-	var registry := _VerbBarRegistryAdapter.new()
+func _build_verb_registry() -> VerbBarRegistryAdapterClass:
+	var registry := VerbBarRegistryAdapterClass.new()
 
 	registry.register(
 		"STRIKE",
