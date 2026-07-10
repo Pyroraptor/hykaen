@@ -171,6 +171,7 @@ const GodotRandomAdapterClass          = preload("res://core/combat/godot_random
 const EncounterClass                   = preload("res://core/combat/encounter.gd")
 const RNGClass                         = preload("res://core/rules/rng.gd")
 const CombatantFactoryClass            = preload("res://infrastructure/combatant_factory.gd")
+const ViewModelBuilderClass            = preload("res://presentation/view_model_builder.gd")
 const ResolveActionUseCaseClass        = preload("res://core/application/resolve_action_use_case.gd")
 const DetermineOutcomeUseCaseClass     = preload("res://core/application/determine_outcome_use_case.gd")
 const RunRoundUseCaseClass             = preload("res://core/application/run_round_use_case.gd")
@@ -699,6 +700,7 @@ var reaction_window = null
 var _party: Array = []
 var _enemies: Array = []
 var _combatant_factory := CombatantFactoryClass.new()
+var _view_model_builder := ViewModelBuilderClass.new()
 
 ## _last_highlight_debug_log — FEAT-006 / US-006 (FR-001, ADR-004): the most
 ## recent debug log line emitted by _highlight_legal_moves() (observability
@@ -776,13 +778,13 @@ func _ready() -> void:
 	encounter = EncounterClass.new(_party, _enemies, rng)
 	encounter.initialize()
 
-	var status_view_models: Array = _build_status_view_models(hex_combatants, _party, _enemies, encounter)
+	var status_view_models: Array = _view_model_builder.build_status_view_models(hex_combatants, _party, _enemies, encounter)
 
 	if status_panel_view != null:
 		status_panel_view.load_combatants(status_view_models)
 		_refresh_off_guard_conditions()
 
-	var initiative_view_models: Array = _build_initiative_view_models(hex_combatants, _party, _enemies, encounter)
+	var initiative_view_models: Array = _view_model_builder.build_initiative_view_models(hex_combatants, _party, _enemies, encounter)
 
 	if initiative_view != null:
 		initiative_view.load_combatants(initiative_view_models)
@@ -2484,84 +2486,3 @@ func _build_party_combatant(character_path: String, hex_coord, combatant_id: Str
 
 func _build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String = "") -> Dictionary:
 	return _combatant_factory.build_enemy_combatant(enemy_path, hex_coord, combatant_id)
-
-
-## _build_status_view_models(hex_combatants, party, enemies, encounter) -> Array
-##
-## Builds the read-only view-model list handed to
-## presentation/status_panel_view.gd's load_combatants() (FEAT-008 / US-006):
-## one Dictionary per combatant with keys combatant_id/name/hp_current/
-## hp_max/stamina_current/stamina_max/action_budget_remaining/spent/
-## conditions. hex_combatants[i] (the domain Combatant built in step 1,
-## carrying combatant_id) corresponds index-for-index to `party` then
-## `enemies` (the SAME correspondence already relied on above for hex_coord
-## assignment) -- combatant identity is joined by that shared index, never by
-## reaching back into Encounter/ActionEconomy from StatusPanelView itself.
-##
-## action_budget_remaining/spent are read once, immediately after
-## encounter.initialize(), from each combatant's freshly-constructed
-## ActionEconomy (core/rules/action_economy.gd) -- resolved by name via
-## encounter.get_turn_order()/get_action_economy(), since initiative sorting
-## reorders combatants relative to `party`/`enemies`. conditions defaults to
-## an empty Array -- no per-combatant Condition list exists in the domain
-## model yet (a later iteration-B feature), so the panel simply shows none
-## until that data exists.
-func _build_status_view_models(hex_combatants: Array, party: Array, enemies: Array, encounter_instance) -> Array:
-	var action_economy_by_name: Dictionary = {}
-	var turn_order: Array = encounter_instance.get_turn_order()
-	for i in range(turn_order.size()):
-		action_economy_by_name[turn_order[i].get("name", "")] = encounter_instance.get_action_economy(i)
-
-	var all_combatants: Array = party + enemies
-	var view_models: Array = []
-	for i in range(all_combatants.size()):
-		var combatant: Dictionary = all_combatants[i]
-		var combatant_id: String = hex_combatants[i].combatant_id if i < hex_combatants.size() else ""
-		var action_economy = action_economy_by_name.get(combatant.get("name", ""), null)
-
-		view_models.append({
-			"combatant_id":             combatant_id,
-			"name":                     combatant.get("name", ""),
-			"hp_current":               combatant.get("hp_current", 0),
-			"hp_max":                   combatant.get("hp_max", combatant.get("hp_current", 0)),
-			"stamina_current":          combatant.get("stamina", 0),
-			"stamina_max":              combatant.get("stamina", 0),
-			"action_budget_remaining":  action_economy.get_remaining() if action_economy != null else 0,
-			"spent":                    action_economy.is_spent() if action_economy != null else false,
-			"conditions":               [],
-		})
-	return view_models
-
-
-## _build_initiative_view_models(hex_combatants, party, enemies, encounter_instance) -> Array
-##
-## Builds the read-only view-model list handed to
-## presentation/initiative_view.gd's load_combatants() (FEAT-009 / US-007):
-## one Dictionary per combatant with keys combatant_id/name/initiative_order.
-## combatant_id is resolved via the SAME name-keyed join already used by
-## _build_status_view_models() above (hex_combatants[i] corresponds
-## index-for-index to `party` then `enemies`) -- InitiativeView never reaches
-## back into Encounter itself to obtain this data.
-##
-## encounter_instance.get_turn_order() (core/combat/encounter.gd) is already
-## the domain-determined turn order -- sorted descending by each
-## combatant's "_initiative_roll" (d20 + intuition + dexterity, per ADR-006)
-## -- so that per-combatant roll is passed through unchanged as
-## initiative_order; InitiativeView performs its own descending sort at load
-## time, so the exact order handed in here is not itself load-bearing.
-func _build_initiative_view_models(hex_combatants: Array, party: Array, enemies: Array, encounter_instance) -> Array:
-	var combatant_id_by_name: Dictionary = {}
-	var all_combatants: Array = party + enemies
-	for i in range(all_combatants.size()):
-		var combatant_id: String = hex_combatants[i].combatant_id if i < hex_combatants.size() else ""
-		combatant_id_by_name[all_combatants[i].get("name", "")] = combatant_id
-
-	var view_models: Array = []
-	for combatant in encounter_instance.get_turn_order():
-		var name: String = combatant.get("name", "")
-		view_models.append({
-			"combatant_id":     combatant_id_by_name.get(name, ""),
-			"name":             name,
-			"initiative_order": combatant.get("_initiative_roll", 0),
-		})
-	return view_models
