@@ -170,9 +170,20 @@ const SeedPolicyClass                  = preload("res://infrastructure/seed_poli
 const GodotRandomAdapterClass          = preload("res://core/combat/godot_random_adapter.gd")
 const EncounterClass                   = preload("res://core/combat/encounter.gd")
 const RNGClass                         = preload("res://core/rules/rng.gd")
-const AttributesClass                  = preload("res://core/rules/attributes.gd")
-const WeaponResourceClass              = preload("res://core/model/weapon_resource.gd")
-const ArmorResourceClass               = preload("res://core/model/armor_resource.gd")
+const CombatantFactoryClass            = preload("res://infrastructure/combatant_factory.gd")
+const ViewModelBuilderClass            = preload("res://presentation/view_model_builder.gd")
+const RoundSessionHolderClass          = preload("res://infrastructure/round_session_holder.gd")
+const TurnPresentationControllerClass  = preload("res://presentation/turn_presentation_controller.gd")
+const ReactionControllerClass          = preload("res://presentation/reaction_controller.gd")
+const EndTurnActionControllerClass     = preload("res://presentation/end_turn_action_controller.gd")
+const StepActionControllerClass        = preload("res://presentation/step_action_controller.gd")
+const StrideActionControllerClass      = preload("res://presentation/stride_action_controller.gd")
+const StrikeActionControllerClass      = preload("res://presentation/strike_action_controller.gd")
+const ConsoleEventSinkAdapterClass     = preload("res://infrastructure/console_event_sink_adapter.gd")
+const EncounterTurnOrderAdapterClass   = preload("res://infrastructure/encounter_turn_order_adapter.gd")
+const InMemoryRoundHistoryAdapterClass = preload("res://infrastructure/in_memory_round_history_adapter.gd")
+const UIHexChoiceResolverClass         = preload("res://infrastructure/ui_hex_choice_resolver.gd")
+const VerbBarRegistryAdapterClass      = preload("res://infrastructure/verb_bar_registry_adapter.gd")
 const ResolveActionUseCaseClass        = preload("res://core/application/resolve_action_use_case.gd")
 const DetermineOutcomeUseCaseClass     = preload("res://core/application/determine_outcome_use_case.gd")
 const RunRoundUseCaseClass             = preload("res://core/application/run_round_use_case.gd")
@@ -246,19 +257,6 @@ const AIReactionPolicyClass            = preload("res://infrastructure/ai_reacti
 ## The steel-thread's entry_point: the one encounter this composition root boots into.
 const PROLOGUE_ENCOUNTER_PATH: String = "res://data/encounters/prologue_encounter.tres"
 
-## FEAT-227 (US-001 / FR-001, resolves FIND-223): typed fail-fast error codes
-## for _build_enemy_combatant()'s EnemyResource load/sanity validation.
-## Mirrors this project's established ERR_ constant idiom (see
-## core/rules/movement.gd's ERR_ORIGIN_MISSING etc. and
-## core/application/resolve_action_use_case.gd's ERR_TARGET_INVALID etc.) —
-## a String constant matching its own name, returned as the "error" key of
-## a Dictionary in place of a valid result shape, so a caller/test can
-## detect the failure directly (never a silently "dead on arrival"
-## combatant carrying missing/negative weapon stats).
-const ERR_ENEMY_RESOURCE_LOAD_FAILED: String = "ERR_ENEMY_RESOURCE_LOAD_FAILED"
-const ERR_ENEMY_RESOURCE_WEAPON_UNRESOLVABLE: String = "ERR_ENEMY_RESOURCE_WEAPON_UNRESOLVABLE"
-const ERR_ENEMY_RESOURCE_INVALID_WEAPON_FIELD: String = "ERR_ENEMY_RESOURCE_INVALID_WEAPON_FIELD"
-
 ## FEAT-002 (US-002 / FR-012, ADR-003): fallback viewport dimensions used to
 ## derive the boot-time centering offset (see _compute_boot_centering_offset())
 ## when project.godot declares no explicit display/window/size override --
@@ -288,170 +286,6 @@ var ROUND_NUMBER: int = 1
 ## constant ("Strike" is the one melee action that exists in the current
 ## ruleset).
 const ACTION_NAME_STRIKE: String = "Strike"
-
-
-## ConsoleEventSinkAdapter — concrete EventSinkPort adapter (ADR-006):
-## mirrors every emitted round event to stdout via print() AND forwards it to
-## every Presentation projection registered in `forward_to` (FEAT-123) — the
-## ONE integration point between the Application-layer round events this
-## composition root's use cases emit and every subscribed Presentation
-## projection (StatusPanelView/InitiativeView/EventLogView/ResultScreenView),
-## whether the event happens synchronously at boot or later as a result of
-## live player/AI input.
-class ConsoleEventSinkAdapter:
-	extends "res://core/application/event_sink_port.gd"
-
-	var log: Array = []
-
-	## forward_to — Presentation nodes exposing on_round_event(event); set by
-	## this composition root once every subscriber has been instantiated.
-	var forward_to: Array = []
-
-	func emit(event) -> void:
-		log.append(event)
-		if event.has_method("to_dict"):
-			print("INFO: round event ", event.to_dict())
-		else:
-			print("INFO: round event ", event)
-		for target in forward_to:
-			if target != null:
-				target.on_round_event(event)
-
-
-## _EncounterTurnOrderAdapter — implements TurnOrderPort (core/application/
-## turn_order_port.gd) over an already-initialize()d Encounter's PUBLIC
-## accessors (get_turn_order() / get_action_economy()) — reusing Encounter's
-## existing, tested initiative-rolling/ActionEconomy bookkeeping (step 7
-## above) without reaching into its private fields or calling its
-## autonomous run_round() (FEAT-123 / FIND-120).
-class _EncounterTurnOrderAdapter:
-	extends "res://core/application/turn_order_port.gd"
-
-	var _encounter
-
-	func _init(p_encounter) -> void:
-		_encounter = p_encounter
-
-	func get_turn_order() -> Array:
-		var order: Array = _encounter.get_turn_order()
-		var entries: Array = []
-		for i in range(order.size()):
-			entries.append({"combatant": order[i], "action_economy": _encounter.get_action_economy(i)})
-		return entries
-
-
-## InMemoryRoundHistoryAdapter — implements RoundHistoryPort (core/
-## application/round_history_port.gd) over a plain in-memory Array owned by
-## this composition root, mirroring the pattern already established by
-## core/combat/encounter.gd's own private _RoundHistoryAdapter.
-class InMemoryRoundHistoryAdapter:
-	extends "res://core/application/round_history_port.gd"
-
-	var _entries: Array = []
-
-	func append(entry: Dictionary) -> void:
-		_entries.append(entry)
-
-	func get_history() -> Array:
-		return _entries
-
-
-## _UIHexChoiceResolver — the production, composition-root-only default
-## implementation of core/application/ports/hex_choice_resolver_port.gd's
-## HexChoiceResolverPort (FEAT-001 / US-004, ADR-002/G2). Wired ONLY here
-## (see `hex_choice_resolver` field + resolve_hex_choice() below) — this
-## class is never instantiated by a test, mirroring the ADR-002/G2
-## discipline every other seam in this file already follows
-## (PlayerReactionChooser, the AI-Stride token-reposition Callable, etc.).
-## Establishes the seam a future Dodge-Step selection window (US-005/US-006/
-## US-007) will use; nothing in this feature yet wires it into
-## round_session/turn_controller.
-##
-## resolve(legal_hexes) blocks on `hex_grid_view`'s REAL hex_clicked signal
-## (presentation/hex_grid_view.gd — the same click channel the Step/Stride
-## Layer-2 selection flow already uses) and loops until the player actually
-## clicks one of `legal_hexes` — an off-target click is silently ignored and
-## the wait continues, so this adapter can NEVER fabricate/guess an answer
-## of its own (this feature's G3 anti-punt discipline: "requires/blocks on
-## real human/UI input when not scripted, never silently returns an
-## arbitrary hex"). An empty `legal_hexes` short-circuits to null
-## immediately — there is nothing to click, so there is nothing to wait for
-## (the one legal case for a null return, per the port's own contract).
-class _UIHexChoiceResolver:
-	extends "res://core/application/ports/hex_choice_resolver_port.gd"
-
-	var _hex_grid_view
-
-	func _init(p_hex_grid_view) -> void:
-		_hex_grid_view = p_hex_grid_view
-
-	func resolve(legal_hexes: Array):
-		if legal_hexes.is_empty():
-			return null
-		# Highlight the legal Dodge-Step destinations on the battlefield, reusing
-		# the SAME hex_grid_view.set_selectable_hexes() overlay the Step verb's
-		# movement_input_controller uses — so a Dodge-Step reads visually
-		# identical to a normal Step instead of silently waiting for a click.
-		# Cleared the instant a legal hex is picked so the highlight never
-		# lingers into the attacker's continuing turn or the next actor.
-		_hex_grid_view.set_selectable_hexes(legal_hexes)
-		while true:
-			var clicked = await _hex_grid_view.hex_clicked
-			for hex in legal_hexes:
-				if hex.equals(clicked):
-					_hex_grid_view.set_selectable_hexes([])
-					return hex
-
-
-## _VerbBarRegistryAdapter — the presentation/verb_bar_view.gd VerbBarView
-## registry contract (FEAT-004 / US-004/FR-001), realized here as a small,
-## GENERIC, data-driven dispatch table exactly mirroring the shape/discipline
-## of core/application/verb_registry.py's pytest-only VerbRegistry (ADR-004):
-## register() is the ONLY way a verb enters `_descriptors`, and
-## list_verbs()/is_available()/enter_selection()/execute() are plain dict
-## lookups followed by a delegate Callable.call() — there is deliberately NO
-## verb-name branching in ANY of those four methods, so a hypothetical fifth
-## verb could be registered here without touching this class (the SAME
-## extensibility guarantee the Python VerbRegistry proves at the pytest
-## layer). The only place verb-specific wiring exists is where this
-## composition root calls register() below (MainScene._ready()), via small
-## Callables bound to this file's own _verb_bar_*_availability/
-## _verb_bar_*_enter_selection/_verb_bar_*_execute helper methods — those
-## helpers, in turn, introduce NO new domain/application logic of their own;
-## each simply forwards to the SAME already-instantiated, already-tested
-## presentation control (strike_action_control / movement_input_controller /
-## end_turn_control) this composition root wires elsewhere (ADR-002/CR-001:
-## no duplicate action/movement/turn-ending path).
-class _VerbBarRegistryAdapter:
-	var _availability_fns: Dictionary = {}
-	var _enter_selection_fns: Dictionary = {}
-	var _execute_fns: Dictionary = {}
-	var _order: Array = []
-
-	## register(verb_id, availability_fn, enter_selection_fn, execute_fn) —
-	## the ONLY method that special-cases a verb_id; every dispatch method
-	## below is a generic dict lookup over whatever has been register()ed.
-	func register(verb_id: String, availability_fn: Callable, enter_selection_fn: Callable, execute_fn: Callable) -> void:
-		if not _availability_fns.has(verb_id):
-			_order.append(verb_id)
-		_availability_fns[verb_id] = availability_fn
-		_enter_selection_fns[verb_id] = enter_selection_fn
-		_execute_fns[verb_id] = execute_fn
-
-	func list_verbs() -> Array:
-		var descriptors: Array = []
-		for verb_id in _order:
-			descriptors.append({"verb_id": verb_id})
-		return descriptors
-
-	func is_available(verb_id: String) -> bool:
-		return bool(_availability_fns[verb_id].call())
-
-	func enter_selection(verb_id: String):
-		return _enter_selection_fns[verb_id].call()
-
-	func execute(verb_id: String, selection = null):
-		return _execute_fns[verb_id].call(selection)
 
 
 ## seed_override — in-process injectable seed policy (FEAT-002 / US-002;
@@ -505,7 +339,20 @@ var encounter
 ## stepwise cycle state $TurnController/$StrikeActionControl/$EndTurnControl
 ## drive one turn at a time, replacing the old autonomous run_round()
 ## while-loop.
-var round_session
+##
+## Composition-root de-bloat (2026-07-10): `round_session` is now a transparent
+## get/set property facade over the stable RoundSessionHolder below. Reads return
+## the live session; the single assignment in rewire_session() flows through the
+## setter into the holder. This keeps every existing `round_session` call site
+## unchanged while giving extracted controllers a stable seam
+## (_round_session_holder) to inject ONCE, instead of a reference that is
+## replaced every round (which would leave a cross-object captor stale).
+var _round_session_holder := RoundSessionHolderClass.new()
+var round_session:
+	get:
+		return _round_session_holder.get_current()
+	set(value):
+		_round_session_holder.set_current(value)
 
 ## run_round_use_case / resolve_action_use_case / determine_outcome_use_case /
 ## round_history_port — the Application-layer use cases/ports wired at this
@@ -515,17 +362,6 @@ var run_round_use_case
 var resolve_action_use_case
 var determine_outcome_use_case
 var round_history_port
-
-## _player_attack_event_id_counter — FEAT-005 (US-005, Iteration J-R2 Part
-## D): monotonically incremented once per resolved PLAYER Strike
-## (_verb_bar_strike_execute() below), the source of the attack_event_id
-## this call site's structured/rich log entries are keyed by. Uses a
-## "R<round>-P<n>" shape -- a "P" (Player) infix distinct from
-## core/application/round_session.gd's own "R<round>-A<n>" AI-path
-## generator (_generate_attack_event_id()) -- so ids from these two
-## independent call sites can never collide within the SAME event_log_view
-## instance's structured storage.
-var _player_attack_event_id_counter: int = 0
 
 ## outcome — '' | 'won' | 'lost'; mirrors round_session.outcome() and is
 ## refreshed once the round concludes (see _on_round_over()). Exposed for
@@ -704,6 +540,23 @@ var reaction_window = null
 ## US-001, iteration D UI consolidation).
 @onready var result_screen_view = $ResultScreenView
 
+## _turn_presentation_instance / _turn_presentation() — the extracted
+## TurnPresentationController (presentation/turn_presentation_controller.gd),
+## built lazily on first use by _turn_presentation() below. Lazy (not @onready)
+## so it is available BOTH when MainScene is booted normally (TurnController's
+## active_actor_changed drives it) AND when a unit/integration test `.new()`s
+## MainScene, injects spy collaborators, and calls _on_active_actor_changed()
+## directly without a scene-tree _ready(). Its collaborators (the stable
+## RoundSessionHolder, the view nodes, the movement_input_controller, a Callable
+## to _other_living_combatants) are none of them reassigned after first access,
+## so building once is behavior-identical to the old inline live reads.
+var _turn_presentation_instance = null
+var _reaction_instance = null
+var _end_turn_action_instance = null
+var _step_action_instance = null
+var _stride_action_instance = null
+var _strike_action_instance = null
+
 ## _party / _enemies — the live combatant Dictionaries built at boot,
 ## mutated in place by every resolved Strike throughout the interactive
 ## session (Dictionaries are reference types in GDScript). Kept as fields so
@@ -713,14 +566,9 @@ var reaction_window = null
 ## Infrastructure.
 var _party: Array = []
 var _enemies: Array = []
+var _combatant_factory := CombatantFactoryClass.new()
+var _view_model_builder := ViewModelBuilderClass.new()
 
-## _last_highlight_debug_log — FEAT-006 / US-006 (FR-001, ADR-004): the most
-## recent debug log line emitted by _highlight_legal_moves() (observability
-## requirement — see that method's doc). Exposed for GUT test verification
-## since stdout itself is not readily interceptable from a headless test;
-## mirrors this file's own ConsoleEventSinkAdapter.log Array's established
-## "store for verification, also print" convention.
-var _last_highlight_debug_log: String = ""
 
 ## centering_offset — FEAT-002 (US-002 / FR-012, ADR-003): the shared
 ## screen-space origin offset this composition root computes at boot via
@@ -770,7 +618,7 @@ func _ready() -> void:
 	resolved_seed = SeedPolicyClass.resolve_from_environment(seed_override, int(Time.get_ticks_usec()))
 
 	random_port = GodotRandomAdapterClass.new(resolved_seed)
-	event_sink = ConsoleEventSinkAdapter.new()
+	event_sink = ConsoleEventSinkAdapterClass.new()
 
 	_party = []
 	for i in range(encounter_resource.party_resource_paths.size()):
@@ -790,13 +638,13 @@ func _ready() -> void:
 	encounter = EncounterClass.new(_party, _enemies, rng)
 	encounter.initialize()
 
-	var status_view_models: Array = _build_status_view_models(hex_combatants, _party, _enemies, encounter)
+	var status_view_models: Array = _view_model_builder.build_status_view_models(hex_combatants, _party, _enemies, encounter)
 
 	if status_panel_view != null:
 		status_panel_view.load_combatants(status_view_models)
 		_refresh_off_guard_conditions()
 
-	var initiative_view_models: Array = _build_initiative_view_models(hex_combatants, _party, _enemies, encounter)
+	var initiative_view_models: Array = _view_model_builder.build_initiative_view_models(hex_combatants, _party, _enemies, encounter)
 
 	if initiative_view != null:
 		initiative_view.load_combatants(initiative_view_models)
@@ -806,8 +654,8 @@ func _ready() -> void:
 	# ── FEAT-123 / FIND-120: build the interactive pipeline (RunRoundUseCase
 	# .begin_round() -> RoundSession) instead of driving the autonomous
 	# core/combat/encounter.gd run_round() while-loop. ─────────────────────
-	var turn_order_port = _EncounterTurnOrderAdapter.new(encounter)
-	round_history_port = InMemoryRoundHistoryAdapter.new()
+	var turn_order_port = EncounterTurnOrderAdapterClass.new(encounter)
+	round_history_port = InMemoryRoundHistoryAdapterClass.new()
 	resolve_action_use_case = ResolveActionUseCaseClass.new(random_port, event_sink, round_history_port)
 	determine_outcome_use_case = DetermineOutcomeUseCaseClass.new()
 	var ai_decision_port = AIClass.new()
@@ -870,7 +718,7 @@ func _ready() -> void:
 	# use; see hex_choice_resolver's own field doc above and
 	# _UIHexChoiceResolver's doc. ───────────────────────────────────────────
 	if hex_grid_view != null:
-		hex_choice_resolver = _UIHexChoiceResolver.new(hex_grid_view)
+		hex_choice_resolver = UIHexChoiceResolverClass.new(hex_grid_view)
 
 	if end_turn_control != null:
 		end_turn_control.turn_ended.connect(_on_end_turn_control_turn_ended)
@@ -1222,8 +1070,8 @@ func _presentation_event_subscribers() -> Array:
 ## get_selectable_stride_hexes()/stride_to(), or end_turn_control.press() --
 ## the SAME reach/movement/turn-ending paths those controls already expose
 ## and this file already relies on elsewhere.
-func _build_verb_registry() -> _VerbBarRegistryAdapter:
-	var registry := _VerbBarRegistryAdapter.new()
+func _build_verb_registry() -> VerbBarRegistryAdapterClass:
+	var registry := VerbBarRegistryAdapterClass.new()
 
 	registry.register(
 		"STRIKE",
@@ -1280,13 +1128,11 @@ func _verb_bar_current_action_economy():
 ## function only READS can_take_action(); it never mutates the domain gate
 ## itself.
 func _verb_bar_strike_availability() -> bool:
-	var action_economy = _verb_bar_current_action_economy()
-	var can_act: bool = action_economy.can_take_action() if action_economy != null else false
-	return can_act and _strike_reachable_target_ids().size() > 0
+	return _strike_action().availability()
 
 
 func _verb_bar_strike_enter_selection() -> Dictionary:
-	return {"verb_id": "STRIKE", "candidate_targets": _strike_reachable_target_ids(), "candidate_hexes": []}
+	return _strike_action().enter_selection()
 
 
 ## _verb_bar_strike_execute(selection) -> Dictionary — FEAT-006: `selection`
@@ -1318,298 +1164,16 @@ func _verb_bar_strike_enter_selection() -> Dictionary:
 ## test_player_strikes_enemy_pass_through.gd) — that suite has been updated
 ## for Part B by this same feature.
 func _verb_bar_strike_execute(selection) -> Dictionary:
-	if round_session == null or resolve_action_use_case == null:
-		return {"ok": false}
-
-	var target: Dictionary = _find_strike_reachable_target(str(selection))
-	if target.is_empty():
-		return {"ok": false, "resolved": false, "error": "ERR_TARGET_NOT_SELECTABLE"}
-
-	var actor: Dictionary = round_session.current_actor()
-	var action_economy = round_session.current_action_economy()
-
-	# ── iteration K FEAT-004 (US-004, ADR-004): the enemy target's OWN live
-	# ActionEconomy — required so a chosen reaction genuinely spends a budget
-	# point (visible on StatusPanelView below) and so the RESERVE gate reads
-	# real data. May resolve to null (a target this session has no bookkeeping
-	# for, e.g. a test double) — resolve_reactive()/resolution.gd both
-	# degrade safely to "reaction untracked" in that case. ──────────────────
-	var target_action_economy = _action_economy_for(target)
-	var target_budget_before: int = target_action_economy.get_remaining() if target_action_economy != null else -1
-
-	# FEAT-005 (US-005, Iteration J-R2 Part D): capture the append-order index
-	# the plain-format row event_log_view's on_attack_event() is ABOUT to
-	# append at -- inside resolve_action_use_case.resolve_reactive()'s
-	# synchronous EventSinkPort emit, immediately below -- BEFORE resolving,
-	# so that index can be overwritten in place with the rich rendering once
-	# resolve_reactive() returns with the resolved roll/damage fields.
-	# Capturing the index up front (rather than suppressing the append and
-	# appending a fresh row afterward) keeps the row's ORIGINAL chronological
-	# position intact even when this SAME call also synchronously emits a
-	# CombatantDefeatedEvent immediately after the AttackEvent (a killing
-	# blow) -- the attack's own row must stay chronologically BEFORE that
-	# consequence, never appended after it.
-	var pending_entry_index: int = event_log_view.get_entry_count() if event_log_view != null else -1
-
-	var result: Dictionary = resolve_action_use_case.resolve_reactive(
-		actor, action_economy, target, ACTION_NAME_STRIKE, ROUND_NUMBER, 0,
-		target_action_economy, enemy_reaction_chooser
-	)
-
-	# ── iteration K FEAT-004: reflect the enemy's own reaction spend (if any)
-	# on the REAL StatusPanelView -- "the Skeleton's action budget visibly
-	# drops by the reaction spend amount when it reacts" test criterion --
-	# reusing the SAME on_verb_action_budget_changed() seam
-	# presentation/status_panel_view.gd already exposes for a Stride's budget
-	# spend (FEAT-178), never a new/second projection path. A no-op when
-	# nothing was spent (remaining unchanged) or when the target has no
-	# tracked ActionEconomy/status row at all. ──────────────────────────────
-	if target_action_economy != null and status_panel_view != null:
-		var target_budget_after: int = target_action_economy.get_remaining()
-		if target_budget_after != target_budget_before:
-			var target_id: String = target.get("combatant_id", target.get("name", ""))
-			status_panel_view.on_verb_action_budget_changed(
-				target_id, target_budget_after, target_action_economy.is_spent()
-			)
-
-	# FEAT-005: wire record_attack()/render_attack_entry() into this LIVE
-	# player-attack call site. Builds a core/log/attack_event.gd AttackEvent
-	# from `result["event"]` -- the SAME RoundEvents.AttackEvent instance
-	# resolve_action_use_case.gd already emitted via EventSinkPort above,
-	# never a second, re-derived roll/damage computation (mirrors
-	# core/application/round_session.gd's own _record_structured_attack()
-	# convention for the enemy-strikes-player path). record_attack() stores
-	# it into the REAL, live event_log_view; render_attack_entry() formats
-	# the roll/raw/final-damage rich text, which overwrites the plain-format
-	# row captured above in place -- so exactly one, rich-format row is
-	# visible for this Strike (steel-thread exit condition), never a
-	# basic+rich duplicate pair.
-	if event_log_view != null and pending_entry_index != -1 and result.get("resolved", false):
-		var resolved_attack_event = result.get("event", null)
-		if resolved_attack_event != null:
-			_player_attack_event_id_counter += 1
-			var attack_event_id: String = "R%d-P%d" % [ROUND_NUMBER, _player_attack_event_id_counter]
-
-			var weapon: Dictionary = actor.get("weapon", {})
-			var structured_attack_event = AttackEventClass.new(
-				attack_event_id,
-				ROUND_NUMBER,
-				actor.get("combatant_id", actor.get("name", "")),
-				target.get("combatant_id", target.get("name", "")),
-				weapon.get("weapon_id", weapon.get("name", "")),
-				resolved_attack_event.roll,
-				resolved_attack_event.hit,
-				resolved_attack_event.crit,
-				resolved_attack_event.damage_final,
-				resolved_attack_event.damage_final,
-				result.get("on_hit_suppressed", false),
-				false
-			)
-
-			event_log_view.record_attack(structured_attack_event)
-
-			# FEAT-008 (US-008 / FR-007): pair this Strike's reaction outcome
-			# to the JUST-recorded structured AttackEvent via
-			# RenderCombatLogUseCase.record_reaction_outcome() -- mirrors
-			# core/application/round_session.gd's identical wiring for the
-			# enemy-strikes-player path.
-			#
-			# Iteration K FEAT-004 (US-004, ADR-004) — Part B: `choice` now
-			# reflects the enemy's REAL reaction outcome
-			# (resolve_action_use_case.gd's resolve_reactive() additive
-			# "reaction_choice"/"on_hit_suppressed" keys — see that method's
-			# own doc) instead of always "none". `window_id` is selected to
-			# match which window the choice actually belongs to (Dodge/Steel
-			# are PreHitAvoidance; Parry/Block are OnHitMitigation) so the
-			# rich log's Defense segment attributes the outcome to the
-			# correct window, mirroring core/application/round_session.gd's
-			# own per-window recording.
-			var enemy_reaction_choice: String = result.get("reaction_choice", "none")
-			var enemy_reaction_window: String = (
-				RenderCombatLogUseCaseClass.WINDOW_ON_HIT_MITIGATION
-				if (enemy_reaction_choice == "parry" or enemy_reaction_choice == "block")
-				else RenderCombatLogUseCaseClass.WINDOW_PRE_HIT_AVOIDANCE
-			)
-			var render_combat_log_use_case := RenderCombatLogUseCaseClass.new()
-			render_combat_log_use_case.record_reaction_outcome(
-				attack_event_id, enemy_reaction_window, enemy_reaction_choice,
-				"auto", result.get("on_hit_suppressed", false), 0,
-				Callable(event_log_view, "record_reaction")
-			)
-
-			var rich_text: String = event_log_view.render_attack_entry(attack_event_id)
-			event_log_view.overwrite_entry_as_rich(pending_entry_index, rich_text, attack_event_id)
-
-	# ── FEAT-005 (US-005, ADR-004): the enemy target's OWN Dodge-Step —
-	# a successful reactive Dodge (resolve_reactive()'s "defender_stepped"
-	# key, surfaced verbatim from core/rules/resolution.gd, see
-	# resolve_action_use_case.gd's _finalize_strike_result() doc) entitles
-	# the Skeleton to relocate to an adjacent hex, exactly like the
-	# player's own Dodge-Step (round_session.gd's `_resolve_dodge_step_prompt()`)
-	# -- but resolved SYNCHRONOUSLY via infrastructure/ai_hex_choice_resolver.gd's
-	# AIHexChoiceResolver instead of the real, blocking `_UIHexChoiceResolver`
-	# pop-up, so the enemy's own reaction never opens a hex-selection prompt
-	# for the player to answer. See _resolve_enemy_dodge_step()'s own doc. ──
-	await _resolve_enemy_dodge_step(
-		target, result, actor.get("hex_coord", null), _query_selectable_step_hexes(_strike_target_id(target))
-	)
-
-	return result
+	return await _strike_action().execute(selection)
 
 
-## _resolve_enemy_dodge_step(target, resolve_result, attacker_hex, legal_hexes)
-## -> void — FEAT-005 (US-005, ADR-004): mirrors core/application/
-## round_session.gd's own `_resolve_dodge_step_prompt()` EXACTLY (ADR-001/
-## ADR-002 "no duplicate seam") for the player-strikes-ENEMY path: when
-## `resolve_result["defender_stepped"]` is true (a genuinely successful
-## reactive Dodge, per resolve_action_use_case.gd's resolve_reactive()),
-## delegates the ENTIRE whether/how-to-relocate decision to the SAME
-## `ResolveDodgeStepUseCaseClass` round_session.gd's seam already consumes —
-## this method's only job is assembling that use case's inputs:
-##   - `defender_id`             — target's "combatant_id" falling back to
-##                                 "name" (this file's established identity
-##                                 convention, `_strike_target_id()`).
-##   - `legal_hexes`             — handed in verbatim by the caller (computed
-##                                 via `_query_selectable_step_hexes()`, the
-##                                 SAME IStepHexQueryPort query
-##                                 round_session.gd's own Dodge-Step prompt
-##                                 uses — ADR-002 "no duplicate adjacency
-##                                 rule") rather than recomputed here, so a
-##                                 test can force the "zero legal adjacent
-##                                 hex" edge case (US-005's second
-##                                 test_criterion) without any Godot-level
-##                                 monkey-patching.
-##   - `hex_choice_resolver_fn`  — a FRESH `AIHexChoiceResolverClass`
-##                                 instance constructed around `attacker_hex`
-##                                 (the acting player's own hex_coord, so the
-##                                 "keep melee reach on the original attacker"
-##                                 heuristic has the attacker's real position
-##                                 to test against) — NEVER the real, blocking
-##                                 `_UIHexChoiceResolver`/`hex_choice_resolver`
-##                                 field (which stays reserved for the
-##                                 PLAYER's own Dodge-Step). No pop-up, no
-##                                 hex_grid_view.set_selectable_hexes()
-##                                 highlight is ever triggered by this path
-##                                 (this feature's "no pop-up/highlight"
-##                                 test criterion) — AIHexChoiceResolver.resolve()
-##                                 is a plain, synchronous function.
-##   - `token_reposition_fn`/`target` — the SAME `hex_grid_view.move_token`
-##                                 seam / live `target` Dictionary reference
-##                                 round_session.gd's own Dodge-Step reposition
-##                                 (FEAT-004) already threads through, so a
-##                                 chosen hex visibly relocates BOTH the
-##                                 Skeleton's Combatant.hex_coord and its
-##                                 on-screen token — never a second, parallel
-##                                 reposition implementation (ADR-002 "no
-##                                 duplicate seam", ci/check_no_duplicate_seams.sh's
-##                                 own move_token() singularity guarantee).
-##
-## A complete no-op (no use-case call, no reposition) whenever
-## `resolve_result["defender_stepped"]` is false — the overwhelmingly common
-## case for every Strike (a miss without Dodge, a hit, a failed Dodge, ...).
-## ResolveDodgeStepUseCase's own guard clauses additionally degrade an empty
-## `legal_hexes` to "no prompt, no reposition, damage still negated" (US-005's
-## "no legal adjacent hex" edge case) — this method never re-derives that
-## logic itself.
-func _resolve_enemy_dodge_step(target: Dictionary, resolve_result: Dictionary, attacker_hex, legal_hexes: Array) -> void:
-	if not resolve_result.get("defender_stepped", false):
-		return
-
-	var defender_id: String = _strike_target_id(target)
-	var ai_hex_resolver := AIHexChoiceResolverClass.new(attacker_hex)
-	var token_reposition_fn: Callable = Callable()
-	if hex_grid_view != null:
-		token_reposition_fn = Callable(hex_grid_view, "move_token")
-
-	var use_case := ResolveDodgeStepUseCaseClass.new()
-	await use_case.resolve(
-		defender_id, true, legal_hexes, Callable(ai_hex_resolver, "resolve"),
-		token_reposition_fn, target
-	)
-
-
-## _strike_reachable_targets() -> Array — FEAT-006 (US-006): the in-reach
-## target filter the now-removed presentation/strike_action_control.gd used
-## to compute (a UX mirror of resolve_action_use_case.gd's OWN reach
-## precondition, never a re-derived domain rule, ADR-001), relocated here
-## since Strike no longer has a dedicated presentation control. Computed
-## fresh from the LIVE round_session.current_actor()/`_enemies` on every
-## call -- never a cached snapshot from a prior configure()-style call -- so
-## this can never go stale between turns/moves.
-##
-## Mirrors resolve_action_use_case.gd's _is_ranged_weapon()/_is_in_range()
-## branch exactly: an actor whose "weapon" Dictionary carries "range_hexes"
-## reaches by HexMath.hex_distance() <= range_hexes; every other (melee)
-## actor reaches by HexMath.hex_neighbors() membership.
-func _strike_reachable_targets() -> Array:
-	if round_session == null:
-		return []
-
-	var actor: Dictionary = round_session.current_actor()
-	var actor_hex = actor.get("hex_coord", null)
-	if actor_hex == null:
-		return []
-
-	var candidates: Array = _living_combatants(_enemies)
-	var in_reach: Array = []
-
-	if _strike_actor_is_ranged(actor):
-		var range_hexes: int = actor.get("weapon", {}).get("range_hexes", 1)
-		for target in candidates:
-			var target_hex = target.get("hex_coord", null)
-			if target_hex != null and HexMathClass.hex_distance(actor_hex, target_hex) <= range_hexes:
-				in_reach.append(target)
-		return in_reach
-
-	var neighbors: Array = HexMathClass.hex_neighbors(actor_hex)
-	for target in candidates:
-		var target_hex = target.get("hex_coord", null)
-		if target_hex == null:
-			continue
-		for neighbor in neighbors:
-			if neighbor.equals(target_hex):
-				in_reach.append(target)
-				break
-	return in_reach
-
-
-## _strike_actor_is_ranged(actor) -> bool -- mirrors the removed
-## strike_action_control.gd's/resolve_action_use_case.gd's identically-
-## behaved _is_ranged_weapon() helper exactly.
-func _strike_actor_is_ranged(actor: Dictionary) -> bool:
-	return actor.get("weapon", {}).has("range_hexes")
-
-
-## _strike_target_id(target) -> String -- the SAME "combatant_id" falling
-## back to "name" identity convention used throughout this file/
-## resolve_action_use_case.gd.
-func _strike_target_id(target: Dictionary) -> String:
-	return target.get("combatant_id", target.get("name", ""))
-
-
-## _strike_reachable_target_ids() -> Array[String] -- the target_id of every
-## currently in-reach Strike target, in the same order _strike_reachable_targets()
-## returns them.
+## _strike_reachable_target_ids() -> Array - thin shim to StrikeActionController
+## (kept because tests call it directly). strike_execute + the targeting helpers
+## (_strike_reachable_targets/_strike_actor_is_ranged/_strike_target_id/
+## _find_strike_reachable_target) moved into
+## presentation/strike_action_controller.gd.
 func _strike_reachable_target_ids() -> Array:
-	var ids: Array = []
-	for target in _strike_reachable_targets():
-		ids.append(_strike_target_id(target))
-	return ids
-
-
-## _find_strike_reachable_target(target_id) -> Dictionary -- looks up
-## target_id ONLY among the currently in-reach targets, never the wider
-## `_enemies` list -- the enforcement point ensuring a non-reachable target
-## can never be selected, even by id (mirrors the removed
-## strike_action_control.gd's _find_selectable_target()). Returns an empty
-## Dictionary (never null) when not found, matching this file's existing
-## "empty Dictionary == not found" convention (e.g. resolve_action_use_case.gd's
-## _is_target_invalid()).
-func _find_strike_reachable_target(target_id: String) -> Dictionary:
-	for target in _strike_reachable_targets():
-		if _strike_target_id(target) == target_id:
-			return target
-	return {}
+	return _strike_action().reachable_target_ids()
 
 
 ## _action_economy_for(combatant) -> ActionEconomy or null — iteration K
@@ -1657,8 +1221,7 @@ func _action_economy_for(combatant: Dictionary):
 ## fixture/test-double reactor), mirroring _action_economy_for()'s own
 ## documented "reaction untracked" degrade-safely contract.
 func _is_reactor_reaction_spent(reactor: Dictionary) -> bool:
-	var reactor_action_economy = _action_economy_for(reactor)
-	return reactor_action_economy.is_spent() if reactor_action_economy != null else false
+	return _reaction().is_reactor_reaction_spent(reactor)
 
 
 ## _resolve_enemy_stride_opportunistic_window(mover, mover_start_hex,
@@ -1686,16 +1249,7 @@ func _is_reactor_reaction_spent(reactor: Dictionary) -> bool:
 ## `_stride_toward_target()` can read `"mover_downed"` and cancel the Stride
 ## when a lethal opportunistic Strike defeats `mover`.
 func _resolve_enemy_stride_opportunistic_window(mover: Dictionary, mover_start_hex, candidate_reactors: Array) -> Dictionary:
-	var use_case := ResolveStrideUseCaseClass.new()
-	return await use_case.execute(
-		mover, mover_start_hex, candidate_reactors,
-		Callable(self, "_is_reactor_reaction_spent"),
-		Callable(self, "_resolve_player_opportunistic_strike_reaction"),
-		resolve_action_use_case,
-		Callable(self, "_action_economy_for"),
-		ROUND_NUMBER,
-		0
-	)
+	return await _reaction().resolve_enemy_stride_opportunistic_window(mover, mover_start_hex, candidate_reactors)
 
 
 ## _resolve_player_opportunistic_strike_reaction(reactor, context) ->
@@ -1713,12 +1267,7 @@ func _resolve_enemy_stride_opportunistic_window(mover: Dictionary, mover_start_h
 ## ({"choice": "none"}) when `turn_controller` is unwired (never
 ## crashes/hangs).
 func _resolve_player_opportunistic_strike_reaction(reactor: Dictionary, context: Dictionary) -> Dictionary:
-	if turn_controller == null:
-		return {"choice": "none"}
-
-	return await turn_controller.resolve_opportunistic_strike_reaction(
-		reactor, context, _action_economy_for(reactor), ROUND_NUMBER
-	)
+	return await _reaction().resolve_player_opportunistic_strike_reaction(reactor, context)
 
 
 ## _resolve_enemy_opportunistic_strike_reaction(reactor, context) ->
@@ -1733,19 +1282,7 @@ func _resolve_player_opportunistic_strike_reaction(reactor: Dictionary, context:
 ## _verb_bar_strike_execute()'s identical iteration-K "no pop-up UI opens
 ## during the enemy's reaction window" contract for Strikes).
 func _resolve_enemy_opportunistic_strike_reaction(reactor: Dictionary, context: Dictionary) -> Dictionary:
-	var reaction_context: Dictionary = context.duplicate()
-	var reactor_action_economy = _action_economy_for(reactor)
-	if reactor_action_economy != null:
-		reaction_context["action_current"] = reactor_action_economy.get_remaining()
-
-	var open_use_case := OpenReactionWindowUseCaseClass.new()
-	var choice: String = open_use_case.open(
-		OpenReactionWindowUseCaseClass.WINDOW_OPPORTUNISTIC_STRIKE,
-		OpenReactionWindowUseCaseClass.legal_opportunistic_strike_reactions(),
-		reaction_context,
-		enemy_reaction_chooser
-	)
-	return {"choice": choice}
+	return _reaction().resolve_enemy_opportunistic_strike_reaction(reactor, context)
 
 
 ## _verb_bar_step_availability() -> bool -- FEAT-002 (US-002 / FR-003 /
@@ -1757,14 +1294,11 @@ func _resolve_enemy_opportunistic_strike_reaction(reactor: Dictionary, context: 
 ## one legal Step destination" check. This function only READS
 ## can_take_movement_action(); it never mutates the domain gate itself.
 func _verb_bar_step_availability() -> bool:
-	var action_economy = _verb_bar_current_action_economy()
-	if action_economy != null and not action_economy.can_take_movement_action():
-		return false
-	return movement_input_controller.get_selectable_step_hexes().size() > 0
+	return _step_action().availability()
 
 
 func _verb_bar_step_enter_selection() -> Dictionary:
-	return {"verb_id": "STEP", "candidate_hexes": movement_input_controller.get_selectable_step_hexes(), "candidate_targets": []}
+	return _step_action().enter_selection()
 
 
 ## _verb_bar_step_execute(selection) -> Dictionary — FEAT-007 (this
@@ -1776,10 +1310,7 @@ func _verb_bar_step_enter_selection() -> Dictionary:
 ## success, runs the SAME post-move refresh
 ## (_after_successful_move()) that handler used to run.
 func _verb_bar_step_execute(selection) -> Dictionary:
-	var result: Dictionary = movement_input_controller.step_to(selection)
-	if result.get("ok", false):
-		_after_successful_move()
-	return result
+	return _step_action().execute(selection)
 
 
 ## _verb_bar_stride_availability() -> bool -- FEAT-002 (US-002 / FR-003 /
@@ -1799,15 +1330,11 @@ func _verb_bar_step_execute(selection) -> Dictionary:
 ## only READS can_take_movement_action()/can_take_action(); it never mutates
 ## either domain gate itself.
 func _verb_bar_stride_availability() -> bool:
-	var action_economy = _verb_bar_current_action_economy()
-	if action_economy != null and not action_economy.can_take_movement_action():
-		return false
-	var can_act: bool = action_economy.can_take_action() if action_economy != null else false
-	return can_act and movement_input_controller.get_selectable_stride_hexes().size() > 0
+	return _stride_action().availability()
 
 
 func _verb_bar_stride_enter_selection() -> Dictionary:
-	return {"verb_id": "STRIDE", "candidate_hexes": movement_input_controller.get_selectable_stride_hexes(), "candidate_targets": []}
+	return _stride_action().enter_selection()
 
 
 ## _verb_bar_stride_execute(selection) -> Dictionary — FEAT-007 (this
@@ -1873,55 +1400,24 @@ func _verb_bar_stride_enter_selection() -> Dictionary:
 ## `encounter.get_turn_order()` (the authoritative initiative table) rather
 ## than merely internally sorted.
 func _verb_bar_stride_execute(selection) -> Dictionary:
-	var actor_id: String = round_session.current_actor().get("combatant_id", "") if round_session != null else ""
-	var action_economy = _verb_bar_current_action_economy()
-
-	var actor: Dictionary = round_session.current_actor() if round_session != null else {}
-	var mover_start_hex = actor.get("hex_coord", null)
-	if not actor.is_empty() and mover_start_hex != null:
-		var candidate_reactors: Array = _order_candidate_reactors_by_initiative(_living_combatants(_enemies))
-		if encounter != null:
-			_assert_candidate_reactors_ordering(candidate_reactors, encounter.get_turn_order())
-		var use_case := ResolveStrideUseCaseClass.new()
-		var opportunistic_result: Dictionary = await use_case.execute(
-			actor, mover_start_hex, candidate_reactors,
-			Callable(self, "_is_reactor_reaction_spent"),
-			Callable(self, "_resolve_enemy_opportunistic_strike_reaction"),
-			resolve_action_use_case,
-			Callable(self, "_action_economy_for"),
-			ROUND_NUMBER,
-			0
-		)
-		if not opportunistic_result.get("stride_should_commit", true):
-			return {"ok": false, "resolved": false, "error": "ERR_MOVER_DOWNED_BY_OPPORTUNISTIC_STRIKE"}
-
-	var result: Dictionary = movement_input_controller.stride_to(selection)
-	if result.get("ok", false):
-		_after_successful_move()
-		if status_panel_view != null and actor_id != "" and action_economy != null:
-			status_panel_view.on_verb_action_budget_changed(
-				actor_id, action_economy.get_remaining(), action_economy.is_spent()
-			)
-	return result
+	return await _stride_action().execute(selection)
 
 
+## The END_TURN verb's availability/enter_selection/execute are delegated to
+## presentation/end_turn_action_controller.gd (EndTurnActionController, a concrete
+## ActionController subclass). These thin shims keep the VerbBarRegistry's
+## Callable(self, "_verb_bar_end_turn_*") registrations and the direct-call tests
+## unchanged.
 func _verb_bar_end_turn_availability() -> bool:
-	return true
+	return _end_turn_action().availability()
 
 
-## End Turn has no Layer 2 (design notes: "no Layer 2, per spec") -- this
-## closure exists only so the generic dispatch contract is uniform across
-## every verb; VerbBarView.press() calls execute() directly for END_TURN and
-## never enter_selection() in practice (mirrors core/application/
-## verb_registry.py's end_turn_enter_selection() doc exactly).
 func _verb_bar_end_turn_enter_selection() -> Dictionary:
-	return {"verb_id": "END_TURN", "candidate_hexes": [], "candidate_targets": []}
+	return _end_turn_action().enter_selection()
 
 
 func _verb_bar_end_turn_execute(_selection = null) -> Dictionary:
-	if end_turn_control == null:
-		return {"ok": false}
-	return end_turn_control.press()
+	return _end_turn_action().execute(_selection)
 
 
 ## _on_verb_bar_selection_entered(verb_id, selection) -> void — FEAT-008 /
@@ -1953,163 +1449,127 @@ func _on_selection_overlay_resolved(_verb_id: String, _result) -> void:
 	if round_session != null:
 		var actor: Dictionary = round_session.current_actor()
 		var actor_id: String = actor.get("combatant_id", actor.get("name", ""))
-		_highlight_legal_moves(actor, actor_id)
+		_turn_presentation().highlight_legal_moves(actor, actor_id)
 
 
-## _on_active_actor_changed(combatant) -> void — TurnController
-## (presentation/turn_controller.gd) emits this once it settles on a new
-## (player) current actor, whether at boot or after auto-driving a run of
-## Enemy turns (FEAT-123 / FIND-120). Reconfigures movement_input_controller
-## with the live actor/action-economy/live-target data TurnController itself
-## does not own (see turn_controller.gd's documented division of
-## responsibility) so its Step/Stride affordance stays live for whichever
-## combatant's turn it now is -- no separate data path of its own.
-##
-## FEAT-006: this no longer also reconfigures a strike_action_control (that
-## node was removed) -- STRIKE's availability/candidate-target closures
-## (_verb_bar_strike_availability()/_verb_bar_strike_enter_selection()/
-## _verb_bar_strike_execute()) read round_session.current_actor()/`_enemies`
-## directly and fresh on every call instead, so there is no per-turn snapshot
-## to (re)push here at all.
+## _turn_presentation() — lazily builds (once) and returns the extracted
+## TurnPresentationController, injecting the stable RoundSessionHolder + view
+## collaborators + a Callable to the _other_living_combatants roster query. See
+## the _turn_presentation_instance field doc for why this is lazy, not @onready.
+func _turn_presentation():
+	if _turn_presentation_instance == null:
+		_turn_presentation_instance = TurnPresentationControllerClass.new(
+			_round_session_holder,
+			movement_input_controller,
+			hex_grid_view,
+			verb_bar_view,
+			status_panel_view,
+			Callable(self, "_other_living_combatants")
+		)
+	return _turn_presentation_instance
+
+
+## _current_round_number() -> int - live accessor for the mutable ROUND_NUMBER,
+## injected into ReactionController as a Callable so its round-number reads never
+## go stale across a round rollover.
+func _current_round_number() -> int:
+	return ROUND_NUMBER
+
+
+## _reaction() - lazily builds (once) and returns the extracted
+## ReactionController, injecting the shared _action_economy_for lookup and the
+## live ROUND_NUMBER as Callables plus the stable composition-root references.
+## Lazy (like _turn_presentation) so it works both booted and under a `.new()`
+## test that drives a reaction seam without _ready().
+func _reaction():
+	if _reaction_instance == null:
+		_reaction_instance = ReactionControllerClass.new(
+			Callable(self, "_action_economy_for"),
+			Callable(self, "_current_round_number"),
+			resolve_action_use_case,
+			turn_controller,
+			enemy_reaction_chooser,
+			hex_grid_view
+		)
+	return _reaction_instance
+
+
+## _end_turn_action() — lazily builds (once) and returns the EndTurnActionController
+## (the first concrete ActionController subclass). Lazy like the other controllers
+## so it serves both a booted MainScene and a `.new()` test driving the verb.
+func _end_turn_action():
+	if _end_turn_action_instance == null:
+		_end_turn_action_instance = EndTurnActionControllerClass.new(_round_session_holder, end_turn_control)
+	return _end_turn_action_instance
+
+
+## _step_action() / _stride_action() - lazily build the STEP/STRIDE
+## ActionController subclasses (see _end_turn_action()).
+func _step_action():
+	if _step_action_instance == null:
+		_step_action_instance = StepActionControllerClass.new(
+			_round_session_holder,
+			movement_input_controller,
+			Callable(self, "_after_successful_move")
+		)
+	return _step_action_instance
+
+
+func _stride_action():
+	if _stride_action_instance == null:
+		_stride_action_instance = StrideActionControllerClass.new(
+			_round_session_holder,
+			movement_input_controller,
+			status_panel_view,
+			resolve_action_use_case,
+			_reaction(),
+			Callable(self, "_action_economy_for"),
+			Callable(self, "_current_round_number"),
+			Callable(self, "_after_successful_move"),
+			Callable(self, "_living_enemy_reactors"),
+			Callable(self, "_current_turn_order")
+		)
+	return _stride_action_instance
+
+
+func _strike_action():
+	if _strike_action_instance == null:
+		_strike_action_instance = StrikeActionControllerClass.new(
+			_round_session_holder,
+			resolve_action_use_case,
+			event_log_view,
+			status_panel_view,
+			enemy_reaction_chooser,
+			_reaction(),
+			Callable(self, "_action_economy_for"),
+			Callable(self, "_current_round_number"),
+			Callable(self, "_living_enemy_reactors"),
+			Callable(self, "_query_selectable_step_hexes")
+		)
+	return _strike_action_instance
+
+
+## _living_enemy_reactors() -> the living-enemy reactor pool (spawn order)
+## StrideActionController orders by initiative. _current_turn_order() -> the
+## authoritative rolled initiative table (or null when no encounter yet), for the
+## fail-loud ordering guard.
+func _living_enemy_reactors() -> Array:
+	return _living_combatants(_enemies)
+
+
+func _current_turn_order():
+	return encounter.get_turn_order() if encounter != null else null
+
+
+## _on_active_actor_changed(combatant) -> void - thin delegation to
+## presentation/turn_presentation_controller.gd (TurnPresentationController),
+## which owns the turn-started presentation reaction (movement reconfigure +
+## legal-move highlight + verb-bar re-gate + action-budget refresh). Retained as
+## MainScene's seam: TurnController's active_actor_changed signal and the booted
+## integration tests drive it here. The controller is built lazily on first use
+## and reaches the live session via the RoundSessionHolder.
 func _on_active_actor_changed(combatant: Dictionary) -> void:
-	if round_session == null:
-		return
-	var action_economy = round_session.current_action_economy()
-	var active_combatant_id: String = combatant.get("combatant_id", combatant.get("name", ""))
-
-	movement_input_controller.configure(
-		combatant,
-		_other_living_combatants(combatant),
-		hex_grid_view,
-		active_combatant_id,
-		action_economy
-	)
-
-	_highlight_legal_moves(combatant, active_combatant_id)
-
-	# FEAT-004 / US-004/FR-001: re-gate the Layer 1 verb bar for whoever the
-	# turn now belongs to -- movement_input_controller above is now configured
-	# for the NEW actor, and STRIKE's closures read round_session/`_enemies`
-	# live, so is_available() reflects current state, never a stale
-	# prior-actor's gating.
-	if verb_bar_view != null:
-		verb_bar_view.refresh_availability()
-
-	# FEAT-006 (enemy-Stride display fix): re-push EVERY combatant's action
-	# budget now that control has settled back on a player after any auto-driven
-	# Enemy turn(s). A player Stride pushes its own snapshot inline
-	# (_verb_bar_stride_execute), and any Strike updates the panel via its
-	# AttackEvent — but an Enemy Stride/WAIT (round_session.advance_ai_turn())
-	# spends a budget action while emitting no event at all, so the enemy row's
-	# Actions/Spent readout would otherwise stay stale. Reuses the SAME
-	# StatusPanelView.on_verb_action_budget_changed() the player-Stride path
-	# uses, driven off round_session.action_budget_snapshot() (the live,
-	# authoritative per-entry economies).
-	_refresh_all_action_budgets()
-
-
-## _refresh_all_action_budgets() -> void — pushes each combatant's current
-## Actions-remaining/Spent state to $StatusPanelView from
-## round_session.action_budget_snapshot(). Idempotent and safe to call whenever
-## control settles (after AI turns, on round-over) — it only READS the live
-## economies and forwards them through StatusPanelView's existing per-combatant
-## update contract; it never mutates a budget or derives one itself. A no-op
-## when no session/panel is wired.
-func _refresh_all_action_budgets() -> void:
-	if round_session == null or status_panel_view == null:
-		return
-	for row in round_session.action_budget_snapshot():
-		status_panel_view.on_verb_action_budget_changed(
-			row["combatant_id"], row["remaining"], row["spent"]
-		)
-
-
-## _highlight_legal_moves(combatant, active_combatant_id) -> void — FEAT-006 /
-## US-006 (FR-001, ADR-004): the turn_started handler's highlight step
-## (design notes' API contract #1 — this codebase realizes "turn_started" as
-## TurnController.active_actor_changed, see presentation/turn_controller.gd
-## and tests/infrastructure/test_presentation_stack_wiring.gd). Computes
-## union(movement_input_controller.get_selectable_step_hexes(),
-## get_selectable_stride_hexes()) for the NOW-configured actor and pushes it
-## to hex_grid_view.set_selectable_hexes() — fixing the P0-1 bug where this
-## call was never made at all: movement_input_controller.configure()'s own
-## internal push (presentation/movement_input_controller.gd's
-## _recompute_selectable_destinations()) only ever reports Step destinations,
-## never Stride, so this composition root explicitly re-asserts the WIDER
-## union here immediately afterward rather than relying on that internal
-## push alone.
-##
-## FEAT-007 (this iteration's US-007/FR-010): the union computed here is no
-## longer also handed to a move_action_control.configure() call --
-## presentation/MoveActionControl.gd (the passive "Move" indicator this used
-## to also drive) has been deleted; Step/Stride availability is now surfaced
-## entirely through $VerbBarView's STEP/STRIDE buttons (re-gated via
-## verb_bar_view.refresh_availability(), called by this method's caller,
-## _on_active_actor_changed(), immediately after this method returns).
-##
-## When `combatant` is not the active PLAYER (an enemy's turn), no highlight
-## may be shown at all (API contract #1) — this defensively clears
-## hex_grid_view instead, even though TurnController.active_actor_changed
-## only ever fires for a settled player actor today (see
-## presentation/turn_controller.gd's _drive()); this handler must not rely on
-## that invariant holding forever.
-##
-## Emits a structured debug log line (observability requirement) including
-## combatant_id and the Step/Stride hex counts that produced the highlighted
-## union, both to stdout (print(), matching this file's existing
-## ConsoleEventSinkAdapter.emit() convention) AND recorded on
-## `_last_highlight_debug_log` so GUT tests can assert on it directly.
-func _highlight_legal_moves(combatant: Dictionary, active_combatant_id: String) -> void:
-	var is_enemy_turn: bool = combatant.get("_is_enemy", false)
-
-	if is_enemy_turn:
-		if hex_grid_view != null:
-			hex_grid_view.set_selectable_hexes([])
-		_last_highlight_debug_log = (
-			"DEBUG: highlight_legal_moves combatant_id=" + active_combatant_id
-			+ " step_hex_count=0 stride_hex_count=0 (non-player turn, highlight suppressed)"
-		)
-		print(_last_highlight_debug_log)
-		return
-
-	var step_hexes: Array = movement_input_controller.get_selectable_step_hexes()
-	var stride_hexes: Array = movement_input_controller.get_selectable_stride_hexes()
-	var union_hexes: Array = _union_hexes(step_hexes, stride_hexes)
-
-	if hex_grid_view != null:
-		hex_grid_view.set_selectable_hexes(union_hexes)
-
-	_last_highlight_debug_log = (
-		"DEBUG: highlight_legal_moves combatant_id=" + active_combatant_id
-		+ " step_hex_count=" + str(step_hexes.size())
-		+ " stride_hex_count=" + str(stride_hexes.size())
-	)
-	print(_last_highlight_debug_log)
-
-
-## _union_hexes(step_hexes, stride_hexes) -> Array — the deduplicated union of
-## two HexCoord arrays, compared via core/geometry/hex_coord.gd's equals()
-## (the same equality convention used throughout this codebase, e.g.
-## presentation/movement_input_controller.gd's _find_selectable()). Every
-## legal Step destination is currently also always a legal Stride
-## destination (both apply the identical unoccupied check at distance 1 —
-## see core/rules/movement.gd's file-level doc), so this reduces to
-## stride_hexes today — but is computed as an explicit union (never just
-## returning stride_hexes) so this stays correct even if that relationship
-## between the two rules ever changes.
-func _union_hexes(step_hexes: Array, stride_hexes: Array) -> Array:
-	var union_hexes: Array = []
-	for hex_coord in step_hexes:
-		union_hexes.append(hex_coord)
-	for hex_coord in stride_hexes:
-		var already_included: bool = false
-		for existing in union_hexes:
-			if existing.equals(hex_coord):
-				already_included = true
-				break
-		if not already_included:
-			union_hexes.append(hex_coord)
-	return union_hexes
+	_turn_presentation().on_active_actor_changed(combatant)
 
 
 ## _on_round_over() -> void — TurnController emits this once the held
@@ -2356,22 +1816,7 @@ func _living_combatants(combatants: Array) -> Array:
 ## initiative order silently resolved Opportunistic Strikes out of turn
 ## order, with nothing to catch the discrepancy.
 func _order_candidate_reactors_by_initiative(candidates: Array) -> Array:
-	var indexed: Array = []
-	for i in range(candidates.size()):
-		indexed.append({"candidate": candidates[i], "spawn_index": i})
-
-	indexed.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		var roll_a: int = a["candidate"].get("_initiative_roll", 0)
-		var roll_b: int = b["candidate"].get("_initiative_roll", 0)
-		if roll_a == roll_b:
-			return a["spawn_index"] < b["spawn_index"]
-		return roll_a > roll_b
-	)
-
-	var ordered: Array = []
-	for entry in indexed:
-		ordered.append(entry["candidate"])
-	return ordered
+	return _reaction().order_candidate_reactors_by_initiative(candidates)
 
 
 ## _assert_candidate_reactors_ordering(ordered_candidates, turn_order) -> bool
@@ -2406,37 +1851,7 @@ func _order_candidate_reactors_by_initiative(candidates: Array) -> Array:
 ## directly via this method's own return value, exactly as
 ## assert_reaction_budget_delta() already established.
 func _assert_candidate_reactors_ordering(ordered_candidates: Array, turn_order: Array) -> bool:
-	var turn_order_index: Dictionary = {}
-	for i in range(turn_order.size()):
-		var entry_id: String = turn_order[i].get("combatant_id", turn_order[i].get("name", ""))
-		turn_order_index[entry_id] = i
-
-	var last_index: int = -1
-	for candidate in ordered_candidates:
-		var candidate_id: String = candidate.get("combatant_id", candidate.get("name", ""))
-
-		if not turn_order_index.has(candidate_id):
-			var missing_message: String = (
-				"MainScene: Opportunistic Strike candidate reactor '%s' is absent from encounter.get_turn_order() -- ordering cannot be verified against the rolled initiative table"
-				% candidate_id
-			)
-			assert(false, missing_message)
-			push_error(missing_message)
-			return false
-
-		var index: int = turn_order_index[candidate_id]
-		if index < last_index:
-			var order_message: String = (
-				"MainScene: Opportunistic Strike candidate_reactors ordering violates the rolled initiative table -- '%s' (turn_order index %d) resolved out of initiative order (previous candidate's turn_order index %d)"
-				% [candidate_id, index, last_index]
-			)
-			assert(false, order_message)
-			push_error(order_message)
-			return false
-
-		last_index = index
-
-	return true
+	return _reaction().assert_candidate_reactors_ordering(ordered_candidates, turn_order)
 
 
 ## _refresh_off_guard_conditions() -> void — FEAT-015 (US-015 / FR-016);
@@ -2485,304 +1900,16 @@ func _refresh_off_guard_conditions() -> void:
 			status_panel_view.set_off_guard(combatant_id, off_guard)
 
 
-## _build_party_combatant(character_path, hex_coord, combatant_id) -> Dictionary
-##
-## Builds the Dictionary shape core/application/resolve_action_use_case.gd
-## expects (US-004 reuses the existing party pipeline) from a
-## CharacterResource, its class_ref, and the first WeaponResource /
-## ArmorResource found among its starting_equipment. hex_coord (a
-## core/geometry/hex_coord.gd HexCoord, or null) is attached so melee
-## reach-gating (US-003) applies when present. combatant_id (the domain
-## Combatant's stable id from ResourceEncounterRepository, or "") is
-## attached so Presentation controls (StrikeActionControl/StatusPanelView)
-## can identify this combatant consistently with HexGridView's tokens.
+## _build_party_combatant / _build_enemy_combatant - thin delegations to
+## infrastructure/combatant_factory.gd (CombatantFactory), where the party/enemy
+## construction + FEAT-227 fail-fast validation now lives (composition-root
+## de-bloat, 2026-07-10). These shims preserve the _ready() call sites and the
+## existing direct-call test surface. See CombatantFactory for the typed ERR_
+## codes and full rationale; a caller MUST still check result.has("error") on
+## the enemy build before treating it as a playable combatant.
 func _build_party_combatant(character_path: String, hex_coord, combatant_id: String = "") -> Dictionary:
-	var character = ResourceLoader.load(character_path)
-	var class_data = character.class_ref
-
-	var weapon_res = null
-	var armor_res = null
-	for equip_path in character.starting_equipment:
-		var equip = ResourceLoader.load(equip_path)
-		if equip is WeaponResourceClass:
-			weapon_res = equip
-		elif equip is ArmorResourceClass:
-			armor_res = equip
-
-	var attrs := AttributesClass.new(RNGClass.new(0))
-	var hp: int = attrs.compute_hp(character.attributes, class_data)
-	var ac: int = attrs.compute_ac(character.attributes, armor_res.ac_base, armor_res.category)
-	var stamina: int = attrs.compute_stamina(character.attributes, class_data)
-
-	var combatant: Dictionary = {
-		"name":       character.name,
-		"hp_current": hp,
-		"hp_max":     hp,
-		"stamina":    stamina,
-		"ac":         ac,
-		"strength":   character.attributes.get("strength",  0),
-		"dexterity":  character.attributes.get("dexterity", 0),
-		"intuition":  character.attributes.get("intuition", 0),
-		"weapon": {
-			"damage_modifier_attribute": weapon_res.damage_modifier_attribute,
-			"proficiency_bonus":         weapon_res.proficiency_bonus,
-			"damage_die":                weapon_res.damage_die,
-			# FEAT-006 real-play fix: carry the DEFENSIVE reaction fields too, so
-			# the live reaction window can offer Parry/Block (not just Dodge) and
-			# resolution.gd's Parry/Block math has the values it needs. Without
-			# these, is_parry_eligible()/is_block_eligible() read 0 and the pop-up
-			# only ever shows Dodge — the reaction-window aggregation + weapon data
-			# (parry_bonus/block_value on the WeaponResource) were correct, this
-			# composition-root combatant build was the sole missing link.
-			"parry_bonus":               weapon_res.parry_bonus,
-			"block_value":               weapon_res.block_value,
-			"block_die":                 weapon_res.block_die
-		}
-	}
-	if hex_coord != null:
-		combatant["hex_coord"] = hex_coord
-	if combatant_id != "":
-		combatant["combatant_id"] = combatant_id
-	return combatant
+	return _combatant_factory.build_party_combatant(character_path, hex_coord, combatant_id)
 
 
-## _fail_enemy_resource_load(error_code, message, enemy_path) -> Dictionary
-##
-## FEAT-227 (US-001 / FR-001, resolves FIND-223): the single shared
-## fail-fast exit point _build_enemy_combatant() routes every load/sanity
-## validation failure through. Logs via push_error() (this project's
-## established non-aborting diagnostic call — see e.g.
-## core/application/resolve_action_use_case.gd's identical push_error()-
-## then-continue convention) and returns the typed error Dictionary shape
-## ({"error": error_code, "enemy_path": enemy_path}) in place of a valid
-## combatant, so a caller/test can observe the failure directly.
-##
-## NOTE: deliberately does NOT use a real GDScript assert() here (unlike
-## core/application/reaction_window.gd's assert_reaction_budget_delta()).
-## Empirically, under this project's headless Godot 4.3 CLI test run (no
-## debugger attached), a failing assert() does not merely log and
-## continue as documented elsewhere in this codebase -- it unwinds the
-## CURRENT function immediately, so the push_error()/return lines below it
-## never execute and the caller instead observes the function's bare
-## default return value ({} for a Dictionary), silently defeating the very
-## typed-error contract this function exists to provide. push_error()
-## alone is both sufficient (it is this project's genuinely non-aborting
-## logging call) and correct here.
-func _fail_enemy_resource_load(error_code: String, message: String, enemy_path: String) -> Dictionary:
-	var full_message: String = "MainScene._build_enemy_combatant(%s): %s" % [enemy_path, message]
-	push_error(full_message)
-	return {"error": error_code, "enemy_path": enemy_path}
-
-
-## _build_enemy_combatant(enemy_path, hex_coord, combatant_id) -> Dictionary
-##
-## Builds the Dictionary shape core/application/resolve_action_use_case.gd
-## expects from an EnemyResource. hex_coord (a core/geometry/hex_coord.gd
-## HexCoord, or null) is attached so melee reach-gating (US-003) applies
-## when present. combatant_id (see _build_party_combatant() above) is
-## attached so Presentation controls can identify this combatant
-## consistently with HexGridView's tokens.
-##
-## FEAT-008 (US-008 / FR-008, ADR-106): ac/fortitude/reflex/will are read
-## DIRECTLY from the loaded EnemyResource's own authored fields (data/
-## enemies/enemy_resource.gd, populated e.g. by data/enemies/skeleton.tres —
-## ac=14, fortitude=13, reflex=12, will=12) — never a hard-coded fallback
-## constant. The previous placeholder AC constant this file used to fall
-## back to has been removed entirely: a Strike against an EnemyResource-built
-## target rolls against that resource's OWN authored AC (14 for the
-## Skeleton), closing the steel thread's exit criterion. core/sim/
-## simulator.gd's own combatant-construction path reads these same four
-## fields from the same EnemyResource source (see that file), so the sim
-## and the live game can never silently diverge on enemy defenses.
-##
-## FEAT-227 (US-001 / FR-001, resolves FIND-223): fail-fast-at-load
-## validation. Previously ResourceLoader.load(enemy_path) was never null
-## checked (a missing/unresolvable path crashed reaching into a null
-## Resource's fields) and the weapon fields it threads through
-## (damage_die/proficiency_bonus/parry_bonus/block_value/block_die) were
-## read with no range/sanity validation at all, so malformed authored data
-## (e.g. a never-authored empty weapon Dictionary, or a negative die size)
-## silently produced a "dead on arrival" combatant instead of failing
-## loudly. This function now returns a typed error Dictionary
-## ({"error": <ERR_ code>, "enemy_path": enemy_path} — see the ERR_
-## constants above _fail_enemy_resource_load()) in place of a valid
-## combatant shape whenever the resource fails to load or its weapon data
-## is malformed, and additionally fires assert()+push_error() for defense
-## in depth — this project's established fail-fast idiom (mirrors
-## core/application/reaction_window.gd's assert_reaction_budget_delta():
-## this project's Godot 4.3 engine cannot reliably capture
-## assert()/push_error() output from GUT, so the typed "error" key is the
-## channel a caller/test observes directly). A caller MUST check
-## result.has("error") before treating the return value as a playable
-## combatant.
 func _build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String = "") -> Dictionary:
-	var enemy = ResourceLoader.load(enemy_path)
-	if enemy == null:
-		return _fail_enemy_resource_load(
-			ERR_ENEMY_RESOURCE_LOAD_FAILED,
-			"ResourceLoader.load() returned null -- the EnemyResource path is missing or failed to load",
-			enemy_path
-		)
-
-	var weapon: Dictionary = enemy.weapon
-	if not weapon.has("die"):
-		return _fail_enemy_resource_load(
-			ERR_ENEMY_RESOURCE_WEAPON_UNRESOLVABLE,
-			"EnemyResource.weapon has no resolvable weapon data (missing 'die') -- refusing to default to a phantom weapon",
-			enemy_path
-		)
-
-	var damage_die: int = weapon.get("die", 6)
-	if damage_die < 0:
-		return _fail_enemy_resource_load(
-			ERR_ENEMY_RESOURCE_INVALID_WEAPON_FIELD,
-			"weapon.die (damage_die) must be non-negative; got %d" % damage_die,
-			enemy_path
-		)
-
-	var proficiency_bonus: int = weapon.get("proficiency_bonus", 1)
-	if proficiency_bonus < 0:
-		return _fail_enemy_resource_load(
-			ERR_ENEMY_RESOURCE_INVALID_WEAPON_FIELD,
-			"weapon.proficiency_bonus must be non-negative; got %d" % proficiency_bonus,
-			enemy_path
-		)
-
-	if enemy.parry_bonus < 0:
-		return _fail_enemy_resource_load(
-			ERR_ENEMY_RESOURCE_INVALID_WEAPON_FIELD,
-			"parry_bonus must be non-negative; got %d" % enemy.parry_bonus,
-			enemy_path
-		)
-
-	if enemy.block_value < 0:
-		return _fail_enemy_resource_load(
-			ERR_ENEMY_RESOURCE_INVALID_WEAPON_FIELD,
-			"block_value must be non-negative; got %d" % enemy.block_value,
-			enemy_path
-		)
-
-	if enemy.block_die < 0:
-		return _fail_enemy_resource_load(
-			ERR_ENEMY_RESOURCE_INVALID_WEAPON_FIELD,
-			"block_die must be non-negative; got %d" % enemy.block_die,
-			enemy_path
-		)
-
-	var attribute_map: Dictionary = {"str": "strength", "dex": "dexterity"}
-	var raw_attribute: String = weapon.get("attribute", "strength")
-	var weapon_attribute: String = attribute_map.get(raw_attribute, raw_attribute)
-
-	var combatant: Dictionary = {
-		"name":       enemy.name,
-		"hp_current": enemy.hp,
-		"hp_max":     enemy.hp,
-		"stamina":    0,
-		"ac":         enemy.ac,
-		"fortitude":  enemy.fortitude,
-		"reflex":     enemy.reflex,
-		"will":       enemy.will,
-		"strength":   enemy.str,
-		"dexterity":  enemy.dex,
-		"intuition":  enemy.intuition,
-		"weapon": {
-			"damage_modifier_attribute": weapon_attribute,
-			"proficiency_bonus":         proficiency_bonus,
-			"damage_die":                damage_die,
-			# FEAT-001 (iteration K): carry the DEFENSIVE reaction fields too
-			# (mirrors _build_party_combatant()'s identical FEAT-006 fix above)
-			# so is_parry_eligible()/is_block_eligible() read non-zero values
-			# for enemy defenders too — without these, an enemy's weapon dict
-			# always read 0 and the reaction window could never offer the
-			# enemy a Parry/Block choice.
-			"parry_bonus":               enemy.parry_bonus,
-			"block_value":               enemy.block_value,
-			"block_die":                 enemy.block_die
-		}
-	}
-	if hex_coord != null:
-		combatant["hex_coord"] = hex_coord
-	if combatant_id != "":
-		combatant["combatant_id"] = combatant_id
-	return combatant
-
-
-## _build_status_view_models(hex_combatants, party, enemies, encounter) -> Array
-##
-## Builds the read-only view-model list handed to
-## presentation/status_panel_view.gd's load_combatants() (FEAT-008 / US-006):
-## one Dictionary per combatant with keys combatant_id/name/hp_current/
-## hp_max/stamina_current/stamina_max/action_budget_remaining/spent/
-## conditions. hex_combatants[i] (the domain Combatant built in step 1,
-## carrying combatant_id) corresponds index-for-index to `party` then
-## `enemies` (the SAME correspondence already relied on above for hex_coord
-## assignment) -- combatant identity is joined by that shared index, never by
-## reaching back into Encounter/ActionEconomy from StatusPanelView itself.
-##
-## action_budget_remaining/spent are read once, immediately after
-## encounter.initialize(), from each combatant's freshly-constructed
-## ActionEconomy (core/rules/action_economy.gd) -- resolved by name via
-## encounter.get_turn_order()/get_action_economy(), since initiative sorting
-## reorders combatants relative to `party`/`enemies`. conditions defaults to
-## an empty Array -- no per-combatant Condition list exists in the domain
-## model yet (a later iteration-B feature), so the panel simply shows none
-## until that data exists.
-func _build_status_view_models(hex_combatants: Array, party: Array, enemies: Array, encounter_instance) -> Array:
-	var action_economy_by_name: Dictionary = {}
-	var turn_order: Array = encounter_instance.get_turn_order()
-	for i in range(turn_order.size()):
-		action_economy_by_name[turn_order[i].get("name", "")] = encounter_instance.get_action_economy(i)
-
-	var all_combatants: Array = party + enemies
-	var view_models: Array = []
-	for i in range(all_combatants.size()):
-		var combatant: Dictionary = all_combatants[i]
-		var combatant_id: String = hex_combatants[i].combatant_id if i < hex_combatants.size() else ""
-		var action_economy = action_economy_by_name.get(combatant.get("name", ""), null)
-
-		view_models.append({
-			"combatant_id":             combatant_id,
-			"name":                     combatant.get("name", ""),
-			"hp_current":               combatant.get("hp_current", 0),
-			"hp_max":                   combatant.get("hp_max", combatant.get("hp_current", 0)),
-			"stamina_current":          combatant.get("stamina", 0),
-			"stamina_max":              combatant.get("stamina", 0),
-			"action_budget_remaining":  action_economy.get_remaining() if action_economy != null else 0,
-			"spent":                    action_economy.is_spent() if action_economy != null else false,
-			"conditions":               [],
-		})
-	return view_models
-
-
-## _build_initiative_view_models(hex_combatants, party, enemies, encounter_instance) -> Array
-##
-## Builds the read-only view-model list handed to
-## presentation/initiative_view.gd's load_combatants() (FEAT-009 / US-007):
-## one Dictionary per combatant with keys combatant_id/name/initiative_order.
-## combatant_id is resolved via the SAME name-keyed join already used by
-## _build_status_view_models() above (hex_combatants[i] corresponds
-## index-for-index to `party` then `enemies`) -- InitiativeView never reaches
-## back into Encounter itself to obtain this data.
-##
-## encounter_instance.get_turn_order() (core/combat/encounter.gd) is already
-## the domain-determined turn order -- sorted descending by each
-## combatant's "_initiative_roll" (d20 + intuition + dexterity, per ADR-006)
-## -- so that per-combatant roll is passed through unchanged as
-## initiative_order; InitiativeView performs its own descending sort at load
-## time, so the exact order handed in here is not itself load-bearing.
-func _build_initiative_view_models(hex_combatants: Array, party: Array, enemies: Array, encounter_instance) -> Array:
-	var combatant_id_by_name: Dictionary = {}
-	var all_combatants: Array = party + enemies
-	for i in range(all_combatants.size()):
-		var combatant_id: String = hex_combatants[i].combatant_id if i < hex_combatants.size() else ""
-		combatant_id_by_name[all_combatants[i].get("name", "")] = combatant_id
-
-	var view_models: Array = []
-	for combatant in encounter_instance.get_turn_order():
-		var name: String = combatant.get("name", "")
-		view_models.append({
-			"combatant_id":     combatant_id_by_name.get(name, ""),
-			"name":             name,
-			"initiative_order": combatant.get("_initiative_roll", 0),
-		})
-	return view_models
+	return _combatant_factory.build_enemy_combatant(enemy_path, hex_coord, combatant_id)

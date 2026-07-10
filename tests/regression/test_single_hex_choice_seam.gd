@@ -181,8 +181,9 @@ func test_exactly_one_hex_choice_resolver_port_contract_definition_in_real_repo(
 
 
 ## FEAT-005 update: exactly the TWO known, composition-root-selected
-## implementations (MainScene.gd's `_UIHexChoiceResolver` for the player,
-## infrastructure/ai_hex_choice_resolver.gd's AIHexChoiceResolver for the
+## implementations (infrastructure/ui_hex_choice_resolver.gd's UIHexChoiceResolver
+## for the player — extracted 2026-07-10 from MainScene's former inner class —
+## and infrastructure/ai_hex_choice_resolver.gd's AIHexChoiceResolver for the
 ## enemy AI) — no THIRD/rogue implementation anywhere else.
 func test_exactly_two_concrete_hex_choice_resolver_implementations_in_real_repo() -> void:
 	var repo_root: String = ProjectSettings.globalize_path("res://")
@@ -198,8 +199,8 @@ func test_exactly_two_concrete_hex_choice_resolver_implementations_in_real_repo(
 		basenames.append(path.get_file())
 
 	assert_true(
-		"MainScene.gd" in basenames,
-		"one of the two production hex-choice seam implementations must be referenced from MainScene.gd (the composition root), found: %s" % str(basenames)
+		"ui_hex_choice_resolver.gd" in basenames,
+		"the player's production hex-choice seam implementation must be infrastructure/ui_hex_choice_resolver.gd (UIHexChoiceResolver — extracted 2026-07-10 from MainScene's former `_UIHexChoiceResolver` inner class during the composition-root de-bloat; still wired ONLY by MainScene, now co-located with the enemy AI's adapter), found: %s" % str(basenames)
 	)
 	assert_true(
 		"ai_hex_choice_resolver.gd" in basenames,

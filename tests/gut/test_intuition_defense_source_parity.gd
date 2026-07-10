@@ -117,22 +117,27 @@ func test_mainscene_and_simulator_agree_on_skeleton_intuition() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_no_hardcoded_intuition_literal_remains_in_either_builder() -> void:
-	var mainscene_src := FileAccess.get_file_as_string("res://MainScene.gd")
+	# CombatantFactory de-bloat (2026-07-10): _build_enemy_combatant()'s body was
+	# extracted from MainScene.gd into infrastructure/combatant_factory.gd
+	# (MainScene now delegates via a shim). This source-level guard follows the
+	# code to its new home; the behavioral parity criteria above still exercise
+	# the real MainScene._build_enemy_combatant() call path unchanged.
+	var enemy_builder_src := FileAccess.get_file_as_string("res://infrastructure/combatant_factory.gd")
 	var simulator_src := FileAccess.get_file_as_string("res://core/sim/simulator.gd")
 
-	var mainscene_body := _extract_function_body(mainscene_src, "func _build_enemy_combatant(")
+	var enemy_builder_body := _extract_function_body(enemy_builder_src, "func build_enemy_combatant(")
 	var simulator_body := _extract_function_body(simulator_src, "func _build_skeleton_combatant(")
 
 	assert_false(
-		_has_literal_intuition_assignment(mainscene_body),
-		"MainScene._build_enemy_combatant() must not contain a hardcoded \"intuition\": <int> literal"
+		_has_literal_intuition_assignment(enemy_builder_body),
+		"CombatantFactory.build_enemy_combatant() must not contain a hardcoded \"intuition\": <int> literal"
 	)
 	assert_false(
 		_has_literal_intuition_assignment(simulator_body),
 		"Simulator._build_skeleton_combatant() must not contain a hardcoded \"intuition\": <int> literal"
 	)
 
-	assert_true(mainscene_body.find("intuition") != -1, "sanity: _build_enemy_combatant() must still set intuition somehow")
+	assert_true(enemy_builder_body.find("intuition") != -1, "sanity: CombatantFactory.build_enemy_combatant() must still set intuition somehow")
 	assert_true(simulator_body.find("intuition") != -1, "sanity: _build_skeleton_combatant() must still set intuition somehow")
 
 

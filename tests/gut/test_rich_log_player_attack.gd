@@ -39,6 +39,9 @@ extends GutTest
 
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 const MAIN_SCENE_SOURCE_PATH: String = "res://MainScene.gd"
+## Composition-root de-bloat (2026-07-10): the player-strike call site moved from
+## MainScene._verb_bar_strike_execute() into StrikeActionController.execute().
+const STRIKE_CONTROLLER_SOURCE_PATH: String = "res://presentation/strike_action_controller.gd"
 
 
 func _boot_main_scene_with_seed(seed_value: int):
@@ -169,16 +172,15 @@ func _read_file(res_path: String) -> String:
 
 
 func test_main_scene_source_invokes_render_attack_entry_and_record_attack_from_the_player_strike_execute_function() -> void:
-	var content: String = _read_file(MAIN_SCENE_SOURCE_PATH)
+	var content: String = _read_file(STRIKE_CONTROLLER_SOURCE_PATH)
 
-	var strike_execute_start: int = content.find("func _verb_bar_strike_execute(")
-	assert_true(strike_execute_start != -1, "MainScene.gd must still declare _verb_bar_strike_execute() -- the player-strikes-enemy call site")
+	var strike_execute_start: int = content.find("func execute(")
+	assert_true(strike_execute_start != -1, "StrikeActionController must still declare execute() -- the player-strikes-enemy call site")
 
-	# Scope the grep to _verb_bar_strike_execute()'s own function body (up to
-	# the NEXT top-level `func ` declaration), so this check proves the
-	# live PLAYER call site specifically invokes the rich-log wiring, not
-	# merely that the strings appear SOMEWHERE else in the file (e.g. the
-	# enemy path or a doc comment).
+	# Scope the grep to StrikeActionController.execute()'s own function body (up
+	# to the NEXT top-level `func ` declaration), so this check proves the live
+	# PLAYER call site specifically invokes the rich-log wiring, not merely that
+	# the strings appear SOMEWHERE else in the file.
 	var next_func_start: int = content.find("\nfunc ", strike_execute_start + 1)
 	if next_func_start == -1:
 		next_func_start = content.length()
@@ -186,9 +188,9 @@ func test_main_scene_source_invokes_render_attack_entry_and_record_attack_from_t
 
 	assert_string_contains(
 		function_body, "record_attack",
-		"MainScene.gd's player-attack call site (_verb_bar_strike_execute) must invoke record_attack -- live-path evidence, not merely a test-only call"
+		"StrikeActionController.execute() (the player-attack call site) must invoke record_attack -- live-path evidence, not merely a test-only call"
 	)
 	assert_string_contains(
 		function_body, "render_attack_entry",
-		"MainScene.gd's player-attack call site (_verb_bar_strike_execute) must invoke render_attack_entry -- live-path evidence that the rich row is rendered from real production code, not a test double"
+		"StrikeActionController.execute() must invoke render_attack_entry -- live-path evidence that the rich row is rendered from real production code, not a test double"
 	)

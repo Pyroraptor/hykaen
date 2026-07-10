@@ -57,6 +57,10 @@ const ActionEconomyClass        = preload("res://core/rules/action_economy.gd")
 const RoundEventsClass          = preload("res://core/rules/round_events.gd")
 
 const MAIN_SCENE_SOURCE_PATH: String = "res://MainScene.gd"
+## Composition-root de-bloat (2026-07-10): the player-strikes-enemy call site
+## (formerly MainScene._verb_bar_strike_execute()'s body) moved into
+## StrikeActionController.execute(); the source-grep guard below follows it there.
+const STRIKE_CONTROLLER_SOURCE_PATH: String = "res://presentation/strike_action_controller.gd"
 
 
 func _read_file(res_path: String) -> String:
@@ -100,10 +104,10 @@ func _resolve_one_real_player_strike(instance) -> Dictionary:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_main_scene_strike_call_site_calls_resolve_reactive_not_resolve() -> void:
-	var content: String = _read_file(MAIN_SCENE_SOURCE_PATH)
+	var content: String = _read_file(STRIKE_CONTROLLER_SOURCE_PATH)
 
-	var strike_execute_start: int = content.find("func _verb_bar_strike_execute(")
-	assert_true(strike_execute_start != -1, "MainScene.gd must still declare _verb_bar_strike_execute()")
+	var strike_execute_start: int = content.find("func execute(")
+	assert_true(strike_execute_start != -1, "StrikeActionController must still declare execute()")
 	var next_func_start: int = content.find("\nfunc ", strike_execute_start + 1)
 	if next_func_start == -1:
 		next_func_start = content.length()
@@ -111,11 +115,11 @@ func test_main_scene_strike_call_site_calls_resolve_reactive_not_resolve() -> vo
 
 	assert_string_contains(
 		function_body, "resolve_action_use_case.resolve_reactive(",
-		"MainScene.gd's player-strikes-enemy call site must call resolve_reactive() (iteration K FEAT-004 Part B) -- never the atomic resolve()"
+		"StrikeActionController.execute() (the player-strikes-enemy call site) must call resolve_reactive() (iteration K FEAT-004 Part B) -- never the atomic resolve()"
 	)
 	assert_string_contains(
 		function_body, "enemy_reaction_chooser",
-		"MainScene.gd's player-strikes-enemy call site must hand resolve_reactive() the REAL enemy_reaction_chooser (AIReactionPolicy)"
+		"StrikeActionController.execute() must hand resolve_reactive() the REAL enemy_reaction_chooser (AIReactionPolicy)"
 	)
 
 
