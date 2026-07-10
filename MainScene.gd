@@ -246,6 +246,19 @@ const AIReactionPolicyClass            = preload("res://infrastructure/ai_reacti
 ## The steel-thread's entry_point: the one encounter this composition root boots into.
 const PROLOGUE_ENCOUNTER_PATH: String = "res://data/encounters/prologue_encounter.tres"
 
+## FEAT-227 (US-001 / FR-001, resolves FIND-223): typed fail-fast error codes
+## for _build_enemy_combatant()'s EnemyResource load/sanity validation.
+## Mirrors this project's established ERR_ constant idiom (see
+## core/rules/movement.gd's ERR_ORIGIN_MISSING etc. and
+## core/application/resolve_action_use_case.gd's ERR_TARGET_INVALID etc.) —
+## a String constant matching its own name, returned as the "error" key of
+## a Dictionary in place of a valid result shape, so a caller/test can
+## detect the failure directly (never a silently "dead on arrival"
+## combatant carrying missing/negative weapon stats).
+const ERR_ENEMY_RESOURCE_LOAD_FAILED: String = "ERR_ENEMY_RESOURCE_LOAD_FAILED"
+const ERR_ENEMY_RESOURCE_WEAPON_UNRESOLVABLE: String = "ERR_ENEMY_RESOURCE_WEAPON_UNRESOLVABLE"
+const ERR_ENEMY_RESOURCE_INVALID_WEAPON_FIELD: String = "ERR_ENEMY_RESOURCE_INVALID_WEAPON_FIELD"
+
 ## FEAT-002 (US-002 / FR-012, ADR-003): fallback viewport dimensions used to
 ## derive the boot-time centering offset (see _compute_boot_centering_offset())
 ## when project.godot declares no explicit display/window/size override --
@@ -2396,6 +2409,34 @@ func _build_party_combatant(character_path: String, hex_coord, combatant_id: Str
 	return combatant
 
 
+## _fail_enemy_resource_load(error_code, message, enemy_path) -> Dictionary
+##
+## FEAT-227 (US-001 / FR-001, resolves FIND-223): the single shared
+## fail-fast exit point _build_enemy_combatant() routes every load/sanity
+## validation failure through. Logs via push_error() (this project's
+## established non-aborting diagnostic call — see e.g.
+## core/application/resolve_action_use_case.gd's identical push_error()-
+## then-continue convention) and returns the typed error Dictionary shape
+## ({"error": error_code, "enemy_path": enemy_path}) in place of a valid
+## combatant, so a caller/test can observe the failure directly.
+##
+## NOTE: deliberately does NOT use a real GDScript assert() here (unlike
+## core/application/reaction_window.gd's assert_reaction_budget_delta()).
+## Empirically, under this project's headless Godot 4.3 CLI test run (no
+## debugger attached), a failing assert() does not merely log and
+## continue as documented elsewhere in this codebase -- it unwinds the
+## CURRENT function immediately, so the push_error()/return lines below it
+## never execute and the caller instead observes the function's bare
+## default return value ({} for a Dictionary), silently defeating the very
+## typed-error contract this function exists to provide. push_error()
+## alone is both sufficient (it is this project's genuinely non-aborting
+## logging call) and correct here.
+func _fail_enemy_resource_load(error_code: String, message: String, enemy_path: String) -> Dictionary:
+	var full_message: String = "MainScene._build_enemy_combatant(%s): %s" % [enemy_path, message]
+	push_error(full_message)
+	return {"error": error_code, "enemy_path": enemy_path}
+
+
 ## _build_enemy_combatant(enemy_path, hex_coord, combatant_id) -> Dictionary
 ##
 ## Builds the Dictionary shape core/application/resolve_action_use_case.gd
@@ -2416,11 +2457,83 @@ func _build_party_combatant(character_path: String, hex_coord, combatant_id: Str
 ## simulator.gd's own combatant-construction path reads these same four
 ## fields from the same EnemyResource source (see that file), so the sim
 ## and the live game can never silently diverge on enemy defenses.
+##
+## FEAT-227 (US-001 / FR-001, resolves FIND-223): fail-fast-at-load
+## validation. Previously ResourceLoader.load(enemy_path) was never null
+## checked (a missing/unresolvable path crashed reaching into a null
+## Resource's fields) and the weapon fields it threads through
+## (damage_die/proficiency_bonus/parry_bonus/block_value/block_die) were
+## read with no range/sanity validation at all, so malformed authored data
+## (e.g. a never-authored empty weapon Dictionary, or a negative die size)
+## silently produced a "dead on arrival" combatant instead of failing
+## loudly. This function now returns a typed error Dictionary
+## ({"error": <ERR_ code>, "enemy_path": enemy_path} — see the ERR_
+## constants above _fail_enemy_resource_load()) in place of a valid
+## combatant shape whenever the resource fails to load or its weapon data
+## is malformed, and additionally fires assert()+push_error() for defense
+## in depth — this project's established fail-fast idiom (mirrors
+## core/application/reaction_window.gd's assert_reaction_budget_delta():
+## this project's Godot 4.3 engine cannot reliably capture
+## assert()/push_error() output from GUT, so the typed "error" key is the
+## channel a caller/test observes directly). A caller MUST check
+## result.has("error") before treating the return value as a playable
+## combatant.
 func _build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String = "") -> Dictionary:
 	var enemy = ResourceLoader.load(enemy_path)
+	if enemy == null:
+		return _fail_enemy_resource_load(
+			ERR_ENEMY_RESOURCE_LOAD_FAILED,
+			"ResourceLoader.load() returned null -- the EnemyResource path is missing or failed to load",
+			enemy_path
+		)
+
+	var weapon: Dictionary = enemy.weapon
+	if not weapon.has("die"):
+		return _fail_enemy_resource_load(
+			ERR_ENEMY_RESOURCE_WEAPON_UNRESOLVABLE,
+			"EnemyResource.weapon has no resolvable weapon data (missing 'die') -- refusing to default to a phantom weapon",
+			enemy_path
+		)
+
+	var damage_die: int = weapon.get("die", 6)
+	if damage_die < 0:
+		return _fail_enemy_resource_load(
+			ERR_ENEMY_RESOURCE_INVALID_WEAPON_FIELD,
+			"weapon.die (damage_die) must be non-negative; got %d" % damage_die,
+			enemy_path
+		)
+
+	var proficiency_bonus: int = weapon.get("proficiency_bonus", 1)
+	if proficiency_bonus < 0:
+		return _fail_enemy_resource_load(
+			ERR_ENEMY_RESOURCE_INVALID_WEAPON_FIELD,
+			"weapon.proficiency_bonus must be non-negative; got %d" % proficiency_bonus,
+			enemy_path
+		)
+
+	if enemy.parry_bonus < 0:
+		return _fail_enemy_resource_load(
+			ERR_ENEMY_RESOURCE_INVALID_WEAPON_FIELD,
+			"parry_bonus must be non-negative; got %d" % enemy.parry_bonus,
+			enemy_path
+		)
+
+	if enemy.block_value < 0:
+		return _fail_enemy_resource_load(
+			ERR_ENEMY_RESOURCE_INVALID_WEAPON_FIELD,
+			"block_value must be non-negative; got %d" % enemy.block_value,
+			enemy_path
+		)
+
+	if enemy.block_die < 0:
+		return _fail_enemy_resource_load(
+			ERR_ENEMY_RESOURCE_INVALID_WEAPON_FIELD,
+			"block_die must be non-negative; got %d" % enemy.block_die,
+			enemy_path
+		)
 
 	var attribute_map: Dictionary = {"str": "strength", "dex": "dexterity"}
-	var raw_attribute: String = enemy.weapon.get("attribute", "strength")
+	var raw_attribute: String = weapon.get("attribute", "strength")
 	var weapon_attribute: String = attribute_map.get(raw_attribute, raw_attribute)
 
 	var combatant: Dictionary = {
@@ -2437,8 +2550,8 @@ func _build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String 
 		"intuition":  enemy.intuition,
 		"weapon": {
 			"damage_modifier_attribute": weapon_attribute,
-			"proficiency_bonus":         enemy.weapon.get("proficiency_bonus", 1),
-			"damage_die":                enemy.weapon.get("die", 6),
+			"proficiency_bonus":         proficiency_bonus,
+			"damage_die":                damage_die,
 			# FEAT-001 (iteration K): carry the DEFENSIVE reaction fields too
 			# (mirrors _build_party_combatant()'s identical FEAT-006 fix above)
 			# so is_parry_eligible()/is_block_eligible() read non-zero values
