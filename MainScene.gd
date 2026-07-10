@@ -173,6 +173,7 @@ const RNGClass                         = preload("res://core/rules/rng.gd")
 const CombatantFactoryClass            = preload("res://infrastructure/combatant_factory.gd")
 const ViewModelBuilderClass            = preload("res://presentation/view_model_builder.gd")
 const RoundSessionHolderClass          = preload("res://infrastructure/round_session_holder.gd")
+const TurnPresentationControllerClass  = preload("res://presentation/turn_presentation_controller.gd")
 const ResolveActionUseCaseClass        = preload("res://core/application/resolve_action_use_case.gd")
 const DetermineOutcomeUseCaseClass     = preload("res://core/application/determine_outcome_use_case.gd")
 const RunRoundUseCaseClass             = preload("res://core/application/run_round_use_case.gd")
@@ -704,6 +705,18 @@ var reaction_window = null
 ## US-001, iteration D UI consolidation).
 @onready var result_screen_view = $ResultScreenView
 
+## _turn_presentation_instance / _turn_presentation() — the extracted
+## TurnPresentationController (presentation/turn_presentation_controller.gd),
+## built lazily on first use by _turn_presentation() below. Lazy (not @onready)
+## so it is available BOTH when MainScene is booted normally (TurnController's
+## active_actor_changed drives it) AND when a unit/integration test `.new()`s
+## MainScene, injects spy collaborators, and calls _on_active_actor_changed()
+## directly without a scene-tree _ready(). Its collaborators (the stable
+## RoundSessionHolder, the view nodes, the movement_input_controller, a Callable
+## to _other_living_combatants) are none of them reassigned after first access,
+## so building once is behavior-identical to the old inline live reads.
+var _turn_presentation_instance = null
+
 ## _party / _enemies — the live combatant Dictionaries built at boot,
 ## mutated in place by every resolved Strike throughout the interactive
 ## session (Dictionaries are reference types in GDScript). Kept as fields so
@@ -716,13 +729,6 @@ var _enemies: Array = []
 var _combatant_factory := CombatantFactoryClass.new()
 var _view_model_builder := ViewModelBuilderClass.new()
 
-## _last_highlight_debug_log — FEAT-006 / US-006 (FR-001, ADR-004): the most
-## recent debug log line emitted by _highlight_legal_moves() (observability
-## requirement — see that method's doc). Exposed for GUT test verification
-## since stdout itself is not readily interceptable from a headless test;
-## mirrors this file's own ConsoleEventSinkAdapter.log Array's established
-## "store for verification, also print" convention.
-var _last_highlight_debug_log: String = ""
 
 ## centering_offset — FEAT-002 (US-002 / FR-012, ADR-003): the shared
 ## screen-space origin offset this composition root computes at boot via
@@ -1955,163 +1961,35 @@ func _on_selection_overlay_resolved(_verb_id: String, _result) -> void:
 	if round_session != null:
 		var actor: Dictionary = round_session.current_actor()
 		var actor_id: String = actor.get("combatant_id", actor.get("name", ""))
-		_highlight_legal_moves(actor, actor_id)
+		_turn_presentation().highlight_legal_moves(actor, actor_id)
 
 
-## _on_active_actor_changed(combatant) -> void — TurnController
-## (presentation/turn_controller.gd) emits this once it settles on a new
-## (player) current actor, whether at boot or after auto-driving a run of
-## Enemy turns (FEAT-123 / FIND-120). Reconfigures movement_input_controller
-## with the live actor/action-economy/live-target data TurnController itself
-## does not own (see turn_controller.gd's documented division of
-## responsibility) so its Step/Stride affordance stays live for whichever
-## combatant's turn it now is -- no separate data path of its own.
-##
-## FEAT-006: this no longer also reconfigures a strike_action_control (that
-## node was removed) -- STRIKE's availability/candidate-target closures
-## (_verb_bar_strike_availability()/_verb_bar_strike_enter_selection()/
-## _verb_bar_strike_execute()) read round_session.current_actor()/`_enemies`
-## directly and fresh on every call instead, so there is no per-turn snapshot
-## to (re)push here at all.
+## _turn_presentation() — lazily builds (once) and returns the extracted
+## TurnPresentationController, injecting the stable RoundSessionHolder + view
+## collaborators + a Callable to the _other_living_combatants roster query. See
+## the _turn_presentation_instance field doc for why this is lazy, not @onready.
+func _turn_presentation():
+	if _turn_presentation_instance == null:
+		_turn_presentation_instance = TurnPresentationControllerClass.new(
+			_round_session_holder,
+			movement_input_controller,
+			hex_grid_view,
+			verb_bar_view,
+			status_panel_view,
+			Callable(self, "_other_living_combatants")
+		)
+	return _turn_presentation_instance
+
+
+## _on_active_actor_changed(combatant) -> void - thin delegation to
+## presentation/turn_presentation_controller.gd (TurnPresentationController),
+## which owns the turn-started presentation reaction (movement reconfigure +
+## legal-move highlight + verb-bar re-gate + action-budget refresh). Retained as
+## MainScene's seam: TurnController's active_actor_changed signal and the booted
+## integration tests drive it here. The controller is built lazily on first use
+## and reaches the live session via the RoundSessionHolder.
 func _on_active_actor_changed(combatant: Dictionary) -> void:
-	if round_session == null:
-		return
-	var action_economy = round_session.current_action_economy()
-	var active_combatant_id: String = combatant.get("combatant_id", combatant.get("name", ""))
-
-	movement_input_controller.configure(
-		combatant,
-		_other_living_combatants(combatant),
-		hex_grid_view,
-		active_combatant_id,
-		action_economy
-	)
-
-	_highlight_legal_moves(combatant, active_combatant_id)
-
-	# FEAT-004 / US-004/FR-001: re-gate the Layer 1 verb bar for whoever the
-	# turn now belongs to -- movement_input_controller above is now configured
-	# for the NEW actor, and STRIKE's closures read round_session/`_enemies`
-	# live, so is_available() reflects current state, never a stale
-	# prior-actor's gating.
-	if verb_bar_view != null:
-		verb_bar_view.refresh_availability()
-
-	# FEAT-006 (enemy-Stride display fix): re-push EVERY combatant's action
-	# budget now that control has settled back on a player after any auto-driven
-	# Enemy turn(s). A player Stride pushes its own snapshot inline
-	# (_verb_bar_stride_execute), and any Strike updates the panel via its
-	# AttackEvent — but an Enemy Stride/WAIT (round_session.advance_ai_turn())
-	# spends a budget action while emitting no event at all, so the enemy row's
-	# Actions/Spent readout would otherwise stay stale. Reuses the SAME
-	# StatusPanelView.on_verb_action_budget_changed() the player-Stride path
-	# uses, driven off round_session.action_budget_snapshot() (the live,
-	# authoritative per-entry economies).
-	_refresh_all_action_budgets()
-
-
-## _refresh_all_action_budgets() -> void — pushes each combatant's current
-## Actions-remaining/Spent state to $StatusPanelView from
-## round_session.action_budget_snapshot(). Idempotent and safe to call whenever
-## control settles (after AI turns, on round-over) — it only READS the live
-## economies and forwards them through StatusPanelView's existing per-combatant
-## update contract; it never mutates a budget or derives one itself. A no-op
-## when no session/panel is wired.
-func _refresh_all_action_budgets() -> void:
-	if round_session == null or status_panel_view == null:
-		return
-	for row in round_session.action_budget_snapshot():
-		status_panel_view.on_verb_action_budget_changed(
-			row["combatant_id"], row["remaining"], row["spent"]
-		)
-
-
-## _highlight_legal_moves(combatant, active_combatant_id) -> void — FEAT-006 /
-## US-006 (FR-001, ADR-004): the turn_started handler's highlight step
-## (design notes' API contract #1 — this codebase realizes "turn_started" as
-## TurnController.active_actor_changed, see presentation/turn_controller.gd
-## and tests/infrastructure/test_presentation_stack_wiring.gd). Computes
-## union(movement_input_controller.get_selectable_step_hexes(),
-## get_selectable_stride_hexes()) for the NOW-configured actor and pushes it
-## to hex_grid_view.set_selectable_hexes() — fixing the P0-1 bug where this
-## call was never made at all: movement_input_controller.configure()'s own
-## internal push (presentation/movement_input_controller.gd's
-## _recompute_selectable_destinations()) only ever reports Step destinations,
-## never Stride, so this composition root explicitly re-asserts the WIDER
-## union here immediately afterward rather than relying on that internal
-## push alone.
-##
-## FEAT-007 (this iteration's US-007/FR-010): the union computed here is no
-## longer also handed to a move_action_control.configure() call --
-## presentation/MoveActionControl.gd (the passive "Move" indicator this used
-## to also drive) has been deleted; Step/Stride availability is now surfaced
-## entirely through $VerbBarView's STEP/STRIDE buttons (re-gated via
-## verb_bar_view.refresh_availability(), called by this method's caller,
-## _on_active_actor_changed(), immediately after this method returns).
-##
-## When `combatant` is not the active PLAYER (an enemy's turn), no highlight
-## may be shown at all (API contract #1) — this defensively clears
-## hex_grid_view instead, even though TurnController.active_actor_changed
-## only ever fires for a settled player actor today (see
-## presentation/turn_controller.gd's _drive()); this handler must not rely on
-## that invariant holding forever.
-##
-## Emits a structured debug log line (observability requirement) including
-## combatant_id and the Step/Stride hex counts that produced the highlighted
-## union, both to stdout (print(), matching this file's existing
-## ConsoleEventSinkAdapter.emit() convention) AND recorded on
-## `_last_highlight_debug_log` so GUT tests can assert on it directly.
-func _highlight_legal_moves(combatant: Dictionary, active_combatant_id: String) -> void:
-	var is_enemy_turn: bool = combatant.get("_is_enemy", false)
-
-	if is_enemy_turn:
-		if hex_grid_view != null:
-			hex_grid_view.set_selectable_hexes([])
-		_last_highlight_debug_log = (
-			"DEBUG: highlight_legal_moves combatant_id=" + active_combatant_id
-			+ " step_hex_count=0 stride_hex_count=0 (non-player turn, highlight suppressed)"
-		)
-		print(_last_highlight_debug_log)
-		return
-
-	var step_hexes: Array = movement_input_controller.get_selectable_step_hexes()
-	var stride_hexes: Array = movement_input_controller.get_selectable_stride_hexes()
-	var union_hexes: Array = _union_hexes(step_hexes, stride_hexes)
-
-	if hex_grid_view != null:
-		hex_grid_view.set_selectable_hexes(union_hexes)
-
-	_last_highlight_debug_log = (
-		"DEBUG: highlight_legal_moves combatant_id=" + active_combatant_id
-		+ " step_hex_count=" + str(step_hexes.size())
-		+ " stride_hex_count=" + str(stride_hexes.size())
-	)
-	print(_last_highlight_debug_log)
-
-
-## _union_hexes(step_hexes, stride_hexes) -> Array — the deduplicated union of
-## two HexCoord arrays, compared via core/geometry/hex_coord.gd's equals()
-## (the same equality convention used throughout this codebase, e.g.
-## presentation/movement_input_controller.gd's _find_selectable()). Every
-## legal Step destination is currently also always a legal Stride
-## destination (both apply the identical unoccupied check at distance 1 —
-## see core/rules/movement.gd's file-level doc), so this reduces to
-## stride_hexes today — but is computed as an explicit union (never just
-## returning stride_hexes) so this stays correct even if that relationship
-## between the two rules ever changes.
-func _union_hexes(step_hexes: Array, stride_hexes: Array) -> Array:
-	var union_hexes: Array = []
-	for hex_coord in step_hexes:
-		union_hexes.append(hex_coord)
-	for hex_coord in stride_hexes:
-		var already_included: bool = false
-		for existing in union_hexes:
-			if existing.equals(hex_coord):
-				already_included = true
-				break
-		if not already_included:
-			union_hexes.append(hex_coord)
-	return union_hexes
+	_turn_presentation().on_active_actor_changed(combatant)
 
 
 ## _on_round_over() -> void — TurnController emits this once the held
