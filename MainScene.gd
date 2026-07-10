@@ -178,6 +178,7 @@ const ReactionControllerClass          = preload("res://presentation/reaction_co
 const EndTurnActionControllerClass     = preload("res://presentation/end_turn_action_controller.gd")
 const StepActionControllerClass        = preload("res://presentation/step_action_controller.gd")
 const StrideActionControllerClass      = preload("res://presentation/stride_action_controller.gd")
+const StrikeActionControllerClass      = preload("res://presentation/strike_action_controller.gd")
 const ConsoleEventSinkAdapterClass     = preload("res://infrastructure/console_event_sink_adapter.gd")
 const EncounterTurnOrderAdapterClass   = preload("res://infrastructure/encounter_turn_order_adapter.gd")
 const InMemoryRoundHistoryAdapterClass = preload("res://infrastructure/in_memory_round_history_adapter.gd")
@@ -361,17 +362,6 @@ var run_round_use_case
 var resolve_action_use_case
 var determine_outcome_use_case
 var round_history_port
-
-## _player_attack_event_id_counter — FEAT-005 (US-005, Iteration J-R2 Part
-## D): monotonically incremented once per resolved PLAYER Strike
-## (_verb_bar_strike_execute() below), the source of the attack_event_id
-## this call site's structured/rich log entries are keyed by. Uses a
-## "R<round>-P<n>" shape -- a "P" (Player) infix distinct from
-## core/application/round_session.gd's own "R<round>-A<n>" AI-path
-## generator (_generate_attack_event_id()) -- so ids from these two
-## independent call sites can never collide within the SAME event_log_view
-## instance's structured storage.
-var _player_attack_event_id_counter: int = 0
 
 ## outcome — '' | 'won' | 'lost'; mirrors round_session.outcome() and is
 ## refreshed once the round concludes (see _on_round_over()). Exposed for
@@ -565,6 +555,7 @@ var _reaction_instance = null
 var _end_turn_action_instance = null
 var _step_action_instance = null
 var _stride_action_instance = null
+var _strike_action_instance = null
 
 ## _party / _enemies — the live combatant Dictionaries built at boot,
 ## mutated in place by every resolved Strike throughout the interactive
@@ -1137,13 +1128,11 @@ func _verb_bar_current_action_economy():
 ## function only READS can_take_action(); it never mutates the domain gate
 ## itself.
 func _verb_bar_strike_availability() -> bool:
-	var action_economy = _verb_bar_current_action_economy()
-	var can_act: bool = action_economy.can_take_action() if action_economy != null else false
-	return can_act and _strike_reachable_target_ids().size() > 0
+	return _strike_action().availability()
 
 
 func _verb_bar_strike_enter_selection() -> Dictionary:
-	return {"verb_id": "STRIKE", "candidate_targets": _strike_reachable_target_ids(), "candidate_hexes": []}
+	return _strike_action().enter_selection()
 
 
 ## _verb_bar_strike_execute(selection) -> Dictionary — FEAT-006: `selection`
@@ -1175,285 +1164,16 @@ func _verb_bar_strike_enter_selection() -> Dictionary:
 ## test_player_strikes_enemy_pass_through.gd) — that suite has been updated
 ## for Part B by this same feature.
 func _verb_bar_strike_execute(selection) -> Dictionary:
-	if round_session == null or resolve_action_use_case == null:
-		return {"ok": false}
-
-	var target: Dictionary = _find_strike_reachable_target(str(selection))
-	if target.is_empty():
-		return {"ok": false, "resolved": false, "error": "ERR_TARGET_NOT_SELECTABLE"}
-
-	var actor: Dictionary = round_session.current_actor()
-	var action_economy = round_session.current_action_economy()
-
-	# ── iteration K FEAT-004 (US-004, ADR-004): the enemy target's OWN live
-	# ActionEconomy — required so a chosen reaction genuinely spends a budget
-	# point (visible on StatusPanelView below) and so the RESERVE gate reads
-	# real data. May resolve to null (a target this session has no bookkeeping
-	# for, e.g. a test double) — resolve_reactive()/resolution.gd both
-	# degrade safely to "reaction untracked" in that case. ──────────────────
-	var target_action_economy = _action_economy_for(target)
-	var target_budget_before: int = target_action_economy.get_remaining() if target_action_economy != null else -1
-
-	# FEAT-005 (US-005, Iteration J-R2 Part D): capture the append-order index
-	# the plain-format row event_log_view's on_attack_event() is ABOUT to
-	# append at -- inside resolve_action_use_case.resolve_reactive()'s
-	# synchronous EventSinkPort emit, immediately below -- BEFORE resolving,
-	# so that index can be overwritten in place with the rich rendering once
-	# resolve_reactive() returns with the resolved roll/damage fields.
-	# Capturing the index up front (rather than suppressing the append and
-	# appending a fresh row afterward) keeps the row's ORIGINAL chronological
-	# position intact even when this SAME call also synchronously emits a
-	# CombatantDefeatedEvent immediately after the AttackEvent (a killing
-	# blow) -- the attack's own row must stay chronologically BEFORE that
-	# consequence, never appended after it.
-	var pending_entry_index: int = event_log_view.get_entry_count() if event_log_view != null else -1
-
-	var result: Dictionary = resolve_action_use_case.resolve_reactive(
-		actor, action_economy, target, ACTION_NAME_STRIKE, ROUND_NUMBER, 0,
-		target_action_economy, enemy_reaction_chooser
-	)
-
-	# ── iteration K FEAT-004: reflect the enemy's own reaction spend (if any)
-	# on the REAL StatusPanelView -- "the Skeleton's action budget visibly
-	# drops by the reaction spend amount when it reacts" test criterion --
-	# reusing the SAME on_verb_action_budget_changed() seam
-	# presentation/status_panel_view.gd already exposes for a Stride's budget
-	# spend (FEAT-178), never a new/second projection path. A no-op when
-	# nothing was spent (remaining unchanged) or when the target has no
-	# tracked ActionEconomy/status row at all. ──────────────────────────────
-	if target_action_economy != null and status_panel_view != null:
-		var target_budget_after: int = target_action_economy.get_remaining()
-		if target_budget_after != target_budget_before:
-			var target_id: String = target.get("combatant_id", target.get("name", ""))
-			status_panel_view.on_verb_action_budget_changed(
-				target_id, target_budget_after, target_action_economy.is_spent()
-			)
-
-	# FEAT-005: wire record_attack()/render_attack_entry() into this LIVE
-	# player-attack call site. Builds a core/log/attack_event.gd AttackEvent
-	# from `result["event"]` -- the SAME RoundEvents.AttackEvent instance
-	# resolve_action_use_case.gd already emitted via EventSinkPort above,
-	# never a second, re-derived roll/damage computation (mirrors
-	# core/application/round_session.gd's own _record_structured_attack()
-	# convention for the enemy-strikes-player path). record_attack() stores
-	# it into the REAL, live event_log_view; render_attack_entry() formats
-	# the roll/raw/final-damage rich text, which overwrites the plain-format
-	# row captured above in place -- so exactly one, rich-format row is
-	# visible for this Strike (steel-thread exit condition), never a
-	# basic+rich duplicate pair.
-	if event_log_view != null and pending_entry_index != -1 and result.get("resolved", false):
-		var resolved_attack_event = result.get("event", null)
-		if resolved_attack_event != null:
-			_player_attack_event_id_counter += 1
-			var attack_event_id: String = "R%d-P%d" % [ROUND_NUMBER, _player_attack_event_id_counter]
-
-			var weapon: Dictionary = actor.get("weapon", {})
-			var structured_attack_event = AttackEventClass.new(
-				attack_event_id,
-				ROUND_NUMBER,
-				actor.get("combatant_id", actor.get("name", "")),
-				target.get("combatant_id", target.get("name", "")),
-				weapon.get("weapon_id", weapon.get("name", "")),
-				resolved_attack_event.roll,
-				resolved_attack_event.hit,
-				resolved_attack_event.crit,
-				resolved_attack_event.damage_final,
-				resolved_attack_event.damage_final,
-				result.get("on_hit_suppressed", false),
-				false
-			)
-
-			event_log_view.record_attack(structured_attack_event)
-
-			# FEAT-008 (US-008 / FR-007): pair this Strike's reaction outcome
-			# to the JUST-recorded structured AttackEvent via
-			# RenderCombatLogUseCase.record_reaction_outcome() -- mirrors
-			# core/application/round_session.gd's identical wiring for the
-			# enemy-strikes-player path.
-			#
-			# Iteration K FEAT-004 (US-004, ADR-004) — Part B: `choice` now
-			# reflects the enemy's REAL reaction outcome
-			# (resolve_action_use_case.gd's resolve_reactive() additive
-			# "reaction_choice"/"on_hit_suppressed" keys — see that method's
-			# own doc) instead of always "none". `window_id` is selected to
-			# match which window the choice actually belongs to (Dodge/Steel
-			# are PreHitAvoidance; Parry/Block are OnHitMitigation) so the
-			# rich log's Defense segment attributes the outcome to the
-			# correct window, mirroring core/application/round_session.gd's
-			# own per-window recording.
-			var enemy_reaction_choice: String = result.get("reaction_choice", "none")
-			var enemy_reaction_window: String = (
-				RenderCombatLogUseCaseClass.WINDOW_ON_HIT_MITIGATION
-				if (enemy_reaction_choice == "parry" or enemy_reaction_choice == "block")
-				else RenderCombatLogUseCaseClass.WINDOW_PRE_HIT_AVOIDANCE
-			)
-			var render_combat_log_use_case := RenderCombatLogUseCaseClass.new()
-			render_combat_log_use_case.record_reaction_outcome(
-				attack_event_id, enemy_reaction_window, enemy_reaction_choice,
-				"auto", result.get("on_hit_suppressed", false), 0,
-				Callable(event_log_view, "record_reaction")
-			)
-
-			var rich_text: String = event_log_view.render_attack_entry(attack_event_id)
-			event_log_view.overwrite_entry_as_rich(pending_entry_index, rich_text, attack_event_id)
-
-	# ── FEAT-005 (US-005, ADR-004): the enemy target's OWN Dodge-Step —
-	# a successful reactive Dodge (resolve_reactive()'s "defender_stepped"
-	# key, surfaced verbatim from core/rules/resolution.gd, see
-	# resolve_action_use_case.gd's _finalize_strike_result() doc) entitles
-	# the Skeleton to relocate to an adjacent hex, exactly like the
-	# player's own Dodge-Step (round_session.gd's `_resolve_dodge_step_prompt()`)
-	# -- but resolved SYNCHRONOUSLY via infrastructure/ai_hex_choice_resolver.gd's
-	# AIHexChoiceResolver instead of the real, blocking `_UIHexChoiceResolver`
-	# pop-up, so the enemy's own reaction never opens a hex-selection prompt
-	# for the player to answer. See _resolve_enemy_dodge_step()'s own doc. ──
-	await _resolve_enemy_dodge_step(
-		target, result, actor.get("hex_coord", null), _query_selectable_step_hexes(_strike_target_id(target))
-	)
-
-	return result
+	return await _strike_action().execute(selection)
 
 
-## _resolve_enemy_dodge_step(target, resolve_result, attacker_hex, legal_hexes)
-## -> void — FEAT-005 (US-005, ADR-004): mirrors core/application/
-## round_session.gd's own `_resolve_dodge_step_prompt()` EXACTLY (ADR-001/
-## ADR-002 "no duplicate seam") for the player-strikes-ENEMY path: when
-## `resolve_result["defender_stepped"]` is true (a genuinely successful
-## reactive Dodge, per resolve_action_use_case.gd's resolve_reactive()),
-## delegates the ENTIRE whether/how-to-relocate decision to the SAME
-## `ResolveDodgeStepUseCaseClass` round_session.gd's seam already consumes —
-## this method's only job is assembling that use case's inputs:
-##   - `defender_id`             — target's "combatant_id" falling back to
-##                                 "name" (this file's established identity
-##                                 convention, `_strike_target_id()`).
-##   - `legal_hexes`             — handed in verbatim by the caller (computed
-##                                 via `_query_selectable_step_hexes()`, the
-##                                 SAME IStepHexQueryPort query
-##                                 round_session.gd's own Dodge-Step prompt
-##                                 uses — ADR-002 "no duplicate adjacency
-##                                 rule") rather than recomputed here, so a
-##                                 test can force the "zero legal adjacent
-##                                 hex" edge case (US-005's second
-##                                 test_criterion) without any Godot-level
-##                                 monkey-patching.
-##   - `hex_choice_resolver_fn`  — a FRESH `AIHexChoiceResolverClass`
-##                                 instance constructed around `attacker_hex`
-##                                 (the acting player's own hex_coord, so the
-##                                 "keep melee reach on the original attacker"
-##                                 heuristic has the attacker's real position
-##                                 to test against) — NEVER the real, blocking
-##                                 `_UIHexChoiceResolver`/`hex_choice_resolver`
-##                                 field (which stays reserved for the
-##                                 PLAYER's own Dodge-Step). No pop-up, no
-##                                 hex_grid_view.set_selectable_hexes()
-##                                 highlight is ever triggered by this path
-##                                 (this feature's "no pop-up/highlight"
-##                                 test criterion) — AIHexChoiceResolver.resolve()
-##                                 is a plain, synchronous function.
-##   - `token_reposition_fn`/`target` — the SAME `hex_grid_view.move_token`
-##                                 seam / live `target` Dictionary reference
-##                                 round_session.gd's own Dodge-Step reposition
-##                                 (FEAT-004) already threads through, so a
-##                                 chosen hex visibly relocates BOTH the
-##                                 Skeleton's Combatant.hex_coord and its
-##                                 on-screen token — never a second, parallel
-##                                 reposition implementation (ADR-002 "no
-##                                 duplicate seam", ci/check_no_duplicate_seams.sh's
-##                                 own move_token() singularity guarantee).
-##
-## A complete no-op (no use-case call, no reposition) whenever
-## `resolve_result["defender_stepped"]` is false — the overwhelmingly common
-## case for every Strike (a miss without Dodge, a hit, a failed Dodge, ...).
-## ResolveDodgeStepUseCase's own guard clauses additionally degrade an empty
-## `legal_hexes` to "no prompt, no reposition, damage still negated" (US-005's
-## "no legal adjacent hex" edge case) — this method never re-derives that
-## logic itself.
-func _resolve_enemy_dodge_step(target: Dictionary, resolve_result: Dictionary, attacker_hex, legal_hexes: Array) -> void:
-	await _reaction().resolve_enemy_dodge_step(target, resolve_result, attacker_hex, legal_hexes)
-
-
-## _strike_reachable_targets() -> Array — FEAT-006 (US-006): the in-reach
-## target filter the now-removed presentation/strike_action_control.gd used
-## to compute (a UX mirror of resolve_action_use_case.gd's OWN reach
-## precondition, never a re-derived domain rule, ADR-001), relocated here
-## since Strike no longer has a dedicated presentation control. Computed
-## fresh from the LIVE round_session.current_actor()/`_enemies` on every
-## call -- never a cached snapshot from a prior configure()-style call -- so
-## this can never go stale between turns/moves.
-##
-## Mirrors resolve_action_use_case.gd's _is_ranged_weapon()/_is_in_range()
-## branch exactly: an actor whose "weapon" Dictionary carries "range_hexes"
-## reaches by HexMath.hex_distance() <= range_hexes; every other (melee)
-## actor reaches by HexMath.hex_neighbors() membership.
-func _strike_reachable_targets() -> Array:
-	if round_session == null:
-		return []
-
-	var actor: Dictionary = round_session.current_actor()
-	var actor_hex = actor.get("hex_coord", null)
-	if actor_hex == null:
-		return []
-
-	var candidates: Array = _living_combatants(_enemies)
-	var in_reach: Array = []
-
-	if _strike_actor_is_ranged(actor):
-		var range_hexes: int = actor.get("weapon", {}).get("range_hexes", 1)
-		for target in candidates:
-			var target_hex = target.get("hex_coord", null)
-			if target_hex != null and HexMathClass.hex_distance(actor_hex, target_hex) <= range_hexes:
-				in_reach.append(target)
-		return in_reach
-
-	var neighbors: Array = HexMathClass.hex_neighbors(actor_hex)
-	for target in candidates:
-		var target_hex = target.get("hex_coord", null)
-		if target_hex == null:
-			continue
-		for neighbor in neighbors:
-			if neighbor.equals(target_hex):
-				in_reach.append(target)
-				break
-	return in_reach
-
-
-## _strike_actor_is_ranged(actor) -> bool -- mirrors the removed
-## strike_action_control.gd's/resolve_action_use_case.gd's identically-
-## behaved _is_ranged_weapon() helper exactly.
-func _strike_actor_is_ranged(actor: Dictionary) -> bool:
-	return actor.get("weapon", {}).has("range_hexes")
-
-
-## _strike_target_id(target) -> String -- the SAME "combatant_id" falling
-## back to "name" identity convention used throughout this file/
-## resolve_action_use_case.gd.
-func _strike_target_id(target: Dictionary) -> String:
-	return target.get("combatant_id", target.get("name", ""))
-
-
-## _strike_reachable_target_ids() -> Array[String] -- the target_id of every
-## currently in-reach Strike target, in the same order _strike_reachable_targets()
-## returns them.
+## _strike_reachable_target_ids() -> Array - thin shim to StrikeActionController
+## (kept because tests call it directly). strike_execute + the targeting helpers
+## (_strike_reachable_targets/_strike_actor_is_ranged/_strike_target_id/
+## _find_strike_reachable_target) moved into
+## presentation/strike_action_controller.gd.
 func _strike_reachable_target_ids() -> Array:
-	var ids: Array = []
-	for target in _strike_reachable_targets():
-		ids.append(_strike_target_id(target))
-	return ids
-
-
-## _find_strike_reachable_target(target_id) -> Dictionary -- looks up
-## target_id ONLY among the currently in-reach targets, never the wider
-## `_enemies` list -- the enforcement point ensuring a non-reachable target
-## can never be selected, even by id (mirrors the removed
-## strike_action_control.gd's _find_selectable_target()). Returns an empty
-## Dictionary (never null) when not found, matching this file's existing
-## "empty Dictionary == not found" convention (e.g. resolve_action_use_case.gd's
-## _is_target_invalid()).
-func _find_strike_reachable_target(target_id: String) -> Dictionary:
-	for target in _strike_reachable_targets():
-		if _strike_target_id(target) == target_id:
-			return target
-	return {}
+	return _strike_action().reachable_target_ids()
 
 
 ## _action_economy_for(combatant) -> ActionEconomy or null — iteration K
@@ -1810,6 +1530,23 @@ func _stride_action():
 			Callable(self, "_current_turn_order")
 		)
 	return _stride_action_instance
+
+
+func _strike_action():
+	if _strike_action_instance == null:
+		_strike_action_instance = StrikeActionControllerClass.new(
+			_round_session_holder,
+			resolve_action_use_case,
+			event_log_view,
+			status_panel_view,
+			enemy_reaction_chooser,
+			_reaction(),
+			Callable(self, "_action_economy_for"),
+			Callable(self, "_current_round_number"),
+			Callable(self, "_living_enemy_reactors"),
+			Callable(self, "_query_selectable_step_hexes")
+		)
+	return _strike_action_instance
 
 
 ## _living_enemy_reactors() -> the living-enemy reactor pool (spawn order)

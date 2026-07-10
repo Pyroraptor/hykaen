@@ -34,6 +34,9 @@ extends GutTest
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 const ROUND_SESSION_SOURCE_PATH: String = "res://core/application/round_session.gd"
 const MAIN_SCENE_SOURCE_PATH: String = "res://MainScene.gd"
+## Composition-root de-bloat (2026-07-10): the player-strike call site moved from
+## MainScene._verb_bar_strike_execute() into StrikeActionController.execute().
+const STRIKE_CONTROLLER_SOURCE_PATH: String = "res://presentation/strike_action_controller.gd"
 
 
 ## _FixedChoiceResolver — a synchronous ReactionResolverPort double (mirrors
@@ -314,10 +317,10 @@ func test_round_session_source_invokes_record_reaction_from_advance_ai_turn() ->
 
 
 func test_main_scene_source_invokes_record_reaction_from_player_strike_execute() -> void:
-	var content: String = _read_file(MAIN_SCENE_SOURCE_PATH)
-	var function_body: String = _function_body(content, "func _verb_bar_strike_execute(")
+	var content: String = _read_file(STRIKE_CONTROLLER_SOURCE_PATH)
+	var function_body: String = _function_body(content, "func execute(")
 
 	assert_string_contains(
 		function_body, "record_reaction",
-		"MainScene._verb_bar_strike_execute() must invoke record_reaction (via RenderCombatLogUseCase) -- live-path evidence for the player-strikes-enemy call site"
+		"StrikeActionController.execute() must invoke record_reaction (via RenderCombatLogUseCase) -- live-path evidence for the player-strikes-enemy call site"
 	)

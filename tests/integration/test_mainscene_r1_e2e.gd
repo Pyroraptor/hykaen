@@ -57,6 +57,9 @@ extends GutTest
 
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 const MAIN_SCENE_SOURCE_PATH: String = "res://MainScene.gd"
+## Composition-root de-bloat (2026-07-10): the player-strike call site moved from
+## MainScene._verb_bar_strike_execute() into StrikeActionController.execute().
+const STRIKE_CONTROLLER_SOURCE_PATH: String = "res://presentation/strike_action_controller.gd"
 
 
 ## _FixedChoiceResolver — mirrors tests/gut/test_defense_segment_reaction_outcomes.gd's
@@ -304,16 +307,16 @@ func _read_file(res_path: String) -> String:
 
 
 func test_main_scene_player_strike_call_site_invokes_the_real_log_rendering_seam() -> void:
-	var content: String = _read_file(MAIN_SCENE_SOURCE_PATH)
+	var content: String = _read_file(STRIKE_CONTROLLER_SOURCE_PATH)
 
-	var strike_execute_start: int = content.find("func _verb_bar_strike_execute(")
-	assert_true(strike_execute_start != -1, "MainScene.gd must still declare _verb_bar_strike_execute() -- the player-strikes-enemy call site")
+	var strike_execute_start: int = content.find("func execute(")
+	assert_true(strike_execute_start != -1, "StrikeActionController must still declare execute() -- the player-strikes-enemy call site")
 
 	var next_func_start: int = content.find("\nfunc ", strike_execute_start + 1)
 	if next_func_start == -1:
 		next_func_start = content.length()
 	var function_body: String = content.substr(strike_execute_start, next_func_start - strike_execute_start)
 
-	assert_string_contains(function_body, "record_attack", "MainScene.gd's player-attack call site must invoke record_attack -- live-path evidence, not merely a test-only call")
-	assert_string_contains(function_body, "render_attack_entry", "MainScene.gd's player-attack call site must invoke render_attack_entry -- live-path evidence, not merely a test-only call")
-	assert_string_contains(function_body, "record_reaction", "MainScene.gd's player-attack call site must invoke record_reaction -- live-path evidence, not merely a test-only call")
+	assert_string_contains(function_body, "record_attack", "StrikeActionController.execute() (the player-attack call site) must invoke record_attack -- live-path evidence, not merely a test-only call")
+	assert_string_contains(function_body, "render_attack_entry", "StrikeActionController.execute() must invoke render_attack_entry -- live-path evidence, not merely a test-only call")
+	assert_string_contains(function_body, "record_reaction", "StrikeActionController.execute() must invoke record_reaction -- live-path evidence, not merely a test-only call")
