@@ -104,13 +104,14 @@ const MAX_ROUNDS_GUARD: int = 50
 ##
 ## FEAT-001 (iteration-H B-1 / US-005 / FR-006) likewise intentionally
 ## re-pins the longsword.tres hash below: that feature populates the
-## v0 CONFIRMED block_value=1/parry_bonus=2 reaction stats (superseding
-## the earlier FEAT-059 placeholder of block_value=3/parry_bonus=4) as
-## prerequisite data for the Parry/Block reaction wiring landing later in
-## this iteration. Neither field is read by the passive-defense-only
-## simulator.gd path exercised by this test, so this data-layer change is
-## not expected to shift win_rate — see
-## tests/unit/test_weapon_resource_data.gd for the FEAT-001 data suite.
+## reaction stats as prerequisite data for the Parry/Block reaction wiring.
+## The weapon-reconcile fix 53efaa6 (data: reconcile weapon .tres to the
+## Weapons.pdf table, ground truth) subsequently re-pins the longsword.tres
+## hash again: it corrected block_value 1→3 and parry_bonus 2→4 to the
+## authoritative Weapons.pdf values. Neither field is read by the
+## passive-defense-only simulator.gd path exercised by this test, so this
+## data-layer change is not expected to shift win_rate — see
+## tests/unit/test_weapon_resource_data.gd for the data suite.
 ##
 ## FEAT-002 (iteration-H, US-006 / FR-007) intentionally re-pins the
 ## titus.tres and skeleton.tres hashes below: that feature adds a new
@@ -126,7 +127,7 @@ const _EXPECTED_HASHES: Dictionary = {
 	"res://core/sim/simulator.gd":      "a0caa3aa612bd7532187d4074d49b4ab",
 	"res://data/characters/titus.tres": "da31ef348d95fd313c1a895ca02e0417",
 	"res://data/enemies/skeleton.tres": "4df46de7d181f7d9273234efef462cd4",
-	"res://data/weapons/longsword.tres": "39a40c5ed6a4a0b5c3372ce0d8b7d280",
+	"res://data/weapons/longsword.tres": "248339f6e3f256d6cdc6a943ca824587",
 	"res://data/armor/chain_shirt.tres": "6be0c7c1b55b7a91233bca0f62fadd16",
 	"res://data/armor/scale_mail.tres":  "7c724303a7db4ad78a7341bc9e7f46f1",
 }

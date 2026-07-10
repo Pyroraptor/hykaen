@@ -1497,32 +1497,32 @@ func test_weapon_resource_has_parry_bonus_property() -> void:
 		"WeaponResource.parry_bonus must exist and default to 0")
 
 
-func test_longsword_tres_has_block_value_1() -> void:
-	## longsword.tres must have block_value=1 — v0 CONFIRMED value from
-	## iteration-H B-1/B-7 (FEAT-001 / US-005), superseding the earlier
-	## FEAT-059 placeholder of 3. See tests/unit/test_weapon_resource_data.gd
-	## for the full FEAT-001 data-layer suite.
+func test_longsword_tres_has_block_value_3() -> void:
+	## longsword.tres must have block_value=3 — Weapons.pdf table (ground truth),
+	## reconciled in 53efaa6 which superseded the earlier iteration-H B-1 v0 pin
+	## of 1. See tests/unit/test_weapon_resource_data.gd for the full data-layer
+	## suite (test_longsword_block_value_is_3).
 	var longsword = ResourceLoader.load("res://data/weapons/longsword.tres")
 	assert_not_null(longsword,
 		"ResourceLoader.load('res://data/weapons/longsword.tres') must return non-null")
 	if longsword == null:
 		return
-	assert_eq(longsword.block_value, 1,
-		"longsword.tres block_value must be 1 (iteration-H B-1 v0 value, FEAT-001)")
+	assert_eq(longsword.block_value, 3,
+		"longsword.tres block_value must be 3 (Weapons.pdf table, ground truth)")
 
 
-func test_longsword_tres_has_parry_bonus_2() -> void:
-	## longsword.tres must have parry_bonus=2 — v0 CONFIRMED value from
-	## iteration-H B-1/B-7 (FEAT-001 / US-005), superseding the earlier
-	## FEAT-059 placeholder of 4. See tests/unit/test_weapon_resource_data.gd
-	## for the full FEAT-001 data-layer suite.
+func test_longsword_tres_has_parry_bonus_4() -> void:
+	## longsword.tres must have parry_bonus=4 — Weapons.pdf table (ground truth),
+	## reconciled in 53efaa6 which superseded the earlier iteration-H B-1 v0 pin
+	## of 2. See tests/unit/test_weapon_resource_data.gd for the full data-layer
+	## suite (test_longsword_parry_bonus_is_4).
 	var longsword = ResourceLoader.load("res://data/weapons/longsword.tres")
 	assert_not_null(longsword,
 		"ResourceLoader.load('res://data/weapons/longsword.tres') must return non-null")
 	if longsword == null:
 		return
-	assert_eq(longsword.parry_bonus, 2,
-		"longsword.tres parry_bonus must be 2 (iteration-H B-1 v0 value, FEAT-001)")
+	assert_eq(longsword.parry_bonus, 4,
+		"longsword.tres parry_bonus must be 4 (Weapons.pdf table, ground truth)")
 
 
 # ══════════════════════════════════════════════════════════════════════════════

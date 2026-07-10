@@ -63,8 +63,16 @@ const EventLogViewClass = preload("res://presentation/event_log_view.gd")
 ## application-layer use cases (see resolution.gd's own FEAT-002 doc). No
 ## RNG or math in resolution.gd was touched; this guard still correctly
 ## fails if a FUTURE, unrelated feature edits resolution.gd's math again.
+##
+## 1a70bfe (fix(reactions): wire Dodge-Step into live play + correct
+## Block/Parry math) update: this baseline is intentionally re-pinned again
+## to reflect that sanctioned, in-scope real-play math correction to
+## resolution.gd (Block now rolls its damage die + block_value; Parry now
+## adds the defender's full attack bonus). That fix is outside FEAT-008's
+## own scope; re-pinning here records the new authored baseline so this
+## guard keeps failing only on FUTURE, unrelated edits to resolution.gd.
 const _RESOLUTION_GD_PATH: String = "res://core/rules/resolution.gd"
-const _RESOLUTION_GD_EXPECTED_MD5: String = "f99271348ee81801463bafbb5e7f3965"
+const _RESOLUTION_GD_EXPECTED_MD5: String = "4e4dca898170588857a946c5aaf1380d"
 
 var _resolution_gd_actual_md5: String
 
