@@ -174,6 +174,7 @@ const CombatantFactoryClass            = preload("res://infrastructure/combatant
 const ViewModelBuilderClass            = preload("res://presentation/view_model_builder.gd")
 const RoundSessionHolderClass          = preload("res://infrastructure/round_session_holder.gd")
 const TurnPresentationControllerClass  = preload("res://presentation/turn_presentation_controller.gd")
+const ReactionControllerClass          = preload("res://presentation/reaction_controller.gd")
 const ConsoleEventSinkAdapterClass     = preload("res://infrastructure/console_event_sink_adapter.gd")
 const EncounterTurnOrderAdapterClass   = preload("res://infrastructure/encounter_turn_order_adapter.gd")
 const InMemoryRoundHistoryAdapterClass = preload("res://infrastructure/in_memory_round_history_adapter.gd")
@@ -557,6 +558,7 @@ var reaction_window = null
 ## to _other_living_combatants) are none of them reassigned after first access,
 ## so building once is behavior-identical to the old inline live reads.
 var _turn_presentation_instance = null
+var _reaction_instance = null
 
 ## _party / _enemies — the live combatant Dictionaries built at boot,
 ## mutated in place by every resolved Strike throughout the interactive
@@ -1361,20 +1363,7 @@ func _verb_bar_strike_execute(selection) -> Dictionary:
 ## "no legal adjacent hex" edge case) — this method never re-derives that
 ## logic itself.
 func _resolve_enemy_dodge_step(target: Dictionary, resolve_result: Dictionary, attacker_hex, legal_hexes: Array) -> void:
-	if not resolve_result.get("defender_stepped", false):
-		return
-
-	var defender_id: String = _strike_target_id(target)
-	var ai_hex_resolver := AIHexChoiceResolverClass.new(attacker_hex)
-	var token_reposition_fn: Callable = Callable()
-	if hex_grid_view != null:
-		token_reposition_fn = Callable(hex_grid_view, "move_token")
-
-	var use_case := ResolveDodgeStepUseCaseClass.new()
-	await use_case.resolve(
-		defender_id, true, legal_hexes, Callable(ai_hex_resolver, "resolve"),
-		token_reposition_fn, target
-	)
+	await _reaction().resolve_enemy_dodge_step(target, resolve_result, attacker_hex, legal_hexes)
 
 
 ## _strike_reachable_targets() -> Array — FEAT-006 (US-006): the in-reach
@@ -1506,8 +1495,7 @@ func _action_economy_for(combatant: Dictionary):
 ## fixture/test-double reactor), mirroring _action_economy_for()'s own
 ## documented "reaction untracked" degrade-safely contract.
 func _is_reactor_reaction_spent(reactor: Dictionary) -> bool:
-	var reactor_action_economy = _action_economy_for(reactor)
-	return reactor_action_economy.is_spent() if reactor_action_economy != null else false
+	return _reaction().is_reactor_reaction_spent(reactor)
 
 
 ## _resolve_enemy_stride_opportunistic_window(mover, mover_start_hex,
@@ -1535,16 +1523,7 @@ func _is_reactor_reaction_spent(reactor: Dictionary) -> bool:
 ## `_stride_toward_target()` can read `"mover_downed"` and cancel the Stride
 ## when a lethal opportunistic Strike defeats `mover`.
 func _resolve_enemy_stride_opportunistic_window(mover: Dictionary, mover_start_hex, candidate_reactors: Array) -> Dictionary:
-	var use_case := ResolveStrideUseCaseClass.new()
-	return await use_case.execute(
-		mover, mover_start_hex, candidate_reactors,
-		Callable(self, "_is_reactor_reaction_spent"),
-		Callable(self, "_resolve_player_opportunistic_strike_reaction"),
-		resolve_action_use_case,
-		Callable(self, "_action_economy_for"),
-		ROUND_NUMBER,
-		0
-	)
+	return await _reaction().resolve_enemy_stride_opportunistic_window(mover, mover_start_hex, candidate_reactors)
 
 
 ## _resolve_player_opportunistic_strike_reaction(reactor, context) ->
@@ -1562,12 +1541,7 @@ func _resolve_enemy_stride_opportunistic_window(mover: Dictionary, mover_start_h
 ## ({"choice": "none"}) when `turn_controller` is unwired (never
 ## crashes/hangs).
 func _resolve_player_opportunistic_strike_reaction(reactor: Dictionary, context: Dictionary) -> Dictionary:
-	if turn_controller == null:
-		return {"choice": "none"}
-
-	return await turn_controller.resolve_opportunistic_strike_reaction(
-		reactor, context, _action_economy_for(reactor), ROUND_NUMBER
-	)
+	return await _reaction().resolve_player_opportunistic_strike_reaction(reactor, context)
 
 
 ## _resolve_enemy_opportunistic_strike_reaction(reactor, context) ->
@@ -1582,19 +1556,7 @@ func _resolve_player_opportunistic_strike_reaction(reactor: Dictionary, context:
 ## _verb_bar_strike_execute()'s identical iteration-K "no pop-up UI opens
 ## during the enemy's reaction window" contract for Strikes).
 func _resolve_enemy_opportunistic_strike_reaction(reactor: Dictionary, context: Dictionary) -> Dictionary:
-	var reaction_context: Dictionary = context.duplicate()
-	var reactor_action_economy = _action_economy_for(reactor)
-	if reactor_action_economy != null:
-		reaction_context["action_current"] = reactor_action_economy.get_remaining()
-
-	var open_use_case := OpenReactionWindowUseCaseClass.new()
-	var choice: String = open_use_case.open(
-		OpenReactionWindowUseCaseClass.WINDOW_OPPORTUNISTIC_STRIKE,
-		OpenReactionWindowUseCaseClass.legal_opportunistic_strike_reactions(),
-		reaction_context,
-		enemy_reaction_chooser
-	)
-	return {"choice": choice}
+	return _reaction().resolve_enemy_opportunistic_strike_reaction(reactor, context)
 
 
 ## _verb_bar_step_availability() -> bool -- FEAT-002 (US-002 / FR-003 /
@@ -1820,6 +1782,31 @@ func _turn_presentation():
 			Callable(self, "_other_living_combatants")
 		)
 	return _turn_presentation_instance
+
+
+## _current_round_number() -> int - live accessor for the mutable ROUND_NUMBER,
+## injected into ReactionController as a Callable so its round-number reads never
+## go stale across a round rollover.
+func _current_round_number() -> int:
+	return ROUND_NUMBER
+
+
+## _reaction() - lazily builds (once) and returns the extracted
+## ReactionController, injecting the shared _action_economy_for lookup and the
+## live ROUND_NUMBER as Callables plus the stable composition-root references.
+## Lazy (like _turn_presentation) so it works both booted and under a `.new()`
+## test that drives a reaction seam without _ready().
+func _reaction():
+	if _reaction_instance == null:
+		_reaction_instance = ReactionControllerClass.new(
+			Callable(self, "_action_economy_for"),
+			Callable(self, "_current_round_number"),
+			resolve_action_use_case,
+			turn_controller,
+			enemy_reaction_chooser,
+			hex_grid_view
+		)
+	return _reaction_instance
 
 
 ## _on_active_actor_changed(combatant) -> void - thin delegation to
@@ -2077,22 +2064,7 @@ func _living_combatants(combatants: Array) -> Array:
 ## initiative order silently resolved Opportunistic Strikes out of turn
 ## order, with nothing to catch the discrepancy.
 func _order_candidate_reactors_by_initiative(candidates: Array) -> Array:
-	var indexed: Array = []
-	for i in range(candidates.size()):
-		indexed.append({"candidate": candidates[i], "spawn_index": i})
-
-	indexed.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		var roll_a: int = a["candidate"].get("_initiative_roll", 0)
-		var roll_b: int = b["candidate"].get("_initiative_roll", 0)
-		if roll_a == roll_b:
-			return a["spawn_index"] < b["spawn_index"]
-		return roll_a > roll_b
-	)
-
-	var ordered: Array = []
-	for entry in indexed:
-		ordered.append(entry["candidate"])
-	return ordered
+	return _reaction().order_candidate_reactors_by_initiative(candidates)
 
 
 ## _assert_candidate_reactors_ordering(ordered_candidates, turn_order) -> bool
@@ -2127,37 +2099,7 @@ func _order_candidate_reactors_by_initiative(candidates: Array) -> Array:
 ## directly via this method's own return value, exactly as
 ## assert_reaction_budget_delta() already established.
 func _assert_candidate_reactors_ordering(ordered_candidates: Array, turn_order: Array) -> bool:
-	var turn_order_index: Dictionary = {}
-	for i in range(turn_order.size()):
-		var entry_id: String = turn_order[i].get("combatant_id", turn_order[i].get("name", ""))
-		turn_order_index[entry_id] = i
-
-	var last_index: int = -1
-	for candidate in ordered_candidates:
-		var candidate_id: String = candidate.get("combatant_id", candidate.get("name", ""))
-
-		if not turn_order_index.has(candidate_id):
-			var missing_message: String = (
-				"MainScene: Opportunistic Strike candidate reactor '%s' is absent from encounter.get_turn_order() -- ordering cannot be verified against the rolled initiative table"
-				% candidate_id
-			)
-			assert(false, missing_message)
-			push_error(missing_message)
-			return false
-
-		var index: int = turn_order_index[candidate_id]
-		if index < last_index:
-			var order_message: String = (
-				"MainScene: Opportunistic Strike candidate_reactors ordering violates the rolled initiative table -- '%s' (turn_order index %d) resolved out of initiative order (previous candidate's turn_order index %d)"
-				% [candidate_id, index, last_index]
-			)
-			assert(false, order_message)
-			push_error(order_message)
-			return false
-
-		last_index = index
-
-	return true
+	return _reaction().assert_candidate_reactors_ordering(ordered_candidates, turn_order)
 
 
 ## _refresh_off_guard_conditions() -> void — FEAT-015 (US-015 / FR-016);
