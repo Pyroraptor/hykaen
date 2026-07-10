@@ -172,6 +172,7 @@ const EncounterClass                   = preload("res://core/combat/encounter.gd
 const RNGClass                         = preload("res://core/rules/rng.gd")
 const CombatantFactoryClass            = preload("res://infrastructure/combatant_factory.gd")
 const ViewModelBuilderClass            = preload("res://presentation/view_model_builder.gd")
+const RoundSessionHolderClass          = preload("res://infrastructure/round_session_holder.gd")
 const ResolveActionUseCaseClass        = preload("res://core/application/resolve_action_use_case.gd")
 const DetermineOutcomeUseCaseClass     = preload("res://core/application/determine_outcome_use_case.gd")
 const RunRoundUseCaseClass             = preload("res://core/application/run_round_use_case.gd")
@@ -491,7 +492,20 @@ var encounter
 ## stepwise cycle state $TurnController/$StrikeActionControl/$EndTurnControl
 ## drive one turn at a time, replacing the old autonomous run_round()
 ## while-loop.
-var round_session
+##
+## Composition-root de-bloat (2026-07-10): `round_session` is now a transparent
+## get/set property facade over the stable RoundSessionHolder below. Reads return
+## the live session; the single assignment in rewire_session() flows through the
+## setter into the holder. This keeps every existing `round_session` call site
+## unchanged while giving extracted controllers a stable seam
+## (_round_session_holder) to inject ONCE, instead of a reference that is
+## replaced every round (which would leave a cross-object captor stale).
+var _round_session_holder := RoundSessionHolderClass.new()
+var round_session:
+	get:
+		return _round_session_holder.get_current()
+	set(value):
+		_round_session_holder.set_current(value)
 
 ## run_round_use_case / resolve_action_use_case / determine_outcome_use_case /
 ## round_history_port — the Application-layer use cases/ports wired at this
