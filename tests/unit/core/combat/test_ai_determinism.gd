@@ -133,7 +133,7 @@ func test_equidistant_target_tie_break_is_byte_identical_across_repeated_invocat
 		var pair: Dictionary = _equidistant_targets()
 		var targets: Array = [pair["titus"], pair["varro"]] if i % 2 == 0 else [pair["varro"], pair["titus"]]
 
-		var result: Dictionary = ai.decide_action(combatant, targets)
+		var result: Dictionary = await ai.decide_action(combatant, targets)
 		assert_eq(result.get("action_type", ""), "Strike", "iteration %d: fixture assumption: both equidistant targets are adjacent, so decide_action() must Strike immediately" % i)
 		chosen_names.append(result.get("target", {}).get("name", ""))
 
@@ -209,7 +209,7 @@ func test_equidistant_destination_tie_break_is_byte_identical_across_repeated_in
 		var action_economy = ActionEconomyClass.new()
 		action_economy.start_of_turn()
 
-		var result: Dictionary = ai.decide_action(combatant, [target], action_economy, [])
+		var result: Dictionary = await ai.decide_action(combatant, [target], action_economy, [])
 		assert_eq(result.get("action_type", ""), "Stride", "iteration %d: fixture assumption: the out-of-reach target must trigger a Stride" % i)
 
 		var destination = result.get("destination", null)
@@ -257,7 +257,7 @@ func test_full_ai_decision_dictionary_is_byte_identical_across_repeated_invocati
 		var action_economy = ActionEconomyClass.new()
 		action_economy.start_of_turn()
 
-		var result: Dictionary = ai.decide_action(combatant, [target], action_economy, [])
+		var result: Dictionary = await ai.decide_action(combatant, [target], action_economy, [])
 		decisions.append({
 			"action_type": result.get("action_type", ""),
 			"target_name": result.get("target", {}).get("name", ""),

@@ -102,6 +102,31 @@ const WINDOW_PRE_HIT_AVOIDANCE: String = "PreHitAvoidance"
 const WINDOW_ON_HIT_MITIGATION: String = "OnHitMitigation"
 const WINDOW_OPPORTUNISTIC_STRIKE: String = "OpportunisticStrike"
 
+## REACTION_OPPORTUNISTIC_STRIKE — iteration K FEAT-006 (US-006): the
+## lowercase reaction name a WINDOW_OPPORTUNISTIC_STRIKE window's
+## legal_reactions entry/chosen-choice value uses — mirrors
+## core/application/reaction_window.gd's own identically-valued
+## REACTION_OPPORTUNISTIC_STRIKE constant exactly (never a second, drifting
+## literal — both files independently define this constant since this one
+## must stay free of any core/application/reaction_window.gd import, matching
+## this file's existing "core/rules/ references only" dependency discipline).
+const REACTION_OPPORTUNISTIC_STRIKE: String = "opportunistic_strike"
+
+
+## legal_opportunistic_strike_reactions() -> Array — the single-entry
+## legal_reactions Array an OpportunisticStrike window always offers (FEAT-006
+## / US-006): always exactly [REACTION_OPPORTUNISTIC_STRIKE]. Unlike Dodge/
+## Parry/Block's own eligibility-gated legal_*_reactions() helpers
+## (core/application/resolve_to_hit_uc.gd / apply_on_hit_defense_uc.gd), there
+## is nothing conditional left to compute here: the caller (core/application/
+## use_cases/resolve_stride_use_case.gd's ResolveStrideUseCase) has ALREADY
+## filtered eligibility via core/domain/opportunistic_strike_eligibility.gd's
+## OpportunisticStrikeEligibility before ever opening this window — this
+## helper exists purely so a caller never hand-rolls the ["opportunistic_
+## strike"] literal Array itself.
+static func legal_opportunistic_strike_reactions() -> Array:
+	return [REACTION_OPPORTUNISTIC_STRIKE]
+
 
 ## open(window_type, legal_reactions, context, chooser_port) -> String — see
 ## class-level doc for the full contract.

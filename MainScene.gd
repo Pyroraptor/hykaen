@@ -192,6 +192,25 @@ const HexChoiceResolverPortClass       = preload("res://core/application/ports/h
 const AttackEventClass                 = preload("res://core/log/attack_event.gd")
 const RenderCombatLogUseCaseClass      = preload("res://core/application/render_combat_log_use_case.gd")
 
+## OpenReactionWindowUseCaseClass — iteration K FEAT-006 (US-006): the SAME
+## generalized reaction-window opener core/application/
+## resolve_action_use_case.gd's resolve_reactive() already uses for the
+## enemy-target-of-a-Strike path, reused here (unmodified) to open the
+## player-mover Stride path's OpportunisticStrike window synchronously
+## against `enemy_reaction_chooser` (AIReactionPolicy) — see
+## _resolve_enemy_opportunistic_strike_reaction() below.
+const OpenReactionWindowUseCaseClass   = preload("res://core/application/open_reaction_window_use_case.gd")
+
+## ResolveStrideUseCaseClass — iteration K FEAT-006 (US-006): core/application/
+## use_cases/resolve_stride_use_case.gd's ResolveStrideUseCase — the
+## Application-layer use case that filters eligible OpportunisticStrike
+## reactors (core/domain/opportunistic_strike_eligibility.gd) and drives their
+## resolution BEFORE a Stride commits, on BOTH the player-mover path
+## (_verb_bar_stride_execute() below) and, via
+## _resolve_enemy_stride_opportunistic_window(), the enemy-mover path
+## (core/combat/ai.gd's injected `_stride_reaction_resolver_fn`).
+const ResolveStrideUseCaseClass        = preload("res://core/application/use_cases/resolve_stride_use_case.gd")
+
 ## ResolveDodgeStepUseCaseClass — FEAT-005 (US-005, ADR-004): the SAME
 ## Application-layer use case core/application/round_session.gd's
 ## `_resolve_dodge_step_prompt()` already drives for the PLAYER's own
@@ -779,6 +798,16 @@ func _ready() -> void:
 	resolve_action_use_case = ResolveActionUseCaseClass.new(random_port, event_sink, round_history_port)
 	determine_outcome_use_case = DetermineOutcomeUseCaseClass.new()
 	var ai_decision_port = AIClass.new()
+
+	# ── iteration K FEAT-006 (US-006, ADR-004): wire the enemy-mover Stride
+	# path's OpportunisticStrike reaction-window seam (core/combat/ai.gd's
+	# `_stride_reaction_resolver_fn`) to this composition root's own
+	# _resolve_enemy_stride_opportunistic_window() — see that method's own
+	# doc. Wired exactly once, on this ONE `ai_decision_port` instance reused
+	# across every round via `run_round_use_case`/rewire_session() below, so
+	# it stays wired for the whole game session. ───────────────────────────
+	ai_decision_port.set_stride_reaction_resolver_fn(Callable(self, "_resolve_enemy_stride_opportunistic_window"))
+
 	run_round_use_case = RunRoundUseCaseClass.new(
 		turn_order_port, event_sink, round_history_port, ai_decision_port,
 		resolve_action_use_case, determine_outcome_use_case
@@ -1606,6 +1635,100 @@ func _action_economy_for(combatant: Dictionary):
 	return null
 
 
+## _is_reactor_reaction_spent(reactor) -> bool — iteration K FEAT-006
+## (US-006): the `reactor_spent_fn` Callable core/application/use_cases/
+## resolve_stride_use_case.gd's ResolveStrideUseCase awaits per candidate
+## reactor, backed by the SAME live ActionEconomy lookup
+## (_action_economy_for()) every other reaction seam in this file already
+## uses. Defaults to "not spent" when no tracked ActionEconomy exists (a
+## fixture/test-double reactor), mirroring _action_economy_for()'s own
+## documented "reaction untracked" degrade-safely contract.
+func _is_reactor_reaction_spent(reactor: Dictionary) -> bool:
+	var reactor_action_economy = _action_economy_for(reactor)
+	return reactor_action_economy.is_spent() if reactor_action_economy != null else false
+
+
+## _resolve_enemy_stride_opportunistic_window(mover, mover_start_hex,
+## candidate_reactors) -> void — iteration K FEAT-006 (US-006, ADR-004): the
+## Callable core/combat/ai.gd's `_stride_reaction_resolver_fn` seam awaits
+## for the ENEMY-mover Stride path (a Skeleton Striding toward Titus) —
+## injected onto `ai_decision_port` in _ready() above. Drives
+## ResolveStrideUseCaseClass.execute() with this composition root's own
+## per-reactor spent/resolver Callables, routing the PLAYER reactor (the only
+## hostile candidate an enemy mover can ever have in this steel thread) to
+## _resolve_player_opportunistic_strike_reaction() below — the real,
+## awaited turn_controller.resolve_reaction() pop-up — BEFORE core/combat/
+## ai.gd's own Movement.stride() call (immediately following this seam,
+## still inside the SAME decide_action() call) ever mutates `mover`'s
+## hex_coord.
+func _resolve_enemy_stride_opportunistic_window(mover: Dictionary, mover_start_hex, candidate_reactors: Array) -> void:
+	var use_case := ResolveStrideUseCaseClass.new()
+	await use_case.execute(
+		mover, mover_start_hex, candidate_reactors,
+		Callable(self, "_is_reactor_reaction_spent"),
+		Callable(self, "_resolve_player_opportunistic_strike_reaction")
+	)
+
+
+## _resolve_player_opportunistic_strike_reaction(reactor, context) ->
+## Dictionary — iteration K FEAT-006 (US-006): the player-reactor half of
+## this feature's required routing ("reactor=player -> the real
+## turn_controller.resolve_reaction pop-up"). Builds the SAME ReactionTrigger
+## shape core/application/reaction_window.gd's own "OpportunisticStrike"
+## trigger_type branch already expects (_compute_legal_reactions() —
+## unmodified, reused verbatim) and awaits turn_controller.resolve_reaction()
+## — the SAME live integration point the enemy-Strikes-player path already
+## awaits via this composition root's own `reaction_window`/
+## `player_reaction_chooser` (wired in _ready()) — so a genuinely blocking
+## pop-up decides whether the player takes the opportunistic strike, BEFORE
+## the enemy mover's Stride below ever commits a position change. Degrades
+## safely to Pass ({"choice": "none"}) when `turn_controller` is unwired
+## (never crashes/hangs).
+func _resolve_player_opportunistic_strike_reaction(reactor: Dictionary, context: Dictionary) -> Dictionary:
+	if turn_controller == null:
+		return {"choice": "none"}
+
+	var trigger: Dictionary = {
+		"attacker_id":            reactor.get("combatant_id", reactor.get("name", "")),
+		"target_id":              reactor.get("combatant_id", reactor.get("name", "")),
+		"defense_type":           "ac",
+		"attack_context":         context,
+		"round_number":           ROUND_NUMBER,
+		"reactor_action_economy": _action_economy_for(reactor),
+		"trigger_type":           "OpportunisticStrike",
+		"reactor":                reactor,
+		"weapon":                 reactor.get("weapon", {}),
+	}
+	return await turn_controller.resolve_reaction(trigger, "player")
+
+
+## _resolve_enemy_opportunistic_strike_reaction(reactor, context) ->
+## Dictionary — iteration K FEAT-006 (US-006): the enemy-reactor half of this
+## feature's required routing ("reactor=enemy -> ai_reaction_policy
+## synchronously") — consulted by _verb_bar_stride_execute() below for the
+## PLAYER-mover Stride path (Titus Striding, a Skeleton reacting).
+## Synchronous end to end (OpenReactionWindowUseCase.open() never `await`s,
+## and `enemy_reaction_chooser` — infrastructure/ai_reaction_policy.gd's
+## AIReactionPolicy — never suspends either), so NO pop-up/UI ever opens for
+## the enemy's own reaction decision here (mirrors
+## _verb_bar_strike_execute()'s identical iteration-K "no pop-up UI opens
+## during the enemy's reaction window" contract for Strikes).
+func _resolve_enemy_opportunistic_strike_reaction(reactor: Dictionary, context: Dictionary) -> Dictionary:
+	var reaction_context: Dictionary = context.duplicate()
+	var reactor_action_economy = _action_economy_for(reactor)
+	if reactor_action_economy != null:
+		reaction_context["action_current"] = reactor_action_economy.get_remaining()
+
+	var open_use_case := OpenReactionWindowUseCaseClass.new()
+	var choice: String = open_use_case.open(
+		OpenReactionWindowUseCaseClass.WINDOW_OPPORTUNISTIC_STRIKE,
+		OpenReactionWindowUseCaseClass.legal_opportunistic_strike_reactions(),
+		reaction_context,
+		enemy_reaction_chooser
+	)
+	return {"choice": choice}
+
+
 ## _verb_bar_step_availability() -> bool -- FEAT-002 (US-002 / FR-003 /
 ## FR-004; Iteration F P0-1): additionally queries the active actor's live
 ## ActionEconomy.can_take_movement_action() (core/rules/action_economy.gd,
@@ -1685,9 +1808,32 @@ func _verb_bar_stride_enter_selection() -> Dictionary:
 ## Stride resolves -- closing the gap where the status bar's Actions/Spent
 ## readout went stale after a Stride (regression coverage: tests/gut/
 ## test_status_bar_verb_flow_regression.gd).
+## iteration K FEAT-006 (US-006, ADR-004): BEFORE forwarding to
+## movement_input_controller.stride_to() (this method's pre-existing sole
+## commit point for the player's Stride), this now opens an
+## OpportunisticStrike reaction window for every hostile (enemy) reactor
+## eligible per core/domain/opportunistic_strike_eligibility.gd — routed
+## synchronously through _resolve_enemy_opportunistic_strike_reaction()
+## (ai_reaction_policy, no pop-up) — so the enemy's reaction is fully
+## resolved before Titus's position ever changes, mirroring this feature's
+## identical guarantee on the enemy-mover path (core/combat/ai.gd). A no-op
+## when round_session/current_actor carries no hex_coord (e.g. a test double
+## that never populates positional data) — the pre-existing Stride contract
+## is otherwise completely unaffected.
 func _verb_bar_stride_execute(selection) -> Dictionary:
 	var actor_id: String = round_session.current_actor().get("combatant_id", "") if round_session != null else ""
 	var action_economy = _verb_bar_current_action_economy()
+
+	var actor: Dictionary = round_session.current_actor() if round_session != null else {}
+	var mover_start_hex = actor.get("hex_coord", null)
+	if not actor.is_empty() and mover_start_hex != null:
+		var candidate_reactors: Array = _living_combatants(_enemies)
+		var use_case := ResolveStrideUseCaseClass.new()
+		await use_case.execute(
+			actor, mover_start_hex, candidate_reactors,
+			Callable(self, "_is_reactor_reaction_spent"),
+			Callable(self, "_resolve_enemy_opportunistic_strike_reaction")
+		)
 
 	var result: Dictionary = movement_input_controller.stride_to(selection)
 	if result.get("ok", false):

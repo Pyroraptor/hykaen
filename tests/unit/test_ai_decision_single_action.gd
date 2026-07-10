@@ -177,7 +177,7 @@ func test_decide_action_returns_strike_when_target_already_in_reach() -> void:
 	var action_economy = ActionEconomyClass.new()
 	action_economy.start_of_turn()
 
-	var result: Dictionary = ai.decide_action(combatant, [target], action_economy, [])
+	var result: Dictionary = await ai.decide_action(combatant, [target], action_economy, [])
 
 	assert_eq(result.get("action_type", ""), "Strike", "a living target already in reach must be Struck immediately")
 	assert_eq(result.get("target", {}).get("name", ""), "Titus")
@@ -196,7 +196,7 @@ func test_decide_action_returns_strike_for_ranged_target_already_in_range() -> v
 	var action_economy = ActionEconomyClass.new()
 	action_economy.start_of_turn()
 
-	var result: Dictionary = ai.decide_action(combatant, [target], action_economy, [])
+	var result: Dictionary = await ai.decide_action(combatant, [target], action_economy, [])
 
 	assert_eq(result.get("action_type", ""), "Strike")
 	assert_true(result.get("will_strike", false))
@@ -220,7 +220,7 @@ func test_decide_action_returns_stride_toward_best_target_when_none_in_reach() -
 	assert_false(expected_destinations.is_empty(), "fixture assumption: at least one legal Stride destination must exist")
 	var original_distance: int = HexMathClass.hex_distance(origin_hex, target_hex)
 
-	var result: Dictionary = ai.decide_action(combatant, [target], action_economy, [])
+	var result: Dictionary = await ai.decide_action(combatant, [target], action_economy, [])
 
 	assert_eq(result.get("action_type", ""), "Stride", "an out-of-reach enemy must Stride toward the best target")
 	var destination = result.get("destination", null)
@@ -249,7 +249,7 @@ func test_decide_action_never_returns_both_stride_and_strike_in_one_call() -> vo
 	var action_economy = ActionEconomyClass.new()
 	action_economy.start_of_turn()
 
-	var result: Dictionary = ai.decide_action(combatant, [target], action_economy, [])
+	var result: Dictionary = await ai.decide_action(combatant, [target], action_economy, [])
 
 	assert_eq(result.get("action_type", ""), "Stride", "fixture assumption: the enemy must Stride to close distance")
 	# A single ActionDecision must describe exactly one action: when it is a
@@ -275,7 +275,7 @@ func test_decide_action_no_stride_available_returns_no_action_never_a_phantom_st
 	var action_economy = ActionEconomyClass.new()
 	action_economy.mark_movement_used()
 
-	var result: Dictionary = ai.decide_action(combatant, [target], action_economy, [])
+	var result: Dictionary = await ai.decide_action(combatant, [target], action_economy, [])
 
 	assert_eq(result.get("action_type", "MISSING"), "")
 	assert_false(result.get("will_strike", true))
@@ -381,7 +381,7 @@ func test_stride_tie_break_is_deterministic_under_a_pinned_seed_across_repeated_
 		var action_economy = ActionEconomyClass.new()
 		action_economy.start_of_turn()
 
-		var result: Dictionary = ai.decide_action(combatant, [target], action_economy, [])
+		var result: Dictionary = await ai.decide_action(combatant, [target], action_economy, [])
 		assert_eq(result.get("action_type", ""), "Stride", "iteration %d: fixture assumption: the out-of-reach target must trigger a Stride" % i)
 		var destination = result.get("destination", null)
 		assert_not_null(destination, "iteration %d: a Stride decision must carry a non-null destination" % i)

@@ -53,7 +53,7 @@ func test_decide_action_returns_dict_with_action_type_key() -> void:
 	var combatant: Dictionary = _make_enemy()
 	var targets: Array = [_make_target("Titus", 18)]
 
-	var result: Dictionary = ai.decide_action(combatant, targets)
+	var result: Dictionary = await ai.decide_action(combatant, targets)
 
 	assert_true(
 		result is Dictionary,
@@ -70,7 +70,7 @@ func test_decide_action_returns_dict_with_target_key() -> void:
 	var combatant: Dictionary = _make_enemy()
 	var targets: Array = [_make_target("Titus", 18)]
 
-	var result: Dictionary = ai.decide_action(combatant, targets)
+	var result: Dictionary = await ai.decide_action(combatant, targets)
 
 	assert_true(
 		result.has("target"),
@@ -88,7 +88,7 @@ func test_decide_action_returns_strike_for_living_enemy_with_valid_target() -> v
 	var combatant: Dictionary = _make_enemy()
 	var targets: Array = [_make_target("Titus", 18)]
 
-	var result: Dictionary = ai.decide_action(combatant, targets)
+	var result: Dictionary = await ai.decide_action(combatant, targets)
 
 	assert_eq(
 		result.get("action_type", ""),
@@ -103,7 +103,7 @@ func test_decide_action_target_matches_first_living_target() -> void:
 	var titus: Dictionary = _make_target("Titus", 18)
 	var targets: Array = [titus]
 
-	var result: Dictionary = ai.decide_action(combatant, targets)
+	var result: Dictionary = await ai.decide_action(combatant, targets)
 
 	var chosen: Dictionary = result.get("target", {})
 	assert_eq(
@@ -153,7 +153,7 @@ func test_decide_action_no_living_targets_returns_empty_action_type() -> void:
 	var dead_target: Dictionary = _make_target("Corpse", 0)
 	var targets: Array = [dead_target]
 
-	var result: Dictionary = ai.decide_action(combatant, targets)
+	var result: Dictionary = await ai.decide_action(combatant, targets)
 
 	assert_eq(
 		result.get("action_type", "MISSING"),
@@ -166,7 +166,7 @@ func test_decide_action_empty_targets_array_returns_empty_action_type() -> void:
 	var ai = AIClass.new()
 	var combatant: Dictionary = _make_enemy()
 
-	var result: Dictionary = ai.decide_action(combatant, [])
+	var result: Dictionary = await ai.decide_action(combatant, [])
 
 	assert_eq(
 		result.get("action_type", "MISSING"),
@@ -186,7 +186,7 @@ func test_decide_action_skips_dead_targets() -> void:
 	var living_target: Dictionary = _make_target("Titus", 18)
 	var targets: Array = [dead_target, living_target]
 
-	var result: Dictionary = ai.decide_action(combatant, targets)
+	var result: Dictionary = await ai.decide_action(combatant, targets)
 
 	assert_eq(
 		result.get("action_type", ""),

@@ -1214,7 +1214,17 @@ func advance_ai_turn() -> Dictionary:
 	# here would be a redundant second call site for the SAME turn boundary,
 	# which is exactly the P0-1/duplication defect this feature closes; the
 	# call is intentionally NOT repeated here.
-	var ai_decision: Dictionary = _decide_ai_action(combatant, action_economy)
+	# iteration K FEAT-006 (US-006, ADR-004): `await`ed so a genuinely
+	# suspending Stride reaction resolver (core/combat/ai.gd's
+	# `_stride_reaction_resolver_fn` seam, wired by MainScene.gd to the real
+	# player-facing pop-up for an enemy Stride's OpportunisticStrike window)
+	# is fully resolved BEFORE `ai_decision` is read below — mirrors this
+	# method's own established "audit every caller in the await chain"
+	# discipline (see the FEAT-003 doc above). For every pre-existing
+	# AIDecisionPort (no resolver injected on the real core/combat/ai.gd, or
+	# any 2-argument test double), this `await` never actually suspends and
+	# resolves synchronously within the same call (NFR-004).
+	var ai_decision: Dictionary = await _decide_ai_action(combatant, action_economy)
 	var action_name: String = ai_decision.get("action_type", "")
 	var target: Dictionary = ai_decision.get("target", {})
 
@@ -1736,6 +1746,12 @@ func advance_ai_turn() -> Dictionary:
 ## is determined via Callable.get_argument_count() (reflection over the
 ## port's own declared method signature), never a new static port/use-case
 ## type — no new port or use-case class is introduced by this feature.
+## iteration K FEAT-006 (US-006, ADR-004): `await`ed on the 4-argument branch
+## below (the REAL core/combat/ai.gd's own signature) so that
+## implementation's now-coroutine decide_action() (see its own
+## `_stride_reaction_resolver_fn` doc) is genuinely awaited to completion —
+## every pre-existing 2-argument test double's call remains un-awaited (those
+## never contain `await` internally, so nothing here changes for them).
 func _decide_ai_action(combatant: Dictionary, action_economy) -> Dictionary:
 	var decide_callable := Callable(_ai_decision_port, "decide_action")
 	if decide_callable.get_argument_count() < 4:
@@ -1746,7 +1762,7 @@ func _decide_ai_action(combatant: Dictionary, action_economy) -> Dictionary:
 		if not is_same(enemy, combatant):
 			other_combatants.append(enemy)
 
-	return decide_callable.call(combatant, _party, action_economy, other_combatants)
+	return await decide_callable.call(combatant, _party, action_economy, other_combatants)
 
 
 ## _reposition_token_after_ai_stride(combatant, ai_decision) -> void —

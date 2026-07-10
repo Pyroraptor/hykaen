@@ -52,7 +52,12 @@ class CountingAI:
 		call_count += 1
 		var name: String = combatant.get("name", "")
 		calls_by_name[name] = calls_by_name.get(name, 0) + 1
-		return super.decide_action(combatant, targets)
+		# iteration K FEAT-006: the parent's decide_action() is now a coroutine
+		# (see core/combat/ai.gd's `_stride_reaction_resolver_fn` doc) -- awaited
+		# here so this override keeps returning the real Dictionary rather than
+		# a Signal. Never actually suspends for this suite (CountingAI is never
+		# handed a resolver), so behavior is otherwise unchanged.
+		return await super.decide_action(combatant, targets)
 
 
 # ── Shared fixture helpers (mirrors tests/test_encounter_round_loop.gd) ────────

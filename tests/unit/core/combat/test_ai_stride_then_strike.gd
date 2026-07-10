@@ -64,7 +64,7 @@ func test_stride_that_closes_into_reach_still_reports_will_strike_false() -> voi
 	action_economy.start_of_turn()
 	var actions_before: int = action_economy.get_remaining()
 
-	var result: Dictionary = ai.decide_action(combatant, [target], action_economy, [])
+	var result: Dictionary = await ai.decide_action(combatant, [target], action_economy, [])
 
 	assert_eq(result.get("action_type", ""), "Stride", "the enemy must Stride toward the out-of-reach target first")
 	var destination = result.get("destination", null)
@@ -105,7 +105,7 @@ func test_stride_that_does_not_close_into_reach_reports_will_strike_false() -> v
 	var action_economy = ActionEconomyClass.new()
 	action_economy.start_of_turn()
 
-	var result: Dictionary = ai.decide_action(combatant, [target], action_economy, [])
+	var result: Dictionary = await ai.decide_action(combatant, [target], action_economy, [])
 
 	assert_eq(result.get("action_type", ""), "Stride")
 	assert_false(
@@ -127,7 +127,7 @@ func test_already_in_reach_target_unaffected_by_stride_then_strike_removal() -> 
 	var action_economy = ActionEconomyClass.new()
 	var actions_before: int = action_economy.get_remaining()
 
-	var result: Dictionary = ai.decide_action(combatant, [target], action_economy, [])
+	var result: Dictionary = await ai.decide_action(combatant, [target], action_economy, [])
 
 	assert_eq(result.get("action_type", ""), "Strike")
 	assert_null(result.get("destination", "MISSING"))

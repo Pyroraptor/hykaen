@@ -145,7 +145,7 @@ func test_ai_never_issues_a_second_stride_within_the_same_turn() -> void:
 	var action_economy = ActionEconomyClass.new()
 	action_economy.start_of_turn()
 
-	var first_result: Dictionary = ai.decide_action(combatant, [target], action_economy, [])
+	var first_result: Dictionary = await ai.decide_action(combatant, [target], action_economy, [])
 	assert_eq(first_result.get("action_type", ""), "Stride", "fixture assumption: the first decision this turn must Stride")
 	var position_after_first_stride = combatant["hex_coord"]
 	var remaining_after_first_stride: int = action_economy.get_remaining()
@@ -154,7 +154,7 @@ func test_ai_never_issues_a_second_stride_within_the_same_turn() -> void:
 	# A SECOND decision cycle in the SAME turn (no start_of_turn() reset in
 	# between) must NOT issue another Stride -- the enemy is still out of
 	# reach, but Movement is locked out for the rest of this turn.
-	var second_result: Dictionary = ai.decide_action(combatant, [target], action_economy, [])
+	var second_result: Dictionary = await ai.decide_action(combatant, [target], action_economy, [])
 
 	assert_eq(
 		second_result.get("action_type", ""), "",
@@ -188,7 +188,7 @@ func test_ai_does_not_stride_when_a_step_already_used_the_movement_gate_this_tur
 	assert_false(action_economy.can_take_movement_action())
 	var budget_before_decision: int = action_economy.get_remaining()
 
-	var result: Dictionary = ai.decide_action(combatant, [target], action_economy, [])
+	var result: Dictionary = await ai.decide_action(combatant, [target], action_economy, [])
 
 	assert_eq(result.get("action_type", ""), "", "the AI must not Stride once Movement is already locked out this turn, regardless of remaining budget")
 	assert_eq(action_economy.get_remaining(), budget_before_decision, "no action may be spent on a blocked Stride attempt")
@@ -213,7 +213,7 @@ func test_ai_never_exceeds_its_action_budget_across_multiple_simulated_turns() -
 	var strides_taken: int = 0
 	for turn_index in range(ActionEconomyClass.MAX_BUDGET + 5):
 		action_economy.start_of_turn()
-		var result: Dictionary = ai.decide_action(combatant, [target], action_economy, [])
+		var result: Dictionary = await ai.decide_action(combatant, [target], action_economy, [])
 
 		assert_true(
 			action_economy.get_remaining() >= 0,

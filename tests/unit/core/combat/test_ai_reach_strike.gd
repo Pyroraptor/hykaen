@@ -69,7 +69,7 @@ func test_melee_enemy_adjacent_to_target_strikes_with_null_destination() -> void
 	var combatant: Dictionary = _melee_combatant(HexCoordClass.new(0, 0))
 	var target: Dictionary = _target("Titus", HexCoordClass.new(1, 0))  # adjacent neighbor
 
-	var result: Dictionary = ai.decide_action(combatant, [target])
+	var result: Dictionary = await ai.decide_action(combatant, [target])
 
 	assert_eq(result.get("action_type", ""), "Strike", "an already-adjacent target must be Struck immediately")
 	assert_eq(result.get("target", {}).get("name", ""), "Titus")
@@ -87,7 +87,7 @@ func test_melee_enemy_adjacent_to_target_issues_zero_stride() -> void:
 	var target: Dictionary = _target("Titus", HexCoordClass.new(0, 1))  # adjacent neighbor
 	var combatant_hex_before = combatant["hex_coord"]
 
-	var result: Dictionary = ai.decide_action(combatant, [target])
+	var result: Dictionary = await ai.decide_action(combatant, [target])
 
 	assert_null(result.get("destination", "MISSING"))
 	assert_true(
@@ -106,7 +106,7 @@ func test_ranged_enemy_within_range_strikes_with_null_destination() -> void:
 	var combatant: Dictionary = _ranged_combatant(HexCoordClass.new(0, 0), 8)
 	var target: Dictionary = _target("Titus", HexCoordClass.new(5, 0))  # distance 5, within range 8
 
-	var result: Dictionary = ai.decide_action(combatant, [target])
+	var result: Dictionary = await ai.decide_action(combatant, [target])
 
 	assert_eq(result.get("action_type", ""), "Strike", "a target within range_hexes must be Struck immediately")
 	assert_eq(result.get("target", {}).get("name", ""), "Titus")
@@ -119,7 +119,7 @@ func test_ranged_enemy_exactly_at_range_hexes_strikes_immediately() -> void:
 	var combatant: Dictionary = _ranged_combatant(HexCoordClass.new(0, 0), 8)
 	var target: Dictionary = _target("Titus", HexCoordClass.new(8, 0))  # distance == range_hexes
 
-	var result: Dictionary = ai.decide_action(combatant, [target])
+	var result: Dictionary = await ai.decide_action(combatant, [target])
 
 	assert_eq(result.get("action_type", ""), "Strike")
 	assert_true(result.get("will_strike", false))
@@ -137,7 +137,7 @@ func test_melee_enemy_out_of_reach_does_not_falsely_report_will_strike() -> void
 	var combatant: Dictionary = _melee_combatant(HexCoordClass.new(0, 0))
 	var target: Dictionary = _target("Titus", HexCoordClass.new(3, 0))  # hex_distance 3 -- not adjacent
 
-	var result: Dictionary = ai.decide_action(combatant, [target])
+	var result: Dictionary = await ai.decide_action(combatant, [target])
 
 	assert_false(result.get("will_strike", true), "an out-of-reach target must not report will_strike:true")
 	assert_null(result.get("destination", "MISSING"), "this feature issues no Stride destination yet — movement is a later feature")
@@ -148,7 +148,7 @@ func test_ranged_enemy_beyond_range_hexes_does_not_falsely_report_will_strike() 
 	var combatant: Dictionary = _ranged_combatant(HexCoordClass.new(0, 0), 8)
 	var target: Dictionary = _target("Titus", HexCoordClass.new(9, 0))  # 1 hex beyond range
 
-	var result: Dictionary = ai.decide_action(combatant, [target])
+	var result: Dictionary = await ai.decide_action(combatant, [target])
 
 	assert_false(result.get("will_strike", true), "a target beyond range_hexes must not report will_strike:true")
 
@@ -168,7 +168,7 @@ func test_combatant_without_hex_coord_is_not_reach_gated_and_still_strikes() -> 
 	}
 	var target: Dictionary = {"name": "Titus", "hp_current": 18, "ac": 14, "strength": 5}
 
-	var result: Dictionary = ai.decide_action(combatant, [target])
+	var result: Dictionary = await ai.decide_action(combatant, [target])
 
 	assert_eq(result.get("action_type", ""), "Strike", "legacy callers without hex_coord data must not be reach-gated")
 	assert_true(result.get("will_strike", false))

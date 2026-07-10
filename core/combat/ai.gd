@@ -126,6 +126,48 @@ const HexMathClass = preload("res://core/geometry/hex_math.gd")
 const MovementClass = preload("res://core/rules/movement.gd")
 
 
+## _stride_reaction_resolver_fn — OPTIONAL (iteration K FEAT-006 / US-006,
+## ADR-002): an injected, duck-typed
+## Callable(mover: Dictionary, mover_start_hex, candidate_reactors: Array) ->
+## Variant, AWAITED (see below) inside _stride_toward_target() immediately
+## BEFORE it commits a Stride via core/rules/movement.gd's Movement.stride()
+## — the seam MainScene.gd's composition root binds to a real
+## core/application/use_cases/resolve_stride_use_case.gd ResolveStrideUseCase
+## invocation, opening an OpportunisticStrike reaction window for every
+## hostile reactor eligible per core/domain/opportunistic_strike_eligibility.gd
+## BEFORE `combatant`'s hex_coord ever changes — this feature's "second
+## demoable slice: a Stride opens a resolved reaction window before position
+## changes".
+##
+## Mirrors this project's established Callable Dependency-Inversion seam
+## convention (e.g. core/application/round_session.gd's
+## _reaction_resolver_fn/_token_reposition_fn): this file never imports/
+## references core/application/use_cases/resolve_stride_use_case.gd,
+## presentation/turn_controller.gd, infrastructure/ai_reaction_policy.gd, or
+## any other concrete adapter/use-case type (ADR-001/ADR-002) — it only calls
+## whichever Callable MainScene.gd injects via
+## set_stride_reaction_resolver_fn().
+##
+## Left as an invalid (unbound) Callable — the default — for every
+## pre-existing caller/test double (every test in tests/unit/test_ai*.gd,
+## tests/unit/core/combat/, and every headless/sim caller), which never sets
+## one: _stride_toward_target()'s own guard (`if
+## _stride_reaction_resolver_fn.is_valid(): ...`) makes this call an
+## unconditional no-op for them, so decide_action()'s pre-existing
+## byte-for-byte contract (a Stride is committed synchronously, with zero new
+## await-driven suspension) is completely unaffected (NFR-004).
+var _stride_reaction_resolver_fn: Callable = Callable()
+
+
+## set_stride_reaction_resolver_fn(fn) -> void — iteration K FEAT-006:
+## injects the Callable described above. Intended to be called once by the
+## composition root (MainScene.gd), the SAME way core/application/
+## round_session.gd's set_reaction_resolver_fn() already is, e.g.:
+##   ai_decision_port.set_stride_reaction_resolver_fn(Callable(main_scene, "_resolve_enemy_stride_opportunistic_window"))
+func set_stride_reaction_resolver_fn(fn: Callable) -> void:
+	_stride_reaction_resolver_fn = fn
+
+
 ## decide_action(combatant: Dictionary, targets: Array, action_economy = null, other_combatants: Array = []) → Dictionary
 ##
 ## Selects the best action for the given combatant from the available target pool.
@@ -204,7 +246,14 @@ func decide_action(combatant: Dictionary, targets: Array, action_economy = null,
 	if action_economy == null:
 		return {"action_type": "", "target": {}, "destination": null, "will_strike": false}
 
-	return _stride_toward_target(combatant, chosen_target, targets, action_economy, other_combatants)
+	# iteration K FEAT-006 (US-006): `await`ed so a genuinely suspending
+	# _stride_reaction_resolver_fn (the real player-facing pop-up, routed via
+	# MainScene.gd) is fully resolved before this method returns — see that
+	# field's own doc. For every pre-existing caller (no resolver injected),
+	# this `await` never actually suspends and decide_action() resolves
+	# synchronously within the same call, byte-for-byte identical to before
+	# this feature (NFR-004).
+	return await _stride_toward_target(combatant, chosen_target, targets, action_economy, other_combatants)
 
 
 ## _stride_toward_target(combatant, chosen_target, targets, action_economy,
@@ -226,6 +275,10 @@ func decide_action(combatant: Dictionary, targets: Array, action_economy = null,
 ## call; whether the Stride happened to land the target in reach is
 ## irrelevant here — that Strike, if any, is decided on the combatant's NEXT
 ## decide_action() call (its next turn).
+## iteration K FEAT-006 (US-006, ADR-004): this method is now `await`-capable
+## (a coroutine) — see `_stride_reaction_resolver_fn`'s own doc. Every
+## pre-existing call site/return path below is otherwise byte-for-byte
+## unchanged.
 func _stride_toward_target(
 	combatant: Dictionary,
 	chosen_target: Dictionary,
@@ -264,6 +317,15 @@ func _stride_toward_target(
 		# No legal Stride destination gets any closer — do not move
 		# pointlessly (and never spend the action for a no-op move).
 		return {"action_type": "", "target": {}, "destination": null, "will_strike": false}
+
+	# iteration K FEAT-006 (US-006): open an OpportunisticStrike reaction
+	# window for every eligible hostile reactor in `occupancy` BEFORE this
+	# Stride commits — Movement.stride() below is the sole hex_coord mutation
+	# point for this decision, so this call site is guaranteed to run before
+	# `combatant`'s position changes. A no-op for every pre-existing caller
+	# (see `_stride_reaction_resolver_fn`'s own doc).
+	if _stride_reaction_resolver_fn.is_valid():
+		await _stride_reaction_resolver_fn.call(combatant, origin, occupancy)
 
 	var stride_result: Dictionary = MovementClass.stride(combatant, best_destination, action_economy, occupancy)
 	if not stride_result.get("ok", false):

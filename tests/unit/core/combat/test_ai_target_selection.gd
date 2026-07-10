@@ -76,7 +76,7 @@ func test_out_of_reach_enemy_strides_to_a_legal_destination_that_reduces_distanc
 
 	var original_distance: int = HexMathClass.hex_distance(origin_hex, target_hex)
 
-	var result: Dictionary = ai.decide_action(combatant, [target], action_economy, [])
+	var result: Dictionary = await ai.decide_action(combatant, [target], action_economy, [])
 
 	assert_eq(result.get("action_type", ""), "Stride", "an out-of-reach enemy with an ActionEconomy supplied must Stride toward its target")
 	var destination = result.get("destination", null)
@@ -111,7 +111,7 @@ func test_chosen_stride_spends_one_action_and_marks_movement_used() -> void:
 	var actions_before: int = action_economy.get_remaining()
 	assert_true(action_economy.can_take_movement_action(), "fixture assumption: movement must be available before the Stride")
 
-	var result: Dictionary = ai.decide_action(combatant, [target], action_economy, [])
+	var result: Dictionary = await ai.decide_action(combatant, [target], action_economy, [])
 
 	assert_eq(result.get("action_type", ""), "Stride")
 	assert_eq(
@@ -137,7 +137,7 @@ func test_already_in_reach_target_still_strikes_with_action_economy_supplied() -
 	var action_economy = ActionEconomyClass.new()
 	var actions_before: int = action_economy.get_remaining()
 
-	var result: Dictionary = ai.decide_action(combatant, [target], action_economy, [])
+	var result: Dictionary = await ai.decide_action(combatant, [target], action_economy, [])
 
 	assert_eq(result.get("action_type", ""), "Strike", "an already-adjacent target must still Strike immediately, not Stride")
 	assert_null(result.get("destination", "MISSING"))
@@ -160,7 +160,7 @@ func test_movement_already_used_this_turn_prevents_a_second_stride() -> void:
 	var actions_before: int = action_economy.get_remaining()
 	var hex_before = combatant["hex_coord"]
 
-	var result: Dictionary = ai.decide_action(combatant, [target], action_economy, [])
+	var result: Dictionary = await ai.decide_action(combatant, [target], action_economy, [])
 
 	assert_eq(result.get("action_type", "MISSING"), "", "no Stride may be issued once the Movement trait was already used this turn")
 	assert_null(result.get("destination", "MISSING"))
@@ -179,7 +179,7 @@ func test_legacy_two_argument_call_issues_no_stride_for_out_of_reach_target() ->
 	var combatant: Dictionary = _melee_combatant(HexCoordClass.new(0, 0))
 	var target: Dictionary = _target("Titus", HexCoordClass.new(6, 0))
 
-	var result: Dictionary = ai.decide_action(combatant, [target])
+	var result: Dictionary = await ai.decide_action(combatant, [target])
 
 	assert_eq(result.get("action_type", "MISSING"), "", "legacy 2-argument callers must retain the FEAT-003 no-Stride contract")
 	assert_null(result.get("destination", "MISSING"))
