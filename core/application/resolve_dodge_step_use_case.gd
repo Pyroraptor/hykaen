@@ -63,6 +63,20 @@
 ##     injected resolver's job, exactly as it already is for every other
 ##     caller of that seam.
 ##
+## FEAT-005 (US-005, Iteration K — "Synchronous AI hex chooser for enemy
+## Dodge-Step", ADR-004): this SAME class is now ALSO consumed by
+## MainScene.gd's `_resolve_enemy_dodge_step()` for the player-strikes-ENEMY
+## path (the Skeleton's OWN Dodge-Step), never a second/duplicated use case
+## (ADR-001/ADR-002 "no duplicate seam" — this feature's code-inspection
+## test_criterion). The ONLY thing that differs between the player path
+## (round_session.gd's `_resolve_dodge_step_prompt()`) and the enemy path
+## (MainScene.gd's `_resolve_enemy_dodge_step()`) is WHICH
+## `hex_choice_resolver_fn` is handed in — the real, blocking
+## `_UIHexChoiceResolver` for the player; infrastructure/
+## ai_hex_choice_resolver.gd's synchronous, no-pop-up AIHexChoiceResolver for
+## the enemy — this use case's own resolve() method is identical, unmodified,
+## and reused verbatim by both call sites.
+##
 ## FEAT-004 (US-004, Dodge-Step steel thread — "Relocate defender to
 ## player-chosen hex via shared token-reposition seam"): once a hex has
 ## actually been chosen (`chosen_hex != null`), this use case now ALSO

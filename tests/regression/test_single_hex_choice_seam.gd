@@ -15,13 +15,33 @@ extends GutTest
 ## Verifies (this feature's test_criteria):
 ##   1. Static grep over core/ source confirms exactly one production
 ##      hex-choice seam CONTRACT (class_name HexChoiceResolverPort) and
-##      exactly one production CONCRETE implementation of it, and that the
-##      concrete implementation is referenced from MainScene.gd (the
-##      composition root) — no parallel/duplicate seam introduced.
-##   2. The check actually has teeth: fails (detects > 1) if a second,
-##      self-wired hex-choice resolver is injected anywhere outside the
-##      composition root, proven against a disposable fixture repo (never
-##      by mutating the real tree).
+##      exactly TWO production CONCRETE implementations of it (see the
+##      FEAT-005 update below) — MainScene.gd's `_UIHexChoiceResolver` (the
+##      composition root's own player-facing adapter) and infrastructure/
+##      ai_hex_choice_resolver.gd's AIHexChoiceResolver (the enemy AI's
+##      adapter) — no THIRD/parallel/rogue seam introduced.
+##   2. The check actually has teeth: fails (detects an extra,
+##      unaccounted-for implementation) if a rogue, self-wired hex-choice
+##      resolver is injected anywhere outside those two known files,
+##      proven against a disposable fixture repo (never by mutating the
+##      real tree).
+##
+## FEAT-005 (US-005, Iteration K — "Synchronous AI hex chooser for enemy
+## Dodge-Step", ADR-004) update: this seam now legitimately has TWO
+## production concrete implementations behind the ONE
+## HexChoiceResolverPort contract — MainScene.gd's `_UIHexChoiceResolver`
+## (the real, blocking, pop-up-driven resolver for the PLAYER's own
+## Dodge-Step) and infrastructure/ai_hex_choice_resolver.gd's
+## AIHexChoiceResolver (the synchronous, no-pop-up resolver for the ENEMY's
+## own Dodge-Step) — mirroring core/application/ports/reaction_chooser_port.gd's
+## OWN established "one port, multiple concrete adapters" precedent
+## (presentation/player_reaction_chooser.gd / infrastructure/
+## ai_reaction_policy.gd / infrastructure/auto_reaction_chooser.gd all
+## extend that SAME port with no analogous singularity guard). This is
+## intentional, not a regression: the "no duplicate seam" guarantee this
+## suite protects is about a THIRD, rogue implementation ever appearing
+## outside these two known, composition-root-selected adapters — never
+## about capping the count at exactly one.
 ##
 ## Implementation note: the EXTENDS_PATTERN below matches `extends` followed
 ## by a single wildcard character (`.`) standing in for the opening quote,
@@ -160,20 +180,31 @@ func test_exactly_one_hex_choice_resolver_port_contract_definition_in_real_repo(
 	)
 
 
-func test_exactly_one_concrete_hex_choice_resolver_implementation_in_real_repo() -> void:
+## FEAT-005 update: exactly the TWO known, composition-root-selected
+## implementations (MainScene.gd's `_UIHexChoiceResolver` for the player,
+## infrastructure/ai_hex_choice_resolver.gd's AIHexChoiceResolver for the
+## enemy AI) — no THIRD/rogue implementation anywhere else.
+func test_exactly_two_concrete_hex_choice_resolver_implementations_in_real_repo() -> void:
 	var repo_root: String = ProjectSettings.globalize_path("res://")
 	var files: Array = _concrete_implementation_files(repo_root)
 
 	assert_eq(
-		files.size(), 1,
-		"expected exactly one production hex-choice seam implementation (no parallel/duplicate seam), found %d: %s" % [files.size(), str(files)]
+		files.size(), 2,
+		"expected exactly two production hex-choice seam implementations (the player's and the enemy AI's — no THIRD/parallel/duplicate seam), found %d: %s" % [files.size(), str(files)]
 	)
-	if files.size() == 1:
-		var matched_path: String = files[0]
-		assert_true(
-			matched_path.ends_with("MainScene.gd"),
-			"the single production hex-choice seam implementation must be referenced from MainScene.gd (the composition root), found: %s" % matched_path
-		)
+
+	var basenames: Array = []
+	for path in files:
+		basenames.append(path.get_file())
+
+	assert_true(
+		"MainScene.gd" in basenames,
+		"one of the two production hex-choice seam implementations must be referenced from MainScene.gd (the composition root), found: %s" % str(basenames)
+	)
+	assert_true(
+		"ai_hex_choice_resolver.gd" in basenames,
+		"the other production hex-choice seam implementation must be infrastructure/ai_hex_choice_resolver.gd (the enemy AI's adapter, FEAT-005), found: %s" % str(basenames)
+	)
 
 
 func test_mainscene_is_the_composition_root_wiring_the_hex_choice_seam() -> void:
@@ -195,8 +226,9 @@ func test_mainscene_is_the_composition_root_wiring_the_hex_choice_seam() -> void
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Criterion 2 — the check has teeth: it fails (detects > 1) when a second,
-# self-wired hex-choice resolver is injected outside the composition root.
+# Criterion 2 — the check has teeth: it fails (detects an unaccounted-for
+# extra) when a rogue, self-wired hex-choice resolver is injected outside
+# the two known, composition-root-selected adapters.
 # ══════════════════════════════════════════════════════════════════════════
 
 func _build_clean_fixture_repo(tmp_dir: String) -> void:
@@ -224,16 +256,45 @@ func test_check_passes_on_clean_single_seam_fixture_repo() -> void:
 	)
 
 
+## _build_two_seam_fixture_repo(tmp_dir) -> void — FEAT-005: a fixture
+## mirroring the REAL repo's now-legitimate two-adapter shape (MainScene.gd's
+## `_UIHexChoiceResolver` PLUS a dedicated infrastructure/ adapter file for
+## the enemy AI), so the "the check has teeth" tests below exercise the
+## SAME baseline the real repo actually has, rather than a stale
+## single-implementation baseline.
+func _build_two_seam_fixture_repo(tmp_dir: String) -> void:
+	_build_clean_fixture_repo(tmp_dir)
+	_write_file(
+		tmp_dir + "/infrastructure/ai_hex_choice_resolver.gd",
+		"class_name FixtureAIHexChoiceResolver\nextends \"res://core/application/ports/hex_choice_resolver_port.gd\"\nfunc resolve(legal_hexes: Array):\n\treturn null\n"
+	)
+
+
+func test_check_passes_on_the_real_repos_known_two_seam_fixture() -> void:
+	var tmp_dir: String = _make_temp_dir()
+	if tmp_dir == "":
+		pending("mktemp unavailable in this sandbox — skipping fixture-injection check")
+		return
+
+	_build_two_seam_fixture_repo(tmp_dir)
+	var files: Array = _concrete_implementation_files(tmp_dir)
+
+	assert_eq(
+		files.size(), 2,
+		"control case: the real repo's known two-adapter fixture must report exactly two implementations; found: %s" % str(files)
+	)
+
+
 func test_check_detects_injected_duplicate_hex_choice_resolver_outside_composition_root() -> void:
 	var tmp_dir: String = _make_temp_dir()
 	if tmp_dir == "":
 		pending("mktemp unavailable in this sandbox — skipping fixture-injection check")
 		return
 
-	_build_clean_fixture_repo(tmp_dir)
+	_build_two_seam_fixture_repo(tmp_dir)
 
-	# Deliberately inject a SECOND, self-wired concrete hex-choice resolver
-	# living outside the composition root (e.g. a rogue helper under
+	# Deliberately inject a THIRD, self-wired concrete hex-choice resolver
+	# living outside the two known adapters (e.g. a rogue helper under
 	# core/rules/) — exactly the class of regression this test guards
 	# against.
 	_write_file(
@@ -244,10 +305,10 @@ func test_check_detects_injected_duplicate_hex_choice_resolver_outside_compositi
 	var files: Array = _concrete_implementation_files(tmp_dir)
 
 	assert_ne(
-		files.size(), 1,
-		"the check must detect the injected duplicate hex-choice resolver (expected != 1 implementation); got: %s" % str(files)
+		files.size(), 2,
+		"the check must detect the injected rogue hex-choice resolver (expected != 2 known implementations); got: %s" % str(files)
 	)
-	assert_eq(files.size(), 2, "expected exactly 2 implementations once the rogue resolver is injected; got: %s" % str(files))
+	assert_eq(files.size(), 3, "expected exactly 3 implementations once the rogue resolver is injected; got: %s" % str(files))
 
 	var basenames: Array = []
 	for path in files:

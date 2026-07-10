@@ -192,6 +192,30 @@ const HexChoiceResolverPortClass       = preload("res://core/application/ports/h
 const AttackEventClass                 = preload("res://core/log/attack_event.gd")
 const RenderCombatLogUseCaseClass      = preload("res://core/application/render_combat_log_use_case.gd")
 
+## ResolveDodgeStepUseCaseClass — FEAT-005 (US-005, ADR-004): the SAME
+## Application-layer use case core/application/round_session.gd's
+## `_resolve_dodge_step_prompt()` already drives for the PLAYER's own
+## Dodge-Step (enemy-Strikes-player path) — reused verbatim here for the
+## ENEMY's own Dodge-Step (player-Strikes-enemy path,
+## `_resolve_enemy_dodge_step()` below), never a second/duplicated
+## reposition-step implementation (ADR-001/ADR-002 "no duplicate seam" —
+## this feature's own code-inspection test_criterion).
+const ResolveDodgeStepUseCaseClass     = preload("res://core/application/resolve_dodge_step_use_case.gd")
+
+## AIHexChoiceResolverClass — FEAT-005 (US-005, ADR-004):
+## infrastructure/ai_hex_choice_resolver.gd's AIHexChoiceResolver, the enemy
+## AI's deterministic, synchronous HexChoiceResolverPort implementation
+## (prefer the legal adjacent hex that keeps melee reach on the original
+## attacker, else the first legal hex — never a pop-up/highlight). Wired
+## ONLY here (see `_resolve_enemy_dodge_step()` below) — MainScene is the
+## ONE place a concrete adapter is ever bound to a port (ADR-002/G2),
+## mirroring `AIReactionPolicyClass`'s identical precedent for
+## ReactionChooserPort. Distinct from `_UIHexChoiceResolver` (which BLOCKS
+## on a live hex_grid_view.hex_clicked signal for the PLAYER's own
+## Dodge-Step) — the two are independent, swappable adapters behind the
+## SAME HexChoiceResolverPort seam, never confused with one another.
+const AIHexChoiceResolverClass         = preload("res://infrastructure/ai_hex_choice_resolver.gd")
+
 ## AIReactionPolicyClass — iteration K FEAT-004 (US-004, ADR-004):
 ## infrastructure/ai_reaction_policy.gd's AIReactionPolicy, the enemy AI's
 ## deterministic, synchronous ReactionChooserPort implementation. Wired ONLY
@@ -1374,7 +1398,92 @@ func _verb_bar_strike_execute(selection) -> Dictionary:
 			var rich_text: String = event_log_view.render_attack_entry(attack_event_id)
 			event_log_view.overwrite_entry_as_rich(pending_entry_index, rich_text, attack_event_id)
 
+	# ── FEAT-005 (US-005, ADR-004): the enemy target's OWN Dodge-Step —
+	# a successful reactive Dodge (resolve_reactive()'s "defender_stepped"
+	# key, surfaced verbatim from core/rules/resolution.gd, see
+	# resolve_action_use_case.gd's _finalize_strike_result() doc) entitles
+	# the Skeleton to relocate to an adjacent hex, exactly like the
+	# player's own Dodge-Step (round_session.gd's `_resolve_dodge_step_prompt()`)
+	# -- but resolved SYNCHRONOUSLY via infrastructure/ai_hex_choice_resolver.gd's
+	# AIHexChoiceResolver instead of the real, blocking `_UIHexChoiceResolver`
+	# pop-up, so the enemy's own reaction never opens a hex-selection prompt
+	# for the player to answer. See _resolve_enemy_dodge_step()'s own doc. ──
+	await _resolve_enemy_dodge_step(
+		target, result, actor.get("hex_coord", null), _query_selectable_step_hexes(_strike_target_id(target))
+	)
+
 	return result
+
+
+## _resolve_enemy_dodge_step(target, resolve_result, attacker_hex, legal_hexes)
+## -> void — FEAT-005 (US-005, ADR-004): mirrors core/application/
+## round_session.gd's own `_resolve_dodge_step_prompt()` EXACTLY (ADR-001/
+## ADR-002 "no duplicate seam") for the player-strikes-ENEMY path: when
+## `resolve_result["defender_stepped"]` is true (a genuinely successful
+## reactive Dodge, per resolve_action_use_case.gd's resolve_reactive()),
+## delegates the ENTIRE whether/how-to-relocate decision to the SAME
+## `ResolveDodgeStepUseCaseClass` round_session.gd's seam already consumes —
+## this method's only job is assembling that use case's inputs:
+##   - `defender_id`             — target's "combatant_id" falling back to
+##                                 "name" (this file's established identity
+##                                 convention, `_strike_target_id()`).
+##   - `legal_hexes`             — handed in verbatim by the caller (computed
+##                                 via `_query_selectable_step_hexes()`, the
+##                                 SAME IStepHexQueryPort query
+##                                 round_session.gd's own Dodge-Step prompt
+##                                 uses — ADR-002 "no duplicate adjacency
+##                                 rule") rather than recomputed here, so a
+##                                 test can force the "zero legal adjacent
+##                                 hex" edge case (US-005's second
+##                                 test_criterion) without any Godot-level
+##                                 monkey-patching.
+##   - `hex_choice_resolver_fn`  — a FRESH `AIHexChoiceResolverClass`
+##                                 instance constructed around `attacker_hex`
+##                                 (the acting player's own hex_coord, so the
+##                                 "keep melee reach on the original attacker"
+##                                 heuristic has the attacker's real position
+##                                 to test against) — NEVER the real, blocking
+##                                 `_UIHexChoiceResolver`/`hex_choice_resolver`
+##                                 field (which stays reserved for the
+##                                 PLAYER's own Dodge-Step). No pop-up, no
+##                                 hex_grid_view.set_selectable_hexes()
+##                                 highlight is ever triggered by this path
+##                                 (this feature's "no pop-up/highlight"
+##                                 test criterion) — AIHexChoiceResolver.resolve()
+##                                 is a plain, synchronous function.
+##   - `token_reposition_fn`/`target` — the SAME `hex_grid_view.move_token`
+##                                 seam / live `target` Dictionary reference
+##                                 round_session.gd's own Dodge-Step reposition
+##                                 (FEAT-004) already threads through, so a
+##                                 chosen hex visibly relocates BOTH the
+##                                 Skeleton's Combatant.hex_coord and its
+##                                 on-screen token — never a second, parallel
+##                                 reposition implementation (ADR-002 "no
+##                                 duplicate seam", ci/check_no_duplicate_seams.sh's
+##                                 own move_token() singularity guarantee).
+##
+## A complete no-op (no use-case call, no reposition) whenever
+## `resolve_result["defender_stepped"]` is false — the overwhelmingly common
+## case for every Strike (a miss without Dodge, a hit, a failed Dodge, ...).
+## ResolveDodgeStepUseCase's own guard clauses additionally degrade an empty
+## `legal_hexes` to "no prompt, no reposition, damage still negated" (US-005's
+## "no legal adjacent hex" edge case) — this method never re-derives that
+## logic itself.
+func _resolve_enemy_dodge_step(target: Dictionary, resolve_result: Dictionary, attacker_hex, legal_hexes: Array) -> void:
+	if not resolve_result.get("defender_stepped", false):
+		return
+
+	var defender_id: String = _strike_target_id(target)
+	var ai_hex_resolver := AIHexChoiceResolverClass.new(attacker_hex)
+	var token_reposition_fn: Callable = Callable()
+	if hex_grid_view != null:
+		token_reposition_fn = Callable(hex_grid_view, "move_token")
+
+	var use_case := ResolveDodgeStepUseCaseClass.new()
+	await use_case.resolve(
+		defender_id, true, legal_hexes, Callable(ai_hex_resolver, "resolve"),
+		token_reposition_fn, target
+	)
 
 
 ## _strike_reachable_targets() -> Array — FEAT-006 (US-006): the in-reach
