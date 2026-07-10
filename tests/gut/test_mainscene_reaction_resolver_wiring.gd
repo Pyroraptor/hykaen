@@ -232,11 +232,11 @@ func test_real_player_combatant_weapon_carries_defensive_reaction_fields() -> vo
 	var weapon: Dictionary = player.get("weapon", {})
 	assert_true(
 		weapon.get("parry_bonus", 0) > 0,
-		"the REAL player combatant's weapon must carry parry_bonus (longsword=2) -- without it the live pop-up can never offer Parry"
+		"the REAL player combatant's weapon must carry parry_bonus (longsword=4) -- without it the live pop-up can never offer Parry"
 	)
 	assert_true(
 		weapon.get("block_value", 0) > 0,
-		"the REAL player combatant's weapon must carry block_value (longsword=1) -- without it the live pop-up can never offer Block"
+		"the REAL player combatant's weapon must carry block_value (longsword=3) -- without it the live pop-up can never offer Block"
 	)
 	assert_true(weapon.has("block_die"), "block_die must be carried through for the Block reduction math")
 

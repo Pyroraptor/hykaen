@@ -24,13 +24,14 @@ extends GutTest
 ## could plausibly perturb them.
 ##
 ## Two complementary scenario families are pinned:
-##   A. REAL, unmodified longsword stats (parry_bonus=2, block_value=1, per
-##      data/weapons/longsword.tres) against the Skeleton's real attack roll
-##      — genuine dice-driven partial mitigation, never an artificially
-##      forced full negation. This is the strongest regression oracle: any
-##      drift in resolve_to_hit()/apply_on_hit_defense()'s formulas (attack
-##      roll math, crit threshold, block-reduction formula, parry-success
-##      comparison) changes one of these pinned numbers.
+##   A. REAL, TABLE-ACCURATE longsword stats (parry_bonus=4, block_value=3, per
+##      data/weapons/longsword.tres reconciled to the Weapons.pdf table) against
+##      the Skeleton's real attack roll — genuine dice-driven mitigation. This is
+##      the strongest regression oracle: any drift in resolve_to_hit()/
+##      apply_on_hit_defense()'s formulas (attack roll math, crit threshold,
+##      block-reduction formula incl. the block_die→damage_die fallback,
+##      parry-success comparison incl. the defender's attack bonus) changes one
+##      of these pinned numbers.
 ##   B. The OVERWHELMING_MITIGATION_STAT convention already established by
 ##      tests/integration/test_mainscene_hit_reaction_apply.gd (guaranteed
 ##      full suppression for Parry/Block), re-pinned here with the ABSOLUTE
@@ -55,15 +56,21 @@ const PROLOGUE_SEED: int = 42
 const AC_GUARANTEED_HIT: int = -100
 const OVERWHELMING_MITIGATION_STAT: int = 9999
 
-## Pinned baseline — Section A (real, unmodified longsword stats).
+## Pinned outcomes — Section A (real, TABLE-ACCURATE longsword stats:
+## parry_bonus=4, block_value=3 per the Weapons.pdf table). Re-pinned 2026-07-10
+## when three deliberate reaction-math corrections landed: Block now rolls its
+## damage die + block_value (was collapsing a 0-sided block_die to ~flat value);
+## Parry now rolls d20 + the defender's FULL attack bonus + parry_bonus (was
+## d20 + parry_bonus only); and the longsword was reconciled to its table row.
+## These are the CORRECTED oracle values, not the earlier pre-fix baseline.
 const PINNED_ROLL: int = 21
 const PINNED_CRIT: bool = true
 const PINNED_HP_BEFORE: int = 18
-const PINNED_DAMAGE_PARRY_FAILS: int = 12   # real parry_bonus(2) does not beat roll_total(21)
-const PINNED_HP_AFTER_PARRY_FAILS: int = 6
-const PINNED_DAMAGE_BLOCK_PARTIAL: int = 10  # 12 raw - (block roll + block_value(1))
-const PINNED_HP_AFTER_BLOCK_PARTIAL: int = 8
-const PINNED_DAMAGE_PASS: int = 12           # Pass ("none") leaves the raw hit unmitigated
+const PINNED_DAMAGE_PARRY_SUCCEEDS: int = 0    # real B = attack_bonus(7)+parry_bonus(4)=11 beats roll_total(21)
+const PINNED_HP_AFTER_PARRY_SUCCEEDS: int = 18
+const PINNED_DAMAGE_BLOCK_PARTIAL: int = 1     # 12 raw - (block roll[1d12] + block_value(3))
+const PINNED_HP_AFTER_BLOCK_PARTIAL: int = 17
+const PINNED_DAMAGE_PASS: int = 12             # Pass ("none") leaves the raw hit unmitigated
 const PINNED_HP_AFTER_PASS: int = 6
 
 
@@ -111,7 +118,7 @@ func _drive_incoming_strike_and_choose(instance, on_hit_choice: String) -> Array
 # partial/failed/absent mitigation, pinned to this commit's exact numbers.
 # ══════════════════════════════════════════════════════════════════════════
 
-func test_real_stats_parry_outcome_matches_pinned_pre_wiring_baseline() -> void:
+func test_real_stats_parry_outcome_matches_pinned_corrected_baseline() -> void:
 	var instance = _boot_main_scene()
 	var titus: Dictionary = _titus(instance)
 	titus["ac"] = AC_GUARANTEED_HIT
@@ -122,13 +129,13 @@ func test_real_stats_parry_outcome_matches_pinned_pre_wiring_baseline() -> void:
 	var attack_events: Array = _drive_incoming_strike_and_choose(instance, "parry")
 	var event = attack_events[0]
 
-	assert_eq(event.roll, PINNED_ROLL, "REGRESSION: the Skeleton's attack roll must be unchanged from the pinned pre-wiring baseline")
-	assert_eq(event.crit, PINNED_CRIT, "REGRESSION: crit determination must be unchanged from the pinned pre-wiring baseline")
-	assert_eq(event.damage_final, PINNED_DAMAGE_PARRY_FAILS, "REGRESSION: Parry (real parry_bonus=2, insufficient to beat roll_total) must still fail identically and leave damage_final unchanged")
-	assert_eq(_hp_of(instance, titus_id), PINNED_HP_AFTER_PARRY_FAILS, "REGRESSION: Titus's post-Parry HP must be unchanged from the pinned pre-wiring baseline")
+	assert_eq(event.roll, PINNED_ROLL, "REGRESSION: the Skeleton's attack roll must be unchanged from the pinned baseline")
+	assert_eq(event.crit, PINNED_CRIT, "REGRESSION: crit determination must be unchanged from the pinned baseline")
+	assert_eq(event.damage_final, PINNED_DAMAGE_PARRY_SUCCEEDS, "REGRESSION: Parry with real table stats (d20 + attack_bonus 7 + parry_bonus 4 = B 11 beats roll_total 21) now SUCCEEDS and fully negates the hit — the corrected parry-attack-bonus math")
+	assert_eq(_hp_of(instance, titus_id), PINNED_HP_AFTER_PARRY_SUCCEEDS, "REGRESSION: Titus takes zero damage from a successful real-stats Parry")
 
 
-func test_real_stats_block_outcome_matches_pinned_pre_wiring_baseline() -> void:
+func test_real_stats_block_outcome_matches_pinned_corrected_baseline() -> void:
 	var instance = _boot_main_scene()
 	var titus: Dictionary = _titus(instance)
 	titus["ac"] = AC_GUARANTEED_HIT
@@ -137,12 +144,12 @@ func test_real_stats_block_outcome_matches_pinned_pre_wiring_baseline() -> void:
 	var attack_events: Array = _drive_incoming_strike_and_choose(instance, "block")
 	var event = attack_events[0]
 
-	assert_eq(event.roll, PINNED_ROLL, "REGRESSION: the Skeleton's attack roll must be unchanged from the pinned pre-wiring baseline")
-	assert_eq(event.damage_final, PINNED_DAMAGE_BLOCK_PARTIAL, "REGRESSION: Block's partial-reduction formula (raw - (roll + block_value)) must be unchanged from the pinned pre-wiring baseline")
-	assert_eq(_hp_of(instance, titus_id), PINNED_HP_AFTER_BLOCK_PARTIAL, "REGRESSION: Titus's post-Block HP must be unchanged from the pinned pre-wiring baseline")
+	assert_eq(event.roll, PINNED_ROLL, "REGRESSION: the Skeleton's attack roll must be unchanged from the pinned baseline")
+	assert_eq(event.damage_final, PINNED_DAMAGE_BLOCK_PARTIAL, "REGRESSION: Block's partial-reduction formula raw - (damage_die roll + block_value 3) must match the corrected block-die-fallback baseline")
+	assert_eq(_hp_of(instance, titus_id), PINNED_HP_AFTER_BLOCK_PARTIAL, "REGRESSION: Titus's post-Block HP must match the corrected baseline")
 
 
-func test_real_stats_pass_outcome_matches_pinned_pre_wiring_baseline() -> void:
+func test_real_stats_pass_outcome_matches_pinned_corrected_baseline() -> void:
 	var instance = _boot_main_scene()
 	var titus: Dictionary = _titus(instance)
 	titus["ac"] = AC_GUARANTEED_HIT
@@ -151,9 +158,9 @@ func test_real_stats_pass_outcome_matches_pinned_pre_wiring_baseline() -> void:
 	var attack_events: Array = _drive_incoming_strike_and_choose(instance, "none")
 	var event = attack_events[0]
 
-	assert_eq(event.roll, PINNED_ROLL, "REGRESSION: the Skeleton's attack roll must be unchanged from the pinned pre-wiring baseline")
-	assert_eq(event.damage_final, PINNED_DAMAGE_PASS, "REGRESSION: Pass must leave the raw, unmitigated damage unchanged from the pinned pre-wiring baseline")
-	assert_eq(_hp_of(instance, titus_id), PINNED_HP_AFTER_PASS, "REGRESSION: Titus's post-Pass HP must be unchanged from the pinned pre-wiring baseline")
+	assert_eq(event.roll, PINNED_ROLL, "REGRESSION: the Skeleton's attack roll must be unchanged from the pinned baseline")
+	assert_eq(event.damage_final, PINNED_DAMAGE_PASS, "REGRESSION: Pass must leave the raw, unmitigated damage unchanged (no reaction applied)")
+	assert_eq(_hp_of(instance, titus_id), PINNED_HP_AFTER_PASS, "REGRESSION: Titus's post-Pass HP must match the unmitigated baseline")
 
 
 # ══════════════════════════════════════════════════════════════════════════

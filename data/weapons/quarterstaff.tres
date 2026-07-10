@@ -11,5 +11,5 @@ damage_type = "B"
 damage_count = 1
 damage_modifier_attribute = "strength"
 proficiency_bonus = 1
-block_value = 1
+block_value = 2
 parry_bonus = 2

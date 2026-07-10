@@ -12,10 +12,11 @@ extends GutTest
 ## block_die to the weapon's damage_die when no dedicated block_die is
 ## supplied (the "no shield weapon exists yet" case called out in B-1).
 ##
-## Test criteria (per FEAT-001 spec):
-##   - longsword.tres has block_value=1, parry_bonus=2
+## Test criteria (values are GROUND TRUTH from the docs/hollow-world-v0-spec.org
+## Weapons.pdf table — reconciled 2026-07-10, the table is authoritative):
+##   - longsword.tres has block_value=3, parry_bonus=4
 ##   - mace.tres has block_value=2, parry_bonus=1
-##   - longbow.tres has block_value=0, parry_bonus=0
+##   - longbow.tres has block_value=1, parry_bonus=0 (ranged, Block per table, no Parry)
 ##   - resolution logic falls back block_die to damage_die when block_die is unset
 
 const ResolutionClass     = preload("res://core/rules/resolution.gd")
@@ -26,20 +27,20 @@ const WeaponResourceClass = preload("res://core/model/weapon_resource.gd")
 # Weapon fixture data (v0 CONFIRMED values, iteration-H B-1 / B-7)
 # ══════════════════════════════════════════════════════════════════════════════
 
-func test_longsword_block_value_is_1() -> void:
+func test_longsword_block_value_is_3() -> void:
 	var res = ResourceLoader.load("res://data/weapons/longsword.tres")
 	assert_not_null(res, "ResourceLoader.load('res://data/weapons/longsword.tres') must return non-null")
 	if res == null:
 		return
-	assert_eq(res.block_value, 1, "longsword.tres block_value must be 1 (iteration-H B-1 v0 value)")
+	assert_eq(res.block_value, 3, "longsword.tres block_value must be 3 (Weapons.pdf table, ground truth)")
 
 
-func test_longsword_parry_bonus_is_2() -> void:
+func test_longsword_parry_bonus_is_4() -> void:
 	var res = ResourceLoader.load("res://data/weapons/longsword.tres")
 	assert_not_null(res, "ResourceLoader.load('res://data/weapons/longsword.tres') must return non-null")
 	if res == null:
 		return
-	assert_eq(res.parry_bonus, 2, "longsword.tres parry_bonus must be 2 (iteration-H B-1 v0 value)")
+	assert_eq(res.parry_bonus, 4, "longsword.tres parry_bonus must be 4 (Weapons.pdf table, ground truth)")
 
 
 func test_mace_block_value_is_2() -> void:
@@ -58,12 +59,12 @@ func test_mace_parry_bonus_is_1() -> void:
 	assert_eq(res.parry_bonus, 1, "mace.tres parry_bonus must be 1 (iteration-H B-1 v0 value)")
 
 
-func test_longbow_block_value_is_0() -> void:
+func test_longbow_block_value_is_1() -> void:
 	var res = ResourceLoader.load("res://data/weapons/longbow.tres")
 	assert_not_null(res, "ResourceLoader.load('res://data/weapons/longbow.tres') must return non-null")
 	if res == null:
 		return
-	assert_eq(res.block_value, 0, "longbow.tres block_value must be 0 — ranged weapon, no block (iteration-H B-1)")
+	assert_eq(res.block_value, 1, "longbow.tres block_value must be 1 (Weapons.pdf table, ground truth)")
 
 
 func test_longbow_parry_bonus_is_0() -> void:

@@ -437,7 +437,7 @@ func _run_dodge_declined_hit_scenario(instance, onhit_choice: String) -> Diction
 		},
 		{
 			# Titus's real longsword (data/weapons/longsword.tres) carries both
-			# parry_bonus=2 and block_value=1 -- both Parry and Block are
+			# parry_bonus=4 and block_value=3 -- both Parry and Block are
 			# legally offered regardless of which this scenario ultimately
 			# presses.
 			"expected_options": ["parry", "block", "none"],
