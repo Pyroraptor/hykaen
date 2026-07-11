@@ -38,21 +38,32 @@
 #      (tests/ci/test_pipeline_sync.py), but also invoked directly here so
 #      a stage-list divergence produces its own clearly-labeled failure.
 #
-#   4. FEAT-009 (US-009) domain purity static check
+#   4. FEAT-239 (US-009, resolves PR-004; ADR-006) sim_results.json
+#      provenance guard (scripts/ci/check_sim_results_provenance.py) — a
+#      standalone gate diffing the current commit against its parent and
+#      failing the build if sim_results.json's tracked metric keys
+#      (win_rate/avg_rounds/total_battles/confidence_interval) moved
+#      without a sanctioned weapon/enemy data file (a *.tres resource
+#      under data/weapons/ or data/enemies/) changing in the same commit.
+#      Prevents exactly the kind of silent reaction-variance leakage
+#      ADR-006 is meant to catch (see
+#      tests/ci/test_check_sim_results_provenance.py).
+#
+#   5. FEAT-009 (US-009) domain purity static check
 #      (ci/check_domain_purity.sh) — a standalone, independently-invokable
 #      gate asserting core/ contains zero bare 'extends Node'/'extends
 #      Control' Godot scene-tree inheritance (ADR-001). Extracted from the
 #      inline grep step already embedded in .github/workflows/test.yml so
 #      it can be run/tested on its own (see tests/ci/test_static_checks.gd).
 #
-#   5. FEAT-009 (US-009) no-duplicate-ports/use-cases/seams check
+#   6. FEAT-009 (US-009) no-duplicate-ports/use-cases/seams check
 #      (ci/check_no_duplicate_seams.sh) — a standalone gate confirming
 #      exactly one _movement_used gate implementation and exactly one
 #      concrete AI decision (decide_action)/token-reposition (move_token)
 #      call path exist across core/, presentation/, and infrastructure/
 #      (ADR-002/ADR-006 — no new/duplicate seam introduced).
 #
-#   6. The CONSOLIDATED domain suite via tests/.gutconfig.json — hex
+#   7. The CONSOLIDATED domain suite via tests/.gutconfig.json — hex
 #      distance/adjacency, Combatant hex-coordinate init, melee reach
 #      gating, RoundSession stepwise API, enemy-turn automation, Step/
 #      Stride movement, and Flanking/Off-Guard domain logic under
@@ -68,24 +79,24 @@
 #      1 already does) honors -gconfig= and keeps this stage a genuinely
 #      scoped, fast gate.
 #
-#   7. The FULL project-wide GUT suite (root .gutconfig.json) via
+#   8. The FULL project-wide GUT suite (root .gutconfig.json) via
 #      `godot --headless -- --gut-run-all`. This is the whole-project
 #      regression gate and already includes both
 #      tests/gut/test_smoke_boot.gd (stage 1) and tests/sim/test_balance_sim.gd
-#      (stage 8 below).
+#      (stage 9 below).
 #
-#   8. core/sim/simulator.gd N=1000 balance regression
+#   9. core/sim/simulator.gd N=1000 balance regression
 #      (tests/sim/test_balance_sim.gd, NFR-006/NFR-008/NFR-009) — already
-#      covered by stage 7's full-project run, but called out here as its
+#      covered by stage 8's full-project run, but called out here as its
 #      own explicit, clearly-labeled gate confirming the aggregate
 #      win-rate/outcome distribution stays within existing tolerance
 #      ([0.40, 0.80]) and that no balance-affecting constants were
 #      modified. Run via GUT's real CLI entry point scoped to just
 #      tests/sim/test_balance_sim.gd, mirroring stage 1's convention.
 #
-#   9. Steel thread prologue-encounter E2E test
+#   10. Steel thread prologue-encounter E2E test
 #      (tests/e2e/test_full_steel_thread_e2e.gd, FEAT-167) — already
-#      covered by stage 7's full-project run, but called out here as its
+#      covered by stage 8's full-project run, but called out here as its
 #      own explicit, clearly-labeled gate: it headlessly boots the real
 #      MainScene.tscn composition root into prologue_encounter.tres and
 #      drives the COMPLETE steel thread end-to-end (turn-start highlight,
@@ -98,7 +109,7 @@
 #      directly to tests/e2e/test_full_steel_thread_e2e.gd (see
 #      tests/ci/test_pipeline_e2e_stage_config.py). Run via GUT's real
 #      CLI entry point with -gselect= scoped to this one script
-#      (mirroring stage 1/6/8's convention of invoking gut_cmdln.gd
+#      (mirroring stage 1/7/9's convention of invoking gut_cmdln.gd
 #      directly rather than the -- --gut-run-all/HeadlessRunner path).
 #
 # Exit code: 0 only if every stage above exits 0. `set -euo pipefail`
@@ -109,31 +120,34 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-echo "=== [1/9] FEAT-001 / NFR-004 headless launchability smoke test (tests/gut/test_smoke_boot.gd) ==="
+echo "=== [1/10] FEAT-001 / NFR-004 headless launchability smoke test (tests/gut/test_smoke_boot.gd) ==="
 godot --headless -s addons/gut/gut_cmdln.gd -gdir=res://tests/gut -gselect=test_smoke_boot.gd -gexit
 
-echo "=== [2/9] pytest suite ==="
+echo "=== [2/10] pytest suite ==="
 python -m pytest -q --tb=short
 
-echo "=== [3/9] FEAT-158 CI pipeline stage-list consistency check (FIND-151) ==="
+echo "=== [3/10] FEAT-158 CI pipeline stage-list consistency check (FIND-151) ==="
 python scripts/check_ci_pipeline_sync.py
 
-echo "=== [4/9] FEAT-009 domain purity static check (ADR-001) ==="
+echo "=== [4/10] FEAT-239 sim_results.json provenance guard (PR-004 / ADR-006) ==="
+python scripts/ci/check_sim_results_provenance.py
+
+echo "=== [5/10] FEAT-009 domain purity static check (ADR-001) ==="
 ci/check_domain_purity.sh core
 
-echo "=== [5/9] FEAT-009 no-duplicate-ports/use-cases/seams check (ADR-002/ADR-006) ==="
+echo "=== [6/10] FEAT-009 no-duplicate-ports/use-cases/seams check (ADR-002/ADR-006) ==="
 ci/check_no_duplicate_seams.sh
 
-echo "=== [6/9] GUT consolidated domain suite (tests/.gutconfig.json) ==="
+echo "=== [7/10] GUT consolidated domain suite (tests/.gutconfig.json) ==="
 godot --headless -s addons/gut/gut_cmdln.gd -gconfig=res://tests/.gutconfig.json -gexit
 
-echo "=== [7/9] GUT full project suite (root .gutconfig.json, --gut-run-all regression gate) ==="
+echo "=== [8/10] GUT full project suite (root .gutconfig.json, --gut-run-all regression gate) ==="
 godot --headless -- --gut-run-all
 
-echo "=== [8/9] core/sim/simulator.gd N=1000 balance regression (NFR-006 / NFR-008 / NFR-009, tests/sim/test_balance_sim.gd) ==="
+echo "=== [9/10] core/sim/simulator.gd N=1000 balance regression (NFR-006 / NFR-008 / NFR-009, tests/sim/test_balance_sim.gd) ==="
 godot --headless -s addons/gut/gut_cmdln.gd -gdir=res://tests/sim -gselect=test_balance_sim.gd -gexit
 
-echo "=== [9/9] Steel thread prologue-encounter E2E test (tests/e2e/test_full_steel_thread_e2e.gd) ==="
+echo "=== [10/10] Steel thread prologue-encounter E2E test (tests/e2e/test_full_steel_thread_e2e.gd) ==="
 godot --headless -s addons/gut/gut_cmdln.gd -gselect=test_full_steel_thread_e2e.gd -gdir=res://tests/e2e -gexit
 
 echo "=== scripts/test_command.sh: all stages passed ==="

@@ -80,6 +80,22 @@ stages:
     optional: false
     allow_failure: false
 
+  - id: sim_results_provenance_check
+    name: sim_results.json provenance guard (FEAT-239 / US-009, resolves PR-004, ADR-006)
+    description: >
+      Diffs the current commit against its parent and fails if
+      sim_results.json's tracked metric keys (win_rate/avg_rounds/
+      total_battles/confidence_interval) changed without a corresponding
+      change to a sanctioned weapon/enemy data file (a *.tres resource
+      under data/weapons/ or data/enemies/) in the same commit —
+      preventing silent reaction-variance leakage into the checked-in
+      balance-sim artifact (ADR-006). See
+      tests/ci/test_check_sim_results_provenance.py.
+    command: python scripts/ci/check_sim_results_provenance.py
+    required: true
+    optional: false
+    allow_failure: false
+
   - id: gut_full_suite
     name: Full GUT headless regression suite (--gut-run-all)
     description: >
