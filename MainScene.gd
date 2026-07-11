@@ -632,7 +632,20 @@ func _ready() -> void:
 		var idx: int = party_count + j
 		var enemy_hex = hex_combatants[idx].hex_coord if idx < hex_combatants.size() else null
 		var enemy_id: String = hex_combatants[idx].combatant_id if idx < hex_combatants.size() else ""
-		_enemies.append(_build_enemy_combatant(encounter_resource.enemy_resource_paths[j], enemy_hex, enemy_id))
+		# FEAT-227 (resolves FIND-223): honour CombatantFactory.build_enemy_combatant()'s
+		# fail-fast contract at the ONE real composition-root call site. On a missing/
+		# unresolvable EnemyResource or malformed weapon data it returns
+		# {"error": <ERR_ code>, "enemy_path": ...} instead of a playable combatant; appending
+		# that blind makes it a silent "dead on arrival" combatant in EncounterClass.new()/
+		# initialize()/the view-model builders (which read hp_current/ac/weapon via .get()).
+		# Mirror the boot loader's own push_error()+return idiom above (encounter_resource
+		# null-check) so a bad enemy aborts encounter setup loudly at boot rather than
+		# silently corrupting live combat state.
+		var enemy_combatant: Dictionary = _build_enemy_combatant(encounter_resource.enemy_resource_paths[j], enemy_hex, enemy_id)
+		if enemy_combatant.has("error"):
+			push_error("MainScene: aborting encounter setup — enemy build failed for '%s' (%s)" % [encounter_resource.enemy_resource_paths[j], enemy_combatant["error"]])
+			return
+		_enemies.append(enemy_combatant)
 
 	var rng := RNGClass.new(resolved_seed)
 	encounter = EncounterClass.new(_party, _enemies, rng)
