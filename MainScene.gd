@@ -1180,6 +1180,22 @@ func _verb_bar_strike_execute(selection) -> Dictionary:
 	return await _strike_action().execute(selection)
 
 
+## _resolve_enemy_dodge_step(target, resolve_result, attacker_hex, legal_hexes)
+## -> void — thin shim to ReactionController.resolve_enemy_dodge_step()
+## (presentation/reaction_controller.gd), restored per that file's own
+## documented contract ("MainScene keeps thin _resolve_*/… shims that
+## delegate here, so … the direct-call tests all keep working unchanged").
+## presentation/strike_action_controller.gd's execute() already calls
+## `_reaction.resolve_enemy_dodge_step()` directly for the live
+## player-Strikes-enemy call path (ADR-002 — no duplicated resolution logic
+## here, this is pure delegation); this shim exists solely so tests/other
+## callers can drive the SAME seam via `instance._resolve_enemy_dodge_step()`
+## on the composition root, exactly like `_resolve_enemy_stride_opportunistic_
+## window()` below does for its own ReactionController method.
+func _resolve_enemy_dodge_step(target: Dictionary, resolve_result: Dictionary, attacker_hex, legal_hexes: Array) -> void:
+	await _reaction().resolve_enemy_dodge_step(target, resolve_result, attacker_hex, legal_hexes)
+
+
 ## _strike_reachable_target_ids() -> Array - thin shim to StrikeActionController
 ## (kept because tests call it directly). strike_execute + the targeting helpers
 ## (_strike_reachable_targets/_strike_actor_is_ranged/_strike_target_id/
