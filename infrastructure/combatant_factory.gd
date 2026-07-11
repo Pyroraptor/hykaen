@@ -66,6 +66,20 @@ func build_party_combatant(character_path: String, hex_coord, combatant_id: Stri
 		"strength":   character.attributes.get("strength",  0),
 		"dexterity":  character.attributes.get("dexterity", 0),
 		"intuition":  character.attributes.get("intuition", 0),
+		# FEAT-236 (US-001/US-002, resolves DEF-001): carry the REAL
+		# CharacterResource.skills Dictionary (mobility/determination) onto
+		# the combatant dict, mirroring build_enemy_combatant()'s identical
+		# fix below. Without this, core/application/_build_defense_context.gd's
+		# build_prehit_context() reads target.get("skills", {}).get("mobility", 0)
+		# against a MISSING "skills" key and silently defaults to 0, so
+		# ai_reaction_policy.gd's MobilityDodgeRule.dodge_worthwhile()
+		# (10+mobility > targeted_defense_value) evaluates against a phantom
+		# zero mobility in live play even though every mocked-dict unit test
+		# (which hand-populates "skills" itself) stays green. .duplicate()
+		# avoids aliasing the CharacterResource's own mutable Dictionary
+		# into the combatant (mirrors this codebase's existing convention of
+		# never handing a Resource's own mutable container out by reference).
+		"skills":     character.skills.duplicate(),
 		"weapon": {
 			"damage_modifier_attribute": weapon_res.damage_modifier_attribute,
 			"proficiency_bonus":         weapon_res.proficiency_bonus,
@@ -219,6 +233,24 @@ func build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String =
 		"strength":   enemy.str,
 		"dexterity":  enemy.dex,
 		"intuition":  enemy.intuition,
+		# FEAT-236 (US-001/US-002, resolves DEF-001): carry the REAL
+		# EnemyResource.skills Dictionary (mobility/determination) onto the
+		# combatant dict, mirroring build_party_combatant()'s identical fix
+		# above with NO field-name drift (both use the SAME "skills" key
+		# holding the SAME "mobility"/"determination" sub-keys). Previously
+		# this key was never set at all, so core/application/
+		# _build_defense_context.gd's build_prehit_context() silently read a
+		# missing "skills" key as {} and defaulted mobility to 0 for every
+		# real enemy in live play -- ai_reaction_policy.gd's
+		# MobilityDodgeRule.dodge_worthwhile() (10+mobility >
+		# targeted_defense_value) was therefore ALWAYS evaluated against
+		# mobility=0 regardless of the authored EnemyResource data (e.g.
+		# skeleton.tres's skills.mobility=1), even though existing unit tests
+		# passed green (they hand-populate combatant["skills"] on a mocked
+		# Dictionary directly, never exercising this factory function at
+		# all). .duplicate() avoids aliasing the EnemyResource's own mutable
+		# Dictionary into the combatant.
+		"skills":     enemy.skills.duplicate(),
 		"weapon": {
 			"damage_modifier_attribute": weapon_attribute,
 			"proficiency_bonus":         proficiency_bonus,
