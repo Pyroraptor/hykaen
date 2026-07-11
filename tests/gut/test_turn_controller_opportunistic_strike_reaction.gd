@@ -71,8 +71,8 @@ class FixedChoiceReactionChooser:
 		return _fixed_choice
 
 
-func _fresh_ae():
-	var ae = ActionEconomyClass.new()
+func _fresh_ae() -> ActionEconomy:
+	var ae: ActionEconomy = ActionEconomyClass.new()
 	ae.start_of_round()
 	return ae
 
@@ -82,8 +82,26 @@ func _reactor() -> Dictionary:
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Criterion 1: a legal "opportunistic_strike" answer resolves ok and spends
-# the reactor's OWN reaction via ActionEconomy.spend_reaction().
+# Criterion 1 (DEF-005 fix): a legal "opportunistic_strike" answer resolves
+# ok and reports the choice back verbatim, WITHOUT spending the reactor's
+# OWN reaction budget here.
+#
+# core/application/reaction_window.gd's resume() deliberately EXEMPTS the
+# "OpportunisticStrike" trigger_type from its spend_reaction() call (see
+# that method's own FEAT-007/US-007/ADR-005 comment): an Opportunistic
+# Strike's reaction is spent by whichever caller actually resolves its
+# EFFECT (core/application/use_cases/resolve_stride_use_case.gd, via the
+# same resolve_action_use_case/resolve_weapon_attack path an ordinary
+# Strike takes) -- never by this generic resolve_reaction()/resume() call.
+# resolve_opportunistic_strike_reaction() is a thin wrapper around exactly
+# that resume() call, so a single call here can NEVER decrement a fresh
+# 7-point ActionEconomy budget at all -- asserting ae.is_spent() (which
+# requires the shared 7-point budget to reach exactly 0) was therefore
+# unsatisfiable by a single call, regardless of the exemption (even an
+# unexempted single spend_reaction() call only moves 7->6, never to 0/
+# is_spent()). The correct assertion pins the ACTUAL, observed effect of
+# this call: the budget is untouched -- the spend is deferred to the
+# use-case layer that resolves the Strike's effect, not duplicated here.
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_legal_opportunistic_strike_choice_resolves_and_spends_reaction() -> void:
@@ -96,6 +114,8 @@ func test_legal_opportunistic_strike_choice_resolves_and_spends_reaction() -> vo
 	turn_controller.configure_reactions(window, chooser)
 
 	var ae := _fresh_ae()
+	assert_eq(ae.get_remaining(), ActionEconomyClass.MAX_BUDGET, "fixture assumption: a fresh ActionEconomy starts at the full 7-point budget")
+
 	var result: Dictionary = await turn_controller.resolve_opportunistic_strike_reaction(
 		_reactor(), {"melee_reach": true}, ae, 3
 	)
@@ -103,7 +123,8 @@ func test_legal_opportunistic_strike_choice_resolves_and_spends_reaction() -> vo
 	assert_true(result.get("ok", false), "a legal opportunistic_strike choice must resolve ok")
 	assert_eq(result.get("choice", ""), "opportunistic_strike")
 	assert_true(result.get("opened", false), "a genuinely eligible reactor must open a real window (never the 'opened: false' short-circuit)")
-	assert_true(ae.is_spent(), "the reactor's OWN reaction budget must be spent for a taken Opportunistic Strike")
+	assert_eq(ae.get_remaining(), ActionEconomyClass.MAX_BUDGET, "reaction_window.gd's OpportunisticStrike spend-exemption means THIS call must never decrement the reactor's budget -- the spend is deferred to the use case that resolves the Strike's effect (ADR-005)")
+	assert_false(ae.is_spent(), "a single resolve_opportunistic_strike_reaction() call can never exhaust a fresh 7-point budget on its own -- it neither spends here (exemption) nor could a single spend_reaction() alone reach is_spent() (7->6, not 7->0)")
 
 
 # ══════════════════════════════════════════════════════════════════════════
