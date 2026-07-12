@@ -1,0 +1,124 @@
+#+TITLE: Refactor Plan — Combatant Entity Migration (pre-work item #2)
+#+STATUS: DRAFT (hand-execution plan, gate-gated; precedes Cast-a-Spell / Combinations)
+
+* Why
+
+The combat-resolution pipeline passes plain *Dictionaries* carrying every stat,
+while =core/domain/combatant.gd= (the =Combatant= entity) holds only identity +
+position. We have the cost of two models and the safety of neither: each combat
+attribute is an untyped, undocumented dict key threaded through resolution with
+no compiler help and no single schema. This already caused a real defect class
+historically (silent missing/typo'd keys). Cast-a-Spell makes it worse — it adds
+HP manipulation, an energy resource, conditions, healing, and a persistent
+*Casting* state that must survive round boundaries — all new keys in the untyped
+bag unless we migrate first.
+
+Goal: thread =Combatant= instances through resolution so stats + behavior live
+on one typed entity with methods, and adding an attribute is a field on a class
+rather than a new dict key nobody validates.
+
+Naming decision (settled): keep =Combatant= (the encounter-time combat
+projection). A persistent =Actor=/=Character= entity is a *separate future*
+entity that owns durable data and builds a Combatant per encounter;
+=CombatantFactory= already sits on that seam. Do NOT merge persistent data here.
+
+* Current state (verified)
+
+- =core/domain/combatant.gd= — =class_name Combatant extends RefCounted=; fields
+  =combatant_id, name, team, hex_coord=; one method =move_to(hex)=. Used only in
+  the positional/identity layer (flanking, movement, opportunistic-strike
+  eligibility, hex-grid tokens) + instantiated by
+  =infrastructure/resource_encounter_repository.gd=. Most of those consumers
+  accept "a Combatant *or* a dict" via duck-typing on =hex_coord=.
+- The *resolution pipeline is Dictionary-typed at the signature level* —
+  e.g. =resolution.gd= =resolve_spell_attack(attacker: Dictionary, target:
+  Dictionary, ...)=, and likewise =resolve_action_use_case=, the two-phase
+  sub-UCs, =round_session=, =run_round_use_case=, =determine_outcome_use_case=.
+- The live combatant builder =infrastructure/combatant_factory.gd= (the FEAT-227
+  fail-fast path) produces *dicts*; =MainScene._party/_enemies= are arrays of
+  dicts. =encounter.gd= builds dicts too. =core/sim/simulator.gd= has its OWN
+  parallel combatant-construction path (ADR-106 sim↔live defense parity).
+- Dict schema (from CombatantFactory): =name, hp_current, hp_max, stamina, ac,
+  fortitude, reflex, will, strength, dexterity, intuition, skills{}, weapon{...},
+  conditions[], conscious, hex_coord, _is_enemy, _initiative_roll=. Note the dict
+  uses =name + _is_enemy=; the class uses =combatant_id + team= — reconcile.
+
+* Target Combatant entity
+
+Merge the stat bag onto the class and give it behavior:
+- Fields: existing =combatant_id, name, team, hex_coord= + =hp_current, hp_max,
+  stamina, ac, fortitude, reflex, will, strength, dexterity, intuition, skills,
+  weapon, conditions, _initiative_roll=; reconcile =team= vs =_is_enemy= (derive
+  =is_enemy()= from =team=), keep =conscious= as a method.
+- Methods: =defense(kind: String) -> int= (ac/reflex/fortitude/will, one lookup),
+  =take_damage(n)= / =heal(n)=, =is_conscious() -> bool=, =has_condition(c)= /
+  =add_condition= / =remove_condition=, plus the round-scoped resource +
+  *Casting* state hooks that land with spells (=is_casting()=, =advance_cast()=,
+  =cancel_cast()=, =spend_energy()=). Keep =move_to=.
+- Interop (transition only): =to_dict() -> Dictionary= and =static from_dict(spec)
+  -> Combatant= so the source and the pipeline can cross the boundary one seam at
+  a time. Delete both once nothing passes dicts.
+
+* Files that flip Dictionary → Combatant (blast radius)
+
+Resolution core: =core/rules/resolution.gd= (all =resolve_*= + =_build_defense_context.gd=),
+=core/application/resolve_action_use_case.gd= (+ =resolve_to_hit_uc.gd=,
+=apply_on_hit_defense_uc.gd=), =core/application/determine_outcome_use_case.gd=
+(=classify=), =core/application/round_session.gd=, =run_round_use_case.gd=,
+=core/combat/encounter.gd=, =core/combat/ai.gd= (=decide_action=).
+Positional/reaction/view: =core/rules/flanking.gd=, =core/rules/movement.gd=,
+=core/domain/opportunistic_strike_eligibility.gd=, the reaction path
+(=reaction_window.gd=, =DefenseMitigationCalculator=), =ViewModelBuilder=.
+Sources (lockstep): =infrastructure/combatant_factory.gd=, =core/sim/simulator.gd=,
+=MainScene._party/_enemies=.
+
+* Staged execution (each phase ends green on scripts/test_command.sh)
+
+- *Phase A — enrich, don't wire.* Add all fields + methods + =to_dict/from_dict=
+  to =Combatant=, with unit tests. Zero pipeline change → zero risk. Gate.
+- *Phase B — swap the source.* =CombatantFactory= (and =simulator.gd=, in
+  lockstep for ADR-106 parity) build =Combatant=; at the MainScene/encounter
+  boundary call =.to_dict()= so the pipeline still receives dicts. Preserve the
+  FEAT-227 fail-fast (factory returns a Combatant or a typed error; keep the
+  =has("error")= guard shape at the call site we hand-fixed). Gate.
+- *Phase C — flip inward, one boundary at a time.* Change =: Dictionary= →
+  =: Combatant= and replace =x["key"]= reads with =x.key=/accessors and
+  =x["hp_current"] -= n= mutations with =x.take_damage(n)=. Order: =resolution.gd=
+  → =resolve_action_use_case= (+sub-UCs) → =round_session=/=run_round= →
+  =encounter= → =determine_outcome= → =ai=/=flanking=/=movement=/reactions →
+  =ViewModelBuilder=. Drop the =to_dict()= interop at each boundary as it's
+  crossed. *Gate after every boundary* (small, revertible steps).
+- *Phase D — delete interop.* Remove =to_dict/from_dict= and the dict-schema
+  comments once nothing passes dicts. Gate.
+
+* Test-fixture strategy (the biggest single surface)
+
+Many tests build dict combatants via helpers (=_durable_combatant=,
+=_boundary_target=, per-suite spec builders). Provide =Combatant.from_dict(spec)=
+(or a shared test factory) so fixtures keep *authoring* combatant specs as dicts
+but hand *Combatant instances* to the pipeline — localizing churn to the helper
+instead of every test. Migrate helpers in Phase B; individual tests mostly don't
+change.
+
+* Risk points / gotchas
+
+- =core/sim/simulator.gd= must migrate in *lockstep* with =CombatantFactory= or
+  ADR-106 sim↔live defense parity breaks (there's a parity test).
+- The "Combatant OR dict" duck-typed spots (=flanking=, =movement=) standardize
+  on Combatant — audit each for =.get("hex_coord")= vs =.hex_coord=.
+- FEAT-227 fail-fast (the call-site guard we hand-fixed at =MainScene= boot) must
+  survive Phase B — the factory still validates; decide typed-error vs Result.
+- =conditions[]= reads (Off-Guard, etc.) become =has_condition()= — grep all
+  =["conditions"]= sites.
+- ADR-002 manifest guard is NOT triggered (changes are in =core/domain= +
+  =core/rules=, not =core/application=) — but any *new* use-case file would be;
+  none needed here.
+- =test_command.sh= is now trustworthy (pre-work #0 fixed the silently-skipped
+  =test_encounter_round_loop.gd=) — rely on it as the phase gate.
+
+* Sequencing
+
+Do this AFTER pre-work #1 (data-driven verb registry) and BEFORE authoring
+Cast-a-Spell / Combinations (#3–#6). The Casting-state hooks (=is_casting/
+advance_cast/cancel_cast=) are stubbed in Phase A and filled when the spell
+feature lands.
