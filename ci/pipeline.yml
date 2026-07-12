@@ -74,8 +74,11 @@ stages:
     name: Python pytest suite
     description: >
       The full Python test suite — CI/infra and config assertions under
-      tests/unit/*.py.
-    command: python -m pytest -q --tb=short
+      tests/unit/*.py. HYKAEN_TEST_COMMAND_E2E_GUARD=1 makes the recursive
+      end-to-end meta-tests (which shell out this very pipeline) skip inside the
+      gate's own run — they still run when pytest is invoked standalone. This
+      breaks the nested-gate recursion that intermittently flaked the pipeline.
+    command: HYKAEN_TEST_COMMAND_E2E_GUARD=1 python -m pytest -q --tb=short
     required: true
     optional: false
     allow_failure: false
