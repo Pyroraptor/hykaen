@@ -1,0 +1,126 @@
+#+TITLE: Iteration M — Cast a Spell (multi-turn casting state machine)
+#+DATE: 2026-07-12
+#+STATUS: DRAFT for review
+
+* Context (why this sprint exists)
+
+Add the *Cast a Spell* player verb per docs/hollow-world-v0-spec.org §Spellcasting.
+The load-bearing insight (spec §Action economy, lines ~281-296): a combatant takes
+EXACTLY ONE action per turn and gets up to seven turns per round; most spells cost
+MORE than one action (Fire Bolt = 2 actions). So a spell CANNOT be cast in one
+turn — Cast a Spell is a MULTI-TURN STATE MACHINE: casting is begun, actions are
+paid down across the caster's subsequent turns, and the spell RESOLVES when the
+last action is paid. This is forced by the economy, not a stylistic choice.
+
+Spells target DEFENSES, NOT saving throws — this system has no saves (spec line
+388: "Spell targets the defense named by the spell (e.g. Fire Bolt vs Reflex)").
+core/rules/resolution.gd `resolve_spell_attack(attacker, target, spell,
+defense_type)` is the CORRECT, already-tested primitive (d20 + spellcasting attr +
+spell_attack_bonus vs target.defense(defense_type)); it just needs a live verb
+wiring it. Do NOT invent saving throws.
+
+DEPENDENCIES (must be complete first): the Combatant-entity migration
+(casting_state lives on core/domain/combatant.gd so an in-progress cast survives
+round boundaries) and Iteration L (the effects layer + targeting generalization —
+spell outcomes are Effects; spell/target selection uses the pick + AoE layers).
+
+* THE ONLY SCOPE FOR THIS SPRINT — P0 / MUST
+
+** P0-1: Cast-a-Spell verb + the casting STATE MACHINE
+- Register CAST_SPELL as a data-driven VERB_TABLE entry (MainScene VERB_TABLE +
+  one controller file) — reuse the registry; do NOT hand-wire a bespoke path.
+- Add a SpellActionController (extends presentation/action_controller.gd by PATH,
+  reads its deps from _verb_deps()) implementing the 3-step contract:
+  1. availability(): available if the actor can cast (has a castable known spell +
+     enough energy for a NEW cast) OR is ALREADY casting (to continue).
+  2. enter_selection()/execute() — FIRST casting action: let the caster pick a
+     spell (via L's list-pick layer); if the spell is variable-cost (Heal), pick
+     the action+energy budget NOW; pay ALL energy up-front from the round pool;
+     set casting_state = {spell_id, remaining_actions=N, committed_energy} on the
+     caster Combatant; spend THIS turn's action; remaining_actions -= 1.
+  3. SUBSEQUENT casting actions (actor.is_casting()): no re-pick — spend the
+     action, remaining_actions -= 1 ("continue casting").
+- Targets are chosen at RESOLUTION, not at cast start (see P0-2), so the wind-up
+  needs no target and an interrupted cast never needed one.
+- casting_state is on the Combatant INSTANCE (reserved in the migration) so it
+  persists across the caster's interleaved other-combatant turns AND across round
+  boundaries (spec: casts persist across rounds; the energy pool empties at round
+  end but committed energy is already spent into the cast).
+- TESTS (boot-real, drive the real verb path): Fire Bolt (2 actions) begun on
+  turn N is still casting after turn N; a second Cast-a-Spell on the caster's next
+  turn drives remaining_actions to 0 and triggers resolution; the caster took
+  exactly one action per turn throughout.
+
+** P0-2: ResolveSpellController — resolve at remaining_actions == 0
+- When the final casting action drives remaining_actions to 0, invoke a
+  ResolveSpellController that: (a) enters TARGETING via L's targeting layer
+  (single ranged target for Fire Bolt vs Reflex, range from the spell; AoE set
+  for area spells); (b) calls resolution.resolve_spell_attack(caster, target,
+  spell, spell.defense) for each target; (c) turns the result into EFFECTS
+  (Iteration L) — Fire Bolt: a DAMAGE effect of 2d8 + caster spellcasting-attribute
+  fire on a hit — and applies them via the effects applier (by reference, on the
+  live target instance); (d) clears casting_state; emits the appropriate combat-log
+  event.
+- Fire Bolt is the canonical castable spell this sprint (2 actions, 0 energy,
+  ranged vs Reflex, range 50ft, 2d8 + spellcasting attribute fire on hit).
+- TESTS: a completed Fire Bolt cast rolls d20+spell-mod vs the target's Reflex,
+  applies 2d8+attr on a hit / nothing on a miss, decrements the target's hp via
+  the effects applier, and logs it; range is enforced (out-of-range target not
+  selectable).
+
+** P0-3: Channeling energy pool + Channel action
+- Add a per-round energy pool (Channeling, spec §Spellcasting) on the round-scoped
+  session (RoundSession): capacity = caster spellcasting-attribute score; the pool
+  EMPTIES at end of round (reuse end_of_round). Casting is rejected if the pool has
+  insufficient energy for a spell's cost.
+- Channel is a 1-action, 0-energy, Concentrate spell whose effect is ADD_ENERGY +1
+  to the caster's pool (until end of round) — implement it as a 1-action spell cast
+  through the SAME Cast-a-Spell path (its ResolveSpell step applies an ADD_ENERGY
+  effect from Iteration L). No separate bespoke Channel verb.
+- v0 note: the v0 castable spells are mostly 0-energy (Fire Bolt, Channel), so the
+  pool matters most for Channel-builds-then-spends and forward scaling; Fireball
+  (min 2 energy) is NOT castable at L1 — author its data for forward-scaling only.
+- TESTS: Channel adds 1 energy; the pool caps at the caster's spellcasting-attr
+  score; the pool empties at round end; a spell whose energy cost exceeds the pool
+  is not castable.
+
+** P0-4: Casting provokes Opportunistic Strike; a lethal OS cancels the cast
+- Each Cast-a-Spell action is a Concentrate-trait action, which per spec (line 355)
+  provokes Opportunistic Strike exactly as Stride does. Fire the SAME
+  opportunistic-strike reaction WINDOW the Stride path already fires (Iteration K /
+  ReactionController) on each casting action — do NOT fork a new trigger.
+- If an Opportunistic Strike (or any reaction) DOWNS the caster mid-cast, CANCEL
+  the cast: caster.cancel_cast() (clears casting_state; committed energy is already
+  spent — gone, per up-front payment). Mirror the lethal-Opportunistic-Strike-
+  cancels-Stride logic (FEAT-238); reuse that machinery.
+- TESTS: a casting action provokes an in-range enemy's Opportunistic Strike; a
+  lethal OS during a cast cancels it (casting_state cleared, no spell resolves,
+  energy not refunded); a non-lethal OS leaves the cast in progress.
+
+* P1 / follow-on (author data + note; not required castable this sprint)
+- Heal (variable actions/energy: cost chosen at cast start; per-energy the target
+  spends 1 Stamina to regain HP; touch adds 1d6 per energy) — a HEAL-effect spell;
+  land it once the core path is green.
+- Shield (1 REACTION, 0 energy; trigger: hit by an attack vs AC or Reflex; Block
+  1d6 +4) — a spell-REACTION, so it flows through the REACTION system (like
+  Block/Parry), NOT the multi-turn casting path. Can be a follow-on.
+
+* Out of scope (do NOT touch / build)
+- NO saving throws (do not add a save mechanic — spells target defenses).
+- NO Combinations / queueing controller — Iteration N.
+- NO Fireball castable at L1 (min energy 2 > L1 budget) — data only.
+- NO new effects/targeting infrastructure — REUSE Iteration L's. NO new ports
+  beyond the SpellActionController/ResolveSpellController + the round-pool seam.
+- Do NOT change resolution.resolve_spell_attack's math (it is already correct);
+  only wire it live.
+
+* PRESERVE (must not regress)
+- Everything from Iteration L (effects layer, targeting), the Combatant migration,
+  the data-driven verb registry, enemy reaction AI + Opportunistic Strike
+  (Iteration K), Strike/Step/Stride, flanking, the FEAT-227 guard.
+
+* Verification (gate must be green)
+- Full `bash scripts/test_command.sh` green (all 10 stages), incl. N=1000 sim +
+  boot-real e2e; determinism at a pinned seed; MainScene boots headless clean.
+- A full Fire-Bolt cast (begin → continue → resolve vs Reflex → damage effect) and
+  a Channel (energy +1, empties at round end) both drive the REAL verb path.

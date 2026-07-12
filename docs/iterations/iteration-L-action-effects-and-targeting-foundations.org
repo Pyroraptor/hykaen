@@ -1,0 +1,105 @@
+#+TITLE: Iteration L — Action Effects Layer + Targeting Generalization (foundations for Cast-a-Spell / Combinations)
+#+DATE: 2026-07-12
+#+STATUS: DRAFT for review
+
+* Context (why this sprint exists)
+
+Cast a Spell and Combinations (Iterations M / N) both need two capabilities the
+codebase does not yet have, and which are NOT spell-specific — several martial
+actions want them too. This sprint builds ONLY those two foundations, each with a
+concrete existing consumer so it is testable now:
+
+1. *An effects layer.* Today the resolution pipeline knows exactly one outcome:
+   "apply damage to hp and emit an AttackEvent" (core/application/resolve_action_
+   use_case.gd `_finalize_strike_result`, hardcoded to the AttackEvent/"ac" shape).
+   Spells (and Trip/Shove/Guard/Heal) produce *varied* outcomes — damage,
+   conditions, forced movement, healing. We need actions to yield a LIST of typed
+   effects applied by one small applier.
+2. *Targeting generalization.* The two-layer verb→target model
+   (presentation/verb_bar_view.gd + presentation/selection_overlay.gd) is strictly
+   single-select (selection_overlay.gd resolves the FIRST clicked hex/target and
+   passes one scalar to execute()). Spells need an intermediate pick layer
+   (verb→spell-LIST→target) and area/multi-target resolution.
+
+DEPENDENCY: assumes the Combatant-entity migration
+(docs/refactors/combatant-entity-migration.org) is COMPLETE — effects operate on
+core/domain/combatant.gd `Combatant` INSTANCES via their methods
+(take_damage/heal/add_condition/remove_condition/move_to), not dict keys.
+
+* THE ONLY SCOPE FOR THIS SPRINT — both P0 / MUST / NON-DEFERRABLE
+
+** P0-1: Action Effects layer (typed effects + one applier), retrofit Strike through it
+- Add a small domain effects vocabulary (core/, ADR-001, extends RefCounted, no
+  engine I/O): a typed Effect for each of DAMAGE, CONDITION (add/remove a tag),
+  MOVE (relocate to a hex), HEAL, and ADD_ENERGY (reserved for M's Channel) — a
+  plain data value object each (e.g. {kind, target_id, amount/condition/hex}).
+- Add ONE applier (a use-case or a pure domain function) that takes a list of
+  Effects + the live combatant set and applies each via the Combatant INSTANCE's
+  method: DAMAGE→target.take_damage(n), HEAL→target.heal(n),
+  CONDITION→target.add_condition/remove_condition, MOVE→target.move_to(hex). It
+  MUST operate on the live instances (by reference) so mutations persist — reuse
+  the same by-reference combatant flow resolve_action_use_case already uses; do
+  NOT copy.
+- RETROFIT the existing Strike/reaction damage path to PRODUCE a DAMAGE Effect and
+  route it through the applier instead of the inline `target.take_damage(...)` /
+  `["hp_current"] -=` at resolve_action_use_case.gd / apply_on_hit_defense_uc.gd.
+  Behaviour identical (same damage, same AttackEvent still emitted). This proves
+  the layer against real combat.
+- Effects are the FUTURE seam for non-damage outcomes; this sprint only needs
+  DAMAGE wired live (+ the other kinds defined, unit-tested in isolation, unused
+  live yet). Do NOT fork a second damage path — the retrofit REPLACES the inline
+  mutation, it does not sit beside it (ADR-002 single-seam; the no-duplicate-seams
+  CI check must stay green).
+- Events: generalize so a non-AttackEvent effect CAN emit its own typed event
+  later; keep AttackEvent for the Strike path unchanged this sprint.
+- TESTS: each Effect kind applies correctly to a Combatant (damage reduces hp,
+  heal caps at hp_max, condition add/remove, move relocates); a Strike's damage
+  now flows through the applier and the boot-real player-Strike + enemy-reaction
+  paths are byte-identical (same hp outcomes, same AttackEvent, same combat log);
+  the N=1000 balance sim is unchanged.
+
+** P0-2: Targeting generalization — intermediate pick layer + multi-hex/AoE resolve
+- Extend the SelectionDescriptor (presentation/*, currently {verb_id,
+  candidate_targets, candidate_hexes}) with (a) an optional `candidate_options`
+  list for an intermediate LIST pick (verb→option→target), and (b) support for a
+  resolution that returns a SET of hexes/targets (area), not just one scalar.
+- Extend presentation/selection_overlay.gd so it can, when the descriptor asks:
+  (a) present the option list as Layer-2a and carry the chosen option into
+  Layer-2b targeting; (b) preview + resolve an AREA (an origin hex + a computed
+  affected-hex set from core/geometry) and hand the RESOLVED SET to execute().
+  REUSE the existing two-layer verb→target flow + hex_grid_view highlight path —
+  do NOT fork a parallel selection UI. Single-target verbs behave exactly as today.
+- The verb contract (presentation/action_controller.gd availability/
+  enter_selection/execute) stays; execute() may now receive a list (area/multi)
+  as well as a scalar (single) — additively; existing single-scalar callers
+  unchanged.
+- Keep END_TURN's direct-execute special-case (verb_bar_view.gd) intact.
+- TESTS (drive via the real selection path, ADR/G2 — no self-wired doubles): a
+  descriptor with candidate_options presents the list, a pick advances to
+  targeting, and execute() receives (option, target); an AREA descriptor
+  highlights the computed affected set and resolves the whole set into execute();
+  a single-target verb (Strike) is unchanged end-to-end.
+
+* Out of scope (do NOT touch / build)
+- NO spells, spell list, Cast a Spell verb, energy/Stamina pool, casting state —
+  those are Iteration M. Build ONLY the effects layer + targeting generalization.
+- NO Combine/queueing controller — Iteration N.
+- NO new saving-throw mechanic (this system has NONE — spells target defenses; not
+  relevant here anyway).
+- NO new ports beyond the one effects-applier seam; reuse ResolveActionUseCase,
+  RoundSession, EventSinkPort, the verb registry, SelectionOverlay.
+- Do NOT change RNG/seed policy or the movement/flanking/resolution DOMAIN math
+  beyond routing Strike damage through the applier.
+
+* PRESERVE (must not regress)
+- Data-driven verb registry (VERB_TABLE + _controller()); the 12 _verb_bar_* shims.
+- Two-layer verb→target UX; Strike/Step/Stride/End Turn; enemy reaction AI +
+  Opportunistic Strike (Iteration K); flanking Off-Guard +2; the Combatant-entity
+  migration's behaviour (defense(kind)/take_damage/etc.).
+- The Combatant/dict interop and the FEAT-227 fail-fast enemy-build guard.
+
+* Verification (gate must be green)
+- Full `bash scripts/test_command.sh` green (all 10 stages), incl. the N=1000
+  balance sim and the boot-real reaction e2e (the parity guards) and the
+  no-duplicate-seams / domain-purity checks.
+- MainScene boots headless with no errors; determinism holds at a pinned seed.
