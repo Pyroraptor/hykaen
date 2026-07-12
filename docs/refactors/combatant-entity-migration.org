@@ -170,6 +170,46 @@ builds instances, =round_session= + =resolve_action_use_case= +
 C2's from_dict copies; C4 flip the read-only consumers off their to_dict bridges;
 Phase D deletes to_dict/from_dict interop.
 
+** C.1 + C.2 DONE. C.3 execution map (the big atomic one — mapped 2026-07-12)
+
+C.1 (BuildDefenseContext) and C.2 (resolution.gd, via the _as_combatant dict-or-
+instance tolerance — the tolerance trick made those SURGICAL, zero caller/test
+churn) are committed + green. C.3 is qualitatively different: the tolerance trick
+does NOT apply (mutations need real instances; 2-arg =.get(key, default)= breaks
+on an instance), so it is a ~60–70-site ATOMIC flip — the container + every
+consumer must be correct at once or the game won't even boot. Concrete map:
+
+- *Container build* (→ Combatant.from_dict the factory output to INSTANCES):
+  =MainScene.gd:642-667= (_party/_enemies), =core/combat/encounter.gd:184-185=,
+  =core/sim/simulator.gd:139= (sim, lockstep). round_session._party is set at :217.
+- *Mutation sites* (=target["hp_current"] -= dmg= → =target.take_damage(dmg)= on
+  the live instance, by reference): =resolve_action_use_case.gd:539=,
+  =apply_on_hit_defense_uc.gd:159=. Also REMOVE C.1's =CombatantClass.from_dict(target)=
+  bridge in resolve_action_use_case (target is now already an instance — pass it
+  straight to BuildDefenseContext).
+- *round_session reads* (~30): turn-order/spent/_is_enemy logic + the event/history
+  PAYLOAD builds (:888-982 etc. — =x.get("combatant_id", x.get("name",""))=,
+  =x.get("weapon")=). Add =Combatant.display_id()= (combatant_id-or-name) to
+  collapse the ~14 id reads. Also flip round_session's INLINE _build_defense_context
+  duplicate (:1057) to instance reads.
+- *WATCH: the AI is a MUTATING consumer.* =_ai_decision_port.decide_action(combatant,
+  target_pool)= (round_session:1905) executes the enemy Stride INSIDE decide_action
+  (round_session:1234 "the Stride itself already happened inside decide_action()"),
+  so it must receive the LIVE instance, NOT a to_dict copy — flip core/combat/ai.gd
+  (3 combatant reads) and pass instances; movement._set_hex is already tolerant so
+  move_to persists. Verify decide_action's returned target is an ID (round_session
+  resolves it to the live instance for the Strike), not an object ref to a copy.
+- *Bridge (read-only, to_dict copies)*: determine_outcome.classify (call-sites
+  run_round_use_case:131, round_session:1929/1957) and ViewModelBuilder.build_*
+  (MainScene:673/679) — pass =_party.map(func(c): return c.to_dict())= etc.; flip
+  these consumers OFF the bridges in C.4.
+- *flanking write-back* (MainScene:1914/1921 =combatant["conditions"] = ...=) is a
+  MUTATION — use =combatant.add_condition/…= or set =combatant.conditions= on the
+  live instance, not a copy.
+Do it as ONE gated commit; the N=1000 sim + boot-real e2e are the damage-
+persistence guard (a dropped mutation diverges them loudly). Best done fresh, not
+at the tail of a long session.
+
 * Sequencing
 
 Do this AFTER pre-work #1 (data-driven verb registry) and BEFORE authoring
