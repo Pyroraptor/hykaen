@@ -176,6 +176,15 @@ func remove_condition(condition: String) -> void:
 func skill(skill_name: String) -> int:
 	return int(skills.get(skill_name, 0))
 
+## attribute(name) → int — dynamic attribute lookup by String name (e.g. a
+## weapon's damage_modifier_attribute "strength"/"dexterity", or a defender's
+## parry attribute). Replaces the dict's =attacker.get(name, 0)= — the 2-arg
+## .get() form does NOT work on an instance (Object.get is 1-arg). Returns 0 for
+## an unknown/absent attribute.
+func attribute(attr_name: String) -> int:
+	var v = get(attr_name)
+	return int(v) if v != null else 0
+
 ## Cast-a-Spell hooks (reserved). begin_cast()/advance_cast() land with the
 ## spell feature; is_casting()/cancel_cast() are kept minimal now so the shape
 ## is reserved and cast interruption (a lethal Opportunistic Strike cancels an

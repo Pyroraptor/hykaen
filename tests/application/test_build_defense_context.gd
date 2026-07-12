@@ -10,6 +10,12 @@ extends GutTest
 ## _build_defense_context()'s own per-key rationale, byte-for-byte, for
 ## build()).
 ##
+## Combatant migration Phase C: BuildDefenseContext now reads a core/domain/
+## combatant.gd Combatant INSTANCE (via defense(kind)/skill()/attribute()/
+## has_condition()/.hp_current/.weapon), not a Dictionary. Targets here are built
+## as combatant SPECS (dicts) and converted via Combatant.from_dict() — the
+## authoring stays dict-shaped, the helper receives instances.
+##
 ## Validates (test_criteria):
 ##   1. build() computes parry_attack_bonus from the defender's own
 ##      attribute + weapon proficiency, and threads action_economy/
@@ -25,6 +31,7 @@ extends GutTest
 
 const BuildDefenseContextClass = preload("res://core/application/_build_defense_context.gd")
 const ActionEconomyClass       = preload("res://core/rules/action_economy.gd")
+const CombatantClass           = preload("res://core/domain/combatant.gd")
 
 
 func _fresh_action_economy():
@@ -33,7 +40,7 @@ func _fresh_action_economy():
 	return ae
 
 
-func _target(overrides: Dictionary = {}) -> Dictionary:
+func _target_spec(overrides: Dictionary = {}) -> Dictionary:
 	var target: Dictionary = {
 		"name":      "Skeleton",
 		"hp_current": 20,
@@ -52,25 +59,31 @@ func _target(overrides: Dictionary = {}) -> Dictionary:
 	return target
 
 
+## A Combatant instance from a combatant spec dict (the shape BuildDefenseContext
+## now consumes).
+func _target(overrides: Dictionary = {}) -> CombatantClass:
+	return CombatantClass.from_dict(_target_spec(overrides))
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # Criterion 1 — build().
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_build_computes_parry_attack_bonus_from_attribute_plus_proficiency() -> void:
-	var target: Dictionary = _target()
+	var target := _target()
 	var ae = _fresh_action_economy()
 	var ctx: Dictionary = BuildDefenseContextClass.build(target, ae)
 
 	# strength(2) + proficiency_bonus(2) = 4.
 	assert_eq(ctx["parry_attack_bonus"], 4)
 	assert_same(ctx["action_economy"], ae, "action_economy must be the SAME injected instance, never a copy")
-	assert_same(ctx["parrying_weapon"], target["weapon"])
-	assert_same(ctx["blocking_weapon"], target["weapon"])
+	assert_same(ctx["parrying_weapon"], target.weapon, "parrying_weapon passes the defender's OWN weapon through by reference")
+	assert_same(ctx["blocking_weapon"], target.weapon)
 	assert_true(ctx["open_space_available"])
 
 
 func test_build_defaults_parry_attack_bonus_to_zero_when_weapon_has_no_damage_modifier_attribute() -> void:
-	var target: Dictionary = {"name": "Bare", "weapon": {}}
+	var target := CombatantClass.from_dict({"name": "Bare", "weapon": {}})
 	var ctx: Dictionary = BuildDefenseContextClass.build(target, null)
 	assert_eq(ctx["parry_attack_bonus"], 0)
 	assert_null(ctx["action_economy"])
@@ -81,32 +94,32 @@ func test_build_defaults_parry_attack_bonus_to_zero_when_weapon_has_no_damage_mo
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_build_prehit_context_carries_mobility_and_targeted_defense_value() -> void:
-	var target: Dictionary = _target()
+	var target := _target()
 	var ae = _fresh_action_economy()
 	var ctx: Dictionary = BuildDefenseContextClass.build_prehit_context(target, ae, "ac")
 
-	assert_eq(ctx["mobility"], 1, "mobility must be read from target.skills.mobility")
-	assert_eq(ctx["targeted_defense_value"], 12, "targeted_defense_value must equal the plain target.ac with no Off-Guard condition")
+	assert_eq(ctx["mobility"], 1, "mobility must be read from target.skill('mobility')")
+	assert_eq(ctx["targeted_defense_value"], 12, "targeted_defense_value must equal the plain target.defense('ac') with no Off-Guard condition")
 	assert_eq(ctx["action_current"], ActionEconomyClass.MAX_BUDGET)
 	# The base DefenseContext keys must still be present (build()'s output is extended, not replaced).
 	assert_eq(ctx["parry_attack_bonus"], 4)
 
 
 func test_build_prehit_context_reduces_targeted_defense_value_when_off_guard() -> void:
-	var target: Dictionary = _target({"conditions": ["Off-Guard"]})
+	var target := _target({"conditions": ["Off-Guard"]})
 	var ctx: Dictionary = BuildDefenseContextClass.build_prehit_context(target, null, "ac")
 
 	assert_eq(ctx["targeted_defense_value"], 10, "Off-Guard must reduce targeted_defense_value by Flanking.OFF_GUARD_BONUS (2): 12-2=10")
 
 
 func test_build_prehit_context_mobility_defaults_to_zero_with_no_skills_key() -> void:
-	var target: Dictionary = {"name": "NoSkills", "ac": 10, "weapon": {}}
+	var target := CombatantClass.from_dict({"name": "NoSkills", "ac": 10, "weapon": {}})
 	var ctx: Dictionary = BuildDefenseContextClass.build_prehit_context(target, null, "ac")
 	assert_eq(ctx["mobility"], 0)
 
 
 func test_build_prehit_context_action_current_reflects_live_action_economy() -> void:
-	var target: Dictionary = _target()
+	var target := _target()
 	var ae = _fresh_action_economy()
 	ae.spend_reaction()
 	var ctx: Dictionary = BuildDefenseContextClass.build_prehit_context(target, ae, "ac")
@@ -118,7 +131,7 @@ func test_build_prehit_context_action_current_reflects_live_action_economy() -> 
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_build_onhit_context_carries_parry_bonus_roll_total_damage_raw_hp_current() -> void:
-	var target: Dictionary = _target({"hp_current": 15})
+	var target := _target({"hp_current": 15})
 	var ae = _fresh_action_economy()
 	var to_hit_partial: Dictionary = {"roll_total": 18, "damage_raw": 7}
 	var ctx: Dictionary = BuildDefenseContextClass.build_onhit_context(target, ae, to_hit_partial)
@@ -130,10 +143,14 @@ func test_build_onhit_context_carries_parry_bonus_roll_total_damage_raw_hp_curre
 	assert_eq(ctx["action_current"], ActionEconomyClass.MAX_BUDGET)
 
 
-func test_build_onhit_context_hp_current_defaults_to_one_when_missing() -> void:
-	var target: Dictionary = {"name": "NoHp", "weapon": {}}
+func test_build_onhit_context_hp_current_is_zero_for_an_unspecified_combatant() -> void:
+	# Migration note: a Combatant built with no hp_current defaults to 0 (the
+	# entity's honest "no HP set" value), where the pre-migration dict path
+	# defaulted the ctx read to 1. Irrelevant in practice — every real combatant
+	# is built with hp — this only pins the unspecified-combatant edge.
+	var target := CombatantClass.from_dict({"name": "NoHp", "weapon": {}})
 	var ctx: Dictionary = BuildDefenseContextClass.build_onhit_context(target, null, {})
-	assert_eq(ctx["hp_current"], 1)
+	assert_eq(ctx["hp_current"], 0)
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -141,7 +158,7 @@ func test_build_onhit_context_hp_current_defaults_to_one_when_missing() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_action_current_defaults_to_max_budget_for_a_null_action_economy() -> void:
-	var target: Dictionary = _target()
+	var target := _target()
 	var prehit_ctx: Dictionary = BuildDefenseContextClass.build_prehit_context(target, null, "ac")
 	var onhit_ctx: Dictionary = BuildDefenseContextClass.build_onhit_context(target, null, {})
 

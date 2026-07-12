@@ -43,6 +43,7 @@ extends RefCounted
 
 const ActionEconomyClass = preload("res://core/rules/action_economy.gd")
 const FlankingClass      = preload("res://core/rules/flanking.gd")
+const CombatantClass     = preload("res://core/domain/combatant.gd")
 
 
 ## build(target, target_action_economy) -> Dictionary — the DefenseContext
@@ -59,11 +60,11 @@ const FlankingClass      = preload("res://core/rules/flanking.gd")
 ##                             combatant model carries only one weapon slot).
 ##   "open_space_available" — true (default-safe; no hex-grid adjacency query
 ##                             wired into this application-layer helper).
-static func build(target: Dictionary, target_action_economy) -> Dictionary:
-	var target_weapon: Dictionary = target.get("weapon", {})
+static func build(target: CombatantClass, target_action_economy) -> Dictionary:
+	var target_weapon: Dictionary = target.weapon
 	var parry_attribute: String = target_weapon.get("damage_modifier_attribute", "")
 	var parry_attack_bonus: int = (
-		int(target.get(parry_attribute, 0)) + int(target_weapon.get("proficiency_bonus", 0))
+		target.attribute(parry_attribute) + int(target_weapon.get("proficiency_bonus", 0))
 	)
 	return {
 		"action_economy":       target_action_economy,
@@ -102,11 +103,11 @@ static func _action_current(target_action_economy) -> int:
 ##                               PRE-hit ask, so no roll_total/damage_raw exist
 ##                               yet).
 ##   "action_current"         — see _action_current() above (RESERVE gate).
-static func build_prehit_context(target: Dictionary, target_action_economy, defense_type: String = "ac") -> Dictionary:
+static func build_prehit_context(target: CombatantClass, target_action_economy, defense_type: String = "ac") -> Dictionary:
 	var ctx: Dictionary = build(target, target_action_economy)
-	var mobility: int = int(target.get("skills", {}).get("mobility", 0))
-	var targeted_defense_value: int = int(target.get(defense_type, 0))
-	if FlankingClass.OFF_GUARD_CONDITION in target.get("conditions", []):
+	var mobility: int = target.skill("mobility")
+	var targeted_defense_value: int = target.defense(defense_type)
+	if target.has_condition(FlankingClass.OFF_GUARD_CONDITION):
 		targeted_defense_value -= FlankingClass.OFF_GUARD_BONUS
 	ctx["mobility"] = mobility
 	ctx["targeted_defense_value"] = targeted_defense_value
@@ -126,11 +127,11 @@ static func build_prehit_context(target: Dictionary, target_action_economy, defe
 ##   "damage_raw"  — the already-rolled raw damage (ditto).
 ##   "hp_current"  — the defender's current hit points.
 ##   "action_current" — see _action_current() above (RESERVE gate).
-static func build_onhit_context(target: Dictionary, target_action_economy, to_hit_partial: Dictionary) -> Dictionary:
+static func build_onhit_context(target: CombatantClass, target_action_economy, to_hit_partial: Dictionary) -> Dictionary:
 	var ctx: Dictionary = build(target, target_action_economy)
-	ctx["parry_bonus"]   = target.get("weapon", {}).get("parry_bonus", 0)
+	ctx["parry_bonus"]   = target.weapon.get("parry_bonus", 0)
 	ctx["roll_total"]    = to_hit_partial.get("roll_total", 0)
 	ctx["damage_raw"]    = to_hit_partial.get("damage_raw", 0)
-	ctx["hp_current"]    = target.get("hp_current", 1)
+	ctx["hp_current"]    = target.hp_current
 	ctx["action_current"] = _action_current(target_action_economy)
 	return ctx

@@ -104,6 +104,7 @@ const ApplyOnHitDefenseUseCaseClass = preload("res://core/application/apply_on_h
 ## resolve_reactive() (below) is built from — see that method's own doc.
 const OpenReactionWindowUseCaseClass = preload("res://core/application/open_reaction_window_use_case.gd")
 const BuildDefenseContextClass       = preload("res://core/application/_build_defense_context.gd")
+const CombatantClass                 = preload("res://core/domain/combatant.gd")
 
 
 ## _PortRNGAdapter (FEAT-008 / US-008, CR-001) — internal adapter wrapping
@@ -802,8 +803,15 @@ func _resolve_strike_with_reactions(
 	reaction_chooser_port
 ) -> Dictionary:
 	# ── PHASE 1: PreHitAvoidance (Dodge/Steel) ──────────────────────────────
+	# Combatant migration Phase C: BuildDefenseContext now reads a Combatant
+	# INSTANCE. It is READ-ONLY (builds a defense-context snapshot), so a
+	# from_dict() view of the still-Dictionary `target` is safe here — the hp
+	# mutation later in this Strike lands on `target` itself, not this view.
+	# (This bridge is removed when the container flips to instances, Phase C step
+	# C3 — see docs/refactors/combatant-entity-migration.org.)
+	var target_entity := CombatantClass.from_dict(target)
 	var legal_prehit: Array = _resolve_to_hit_use_case.legal_prehit_reactions(target, "ac")
-	var prehit_context: Dictionary = BuildDefenseContextClass.build_prehit_context(target, target_action_economy, "ac")
+	var prehit_context: Dictionary = BuildDefenseContextClass.build_prehit_context(target_entity, target_action_economy, "ac")
 	var prehit_choice: String = _open_reaction_window_use_case.open(
 		OpenReactionWindowUseCaseClass.WINDOW_PRE_HIT_AVOIDANCE, legal_prehit, prehit_context, reaction_chooser_port
 	)
@@ -822,7 +830,7 @@ func _resolve_strike_with_reactions(
 	if partial.get("hit", false) and not reaction_already_spent:
 		# ── PHASE 2: OnHitMitigation (Parry/Block) ──────────────────────────
 		var legal_onhit: Array = _apply_on_hit_defense_use_case.legal_onhit_reactions(target.get("weapon", {}))
-		var onhit_context: Dictionary = BuildDefenseContextClass.build_onhit_context(target, target_action_economy, partial)
+		var onhit_context: Dictionary = BuildDefenseContextClass.build_onhit_context(target_entity, target_action_economy, partial)
 		var onhit_choice: String = _open_reaction_window_use_case.open(
 			OpenReactionWindowUseCaseClass.WINDOW_ON_HIT_MITIGATION, legal_onhit, onhit_context, reaction_chooser_port
 		)
@@ -833,7 +841,7 @@ func _resolve_strike_with_reactions(
 	var on_hit_suppressed: bool = false
 
 	if partial.get("hit", false):
-		var apply_ctx: Dictionary = BuildDefenseContextClass.build_onhit_context(target, target_action_economy, partial)
+		var apply_ctx: Dictionary = BuildDefenseContextClass.build_onhit_context(target_entity, target_action_economy, partial)
 		var post: Dictionary = _resolution.apply_on_hit_defense(partial, on_hit_defense, apply_ctx)
 		damage_final           = post["damage_final"]
 		active_defense_applied = post["active_defense_applied"]
