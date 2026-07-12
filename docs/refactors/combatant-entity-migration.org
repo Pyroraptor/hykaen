@@ -116,9 +116,64 @@ change.
 - =test_command.sh= is now trustworthy (pre-work #0 fixed the silently-skipped
   =test_encounter_round_loop.gd=) — rely on it as the phase gate.
 
+* Phase C — hands-on findings & execution playbook (2026-07-12)
+
+Phases A + B are committed and green. A first hands-on pass at Phase C (plus a
+scoped subagent attempt that over-reached to 21 files and was reverted) surfaced
+that Phase C resists tiny independent commits and hides real parity traps.
+Capture before executing:
+
+- *THE reference-mutation invariant (non-negotiable).* Damage is applied by
+  MUTATING the combatant in place — =target["hp_current"] -= damage= at
+  =resolve_action_use_case.gd:538= and =apply_on_hit_defense_uc.gd:159= — and it
+  works only because the SAME object flows BY REFERENCE from the container
+  (_party/_enemies) through =round_session= to the mutation site. NEVER bridge a
+  MUTATING boundary with a from_dict()/to_dict() COPY (silently drops the hit).
+  The Combatant INSTANCE must travel by reference; the mutation becomes
+  =target.take_damage(damage)= on that same instance. This forces the container +
+  =round_session= + the resolve use-cases to flip together as one unit.
+- *resolution.gd is READ-ONLY on combatants* (it computes and RETURNS a result;
+  the hp mutation lives in the use-cases). So resolution.gd MAY be flipped with
+  from_dict() COPIES at its call sites safely (no mutation to lose) — but see the
+  test-churn cost below.
+- *TRAP: =conscious= is a vestigial always-true field.* resolution.gd reads
+  =target.get("conscious", true)= but NOTHING sets it false in prod. Do NOT swap
+  in =is_conscious()= (= hp>0) — that changes the Steel-trigger gate for downed
+  combatants. Preserve parity: either read a =conscious= field (add it, default
+  true) or hardcode =true= at that site with a comment. is_conscious() stays a
+  separate, more-correct method for future (effects) use.
+- *=resolve_spell_attack= reads caster fields not on the entity*
+  (=spellcasting_attribute=, =spell_attack_bonus=) and is NOT called in prod (no
+  live Cast-a-Spell verb yet). Leave it Dictionary-typed this migration; add
+  those fields to Combatant WITH the spell feature (#5), then flip it.
+- *Dynamic attribute read:* =attacker.get(weapon["damage_modifier_attribute"], 0)=
+  (2-arg .get) does not work on an instance (Object.get is 1-arg). Use
+  =int(attacker.get(attr_name))= (Object.get returns the property) or add a
+  =Combatant.attribute(name)-> int= helper.
+- *Test churn is the dominant cost:* ~33 test files call resolution functions
+  directly with hand-built dict combatants. Flipping resolution's signatures
+  means updating all of them — do it via a SHARED helper (=Combatant.from_dict(spec)=
+  or a test util =combatant(spec)=) so the churn is mechanical, not per-assertion.
+- *Read-only consumers* (determine_outcome.classify, ai.decide_action,
+  ViewModelBuilder, EventSink/RoundHistory recorders) — bridge with =.to_dict()=
+  at their call boundary and flip later; do NOT expand the slice to them at once
+  (that was the reverted agent's mistake). =movement.gd:_set_hex= and =flanking=
+  already handle instance-or-dict, so instances flow through those correctly.
+
+Recommended C ordering (each its own gated commit): C1 add the small missing
+pieces to the entity as pure additions (=conscious= field, an =attribute(name)=
+helper) + a shared test =combatant(spec)= helper; C2 flip =resolution.gd= +
+=_build_defense_context.gd= (read-only) with from_dict copies at callers + the
+33-file test churn via the helper; C3 the MUTATION CHAIN as one unit (container
+builds instances, =round_session= + =resolve_action_use_case= +
+=apply_on_hit_defense_uc= pass by reference, mutation via take_damage), removing
+C2's from_dict copies; C4 flip the read-only consumers off their to_dict bridges;
+Phase D deletes to_dict/from_dict interop.
+
 * Sequencing
 
 Do this AFTER pre-work #1 (data-driven verb registry) and BEFORE authoring
 Cast-a-Spell / Combinations (#3–#6). The Casting-state hooks (=is_casting/
 advance_cast/cancel_cast=) are stubbed in Phase A and filled when the spell
-feature lands.
+feature lands. Phase C is a focused multi-commit effort (see the playbook above),
+NOT a quick job — sequence it as its own work session.
