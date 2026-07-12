@@ -26,6 +26,20 @@ spell outcomes are Effects; spell/target selection uses the pick + AoE layers).
 
 * THE ONLY SCOPE FOR THIS SPRINT — P0 / MUST
 
+** P0-0: A castable party member in the prologue encounter (so the feature is live-testable)
+- The prologue encounter has no spellcaster today, so none of the below can be
+  exercised in real play / boot-real tests. Add a *Divine* caster to the party
+  roster — Marigold or Patience (Divine Channeler = Social pool / Divine Warrior
+  = Willpower pool) — with a known 0-energy spell set (Channel + Fire Bolt) so
+  Channel-then-cast and a full Fire Bolt can be driven through the REAL verb path.
+  (Wizard/prepared-attuned casting — e.g. Gram Marx — is OUT OF SCOPE: the Wizard
+  paradigm is deferred and not yet settled; do NOT build it here.)
+- Author the caster as data (a CharacterResource with the spellcasting attribute +
+  known spells), added to the prologue encounter resource — reuse CombatantFactory
+  (do NOT special-case a caster construction path).
+- TESTS: the prologue encounter includes a caster who can Channel and Cast Fire
+  Bolt end-to-end in a boot-real test.
+
 ** P0-1: Cast-a-Spell verb + the casting STATE MACHINE
 - Register CAST_SPELL as a data-driven VERB_TABLE entry (MainScene VERB_TABLE +
   one controller file) — reuse the registry; do NOT hand-wire a bespoke path.
