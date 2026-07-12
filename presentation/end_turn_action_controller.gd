@@ -13,9 +13,11 @@ extends "res://presentation/action_controller.gd"
 var _end_turn_control
 
 
-func _init(session_holder, end_turn_control) -> void:
-	super(session_holder)
-	_end_turn_control = end_turn_control
+## Reads `deps["end_turn_control"]` (data-driven verb table, 2026-07-11 — see
+## action_controller.gd's _init doc). `session_holder` is consumed by super().
+func _init(deps: Dictionary) -> void:
+	super(deps)
+	_end_turn_control = deps.get("end_turn_control", null)
 
 
 func availability() -> bool:

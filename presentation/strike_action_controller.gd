@@ -41,28 +41,24 @@ var _query_step_hexes_fn: Callable
 var _player_attack_event_id_counter: int = 0
 
 
-func _init(
-	session_holder,
-	resolve_action_use_case,
-	event_log_view,
-	status_panel_view,
-	enemy_reaction_chooser,
-	reaction,
-	action_economy_fn: Callable,
-	round_number_fn: Callable,
-	living_enemies_fn: Callable,
-	query_step_hexes_fn: Callable
-) -> void:
-	super(session_holder)
-	_resolve_action_use_case = resolve_action_use_case
-	_event_log_view = event_log_view
-	_status_panel_view = status_panel_view
-	_enemy_reaction_chooser = enemy_reaction_chooser
-	_reaction = reaction
-	_action_economy_fn = action_economy_fn
-	_round_number_fn = round_number_fn
-	_living_enemies_fn = living_enemies_fn
-	_query_step_hexes_fn = query_step_hexes_fn
+## Reads (data-driven verb table, 2026-07-11 — see action_controller.gd's _init
+## doc): `resolve_action_use_case`, `event_log_view`, `status_panel_view`,
+## `enemy_reaction_chooser`, the shared `reaction` ReactionController (also used by
+## Stride), and the Callables `action_economy_for`, `current_round_number`,
+## `living_enemy_reactors` (the living-enemy pool this verb reads as its target
+## candidates), `query_selectable_step_hexes`. `session_holder` is consumed by
+## super().
+func _init(deps: Dictionary) -> void:
+	super(deps)
+	_resolve_action_use_case = deps.get("resolve_action_use_case", null)
+	_event_log_view = deps.get("event_log_view", null)
+	_status_panel_view = deps.get("status_panel_view", null)
+	_enemy_reaction_chooser = deps.get("enemy_reaction_chooser", null)
+	_reaction = deps.get("reaction", null)
+	_action_economy_fn = deps.get("action_economy_for", Callable())
+	_round_number_fn = deps.get("current_round_number", Callable())
+	_living_enemies_fn = deps.get("living_enemy_reactors", Callable())
+	_query_step_hexes_fn = deps.get("query_selectable_step_hexes", Callable())
 
 
 func availability() -> bool:

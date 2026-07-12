@@ -18,11 +18,22 @@ extends RefCounted
 ## keeping standalone --check-only parses working and honoring the "wired only by
 ## MainScene" discipline the inner adapters follow.
 
+## Constructed with a single `deps: Dictionary` (composition-root data-driven verb
+## table, 2026-07-11): MainScene owns ONE memoized `_verb_deps()` dict keyed by
+## documented collaborator names and instantiates every verb via
+## `VERB_TABLE[verb_id].new(_verb_deps())`, so a future Combine controller can
+## resolve any sub-action controller through the single `_controller(verb_id)`
+## lookup, and adding a verb is one VERB_TABLE entry (no per-verb positional
+## constructor). Each subclass reads only the keys it needs from `deps`; the base
+## needs `deps["session_holder"]` (the stable RoundSessionHolder). No test
+## constructs these positionally, so widening `_init` to a dict is safe.
 var _session_holder
 
 
-func _init(session_holder) -> void:
-	_session_holder = session_holder
+func _init(deps: Dictionary) -> void:
+	if not deps.has("session_holder"):
+		push_error("ActionController: deps missing required key \"session_holder\"")
+	_session_holder = deps.get("session_holder", null)
 
 
 ## _session() — the live RoundSession for the current round (null before the

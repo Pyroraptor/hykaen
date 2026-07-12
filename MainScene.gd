@@ -179,6 +179,21 @@ const EndTurnActionControllerClass     = preload("res://presentation/end_turn_ac
 const StepActionControllerClass        = preload("res://presentation/step_action_controller.gd")
 const StrideActionControllerClass      = preload("res://presentation/stride_action_controller.gd")
 const StrikeActionControllerClass      = preload("res://presentation/strike_action_controller.gd")
+
+## VERB_TABLE — the single data-driven verb registry (composition-root de-bloat,
+## 2026-07-11): verb_id → concrete ActionController subclass. This one table is
+## the sole place a verb is enumerated; _build_verb_registry() loops it to wire
+## the VerbBarRegistry, and _controller(verb_id) instantiates from it lazily. So
+## adding a verb is ~one entry here (+ its controller file + the three thin
+## _verb_bar_<verb>_* shims tests call on `self`), NOT scattered edits. A future
+## CombineActionController resolves its sub-action controllers via the same
+## _controller(verb_id) lookup this table backs.
+const VERB_TABLE := {
+	"STRIKE": StrikeActionControllerClass,
+	"STEP": StepActionControllerClass,
+	"STRIDE": StrideActionControllerClass,
+	"END_TURN": EndTurnActionControllerClass,
+}
 const ConsoleEventSinkAdapterClass     = preload("res://infrastructure/console_event_sink_adapter.gd")
 const EncounterTurnOrderAdapterClass   = preload("res://infrastructure/encounter_turn_order_adapter.gd")
 const InMemoryRoundHistoryAdapterClass = preload("res://infrastructure/in_memory_round_history_adapter.gd")
@@ -552,10 +567,14 @@ var reaction_window = null
 ## so building once is behavior-identical to the old inline live reads.
 var _turn_presentation_instance = null
 var _reaction_instance = null
-var _end_turn_action_instance = null
-var _step_action_instance = null
-var _stride_action_instance = null
-var _strike_action_instance = null
+
+## _controllers / _verb_deps_cache — the memoized ActionController pool and the
+## single shared deps dict backing the data-driven VERB_TABLE (2026-07-11).
+## _controller(verb_id) builds each verb's controller once from _verb_deps(); both
+## are lazy so they serve a booted MainScene AND a `.new()` test that drives a verb
+## without _ready(). Replaced the four per-verb _<verb>_action_instance fields.
+var _controllers: Dictionary = {}
+var _verb_deps_cache = null
 
 ## _party / _enemies — the live combatant Dictionaries built at boot,
 ## mutated in place by every resolved Strike throughout the interactive
@@ -1086,30 +1105,18 @@ func _presentation_event_subscribers() -> Array:
 func _build_verb_registry() -> VerbBarRegistryAdapterClass:
 	var registry := VerbBarRegistryAdapterClass.new()
 
-	registry.register(
-		"STRIKE",
-		Callable(self, "_verb_bar_strike_availability"),
-		Callable(self, "_verb_bar_strike_enter_selection"),
-		Callable(self, "_verb_bar_strike_execute"),
-	)
-	registry.register(
-		"STEP",
-		Callable(self, "_verb_bar_step_availability"),
-		Callable(self, "_verb_bar_step_enter_selection"),
-		Callable(self, "_verb_bar_step_execute"),
-	)
-	registry.register(
-		"STRIDE",
-		Callable(self, "_verb_bar_stride_availability"),
-		Callable(self, "_verb_bar_stride_enter_selection"),
-		Callable(self, "_verb_bar_stride_execute"),
-	)
-	registry.register(
-		"END_TURN",
-		Callable(self, "_verb_bar_end_turn_availability"),
-		Callable(self, "_verb_bar_end_turn_enter_selection"),
-		Callable(self, "_verb_bar_end_turn_execute"),
-	)
+	# Data-driven (2026-07-11): loop VERB_TABLE rather than four hand-written
+	# register() blocks. Each verb wires the three thin _verb_bar_<verb>_* shim
+	# Callables tests call on `self` — "END_TURN".to_lower() == "end_turn" matches
+	# the shim names. Adding a VERB_TABLE entry auto-registers its verb here.
+	for verb_id in VERB_TABLE:
+		var suffix: String = verb_id.to_lower()
+		registry.register(
+			verb_id,
+			Callable(self, "_verb_bar_%s_availability" % suffix),
+			Callable(self, "_verb_bar_%s_enter_selection" % suffix),
+			Callable(self, "_verb_bar_%s_execute" % suffix),
+		)
 
 	return registry
 
@@ -1141,11 +1148,11 @@ func _verb_bar_current_action_economy():
 ## function only READS can_take_action(); it never mutates the domain gate
 ## itself.
 func _verb_bar_strike_availability() -> bool:
-	return _strike_action().availability()
+	return _controller("STRIKE").availability()
 
 
 func _verb_bar_strike_enter_selection() -> Dictionary:
-	return _strike_action().enter_selection()
+	return _controller("STRIKE").enter_selection()
 
 
 ## _verb_bar_strike_execute(selection) -> Dictionary — FEAT-006: `selection`
@@ -1177,7 +1184,7 @@ func _verb_bar_strike_enter_selection() -> Dictionary:
 ## test_player_strikes_enemy_pass_through.gd) — that suite has been updated
 ## for Part B by this same feature.
 func _verb_bar_strike_execute(selection) -> Dictionary:
-	return await _strike_action().execute(selection)
+	return await _controller("STRIKE").execute(selection)
 
 
 ## _resolve_enemy_dodge_step(target, resolve_result, attacker_hex, legal_hexes)
@@ -1202,7 +1209,7 @@ func _resolve_enemy_dodge_step(target: Dictionary, resolve_result: Dictionary, a
 ## _find_strike_reachable_target) moved into
 ## presentation/strike_action_controller.gd.
 func _strike_reachable_target_ids() -> Array:
-	return _strike_action().reachable_target_ids()
+	return _controller("STRIKE").reachable_target_ids()
 
 
 ## _action_economy_for(combatant) -> ActionEconomy or null — iteration K
@@ -1323,11 +1330,11 @@ func _resolve_enemy_opportunistic_strike_reaction(reactor: Dictionary, context: 
 ## one legal Step destination" check. This function only READS
 ## can_take_movement_action(); it never mutates the domain gate itself.
 func _verb_bar_step_availability() -> bool:
-	return _step_action().availability()
+	return _controller("STEP").availability()
 
 
 func _verb_bar_step_enter_selection() -> Dictionary:
-	return _step_action().enter_selection()
+	return _controller("STEP").enter_selection()
 
 
 ## _verb_bar_step_execute(selection) -> Dictionary — FEAT-007 (this
@@ -1339,7 +1346,7 @@ func _verb_bar_step_enter_selection() -> Dictionary:
 ## success, runs the SAME post-move refresh
 ## (_after_successful_move()) that handler used to run.
 func _verb_bar_step_execute(selection) -> Dictionary:
-	return _step_action().execute(selection)
+	return _controller("STEP").execute(selection)
 
 
 ## _verb_bar_stride_availability() -> bool -- FEAT-002 (US-002 / FR-003 /
@@ -1359,11 +1366,11 @@ func _verb_bar_step_execute(selection) -> Dictionary:
 ## only READS can_take_movement_action()/can_take_action(); it never mutates
 ## either domain gate itself.
 func _verb_bar_stride_availability() -> bool:
-	return _stride_action().availability()
+	return _controller("STRIDE").availability()
 
 
 func _verb_bar_stride_enter_selection() -> Dictionary:
-	return _stride_action().enter_selection()
+	return _controller("STRIDE").enter_selection()
 
 
 ## _verb_bar_stride_execute(selection) -> Dictionary — FEAT-007 (this
@@ -1429,7 +1436,7 @@ func _verb_bar_stride_enter_selection() -> Dictionary:
 ## `encounter.get_turn_order()` (the authoritative initiative table) rather
 ## than merely internally sorted.
 func _verb_bar_stride_execute(selection) -> Dictionary:
-	return await _stride_action().execute(selection)
+	return await _controller("STRIDE").execute(selection)
 
 
 ## The END_TURN verb's availability/enter_selection/execute are delegated to
@@ -1438,15 +1445,15 @@ func _verb_bar_stride_execute(selection) -> Dictionary:
 ## Callable(self, "_verb_bar_end_turn_*") registrations and the direct-call tests
 ## unchanged.
 func _verb_bar_end_turn_availability() -> bool:
-	return _end_turn_action().availability()
+	return _controller("END_TURN").availability()
 
 
 func _verb_bar_end_turn_enter_selection() -> Dictionary:
-	return _end_turn_action().enter_selection()
+	return _controller("END_TURN").enter_selection()
 
 
 func _verb_bar_end_turn_execute(_selection = null) -> Dictionary:
-	return _end_turn_action().execute(_selection)
+	return _controller("END_TURN").execute(_selection)
 
 
 ## _on_verb_bar_selection_entered(verb_id, selection) -> void — FEAT-008 /
@@ -1523,59 +1530,46 @@ func _reaction():
 	return _reaction_instance
 
 
-## _end_turn_action() — lazily builds (once) and returns the EndTurnActionController
-## (the first concrete ActionController subclass). Lazy like the other controllers
-## so it serves both a booted MainScene and a `.new()` test driving the verb.
-func _end_turn_action():
-	if _end_turn_action_instance == null:
-		_end_turn_action_instance = EndTurnActionControllerClass.new(_round_session_holder, end_turn_control)
-	return _end_turn_action_instance
+## _verb_deps() — the ONE memoized deps Dictionary every ActionController is built
+## from (data-driven verb table, 2026-07-11). Holds every collaborator + Callable
+## any verb needs, keyed by the documented names each controller reads (see
+## action_controller.gd's _init doc). `reaction` is the shared _reaction()
+## ReactionController used by both Strike and Stride. Built once — its members
+## (the stable RoundSessionHolder, view nodes, movement_input_controller,
+## resolve/reaction collaborators, and the live-accessor Callables) are none of
+## them reassigned after first access, so a single dict is behavior-identical to
+## the old per-verb positional constructors. Individual verbs read only their own
+## keys; extra keys are harmless, which is what keeps adding a verb to ~one table
+## entry.
+func _verb_deps() -> Dictionary:
+	if _verb_deps_cache == null:
+		_verb_deps_cache = {
+			"session_holder": _round_session_holder,
+			"end_turn_control": end_turn_control,
+			"movement_input_controller": movement_input_controller,
+			"status_panel_view": status_panel_view,
+			"event_log_view": event_log_view,
+			"resolve_action_use_case": resolve_action_use_case,
+			"enemy_reaction_chooser": enemy_reaction_chooser,
+			"reaction": _reaction(),
+			"action_economy_for": Callable(self, "_action_economy_for"),
+			"current_round_number": Callable(self, "_current_round_number"),
+			"after_successful_move": Callable(self, "_after_successful_move"),
+			"living_enemy_reactors": Callable(self, "_living_enemy_reactors"),
+			"current_turn_order": Callable(self, "_current_turn_order"),
+			"query_selectable_step_hexes": Callable(self, "_query_selectable_step_hexes"),
+		}
+	return _verb_deps_cache
 
 
-## _step_action() / _stride_action() - lazily build the STEP/STRIDE
-## ActionController subclasses (see _end_turn_action()).
-func _step_action():
-	if _step_action_instance == null:
-		_step_action_instance = StepActionControllerClass.new(
-			_round_session_holder,
-			movement_input_controller,
-			Callable(self, "_after_successful_move")
-		)
-	return _step_action_instance
-
-
-func _stride_action():
-	if _stride_action_instance == null:
-		_stride_action_instance = StrideActionControllerClass.new(
-			_round_session_holder,
-			movement_input_controller,
-			status_panel_view,
-			resolve_action_use_case,
-			_reaction(),
-			Callable(self, "_action_economy_for"),
-			Callable(self, "_current_round_number"),
-			Callable(self, "_after_successful_move"),
-			Callable(self, "_living_enemy_reactors"),
-			Callable(self, "_current_turn_order")
-		)
-	return _stride_action_instance
-
-
-func _strike_action():
-	if _strike_action_instance == null:
-		_strike_action_instance = StrikeActionControllerClass.new(
-			_round_session_holder,
-			resolve_action_use_case,
-			event_log_view,
-			status_panel_view,
-			enemy_reaction_chooser,
-			_reaction(),
-			Callable(self, "_action_economy_for"),
-			Callable(self, "_current_round_number"),
-			Callable(self, "_living_enemy_reactors"),
-			Callable(self, "_query_selectable_step_hexes")
-		)
-	return _strike_action_instance
+## _controller(verb_id) — the single data-driven controller resolver (2026-07-11):
+## memoizes VERB_TABLE[verb_id].new(_verb_deps()) into _controllers, so every verb
+## (and a future Combine's sub-actions) is reached the SAME way. Lazy so it serves
+## a booted MainScene and a `.new()` test driving a verb without _ready().
+func _controller(verb_id: String):
+	if not _controllers.has(verb_id):
+		_controllers[verb_id] = VERB_TABLE[verb_id].new(_verb_deps())
+	return _controllers[verb_id]
 
 
 ## _living_enemy_reactors() -> the living-enemy reactor pool (spawn order)
