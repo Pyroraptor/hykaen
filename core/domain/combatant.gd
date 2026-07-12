@@ -70,6 +70,14 @@ var hp_current: int = 0
 var hp_max: int = 0
 var stamina: int = 0
 
+## Explicit consciousness flag — the Steel-trigger / reaction gate
+## (resolution.gd reads it as target.get("conscious", true) pre-migration).
+## Defaults true and is INDEPENDENT of hp: nothing in prod sets it false, but
+## some tests do to exercise the "an unconscious combatant can't react" gate, so
+## it must be a real stored flag (NOT derived). Distinct from is_conscious()
+## below, which is the hp>0 alive-check.
+var conscious: bool = true
+
 # ── Passive defenses (spec §Defenses) — d20 attack rolls target these ───────
 var ac: int = 0
 var fortitude: int = 0
@@ -216,6 +224,7 @@ static func from_dict(spec: Dictionary) -> Combatant:
 	c.hp_current      = int(spec.get("hp_current", 0))
 	c.hp_max          = int(spec.get("hp_max", 0))
 	c.stamina         = int(spec.get("stamina", 0))
+	c.conscious       = bool(spec.get("conscious", true))
 	c.ac              = int(spec.get("ac", 0))
 	c.fortitude       = int(spec.get("fortitude", 0))
 	c.reflex          = int(spec.get("reflex", 0))
@@ -243,6 +252,7 @@ func to_dict() -> Dictionary:
 		"hp_current":       hp_current,
 		"hp_max":           hp_max,
 		"stamina":          stamina,
+		"conscious":        conscious,
 		"ac":               ac,
 		"fortitude":        fortitude,
 		"reflex":           reflex,

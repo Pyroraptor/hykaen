@@ -71,8 +71,14 @@ const EventLogViewClass = preload("res://presentation/event_log_view.gd")
 ## adds the defender's full attack bonus). That fix is outside FEAT-008's
 ## own scope; re-pinning here records the new authored baseline so this
 ## guard keeps failing only on FUTURE, unrelated edits to resolution.gd.
+##
+## Combatant migration Phase C.2 (2026-07-12) re-pin: resolution.gd's combatant
+## READS were flipped from dict .get()s to Combatant instance methods (defense/
+## skill/attribute/has_condition/.conscious) via a dict-tolerant _as_combatant()
+## view — a behaviour-preserving refactor (RNG/math unchanged; full sim + e2e
+## parity green). Re-pinned to the new baseline.
 const _RESOLUTION_GD_PATH: String = "res://core/rules/resolution.gd"
-const _RESOLUTION_GD_EXPECTED_MD5: String = "4e4dca898170588857a946c5aaf1380d"
+const _RESOLUTION_GD_EXPECTED_MD5: String = "3742999acc578d329be0ef2e2cf25989"
 
 var _resolution_gd_actual_md5: String
 

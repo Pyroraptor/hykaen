@@ -21,6 +21,7 @@ func _enemy_spec() -> Dictionary:
 		"hp_current":       14,
 		"hp_max":           14,
 		"stamina":          0,
+		"conscious":        true,
 		"ac":               14,
 		"fortitude":        13,
 		"reflex":           12,
