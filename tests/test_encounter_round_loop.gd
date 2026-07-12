@@ -308,9 +308,15 @@ func test_already_spent_result_skips_and_continues_without_crashing() -> void:
 	# that this exact contract fired correctly during the live round.)
 	var ae_standalone = ActionEconomyClass.new()
 	ae_standalone.start_of_round()
+	# One action per TURN (ADR-103 / FEAT-003): spend_action() sets the
+	# per-turn _action_used gate, so start_of_turn() must clear it before each
+	# of the seven spends — otherwise spends 2..7 return "Action already used"
+	# and the round budget never actually reaches Spent. Models "up to seven
+	# turns per round, one action each".
 	for _i in range(ActionEconomyClass.MAX_BUDGET):
+		ae_standalone.start_of_turn()
 		ae_standalone.spend_action({})
-	assert_true(ae_standalone.is_spent(), "sanity check: standalone ActionEconomy must be Spent after MAX_BUDGET spends")
+	assert_true(ae_standalone.is_spent(), "sanity check: standalone ActionEconomy must be Spent after MAX_BUDGET per-turn spends")
 	var post_spend: Dictionary = ae_standalone.spend_action({})
 	assert_false(
 		post_spend["success"],
@@ -569,7 +575,7 @@ func test_round_history_budget_remaining_matches_post_spend_sequence() -> void:
 class BrokenAI:
 	extends "res://core/combat/ai.gd"
 
-	func decide_action(_combatant: Dictionary, _targets: Array) -> Dictionary:
+	func decide_action(_combatant: Dictionary, _targets: Array, _action_economy = null, _other_combatants: Array = []) -> Dictionary:
 		return {}
 
 
