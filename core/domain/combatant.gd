@@ -2,36 +2,50 @@
 ##
 ## Domain layer (ADR-001): pure GDScript — no Node/Control/CanvasItem
 ## inheritance, no engine lifecycle callbacks, no engine I/O. Extends
-## RefCounted only, matching the existing value-object convention
-## established by core/rules/round_events.gd / core/application/*_port.gd.
+## RefCounted only, matching the existing value-object convention.
 ##
-## Represents one combatant's identity and battlefield position within an
-## Encounter. FEAT-001 introduces this entity specifically to carry
-## `hex_coord` (a core/geometry/hex_coord.gd HexCoord value object) so the
-## battlefield can expose every combatant's positional data on the flat-top
-## axial hex grid (v0-release-2 spec, Amendment log — movement) — satisfying
-## the acceptance criterion "battlefield shows all combatants' positional
-## data" as the foundational data layer for iteration B.
+## Represents one combatant's identity, battlefield position, AND combat state
+## within an Encounter. FEAT-001 originally established only the identity +
+## hex-position layer while the resolution pipeline passed a parallel Dictionary
+## carrying every stat. The Combatant-entity migration
+## (docs/refactors/combatant-entity-migration.org) folds that stat bag onto this
+## entity so combat data + behaviour live in one typed place with methods.
 ##
-## Fields (see the iteration-B 3NF data model — Combatant entity):
-##   combatant_id — String, unique identifier within its Encounter
-##   name         — String, display name (e.g. "Titus", "Skeleton")
-##   team         — String, "Player" or "Enemy"
-##   hex_coord    — HexCoord, this combatant's current position on the
-##                  flat-top axial hex grid (core/geometry/hex_coord.gd)
+## MIGRATION PHASE A (this change): ENRICH the entity with combat fields +
+## behaviour + to_dict()/from_dict() interop, WITHOUT re-wiring the pipeline —
+## resolution still passes Dictionaries; to_dict()/from_dict() bridge the
+## boundary one seam at a time in later phases (B: swap the source; C: flip
+## signatures inward; D: delete this interop).
 ##
-## HP/Stamina/action-budget/condition fields from the full data model are
-## deliberately NOT added here — FEAT-001 establishes only the positional
-## data layer; later iteration-B features extend this entity as needed.
+## Shape note: the historical combatant dicts were ASYMMETRIC and lifecycle-
+## accreting — CombatantFactory's party build omitted fortitude/reflex/will,
+## and conditions[]/_is_enemy/_initiative_roll were added later by
+## encounter.gd/flanking.gd. Every consumer reads via .get(key, default).
+## to_dict() therefore emits a NORMALISED canonical shape (all four defenses +
+## conditions[]); Phase B verifies that normalisation is behaviour-preserving
+## precisely because the pipeline reads with .get() defaults.
+##
+## Fields:
+##   Identity/position — combatant_id, name, team, hex_coord
+##   Vitals            — hp_current, hp_max, stamina
+##   Defenses          — ac, fortitude, reflex, will  (passive target numbers)
+##   Attributes        — strength, dexterity, intuition
+##   Loadout/skills    — weapon (Dictionary), skills (Dictionary)
+##   Runtime state     — conditions (Array), initiative_roll, is_enemy,
+##                       casting_state (reserved for Cast-a-Spell)
 ##
 ## Usage:
 ##   var c := Combatant.new("player_0", "Titus", "Player", HexCoord.new(0, 0))
-##   c.hex_coord.q   # 0
+##   c.hex_coord.q            # 0
+##   var attacked := Combatant.from_dict(enemy_spec)  # bridge from a dict
+##   attacked.defense("reflex")
 
 class_name Combatant
 extends RefCounted
 
 const HexCoordClass = preload("res://core/geometry/hex_coord.gd")
+
+# ── Identity & position (FEAT-001) ──────────────────────────────────────────
 
 ## Unique identifier for this combatant within its Encounter.
 var combatant_id: String
@@ -39,20 +53,56 @@ var combatant_id: String
 ## Display name (e.g. "Titus", "Skeleton").
 var name: String
 
-## "Player" or "Enemy".
+## "Player" or "Enemy". Kept consistent with `is_enemy` (below).
 var team: String
 
 ## This combatant's current position — a HexCoord instance
-## (core/geometry/hex_coord.gd). Defaults to HexCoord(0, 0) when not
-## supplied at construction time.
+## (core/geometry/hex_coord.gd). Defaults to HexCoord(0, 0) when not supplied.
 ##
-## NOTE: typed against the preloaded HexCoordClass constant (not the bare
-## global `HexCoord` class_name) — relying on the bare global class_name as
-## a static type annotation requires Godot's global script class cache to
-## already know about a brand-new script, which is not guaranteed outside
-## the editor (headless/CI script execution can hit "Could not find type"
-## parse errors). Preload-based typing has no such dependency.
+## NOTE: typed against the preloaded HexCoordClass constant (not the bare global
+## `HexCoord` class_name) — a bare global class_name as a static type annotation
+## needs Godot's global script-class cache to already know a brand-new script,
+## which is not guaranteed headless/CI. Preload-based typing has no such dep.
 var hex_coord: HexCoordClass
+
+# ── Vitals ──────────────────────────────────────────────────────────────────
+var hp_current: int = 0
+var hp_max: int = 0
+var stamina: int = 0
+
+# ── Passive defenses (spec §Defenses) — d20 attack rolls target these ───────
+var ac: int = 0
+var fortitude: int = 0
+var reflex: int = 0
+var will: int = 0
+
+# ── Attributes ──────────────────────────────────────────────────────────────
+var strength: int = 0
+var dexterity: int = 0
+var intuition: int = 0
+
+# ── Loadout / skills ────────────────────────────────────────────────────────
+var weapon: Dictionary = {}
+var skills: Dictionary = {}
+
+# ── Runtime state ───────────────────────────────────────────────────────────
+
+## Active condition tags (e.g. "Off-Guard", "Immobilized"). Drives Off-Guard
+## attack bonuses (flanking.gd) and Dodge-gating (resolution.gd).
+var conditions: Array = []
+
+## Rolled initiative (dict key "_initiative_roll", set by encounter.gd at
+## start-of-encounter).
+var initiative_roll: int = 0
+
+## Team partition flag (dict key "_is_enemy"). Should agree with `team`.
+var is_enemy: bool = false
+
+## Reserved for the Cast-a-Spell multi-turn casting state machine. Empty when
+## not casting; the spell feature fills {spell_id, remaining_actions,
+## committed_energy}. Lives on the entity (not the round-scoped session) so an
+## in-progress cast survives round boundaries, per the spec.
+var casting_state: Dictionary = {}
 
 
 func _init(
@@ -67,14 +117,139 @@ func _init(
 	hex_coord = p_hex_coord if p_hex_coord != null else HexCoordClass.new(0, 0)
 
 
-## move_to(new_hex_coord) → void — FEAT-013 (US-013): updates this
-## combatant's current position to `new_hex_coord` (a
-## core/geometry/hex_coord.gd HexCoord instance). The sole mutator of
-## hex_coord — core/rules/movement.gd (domain layer, ADR-001) is the only
-## caller, after it has validated the move (adjacency/occupancy for Step).
-## This method performs NO validation itself: Combatant is a plain data
-## entity, not the rule-enforcing layer (that responsibility belongs to
-## core/rules/movement.gd, keeping the "where can I legally move" rule in
-## exactly one place).
+## move_to(new_hex_coord) → void — FEAT-013 (US-013): the sole mutator of
+## hex_coord. core/rules/movement.gd (the rule layer) is the only caller, after
+## validating the move. Performs NO validation itself (Combatant is a data
+## entity, not the rule-enforcing layer).
 func move_to(new_hex_coord: HexCoordClass) -> void:
 	hex_coord = new_hex_coord
+
+
+# ── Combat accessors & behaviour (migration Phase A) ────────────────────────
+
+## defense(kind) → int — the passive target number a d20 attack rolls against.
+## kind ∈ {"ac","reflex","fortitude","will"} (spec: weapon Strikes target AC,
+## spells target the defense named by the spell — see resolution.resolve_spell_
+## attack). push_error + 0 on an unknown kind (fail-loud, matching the codebase's
+## typed-error habit).
+func defense(kind: String) -> int:
+	match kind:
+		"ac": return ac
+		"reflex": return reflex
+		"fortitude": return fortitude
+		"will": return will
+	push_error("Combatant.defense(): unknown defense kind '%s'" % kind)
+	return 0
+
+## is_conscious() → bool — a combatant at 0 HP is down (the Steel-trigger /
+## living-target gate in resolution.gd). Derived from hp_current, not stored.
+func is_conscious() -> bool:
+	return hp_current > 0
+
+## take_damage(amount) — reduce HP by `amount`. NOT clamped, mirroring the raw
+## `hp_current -= damage` mutation the resolution pipeline performs today (Phase
+## C swaps those sites to this method; keeping identical arithmetic preserves
+## parity). Non-positive amounts are a safe subtraction.
+func take_damage(amount: int) -> void:
+	hp_current -= amount
+
+## heal(amount) — restore HP, capped at hp_max (the Heal spell regains HP; no
+## overheal).
+func heal(amount: int) -> void:
+	hp_current = mini(hp_max, hp_current + amount)
+
+## Condition tags (String). has_/add_/remove_ keep the conditions[] list in one
+## place; Off-Guard and Immobilized are read through has_condition().
+func has_condition(condition: String) -> bool:
+	return conditions.has(condition)
+
+func add_condition(condition: String) -> void:
+	if not conditions.has(condition):
+		conditions.append(condition)
+
+func remove_condition(condition: String) -> void:
+	conditions.erase(condition)
+
+## skill(name) → int — a skill rank (e.g. "mobility" for Dodge-worthiness),
+## defaulting 0 for an unauthored skill (matches _build_defense_context.gd's
+## .get("skills", {}).get(name, 0) reads).
+func skill(skill_name: String) -> int:
+	return int(skills.get(skill_name, 0))
+
+## Cast-a-Spell hooks (reserved). begin_cast()/advance_cast() land with the
+## spell feature; is_casting()/cancel_cast() are kept minimal now so the shape
+## is reserved and cast interruption (a lethal Opportunistic Strike cancels an
+## in-progress cast, mirroring lethal-OS-cancels-Stride) has a seam.
+func is_casting() -> bool:
+	return not casting_state.is_empty()
+
+func cancel_cast() -> void:
+	casting_state = {}
+
+
+# ── Dictionary interop (migration bridge; removed in Phase D) ────────────────
+
+## from_dict(spec) → Combatant — build an entity from a combatant-shaped
+## Dictionary (as CombatantFactory / test fixtures author today). Tolerant:
+## missing keys take sensible defaults, so BOTH the enemy shape (with
+## fortitude/reflex/will) and the party shape (without) round-trip. `is_enemy`
+## derives from "_is_enemy" or, failing that, team == "Enemy"; `team` derives
+## from "_is_enemy" when absent. Containers are duplicated to avoid aliasing the
+## caller's mutable Dictionaries/Arrays (mirrors CombatantFactory's convention).
+static func from_dict(spec: Dictionary) -> Combatant:
+	var is_enemy_flag: bool = bool(spec.get("_is_enemy", spec.get("team", "") == "Enemy"))
+	var c := Combatant.new(
+		String(spec.get("combatant_id", "")),
+		String(spec.get("name", "")),
+		String(spec.get("team", "Enemy" if is_enemy_flag else "Player")),
+		spec.get("hex_coord", null)
+	)
+	c.hp_current      = int(spec.get("hp_current", 0))
+	c.hp_max          = int(spec.get("hp_max", 0))
+	c.stamina         = int(spec.get("stamina", 0))
+	c.ac              = int(spec.get("ac", 0))
+	c.fortitude       = int(spec.get("fortitude", 0))
+	c.reflex          = int(spec.get("reflex", 0))
+	c.will            = int(spec.get("will", 0))
+	c.strength        = int(spec.get("strength", 0))
+	c.dexterity       = int(spec.get("dexterity", 0))
+	c.intuition       = int(spec.get("intuition", 0))
+	c.weapon          = (spec.get("weapon", {}) as Dictionary).duplicate(true)
+	c.skills          = (spec.get("skills", {}) as Dictionary).duplicate(true)
+	c.conditions      = (spec.get("conditions", []) as Array).duplicate()
+	c.initiative_roll = int(spec.get("_initiative_roll", 0))
+	c.is_enemy        = is_enemy_flag
+	c.casting_state   = (spec.get("casting_state", {}) as Dictionary).duplicate(true)
+	return c
+
+## to_dict() → Dictionary — emit the CANONICAL combatant shape (all four
+## defenses + conditions[]; see the header shape-note on normalisation).
+## Optional identity keys (combatant_id) and casting_state are included only
+## when set, mirroring CombatantFactory's conditional emit. Containers are
+## duplicated so callers can't mutate this entity's internals through the dict.
+func to_dict() -> Dictionary:
+	var d: Dictionary = {
+		"name":             name,
+		"team":             team,
+		"hp_current":       hp_current,
+		"hp_max":           hp_max,
+		"stamina":          stamina,
+		"ac":               ac,
+		"fortitude":        fortitude,
+		"reflex":           reflex,
+		"will":             will,
+		"strength":         strength,
+		"dexterity":        dexterity,
+		"intuition":        intuition,
+		"weapon":           weapon.duplicate(true),
+		"skills":           skills.duplicate(true),
+		"conditions":       conditions.duplicate(),
+		"_initiative_roll": initiative_roll,
+		"_is_enemy":        is_enemy,
+		"hex_coord":        hex_coord,
+	}
+	if combatant_id != "":
+		d["combatant_id"] = combatant_id
+	if not casting_state.is_empty():
+		d["casting_state"] = casting_state.duplicate(true)
+	return d
