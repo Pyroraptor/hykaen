@@ -27,7 +27,7 @@
 ##   4. Emit 'attack' (always) and 'combatant_defeated' (if the target's HP
 ##      transitions to <= 0) events via EventSinkPort, in that order — as
 ##      TYPED value objects (FEAT-099/FIND-096): core/rules/round_events.gd's
-##      RoundEvents.AttackEvent / RoundEvents.CombatantDefeatedEvent, never a
+##      RoundEvents.AttackBroadcast / RoundEvents.CombatantDefeatedEvent, never a
 ##      raw Dictionary. EventSinkPort.emit() therefore now accepts any
 ##      Variant (see core/application/event_sink_port.gd). The emitted
 ##      AttackEvent also carries actor_updated_action_budget (FEAT-009 /
@@ -353,7 +353,7 @@ func get_apply_on_hit_defense_use_case():
 ##     — ActionEconomy.spend_action() failed (ALREADY_SPENT contract
 ##       violation); no damage applied, no events emitted, no history
 ##       recorded. The caller must skip this combatant for the cycle.
-##   {resolved: true, ok: true, event: RoundEvents.AttackEvent,
+##   {resolved: true, ok: true, event: RoundEvents.AttackBroadcast,
 ##    target_defeated: bool, damage_final: int}
 ##     — the action was spent and the Strike resolved (hit or miss);
 ##       target_defeated is true iff target.hp_current transitioned to <= 0
@@ -549,7 +549,7 @@ func _finalize_strike_result(
 		"spent":     action_economy.is_spent(),
 	}
 
-	var attack_event = RoundEventsClass.AttackEvent.new(
+	var attack_event = RoundEventsClass.AttackBroadcast.new(
 		round_number,
 		combatant.name,
 		target.name,

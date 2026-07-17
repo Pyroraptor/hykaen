@@ -409,7 +409,7 @@ func test_round_events_contains_attack_entry_per_resolved_strike_in_order() -> v
 	var history: Array = result.get("history", [])
 	var events: Array  = enc.get_round_events()
 
-	var attack_events: Array = events.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	var attack_events: Array = events.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 
 	assert_eq(
 		attack_events.size(), history.size(),

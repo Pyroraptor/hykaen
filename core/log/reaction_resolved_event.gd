@@ -4,7 +4,7 @@
 ## Domain layer (Clean Architecture / ADR-001): a pure RefCounted value
 ## object — zero Node/Control/SceneTree inheritance, zero engine I/O — the
 ## STRUCTURED, storage-shaped record of one resolved reaction window,
-## distinct from core/rules/round_events.gd's RoundEvents.ReactionResolvedEvent
+## distinct from core/rules/round_events.gd's RoundEvents.ReactionResolvedBroadcast
 ## (the transient broadcast payload EventSinkPort fans out for immediate
 ## rendering). This file's ReactionResolvedEvent is the design's data_model
 ## entity meant to be retained by presentation/event_log_view.gd's

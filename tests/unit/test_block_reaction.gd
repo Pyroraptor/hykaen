@@ -460,7 +460,7 @@ func test_block_reaction_resolved_event_emitted_with_block_choice() -> void:
 	assert_eq(sink.events.size(), 2, "open() and the attack resolution must each emit exactly one event")
 	assert_true(sink.events[0] is RoundEventsClass.ReactionWindowOpenedEvent)
 	var resolved_event = sink.events[1]
-	assert_true(resolved_event is RoundEventsClass.ReactionResolvedEvent)
+	assert_true(resolved_event is RoundEventsClass.ReactionResolvedBroadcast)
 	assert_eq(resolved_event.round, 4)
 	assert_eq(resolved_event.choice, "block")
 	assert_eq(resolved_event.resolved_by, "ai_policy")

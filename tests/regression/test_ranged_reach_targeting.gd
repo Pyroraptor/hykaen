@@ -75,8 +75,8 @@ func _equip_active_actor_with_ranged_weapon(instance, range_hexes: int) -> Dicti
 	return actor
 
 
-func _first_attack_event(instance) -> RoundEventsClass.AttackEvent:
-	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent)
+func _first_attack_event(instance) -> RoundEventsClass.AttackBroadcast:
+	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 	assert_eq(attack_events.size(), 1, "exactly one AttackEvent must have been emitted by the single Strike this scenario drives")
 	return attack_events[0]
 
@@ -136,7 +136,7 @@ func test_ranged_target_beyond_melee_adjacency_but_within_range_hexes_is_selecta
 	assert_true(result.get("ok", false), "a ranged Strike within range_hexes must resolve ok through the real `_verb_registry` STRIKE entry")
 	assert_true(result.get("resolved", false), "a ranged Strike within range_hexes must be marked resolved")
 
-	var attack_event: RoundEventsClass.AttackEvent = _first_attack_event(instance)
+	var attack_event: RoundEventsClass.AttackBroadcast = _first_attack_event(instance)
 	assert_eq(attack_event.target_name, instance._enemies[0].get("name", ""), "the AttackEvent must target the repositioned enemy")
 
 
@@ -182,7 +182,7 @@ func test_target_beyond_range_hexes_is_not_selectable_and_select_target_is_rejec
 		"an out-of-range Strike attempt must not spend any of the actor's action budget"
 	)
 	assert_eq(
-		instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent).size(), 0,
+		instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast).size(), 0,
 		"no AttackEvent may be emitted for a rejected out-of-range ranged Strike"
 	)
 

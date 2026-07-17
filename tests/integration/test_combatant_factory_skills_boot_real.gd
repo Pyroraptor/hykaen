@@ -195,7 +195,7 @@ func _resolve_one_real_player_strike_against(instance, target_id: String) -> voi
 
 
 func _sole_attack_event(instance):
-	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 	assert_eq(attack_events.size(), 1, "exactly one Strike must have resolved")
 	return attack_events[0]
 

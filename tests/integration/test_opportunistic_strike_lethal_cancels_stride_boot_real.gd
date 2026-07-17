@@ -313,7 +313,7 @@ func test_enemy_mover_lethal_opportunistic_strike_cancels_stride_via_real_ai_dec
 		"Titus's own live ActionEconomy budget must drop by EXACTLY 1 -- paid via spend_reaction(), never spend_action()"
 	)
 
-	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 	assert_eq(attack_events.size(), 1, "exactly one Strike (Titus's lethal Opportunistic Strike) must have resolved")
 	var attack_event = attack_events[0]
 	assert_eq(attack_event.attacker_name, "Titus", "the resolved Strike must be attributed to Titus (the reactor), not the Skeleton (the mover)")
@@ -415,7 +415,7 @@ func test_player_mover_lethal_opportunistic_strike_cancels_stride_via_real_mains
 		"the Skeleton's own live ActionEconomy budget must drop by EXACTLY 1 -- paid via spend_reaction(), never spend_action()"
 	)
 
-	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 	assert_eq(attack_events.size(), 1, "exactly one Strike (the Skeleton's lethal Opportunistic Strike) must have resolved")
 	var attack_event = attack_events[0]
 	assert_eq(attack_event.attacker_name, "Skeleton", "the resolved Strike must be attributed to the Skeleton (the reactor), not Titus (the mover)")

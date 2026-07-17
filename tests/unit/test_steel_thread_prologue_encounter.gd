@@ -220,7 +220,7 @@ func test_off_guard_condition_reduces_defense_value_by_two_in_live_event_log() -
 	assert_true(result.get("ok", false), "the Off-Guard Strike must resolve through the real, live resolve_action_use_case")
 
 	var new_attack_events: Array = instance.event_sink.log.slice(events_before).filter(
-		func(e): return e is RoundEventsClass.AttackEvent
+		func(e): return e is RoundEventsClass.AttackBroadcast
 	)
 	assert_eq(new_attack_events.size(), 1, "exactly one new AttackEvent must appear in MainScene's real, full captured event log")
 
@@ -326,7 +326,7 @@ func test_ranged_shortbow_strike_against_target_three_hexes_away_is_selectable_a
 	assert_true(result.get("resolved", false), "the ranged Strike must be marked resolved")
 
 	var new_attack_events: Array = instance.event_sink.log.slice(events_before).filter(
-		func(e): return e is RoundEventsClass.AttackEvent
+		func(e): return e is RoundEventsClass.AttackBroadcast
 	)
 	assert_eq(new_attack_events.size(), 1, "the resolved ranged Strike must appear in MainScene's real, full captured event log")
 	var logged_event = new_attack_events[0]

@@ -163,7 +163,7 @@ func test_player_stride_past_live_adjacent_skeleton_provokes_and_resolves_opport
 	var titus_hp_after: int = titus.get("hp_current", -1)
 	assert_true(titus_hp_after < titus_hp_before, "Titus (the mover) must show real, positive damage from the Skeleton's resolved Opportunistic Strike")
 
-	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 	assert_eq(attack_events.size(), 1, "exactly one Strike (the Skeleton's Opportunistic Strike) must have resolved")
 	var attack_event = attack_events[0]
 	assert_eq(attack_event.attacker_name, "Skeleton", "the resolved Strike must be attributed to the Skeleton (the reactor), not Titus (the mover)")

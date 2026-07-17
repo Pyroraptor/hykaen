@@ -66,7 +66,7 @@ const ReactionWindowClass = preload("res://core/application/reaction_window.gd")
 ## AttackEventClass — FEAT-007 (US-007 / FR-008): preloaded ONLY to construct
 ## the STRUCTURED, storage-shaped AttackEvent record_attack() (event_log_view.gd,
 ## a same-layer-adjacent Presentation adapter) accepts — a different value
-## object from RoundEventsClass.AttackEvent above (that one carries names for
+## object from RoundEventsClass.AttackBroadcast above (that one carries names for
 ## immediate rendering; this one carries ids for structured storage/pairing —
 ## see core/log/attack_event.gd's file-level doc). RoundSession never
 ## instantiates event_log_view.gd itself (ADR-001/ADR-002) — only this value
@@ -1571,7 +1571,7 @@ func advance_ai_turn() -> Dictionary:
 			# chosen; see the branch above that set it). Dodge/Steel succeeded
 			# iff the JUST-resolved Strike's own "event" reports the attack
 			# missed (core/rules/resolution.gd's resolve_to_hit() `not hit`
-			# result, mirrored onto RoundEvents.AttackEvent.hit here) -- never
+			# result, mirrored onto RoundEvents.AttackBroadcast.hit here) -- never
 			# re-derived, only read back from the SAME resolved event this
 			# method already forwards to record_attack() below.
 			if active_defense == "dodge" or active_defense == "steel":

@@ -70,8 +70,8 @@ func _flanking_ally(hex_coord, combatant_id: String) -> Dictionary:
 	}
 
 
-func _first_attack_event(instance) -> RoundEventsClass.AttackEvent:
-	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent)
+func _first_attack_event(instance) -> RoundEventsClass.AttackBroadcast:
+	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 	assert_eq(attack_events.size(), 1, "exactly one AttackEvent must have been emitted by the single Strike this scenario drives")
 	return attack_events[0]
 
@@ -121,7 +121,7 @@ func test_baseline_strike_through_real_verb_registry_uses_plain_ac_as_defense_va
 	var result: Dictionary = _resolve_strike(instance, target_id)
 	assert_true(result.get("resolved", false), "the baseline Strike must resolve through the real `_verb_registry` STRIKE entry")
 
-	var attack_event: RoundEventsClass.AttackEvent = _first_attack_event(instance)
+	var attack_event: RoundEventsClass.AttackBroadcast = _first_attack_event(instance)
 	var target_ac: int = instance._enemies[0].get("ac", -1)
 	assert_eq(
 		attack_event.defense_value, target_ac,
@@ -194,7 +194,7 @@ func test_off_guard_condition_is_absent_when_only_a_single_combatant_flanks_thro
 	var result: Dictionary = _resolve_strike(instance, target_id)
 	assert_true(result.get("resolved", false))
 
-	var attack_event: RoundEventsClass.AttackEvent = _first_attack_event(instance)
+	var attack_event: RoundEventsClass.AttackBroadcast = _first_attack_event(instance)
 	assert_eq(
 		attack_event.defense_value, instance._enemies[0].get("ac", -1),
 		"a single, non-opposed flanker must not reduce defense_value through real MainScene Strike resolution"

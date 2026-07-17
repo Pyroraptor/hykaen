@@ -210,7 +210,7 @@ func test_strike_via_verb_registry_emits_attack_event_through_real_event_sink() 
 		"the AttackEvent must flow through MainScene's real event sink to the real EventLogView"
 	)
 
-	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 	assert_eq(attack_events.size(), 1, "MainScene's real event-sink adapter must have observed exactly one AttackEvent")
 
 	var target_combatant = null

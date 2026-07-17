@@ -114,7 +114,7 @@ func _drive_incoming_strike_and_choose(instance, on_hit_choice: String) -> Array
 	instance.reaction_prompt_ui.press_option(on_hit_choice)
 	assert_false(instance.reaction_prompt_ui.is_open(), "no reaction window may remain open once OnHitMitigation has resolved")
 
-	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 	assert_eq(attack_events.size(), 1, "exactly one Strike must have resolved")
 	return attack_events
 

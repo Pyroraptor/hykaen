@@ -125,11 +125,11 @@ func test_ranged_strike_against_target_within_range_resolves_and_returns_attack_
 	assert_true(result.get("ok", false), "Ranged Strike within range_hexes must report ok:true")
 	assert_true(result.get("resolved", false), "Ranged Strike within range_hexes must report resolved:true")
 	assert_true(
-		result.get("event", null) is RoundEventsClass.AttackEvent,
+		result.get("event", null) is RoundEventsClass.AttackBroadcast,
 		"ActionResult must carry the emitted AttackEvent under the 'event' key"
 	)
 	assert_eq(rig["event_sink"].events.size(), 1, "Exactly one AttackEvent must be emitted")
-	assert_true(rig["event_sink"].events[0] is RoundEventsClass.AttackEvent)
+	assert_true(rig["event_sink"].events[0] is RoundEventsClass.AttackBroadcast)
 
 
 func test_ranged_strike_against_a_nearby_but_non_adjacent_target_resolves_successfully() -> void:

@@ -295,7 +295,7 @@ func test_player_strike_through_real_pipeline_observable_in_event_log_and_status
 	assert_string_contains(log_text, "Titus")
 	assert_string_contains(log_text, "Skeleton")
 
-	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 	assert_eq(attack_events.size(), 1, "MainScene's real event-sink adapter must have observed exactly one AttackEvent")
 	assert_eq(attack_events[0].attacker_name, "Titus", "the AttackEvent must attribute the Strike to Titus, the player-controlled actor")
 	assert_eq(attack_events[0].target_name, "Skeleton", "the AttackEvent must target the Skeleton")
@@ -349,7 +349,7 @@ func test_enemy_ai_turn_auto_drives_through_identical_pipeline_after_end_turn() 
 		"fixture assumption: the first actor must be the living player combatant (Titus)"
 	)
 	assert_eq(
-		instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent).size(), 0,
+		instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast).size(), 0,
 		"fixture assumption: no Strike has been made yet"
 	)
 
@@ -363,13 +363,13 @@ func test_enemy_ai_turn_auto_drives_through_identical_pipeline_after_end_turn() 
 		"passing the player's turn with no damage yet dealt must not conclude the round"
 	)
 
-	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 	assert_eq(
 		attack_events.size(), 1,
 		"the real $TurnController, driven via MainScene's EndTurnControl.turn_ended handoff, must auto-drive exactly one AI-controlled enemy Strike through resolve_action_use_case"
 	)
 	var ai_attack_event = attack_events[0]
-	assert_true(ai_attack_event is RoundEventsClass.AttackEvent, "the AI-resolved event must be a real RoundEvents.AttackEvent")
+	assert_true(ai_attack_event is RoundEventsClass.AttackBroadcast, "the AI-resolved event must be a real RoundEvents.AttackBroadcast")
 	assert_eq(ai_attack_event.attacker_name, "Skeleton", "the auto-driven Strike must be attributed to the AI-controlled Skeleton")
 	assert_eq(ai_attack_event.target_name, "Titus", "the auto-driven Strike must target the player-controlled Titus")
 
@@ -394,10 +394,10 @@ func test_enemy_ai_turn_auto_drives_through_identical_pipeline_after_end_turn() 
 	var player_result: Dictionary = instance.strike_action_control.select_target(target_ids[0])
 	assert_true(player_result.get("resolved", false), "the player's Strike through the real StrikeActionControl must resolve")
 
-	var attack_events_after: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	var attack_events_after: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 	assert_eq(attack_events_after.size(), 2, "exactly one additional AttackEvent (the player's) must now exist")
 	var player_attack_event = attack_events_after[1]
-	assert_true(player_attack_event is RoundEventsClass.AttackEvent, "the player-resolved event must be a real RoundEvents.AttackEvent")
+	assert_true(player_attack_event is RoundEventsClass.AttackBroadcast, "the player-resolved event must be a real RoundEvents.AttackBroadcast")
 	assert_eq(player_attack_event.attacker_name, "Titus", "the player's own Strike must be attributed to Titus")
 
 	# "Indistinguishable in shape": both events are the SAME AttackEvent type

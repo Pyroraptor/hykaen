@@ -306,7 +306,7 @@ func test_successful_dodge_short_circuits_before_any_on_hit_processing() -> void
 	assert_eq(ae.get_remaining(), 6, "a triggered Dodge must spend exactly one reaction")
 
 	assert_eq(sink.events.size(), 2)
-	assert_true(sink.events[1] is RoundEventsClass.ReactionResolvedEvent)
+	assert_true(sink.events[1] is RoundEventsClass.ReactionResolvedBroadcast)
 	assert_eq(sink.events[1].choice, "dodge")
 	assert_eq(sink.events[1].round, 3)
 

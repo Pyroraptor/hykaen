@@ -213,7 +213,7 @@ func resume(window_id: String, choice: String, resolved_by: String = "unknown") 
 			# back to PASS rather than erroring — "never hang/crash".
 			applied_choice = ReactionChooserPortClass.PASS
 
-	_event_sink_port.emit(RoundEventsClass.ReactionResolvedEvent.new(
+	_event_sink_port.emit(RoundEventsClass.ReactionResolvedBroadcast.new(
 		trigger.get("round_number", 0),
 		window_id,
 		applied_choice,
@@ -356,7 +356,7 @@ func open_and_resolve_attack(
 		_open_trigger         = {}
 		_open_legal_reactions = []
 
-		_event_sink_port.emit(RoundEventsClass.ReactionResolvedEvent.new(
+		_event_sink_port.emit(RoundEventsClass.ReactionResolvedBroadcast.new(
 			trigger.get("round_number", 0),
 			opened.get("window_id", ""),
 			applied_choice,
@@ -488,7 +488,7 @@ func open_and_resolve_prehit_avoidance(
 		_open_trigger         = {}
 		_open_legal_reactions = []
 
-		_event_sink_port.emit(RoundEventsClass.ReactionResolvedEvent.new(
+		_event_sink_port.emit(RoundEventsClass.ReactionResolvedBroadcast.new(
 			trigger.get("round_number", 0),
 			opened.get("window_id", ""),
 			applied_choice,
@@ -633,7 +633,7 @@ func open_and_resolve_onhit_mitigation(
 			_open_trigger         = {}
 			_open_legal_reactions = []
 
-			_event_sink_port.emit(RoundEventsClass.ReactionResolvedEvent.new(
+			_event_sink_port.emit(RoundEventsClass.ReactionResolvedBroadcast.new(
 				trigger.get("round_number", 0),
 				window_id,
 				applied_choice,

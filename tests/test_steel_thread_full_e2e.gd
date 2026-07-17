@@ -273,7 +273,7 @@ func test_scenario_dodge_success_short_circuits_the_strike_with_no_onhit_window(
 	assert_false(instance.reaction_prompt_ui.is_open(), "the pop-up must close once every reaction for this Strike has resolved")
 
 	# ── Entry point + event counts (test_criteria #2/#4) ────────────────────
-	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 	assert_eq(attack_events.size(), 1, "advance_ai_turn() must resolve exactly one Strike")
 	assert_eq(recorded_attacks.size(), 1, "exactly one structured AttackEvent must be recorded for this Strike")
 
@@ -359,7 +359,7 @@ func test_scenario_miss_never_opens_the_onhit_mitigation_window() -> void:
 	assert_true(result.get("ok", false))
 	assert_false(instance.reaction_prompt_ui.is_open())
 
-	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 	assert_eq(attack_events.size(), 1)
 	assert_eq(recorded_attacks.size(), 1)
 
@@ -461,7 +461,7 @@ func _run_dodge_declined_hit_scenario(instance, onhit_choice: String) -> Diction
 	assert_true(result.get("ok", false))
 	assert_false(instance.reaction_prompt_ui.is_open())
 
-	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 	assert_eq(attack_events.size(), 1)
 	assert_eq(recorded_attacks.size(), 1)
 

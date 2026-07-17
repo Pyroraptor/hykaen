@@ -170,7 +170,7 @@ func test_player_strike_never_opens_a_reaction_window_or_prompt_for_the_enemy() 
 			"no ReactionWindowOpenedEvent may be emitted for a player-strikes-enemy Strike -- this path never drives core/application/reaction_window.gd"
 		)
 		assert_false(
-			is_instance_of(event, RoundEventsClass.ReactionResolvedEvent),
+			is_instance_of(event, RoundEventsClass.ReactionResolvedBroadcast),
 			"no ReactionResolvedEvent may be emitted for a player-strikes-enemy Strike -- this path never drives core/application/reaction_window.gd"
 		)
 
@@ -192,7 +192,7 @@ func test_player_strike_still_emits_exactly_one_attack_event_and_costs_one_actio
 
 	_resolve_one_real_player_strike(instance)
 
-	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 	assert_eq(attack_events.size(), 1, "a real player Strike must emit exactly one AttackEvent")
 
 	var after_remaining: int = instance.status_panel_view.get_status(actor_id).get("action_budget_remaining", -1)

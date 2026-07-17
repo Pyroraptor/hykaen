@@ -185,14 +185,14 @@ func test_round_event_with_production_attack_event_value_object_updates_hp() -> 
 	const RoundEventsClass = preload("res://core/rules/round_events.gd")
 	_panel.load_combatants(_sample_view_models())
 
-	var attack_event = RoundEventsClass.AttackEvent.new(
+	var attack_event = RoundEventsClass.AttackBroadcast.new(
 		1, "Titus", "Skeleton", 17, "ac", 14, true, false, 5
 	)
 	_panel.on_round_event(attack_event)
 
 	assert_eq(
 		_panel.get_status("enemy_0").get("hp_current"), 3,
-		"a real RoundEvents.AttackEvent (damage_final=5) must reduce Skeleton's HP from 8 to 3"
+		"a real RoundEvents.AttackBroadcast (damage_final=5) must reduce Skeleton's HP from 8 to 3"
 	)
 
 

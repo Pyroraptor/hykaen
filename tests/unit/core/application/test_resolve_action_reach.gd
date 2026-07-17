@@ -22,7 +22,7 @@ extends GutTest
 ## Validates:
 ##   1. Strike against an adjacent target resolves successfully — returns
 ##      ok:true (resolved:true) plus an "event" key holding the emitted
-##      RoundEvents.AttackEvent.
+##      RoundEvents.AttackBroadcast.
 ##   2. Strike against a non-adjacent target is rejected —
 ##      ok:false (resolved:false), error:"ERR_TARGET_NOT_ADJACENT", no
 ##      AttackEvent emitted, no round-history entry appended, and the
@@ -119,11 +119,11 @@ func test_strike_against_adjacent_target_resolves_and_returns_attack_event() -> 
 	assert_true(result.get("ok", false), "Strike against an adjacent target must report ok:true")
 	assert_true(result.get("resolved", false), "Strike against an adjacent target must report resolved:true")
 	assert_true(
-		result.get("event", null) is RoundEventsClass.AttackEvent,
+		result.get("event", null) is RoundEventsClass.AttackBroadcast,
 		"ActionResult must carry the emitted AttackEvent under the 'event' key"
 	)
 	assert_eq(rig["event_sink"].events.size(), 1, "Exactly one AttackEvent must be emitted")
-	assert_true(rig["event_sink"].events[0] is RoundEventsClass.AttackEvent)
+	assert_true(rig["event_sink"].events[0] is RoundEventsClass.AttackBroadcast)
 
 
 func test_strike_against_each_of_the_six_neighbors_resolves_successfully() -> void:

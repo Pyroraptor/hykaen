@@ -388,7 +388,7 @@ func test_full_steel_thread_from_turn_start_to_post_resolution_lock() -> void:
 		var id: String = combatant.get("combatant_id", "")
 		positions_before[id] = combatant.get("hex_coord")
 		hp_before[id] = combatant.get("hp_current", -1)
-	var attack_event_count_before: int = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent).size()
+	var attack_event_count_before: int = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast).size()
 
 	# A stray hex_clicked on an arbitrary hex (even one that WAS legal before
 	# resolution, e.g. the fixture's original starting hex) must be a no-op --
@@ -419,7 +419,7 @@ func test_full_steel_thread_from_turn_start_to_post_resolution_lock() -> void:
 			"combatant %s's HP must be unchanged by any post-resolution input" % id
 		)
 	assert_eq(
-		instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent).size(), attack_event_count_before,
+		instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast).size(), attack_event_count_before,
 		"no additional AttackEvent may be emitted by any post-resolution input"
 	)
 
@@ -493,7 +493,7 @@ func test_enemy_ai_leg_strides_toward_nearest_target_but_does_not_strike_same_tu
 	assert_true(enemy_action_economy.can_take_movement_action(), "sanity check: the enemy has not used its per-turn Movement action yet")
 
 	var attack_events_before: int = instance.event_sink.log.filter(
-		func(e): return e is RoundEventsClass.AttackEvent and e.attacker_name == enemy.get("name", "")
+		func(e): return e is RoundEventsClass.AttackBroadcast and e.attacker_name == enemy.get("name", "")
 	).size()
 
 	# End the player's turn WITHOUT acting -- this suite isolates the enemy
@@ -532,7 +532,7 @@ func test_enemy_ai_leg_strides_toward_nearest_target_but_does_not_strike_same_tu
 	# whether the now-adjacent target is in reach for a Strike (US-005)
 	# ────────────────────────────────────────────────────────────────────────
 	var attack_events_after: int = instance.event_sink.log.filter(
-		func(e): return e is RoundEventsClass.AttackEvent and e.attacker_name == enemy.get("name", "")
+		func(e): return e is RoundEventsClass.AttackBroadcast and e.attacker_name == enemy.get("name", "")
 	).size()
 	assert_eq(
 		attack_events_after, attack_events_before,
@@ -603,7 +603,7 @@ func test_enemy_ai_leg_strides_but_does_not_strike_when_no_action_remains_after_
 	assert_true(enemy_action_economy.can_take_movement_action(), "fixture setup: draining the budget must not itself trip the Movement gate")
 
 	var attack_events_before: int = instance.event_sink.log.filter(
-		func(e): return e is RoundEventsClass.AttackEvent and e.attacker_name == enemy.get("name", "")
+		func(e): return e is RoundEventsClass.AttackBroadcast and e.attacker_name == enemy.get("name", "")
 	).size()
 
 	assert_false(instance.round_session.current_actor().get("_is_enemy", true), "fixture assumption: the player still acts first")
@@ -621,7 +621,7 @@ func test_enemy_ai_leg_strides_but_does_not_strike_when_no_action_remains_after_
 	# ...but with NO action remaining, no Strike may be attempted/recorded,
 	# even though reach is now satisfied.
 	var attack_events_after: int = instance.event_sink.log.filter(
-		func(e): return e is RoundEventsClass.AttackEvent and e.attacker_name == enemy.get("name", "")
+		func(e): return e is RoundEventsClass.AttackBroadcast and e.attacker_name == enemy.get("name", "")
 	).size()
 	assert_eq(
 		attack_events_after, attack_events_before,

@@ -698,7 +698,7 @@ func test_spec_content_ci_gates_present_in_test_yml() -> void:
 #
 #   test_round_events_are_typed_round_events_value_objects_not_raw_dictionaries()
 #     — integration-level: confirms get_round_events() yields TYPED
-#       RoundEvents.AttackEvent instances (FEAT-099/FIND-096), exercised via
+#       RoundEvents.AttackBroadcast instances (FEAT-099/FIND-096), exercised via
 #       `is` type-checks and `.to_dict()` snapshots.
 #
 # Satisfies: FR-001, FR-002, FR-003, ADR-001, ADR-002, CR-001 AC-1/AC-2/AC-3,
@@ -926,8 +926,8 @@ func test_titus_round_history_typed_entries_persist_budget_across_turns_and_rese
 
 
 ## FEAT-099/FIND-096 (typed-access regression guard for THIS file): confirms
-## get_round_events() yields TYPED RoundEvents.AttackEvent value objects —
-## never raw Dictionaries — exercised via `is RoundEventsClass.AttackEvent`
+## get_round_events() yields TYPED RoundEvents.AttackBroadcast value objects —
+## never raw Dictionaries — exercised via `is RoundEventsClass.AttackBroadcast`
 ## and `.to_dict()`, the same idiom required throughout this CR-001 section
 ## (and already established in tests/integration/test_encounter_integration.gd
 ## / tests/test_encounter_round_loop.gd).
@@ -944,20 +944,20 @@ func test_round_events_are_typed_round_events_value_objects_not_raw_dictionaries
 
 	var attack_ev = null
 	for ev in events:
-		if ev is RoundEventsClass.AttackEvent:
+		if ev is RoundEventsClass.AttackBroadcast:
 			attack_ev = ev
 			break
 
 	assert_not_null(attack_ev,
-		"get_round_events() must contain at least one typed RoundEvents.AttackEvent instance")
+		"get_round_events() must contain at least one typed RoundEvents.AttackBroadcast instance")
 	if attack_ev == null:
 		return
 
 	assert_eq(attack_ev.round, 1,
-		"RoundEvents.AttackEvent.round must be read as a typed field (round 1)")
+		"RoundEvents.AttackBroadcast.round must be read as a typed field (round 1)")
 	assert_true(
 		attack_ev.attacker_name == "Titus" or attack_ev.attacker_name == "Skeleton",
-		"RoundEvents.AttackEvent.attacker_name must be read as a typed field naming a known combatant; got '%s'"
+		"RoundEvents.AttackBroadcast.attacker_name must be read as a typed field naming a known combatant; got '%s'"
 		% attack_ev.attacker_name
 	)
 

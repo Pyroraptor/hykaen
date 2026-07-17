@@ -39,7 +39,7 @@ extends GutTest
 ##
 ## FEAT-219 (PR-002 remediation): DEF-001 ("on-hit mitigation cosmetic-only")
 ## could not be confirmed genuinely fixed by an automated, code-verifiable
-## check alone, because RoundEvents.AttackEvent (the value object the
+## check alone, because RoundEvents.AttackBroadcast (the value object the
 ## assertions above read) only ever carries the FINAL, post-mitigation
 ## damage -- there was no live, observable field for the RAW (pre-mitigation)
 ## damage a successful Parry/Block was supposed to have reduced. This suite
@@ -124,7 +124,7 @@ func _has_combatant_defeated_event(instance) -> bool:
 ## FEAT-219 (PR-002 remediation): the accessor this suite adds to reach the
 ## structured, storage-shaped core/log/attack_event.gd AttackEvent (which
 ## carries BOTH damage_raw and damage_final -- unlike
-## core/rules/round_events.gd's RoundEvents.AttackEvent above, which only
+## core/rules/round_events.gd's RoundEvents.AttackBroadcast above, which only
 ## ever carries damage_final) for the JUST-resolved Strike's row, driven
 ## entirely through the REAL, live-booted event_log_view (never a
 ## re-derived/recomputed value) -- exactly the same accessor
@@ -171,7 +171,7 @@ func test_hit_then_parry_leaves_titus_hp_panel_unchanged() -> void:
 	var hp_after: int = instance.status_panel_view.get_status(titus_id).get("hp_current", -1)
 	assert_eq(hp_after, hp_before, "Titus's own HP panel must show ZERO damage taken once a successful Parry is GENUINELY applied (FR-001 mitigation formula)")
 
-	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 	assert_eq(attack_events.size(), 1, "exactly one Strike must have resolved")
 	assert_true(attack_events[0].hit, "fixture assumption: the guaranteed-hit AC must actually produce a hit")
 	assert_eq(attack_events[0].damage_final, 0, "the committed AttackEvent itself must carry the mitigated (zero) final damage")
@@ -220,7 +220,7 @@ func test_hit_then_block_leaves_titus_hp_panel_reflecting_the_mitigation_formula
 	var hp_after: int = instance.status_panel_view.get_status(titus_id).get("hp_current", -1)
 	assert_eq(hp_after, hp_before, "Titus's own HP panel must show the mitigated (here: zero) damage taken once a genuinely-applied Block reduces the committed damage per FR-001's formula")
 
-	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 	assert_eq(attack_events.size(), 1)
 	assert_true(attack_events[0].hit)
 	assert_eq(attack_events[0].damage_final, 0, "block_value pinned to an overwhelming value must reduce committed damage per FR-001's formula: max(0, raw - reduction) = 0")
@@ -261,7 +261,7 @@ func test_hit_then_pass_leaves_titus_hp_panel_showing_full_unmitigated_damage() 
 
 	assert_false(instance.reaction_prompt_ui.is_open())
 
-	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 	assert_eq(attack_events.size(), 1)
 	assert_true(attack_events[0].hit)
 	assert_true(attack_events[0].damage_final > 0, "declining (Pass) must leave the Strike's real, unmitigated damage in place")
@@ -307,7 +307,7 @@ func test_lethal_but_parried_hit_never_defeats_titus_or_shows_a_loss_state() -> 
 	assert_false(_has_combatant_defeated_event(instance), "no CombatantDefeatedEvent may ever be emitted for a lethal-but-parried hit")
 	assert_false(instance.result_screen_view.is_shown(), "no loss/result state may be shown once the lethal hit was genuinely negated by Parry")
 
-	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 	assert_eq(attack_events.size(), 1)
 	assert_true(attack_events[0].hit, "fixture assumption: the guaranteed-hit AC must actually produce a hit")
 	assert_eq(attack_events[0].damage_final, 0, "the successful Parry must reduce the committed damage to 0, saving Titus from an otherwise-lethal hit")

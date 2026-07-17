@@ -46,7 +46,7 @@
 ## constructed internally.
 ##
 ## FEAT-099 (FIND-096): _round_events now carries the TYPED value objects
-## declared in core/rules/round_events.gd (RoundEvents.AttackEvent /
+## declared in core/rules/round_events.gd (RoundEvents.AttackBroadcast /
 ## CombatantDefeatedEvent / EncounterResultEvent) emitted by
 ## ResolveActionUseCase/RunRoundUseCase through EventSinkPort — never a raw
 ## Dictionary. _round_history's Dictionary shape is preserved UNCHANGED
@@ -112,7 +112,7 @@ class _TurnOrderAdapter:
 ## referenced Array (this Encounter's _round_events). FEAT-099/FIND-096: the
 ## `event` parameter is intentionally untyped (no `: Dictionary` hint) — it
 ## always receives one of the TYPED value objects declared in
-## core/rules/round_events.gd (RoundEvents.AttackEvent /
+## core/rules/round_events.gd (RoundEvents.AttackBroadcast /
 ## CombatantDefeatedEvent / EncounterResultEvent), never a raw Dictionary.
 class _EventSinkAdapter:
 	extends "res://core/application/event_sink_port.gd"
@@ -371,7 +371,7 @@ func get_action_economy(index: int):
 ##
 ## FEAT-099/FIND-096: every element is a TYPED value object from
 ## core/rules/round_events.gd — never a raw Dictionary:
-##   RoundEvents.AttackEvent           — round, attacker_name, target_name,
+##   RoundEvents.AttackBroadcast           — round, attacker_name, target_name,
 ##                                        roll, defense_type, defense_value,
 ##                                        hit, crit, damage_final
 ##   RoundEvents.CombatantDefeatedEvent — round, name, defeated_by

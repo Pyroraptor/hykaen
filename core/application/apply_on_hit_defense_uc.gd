@@ -19,7 +19,7 @@
 ##      Block no-ops.
 ##   2. Commits target.hp_current -= final_damage (the ONLY place this two-
 ##      phase split ever mutates HP).
-##   3. Emits exactly one RoundEvents.AttackEvent via EventSinkPort, carrying
+##   3. Emits exactly one RoundEvents.AttackBroadcast via EventSinkPort, carrying
 ##      the FINAL (post-mitigation) damage — never the raw, pre-mitigation
 ##      value.
 ##   4. Emits RoundEvents.CombatantDefeatedEvent via EventSinkPort IFF
@@ -112,7 +112,7 @@ func legal_onhit_reactions(weapon: Dictionary) -> Array:
 ## actor_updated_action_budget — OPTIONAL {remaining, spent} snapshot of the
 ##                     ACTING combatant's ActionBudget, forwarded onto the
 ##                     emitted AttackEvent verbatim; defaults to null (matches
-##                     RoundEvents.AttackEvent's own default) when the caller
+##                     RoundEvents.AttackBroadcast's own default) when the caller
 ##                     does not supply one.
 ##
 ## On a MISS (partial.hit == false): Resolution.apply_on_hit_defense() is
@@ -131,7 +131,7 @@ func legal_onhit_reactions(weapon: Dictionary) -> Array:
 ##   "on_hit_suppressed"      — bool.
 ##   "defender_defeated"      — bool — true iff target.hp_current <= 0 AFTER
 ##                               this commit (never before mitigation).
-##   "event"                  — the emitted RoundEvents.AttackEvent instance.
+##   "event"                  — the emitted RoundEvents.AttackBroadcast instance.
 func apply(
 	partial: Dictionary,
 	attacker,
@@ -160,7 +160,7 @@ func apply(
 	if damage_final > 0:
 		target.take_damage(damage_final)
 
-	var attack_event = RoundEventsClass.AttackEvent.new(
+	var attack_event = RoundEventsClass.AttackBroadcast.new(
 		round_number,
 		attacker.name,
 		target.name,

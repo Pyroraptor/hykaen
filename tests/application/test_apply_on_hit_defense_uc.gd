@@ -93,7 +93,7 @@ func test_apply_commits_hp_current_with_final_post_mitigation_damage() -> void:
 	assert_eq(result["damage_final"], 2, "final damage must be the POST-mitigation value (7 raw - 5 block = 2)")
 	assert_eq(target.hp_current, 48, "hp_current must be reduced by the FINAL mitigated damage (50-2=48), not the raw 7")
 
-	var attack_events: Array = rig["event_sink"].events.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	var attack_events: Array = rig["event_sink"].events.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 	assert_eq(attack_events.size(), 1)
 	assert_eq(attack_events[0].damage_final, 2, "the emitted AttackEvent must carry the FINAL post-mitigation damage")
 
@@ -192,7 +192,7 @@ func test_apply_on_a_miss_applies_zero_damage_regardless_of_on_hit_defense() -> 
 	assert_eq(result["damage_final"], 0, "a miss must apply zero damage regardless of on_hit_defense")
 	assert_eq(target.hp_current, 50)
 
-	var attack_events: Array = rig["event_sink"].events.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	var attack_events: Array = rig["event_sink"].events.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 	assert_eq(attack_events.size(), 1, "a miss must still emit exactly one AttackEvent")
 	assert_false(attack_events[0].hit)
 
@@ -250,7 +250,7 @@ func test_combatant_defeated_event_emitted_when_hp_drops_to_zero_or_below_after_
 
 	var events: Array = rig["event_sink"].events
 	assert_eq(events.size(), 2, "both AttackEvent and CombatantDefeatedEvent must be emitted")
-	assert_true(events[0] is RoundEventsClass.AttackEvent, "AttackEvent must be emitted before CombatantDefeatedEvent")
+	assert_true(events[0] is RoundEventsClass.AttackBroadcast, "AttackEvent must be emitted before CombatantDefeatedEvent")
 	assert_true(events[1] is RoundEventsClass.CombatantDefeatedEvent)
 	assert_eq(events[1].name, "Target")
 	assert_eq(events[1].defeated_by, "Attacker")

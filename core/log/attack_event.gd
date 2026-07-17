@@ -3,7 +3,7 @@
 ## Domain layer (Clean Architecture / ADR-001): a pure RefCounted value
 ## object — zero Node/Control/SceneTree inheritance, zero engine I/O — used
 ## as the STRUCTURED, storage-shaped record of one resolved Strike, distinct
-## from core/rules/round_events.gd's RoundEvents.AttackEvent (which is the
+## from core/rules/round_events.gd's RoundEvents.AttackBroadcast (which is the
 ## transient, name-carrying broadcast payload EventSinkPort fans out to
 ## Presentation for immediate rendering). This file's AttackEvent is the
 ## design's data_model entity: attacker/target/weapon referenced by id
@@ -23,7 +23,7 @@
 ##   target_id             — the defending combatant's stable id.
 ##   weapon_id             — the attacker's weapon's stable id.
 ##   roll_total            — the attack roll total (already includes
-##                            modifiers), mirrors RoundEvents.AttackEvent.roll.
+##                            modifiers), mirrors RoundEvents.AttackBroadcast.roll.
 ##   is_hit / is_crit       — the Strike's hit/critical result.
 ##   damage_raw            — damage before any on-hit mitigation is applied.
 ##   damage_final          — damage after on-hit mitigation (equal to

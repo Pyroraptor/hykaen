@@ -604,13 +604,13 @@ func test_round_events_not_empty_after_run_round() -> void:
 
 
 ## Criterion FEAT-025-2: At least one event in get_round_events() is a typed
-## RoundEvents.AttackEvent instance.
+## RoundEvents.AttackBroadcast instance.
 ##
 ## CR-001/FEAT-099 (peer-review BLOCKER fix): get_round_events() elements are
 ## TYPED RoundEvents.* value objects, not Dictionaries — the pre-FEAT-099
 ## Dictionary discriminator `ev.get('type', '') == 'attack'` no longer applies
 ## (RefCounted has no Dictionary-style get(key, default)); the event's class
-## itself (`is RoundEventsClass.AttackEvent`) now carries the 'type' meaning.
+## itself (`is RoundEventsClass.AttackBroadcast`) now carries the 'type' meaning.
 func test_attack_event_present_after_run_round() -> void:
 	var enc = EncounterClass.new(
 		[_titus_durable()], [_skeleton_durable()], RNGClass.new(42)
@@ -620,12 +620,12 @@ func test_attack_event_present_after_run_round() -> void:
 	var events: Array = enc.get_round_events()
 	var has_attack: bool = false
 	for ev in events:
-		if ev is RoundEventsClass.AttackEvent:
+		if ev is RoundEventsClass.AttackBroadcast:
 			has_attack = true
 			break
 	assert_true(
 		has_attack,
-		"get_round_events() must contain at least one RoundEvents.AttackEvent instance"
+		"get_round_events() must contain at least one RoundEvents.AttackBroadcast instance"
 	)
 
 
@@ -638,7 +638,7 @@ func test_attack_event_present_after_run_round() -> void:
 ##   actor_updated_action_budget
 ##
 ## CR-001/FEAT-099 (peer-review BLOCKER fix): get_round_events() elements are
-## TYPED RoundEvents.AttackEvent value objects, not Dictionaries. Field
+## TYPED RoundEvents.AttackBroadcast value objects, not Dictionaries. Field
 ## presence is checked with the `in` operator (object property check) and
 ## direct attribute access, and the "exactly these keys, no extras" guarantee
 ## is verified via AttackEvent.to_dict() (a value object method declared
@@ -660,12 +660,12 @@ func test_attack_event_has_all_required_fields() -> void:
 	# Find first attack event — type-check via `is`, not a Dictionary 'type' key.
 	var attack_ev = null
 	for ev in enc.get_round_events():
-		if ev is RoundEventsClass.AttackEvent:
+		if ev is RoundEventsClass.AttackBroadcast:
 			attack_ev = ev
 			break
 
 	if attack_ev == null:
-		fail_test("No RoundEvents.AttackEvent found in get_round_events() — cannot check fields")
+		fail_test("No RoundEvents.AttackBroadcast found in get_round_events() — cannot check fields")
 		return
 
 	var required_fields: Array = [

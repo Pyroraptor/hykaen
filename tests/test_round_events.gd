@@ -20,7 +20,7 @@ const RoundEventsClass = preload("res://core/rules/round_events.gd")
 # ── AttackEvent ────────────────────────────────────────────────────────────────
 
 func test_attack_event_instantiates_with_documented_fields() -> void:
-	var ev = RoundEventsClass.AttackEvent.new(
+	var ev = RoundEventsClass.AttackBroadcast.new(
 		1, "Titus", "Goblin", 17, "ac", 14, true, false, 6
 	)
 	assert_eq(ev.round, 1, "round must be set")
@@ -35,13 +35,13 @@ func test_attack_event_instantiates_with_documented_fields() -> void:
 
 
 func test_attack_event_is_refcounted_value_object() -> void:
-	var ev = RoundEventsClass.AttackEvent.new()
+	var ev = RoundEventsClass.AttackBroadcast.new()
 	assert_true(ev is RefCounted, "AttackEvent must be a RefCounted")
 	assert_false(ev is Node, "AttackEvent must NOT be a Node")
 
 
 func test_attack_event_to_dict_matches_fields() -> void:
-	var ev = RoundEventsClass.AttackEvent.new(
+	var ev = RoundEventsClass.AttackBroadcast.new(
 		2, "Goblin", "Titus", 9, "ac", 16, false, false, 0
 	)
 	var d: Dictionary = ev.to_dict()

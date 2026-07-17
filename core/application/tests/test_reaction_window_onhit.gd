@@ -293,7 +293,7 @@ func test_successful_parry_negates_damage_to_zero() -> void:
 	assert_eq(ae.get_remaining(), 6, "a triggered Parry must spend exactly one reaction")
 
 	assert_eq(sink.events.size(), 2, "open() emits a ReactionWindowOpenedEvent, then the resolved choice emits a ReactionResolvedEvent")
-	assert_true(sink.events[1] is RoundEventsClass.ReactionResolvedEvent)
+	assert_true(sink.events[1] is RoundEventsClass.ReactionResolvedBroadcast)
 	assert_eq(sink.events[1].choice, "parry")
 	assert_eq(sink.events[1].round, 2)
 

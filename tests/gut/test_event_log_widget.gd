@@ -59,7 +59,7 @@ func test_widget_renders_one_entry_per_event_type_in_emission_order() -> void:
 	# Simulate the EXACT sequence event_sink_port.gd's contract dispatches
 	# through a concrete adapter's forward_to loop (MainScene.gd step 3):
 	# one on_round_event() call per emitted event, in emission order.
-	var attack_event = RoundEventsClass.AttackEvent.new(1, "Titus", "Skeleton", 17, "ac", 14, true, false, 6)
+	var attack_event = RoundEventsClass.AttackBroadcast.new(1, "Titus", "Skeleton", 17, "ac", 14, true, false, 6)
 	var defeated_event = RoundEventsClass.CombatantDefeatedEvent.new(1, "Skeleton", "Titus")
 	var result_event = RoundEventsClass.EncounterResultEvent.new(1, "won")
 
@@ -99,7 +99,7 @@ func test_widget_preserves_arrival_order_even_when_round_numbers_are_out_of_orde
 	# -- the widget must preserve ARRIVAL (event_sink_port dispatch) order,
 	# never re-sort by the domain round field an event happens to carry.
 	var first = RoundEventsClass.EncounterResultEvent.new(5, "won")
-	var second = RoundEventsClass.AttackEvent.new(1, "A", "B", 10, "ac", 12, true, false, 3)
+	var second = RoundEventsClass.AttackBroadcast.new(1, "A", "B", 10, "ac", 12, true, false, 3)
 	var third = RoundEventsClass.CombatantDefeatedEvent.new(3, "B", "A")
 
 	widget.on_round_event(first)

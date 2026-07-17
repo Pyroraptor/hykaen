@@ -185,7 +185,7 @@ func _init(rng) -> void:
 ##                                    consumed by core/application/
 ##                                    resolve_action_use_case.gd (FEAT-008/
 ##                                    US-008, CR-001) to populate
-##                                    RoundEvents.AttackEvent.defense_value
+##                                    RoundEvents.AttackBroadcast.defense_value
 ##                                    without recomputing it a second time.
 ##   "error"                  — String: present ONLY when defense_type is invalid
 ##

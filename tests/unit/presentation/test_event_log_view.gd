@@ -105,7 +105,7 @@ func test_round_event_with_production_attack_event_value_object() -> void:
 	# EventLogView works against the real production event type, not only
 	# the Dictionary test double above.
 	const RoundEventsClass = preload("res://core/rules/round_events.gd")
-	var attack_event = RoundEventsClass.AttackEvent.new(
+	var attack_event = RoundEventsClass.AttackBroadcast.new(
 		1, "Titus", "Skeleton", 17, "ac", 14, true, false, 5
 	)
 	_log.on_round_event(attack_event)
@@ -183,7 +183,7 @@ func test_entries_are_appended_in_dispatch_order_not_round_order() -> void:
 	# Deliberately dispatched with `round` values out of numeric order
 	# (3, 1, 2) — the log must preserve DISPATCH order, never re-sort by the
 	# domain round field.
-	var first_event = RoundEventsClass.AttackEvent.new(3, "Titus", "Skeleton", 10, "ac", 14, true, false, 4)
+	var first_event = RoundEventsClass.AttackBroadcast.new(3, "Titus", "Skeleton", 10, "ac", 14, true, false, 4)
 	var second_event = RoundEventsClass.CombatantDefeatedEvent.new(1, "Marigold", "Skeleton")
 	var third_event = RoundEventsClass.EncounterResultEvent.new(2, "win")
 

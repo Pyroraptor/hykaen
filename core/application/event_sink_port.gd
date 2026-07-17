@@ -15,10 +15,10 @@
 ##   emit(event) -> void
 ##     Appends a structured event to the sink, in the order emitted.
 ##     FEAT-099/FIND-096: `event` is one of the TYPED value objects declared
-##     in core/rules/round_events.gd (RoundEvents.AttackEvent /
+##     in core/rules/round_events.gd (RoundEvents.AttackBroadcast /
 ##     RoundEvents.CombatantDefeatedEvent / RoundEvents.EncounterResultEvent /
 ##     RoundEvents.TurnAdvancedEvent / RoundEvents.ReactionWindowOpenedEvent /
-##     RoundEvents.ReactionResolvedEvent — the latter two added by FEAT-009 /
+##     RoundEvents.ReactionResolvedBroadcast — the latter two added by FEAT-009 /
 ##     US-009 / FR-005 / ADR-014 for core/application/reaction_window.gd's
 ##     pausable reaction-window architecture) — never a raw Dictionary. The
 ##     parameter is intentionally left untyped (no `: Dictionary` hint) so
@@ -37,7 +37,7 @@
 ## Usage example:
 ##   const RoundEventsClass = preload("res://core/rules/round_events.gd")
 ##   var sink: EventSinkPort = _EventSinkAdapter.new(round_events_array)
-##   sink.emit(RoundEventsClass.AttackEvent.new(1, "Titus", "Goblin", 17, "ac", 14, true, false, 6))
+##   sink.emit(RoundEventsClass.AttackBroadcast.new(1, "Titus", "Goblin", 17, "ac", 14, true, false, 6))
 
 class_name EventSinkPort
 extends RefCounted

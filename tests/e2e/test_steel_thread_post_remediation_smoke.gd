@@ -203,7 +203,7 @@ func test_full_journey_strike_pass_ai_turn_and_result_screen_stays_locked_throug
 		"the enemy hp handicap must prevent the round from concluding after only one exchange"
 	)
 
-	var attack_events_after_first_exchange: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	var attack_events_after_first_exchange: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 	var attacker_names_after_first_exchange: Array = attack_events_after_first_exchange.map(func(e): return e.attacker_name)
 	assert_true(attacker_names_after_first_exchange.has("Titus"), "the player's Strike must have been resolved through the real pipeline")
 	assert_true(
@@ -416,7 +416,7 @@ func test_ranged_strike_within_reach_succeeds_and_beyond_reach_rejected_through_
 	assert_true(in_range_result.get("ok", false), "a ranged Strike within range_hexes must resolve successfully through MainScene's real resolve_action_use_case")
 	assert_true(in_range_result.get("resolved", false), "a ranged Strike within range_hexes must be marked resolved")
 	assert_true(
-		in_range_result.get("event", null) is RoundEventsClass.AttackEvent,
+		in_range_result.get("event", null) is RoundEventsClass.AttackBroadcast,
 		"a resolved ranged Strike must carry the emitted AttackEvent under the 'event' key"
 	)
 
