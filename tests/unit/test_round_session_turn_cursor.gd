@@ -29,6 +29,7 @@ const ResolveActionUseCaseClass    = preload("res://core/application/resolve_act
 const DetermineOutcomeUseCaseClass = preload("res://core/application/determine_outcome_use_case.gd")
 const ActionEconomyClass           = preload("res://core/rules/action_economy.gd")
 const SeededRandomAdapterClass     = preload("res://core/combat/seeded_random_adapter.gd")
+const CombatantClass               = preload("res://core/domain/combatant.gd")
 
 
 # ── Spy ActionEconomy — counts start_of_turn() calls without changing any
@@ -88,17 +89,17 @@ class FakeRoundHistoryPort:
 class FakeAIDecisionPort:
 	extends "res://core/application/ai_decision_port.gd"
 
-	func decide_action(_combatant: Dictionary, targets: Array) -> Dictionary:
+	func decide_action(_combatant, targets: Array) -> Dictionary:
 		for t in targets:
-			if t.get("hp_current", 0) > 0:
+			if t.hp_current > 0:
 				return {"action_type": "Strike", "target": t}
-		return {"action_type": "", "target": {}}
+		return {"action_type": "", "target": null}
 
 
 # ── Shared fixture helpers ─────────────────────────────────────────────────
 
-func _durable_combatant(p_name: String, p_is_enemy: bool, p_combatant_id: String = "") -> Dictionary:
-	return {
+func _durable_combatant(p_name: String, p_is_enemy: bool, p_combatant_id: String = ""):
+	return CombatantClass.from_dict({
 		"name":         p_name,
 		"combatant_id": p_combatant_id,
 		"hp_current":   2000,
@@ -112,10 +113,10 @@ func _durable_combatant(p_name: String, p_is_enemy: bool, p_combatant_id: String
 			"proficiency_bonus": 2,
 			"damage_die": 6
 		}
-	}
+	})
 
 
-func _entry(combatant: Dictionary) -> Dictionary:
+func _entry(combatant) -> Dictionary:
 	return {"combatant": combatant, "action_economy": SpyActionEconomy.new()}
 
 
@@ -150,8 +151,8 @@ func _make_use_case(entries: Array, ai_port, seed: int) -> Dictionary:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_init_calls_start_of_turn_exactly_once_for_the_initial_actor() -> void:
-	var alpha: Dictionary = _durable_combatant("Alpha", false, "alpha")
-	var bravo: Dictionary = _durable_combatant("Bravo", true, "bravo")
+	var alpha = _durable_combatant("Alpha", false, "alpha")
+	var bravo = _durable_combatant("Bravo", true, "bravo")
 	var entries: Array = [_entry(alpha), _entry(bravo)]
 
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 1)
@@ -171,8 +172,8 @@ func test_init_calls_start_of_turn_exactly_once_for_the_initial_actor() -> void:
 func test_init_calls_start_of_turn_exactly_once_for_an_initial_ai_actor() -> void:
 	# The initial actor may just as well be an Enemy -- _init's call site
 	# must not distinguish between player and AI actors (ADR-101).
-	var bravo: Dictionary = _durable_combatant("Bravo", true, "bravo")
-	var alpha: Dictionary = _durable_combatant("Alpha", false, "alpha")
+	var bravo = _durable_combatant("Bravo", true, "bravo")
+	var alpha = _durable_combatant("Alpha", false, "alpha")
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 1)
@@ -191,8 +192,8 @@ func test_init_calls_start_of_turn_exactly_once_for_an_initial_ai_actor() -> voi
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_advance_cursor_calls_start_of_turn_exactly_once_for_the_next_player_actor() -> void:
-	var alpha: Dictionary = _durable_combatant("Alpha", false, "alpha")
-	var bravo: Dictionary = _durable_combatant("Bravo", true, "bravo")
+	var alpha = _durable_combatant("Alpha", false, "alpha")
+	var bravo = _durable_combatant("Bravo", true, "bravo")
 	var entries: Array = [_entry(alpha), _entry(bravo)]
 
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 1)
@@ -214,8 +215,8 @@ func test_advance_cursor_calls_start_of_turn_exactly_once_for_the_next_player_ac
 
 
 func test_advance_cursor_calls_start_of_turn_exactly_once_for_the_next_ai_actor_via_advance_ai_turn() -> void:
-	var bravo: Dictionary = _durable_combatant("Bravo", true, "bravo")
-	var alpha: Dictionary = _durable_combatant("Alpha", false, "alpha")
+	var bravo = _durable_combatant("Bravo", true, "bravo")
+	var alpha = _durable_combatant("Alpha", false, "alpha")
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 1)
@@ -243,8 +244,8 @@ func test_advance_cursor_calls_start_of_turn_exactly_once_for_the_next_ai_actor_
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_advance_ai_turn_does_not_independently_call_start_of_turn_on_the_current_actor() -> void:
-	var bravo: Dictionary = _durable_combatant("Bravo", true, "bravo")
-	var alpha: Dictionary = _durable_combatant("Alpha", false, "alpha")
+	var bravo = _durable_combatant("Bravo", true, "bravo")
+	var alpha = _durable_combatant("Alpha", false, "alpha")
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 1)
@@ -273,8 +274,8 @@ func test_advance_ai_turn_does_not_independently_call_start_of_turn_on_the_curre
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_movement_lockout_resets_on_the_actors_following_turn() -> void:
-	var alpha: Dictionary = _durable_combatant("Alpha", false, "alpha")
-	var bravo: Dictionary = _durable_combatant("Bravo", true, "bravo")
+	var alpha = _durable_combatant("Alpha", false, "alpha")
+	var bravo = _durable_combatant("Bravo", true, "bravo")
 	var entries: Array = [_entry(alpha), _entry(bravo)]
 
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 1)
@@ -325,8 +326,8 @@ func test_advance_cursor_start_of_turn_call_site_does_not_refill_budget_or_clear
 	# Integration-level companion to the direct check above: drive the SAME
 	# call site _advance_cursor() uses and prove a partially-spent (but not
 	# yet Spent) actor's budget survives the cursor cycling back to it.
-	var alpha: Dictionary = _durable_combatant("Alpha", false, "alpha")
-	var bravo: Dictionary = _durable_combatant("Bravo", true, "bravo")
+	var alpha = _durable_combatant("Alpha", false, "alpha")
+	var bravo = _durable_combatant("Bravo", true, "bravo")
 	var entries: Array = [_entry(alpha), _entry(bravo)]
 
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 7)

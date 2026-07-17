@@ -33,6 +33,7 @@ const ResolveActionUseCaseClass = preload("res://core/application/resolve_action
 const ActionEconomyClass        = preload("res://core/rules/action_economy.gd")
 const RoundEventsClass          = preload("res://core/rules/round_events.gd")
 const HexCoordClass             = preload("res://core/geometry/hex_coord.gd")
+const CombatantClass            = preload("res://core/domain/combatant.gd")
 
 
 class FakeEventSinkPort:
@@ -73,8 +74,10 @@ class ScriptedRandomNumberPort:
 
 # ── Shared fixtures ──────────────────────────────────────────────────────────
 
-func _attacker(hex_coord) -> Dictionary:
-	return {
+func _attacker(hex_coord):
+	# Phase C.3: the resolution pipeline consumes Combatant INSTANCES; from_dict()
+	# lifts the authored spec so this fixture keeps authoring as a dict.
+	return CombatantClass.from_dict({
 		"name":      "Attacker",
 		"strength":  3,
 		"hex_coord": hex_coord,
@@ -83,11 +86,11 @@ func _attacker(hex_coord) -> Dictionary:
 			"proficiency_bonus": 2,
 			"damage_die": 6
 		}
-	}
+	})
 
 
-func _target(hex_coord, hp: int = 50, ac: int = 10) -> Dictionary:
-	return {"name": "Target", "hp_current": hp, "ac": ac, "hex_coord": hex_coord}
+func _target(hex_coord, hp: int = 50, ac: int = 10):
+	return CombatantClass.from_dict({"name": "Target", "hp_current": hp, "ac": ac, "hex_coord": hex_coord})
 
 
 func _make_use_case(scripted_values: Array) -> Dictionary:
@@ -108,8 +111,8 @@ func test_strike_against_adjacent_target_resolves_and_returns_attack_event() -> 
 
 	# raw=12 -> roll_total = 12 + strength(3) + proficiency(2) = 17 vs ac=10 -> hit.
 	var rig: Dictionary = _make_use_case([12, 4])
-	var attacker: Dictionary = _attacker(HexCoordClass.new(0, 0))
-	var target: Dictionary = _target(HexCoordClass.new(1, 0))  # one of the 6 neighbors of (0,0)
+	var attacker = _attacker(HexCoordClass.new(0, 0))
+	var target = _target(HexCoordClass.new(1, 0))  # one of the 6 neighbors of (0,0)
 
 	var result: Dictionary = rig["use_case"].resolve(attacker, ae, target, "Strike", 1, 0)
 
@@ -132,8 +135,8 @@ func test_strike_against_each_of_the_six_neighbors_resolves_successfully() -> vo
 		ae.start_of_round()
 
 		var rig: Dictionary = _make_use_case([12, 4])
-		var attacker: Dictionary = _attacker(origin)
-		var target: Dictionary = _target(HexCoordClass.new(offset[0], offset[1]))
+		var attacker = _attacker(origin)
+		var target = _target(HexCoordClass.new(offset[0], offset[1]))
 
 		var result: Dictionary = rig["use_case"].resolve(attacker, ae, target, "Strike", 1, 0)
 
@@ -152,8 +155,8 @@ func test_strike_against_non_adjacent_target_is_rejected_with_no_side_effects() 
 	ae.start_of_round()
 
 	var rig: Dictionary = _make_use_case([12, 4])
-	var attacker: Dictionary = _attacker(HexCoordClass.new(0, 0))
-	var target: Dictionary = _target(HexCoordClass.new(3, 0))  # hex_distance 3 — not adjacent
+	var attacker = _attacker(HexCoordClass.new(0, 0))
+	var target = _target(HexCoordClass.new(3, 0))  # hex_distance 3 — not adjacent
 
 	var result: Dictionary = rig["use_case"].resolve(attacker, ae, target, "Strike", 1, 0)
 
@@ -166,7 +169,7 @@ func test_strike_against_non_adjacent_target_is_rejected_with_no_side_effects() 
 
 	assert_eq(rig["event_sink"].events.size(), 0, "No AttackEvent may be emitted for a rejected non-adjacent Strike")
 	assert_eq(rig["history"].entries.size(), 0, "No round-history entry may be appended for a rejected Strike")
-	assert_eq(target.get("hp_current", -1), 50, "Target HP must be untouched when the Strike is rejected")
+	assert_eq(target.hp_current, 50, "Target HP must be untouched when the Strike is rejected")
 	assert_eq(
 		ae.get_remaining(), ActionEconomyClass.MAX_BUDGET,
 		"The actor's action budget must remain UNSPENT when the precondition rejects the Strike"
@@ -178,8 +181,8 @@ func test_strike_at_hex_distance_two_is_still_rejected() -> void:
 	ae.start_of_round()
 
 	var rig: Dictionary = _make_use_case([12, 4])
-	var attacker: Dictionary = _attacker(HexCoordClass.new(0, 0))
-	var target: Dictionary = _target(HexCoordClass.new(2, -1))  # hex_distance 2
+	var attacker = _attacker(HexCoordClass.new(0, 0))
+	var target = _target(HexCoordClass.new(2, -1))  # hex_distance 2
 
 	var result: Dictionary = rig["use_case"].resolve(attacker, ae, target, "Strike", 1, 0)
 
@@ -198,11 +201,11 @@ func test_strike_without_hex_coord_data_is_not_reach_gated() -> void:
 	ae.start_of_round()
 
 	var rig: Dictionary = _make_use_case([12, 4])
-	var attacker: Dictionary = {
+	var attacker = CombatantClass.from_dict({
 		"name": "Attacker", "strength": 3,
 		"weapon": {"damage_modifier_attribute": "strength", "proficiency_bonus": 2, "damage_die": 6}
-	}
-	var target: Dictionary = {"name": "Target", "hp_current": 50, "ac": 10}
+	})
+	var target = CombatantClass.from_dict({"name": "Target", "hp_current": 50, "ac": 10})
 
 	var result: Dictionary = rig["use_case"].resolve(attacker, ae, target, "Strike", 1, 0)
 

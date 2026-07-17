@@ -171,6 +171,7 @@ const GodotRandomAdapterClass          = preload("res://core/combat/godot_random
 const EncounterClass                   = preload("res://core/combat/encounter.gd")
 const RNGClass                         = preload("res://core/rules/rng.gd")
 const CombatantFactoryClass            = preload("res://infrastructure/combatant_factory.gd")
+const CombatantClass                   = preload("res://core/domain/combatant.gd")
 const ViewModelBuilderClass            = preload("res://presentation/view_model_builder.gd")
 const RoundSessionHolderClass          = preload("res://infrastructure/round_session_holder.gd")
 const TurnPresentationControllerClass  = preload("res://presentation/turn_presentation_controller.gd")
@@ -643,7 +644,12 @@ func _ready() -> void:
 	for i in range(encounter_resource.party_resource_paths.size()):
 		var party_hex = hex_combatants[i].hex_coord if i < hex_combatants.size() else null
 		var party_id: String = hex_combatants[i].combatant_id if i < hex_combatants.size() else ""
-		_party.append(_build_party_combatant(encounter_resource.party_resource_paths[i], party_hex, party_id))
+		# Combatant migration Phase C.3: the container now holds Combatant
+		# INSTANCES, not dicts — the same reference threads through
+		# round_session/resolve so a Strike's take_damage() lands on the live
+		# entity. The factory still authors a canonical dict; from_dict() lifts
+		# it onto the entity at the composition-root boundary.
+		_party.append(CombatantClass.from_dict(_build_party_combatant(encounter_resource.party_resource_paths[i], party_hex, party_id)))
 
 	var party_count: int = encounter_resource.party_resource_paths.size()
 	_enemies = []
@@ -664,7 +670,10 @@ func _ready() -> void:
 		if enemy_combatant.has("error"):
 			push_error("MainScene: aborting encounter setup — enemy build failed for '%s' (%s)" % [encounter_resource.enemy_resource_paths[j], enemy_combatant["error"]])
 			return
-		_enemies.append(enemy_combatant)
+		# Phase C.3: lift the validated enemy dict onto a Combatant instance
+		# (the error-path dict above is checked FIRST, so from_dict() only ever
+		# sees a well-formed combatant here).
+		_enemies.append(CombatantClass.from_dict(enemy_combatant))
 
 	var rng := RNGClass.new(resolved_seed)
 	encounter = EncounterClass.new(_party, _enemies, rng)
@@ -1199,7 +1208,7 @@ func _verb_bar_strike_execute(selection) -> Dictionary:
 ## callers can drive the SAME seam via `instance._resolve_enemy_dodge_step()`
 ## on the composition root, exactly like `_resolve_enemy_stride_opportunistic_
 ## window()` below does for its own ReactionController method.
-func _resolve_enemy_dodge_step(target: Dictionary, resolve_result: Dictionary, attacker_hex, legal_hexes: Array) -> void:
+func _resolve_enemy_dodge_step(target, resolve_result: Dictionary, attacker_hex, legal_hexes: Array) -> void:
 	await _reaction().resolve_enemy_dodge_step(target, resolve_result, attacker_hex, legal_hexes)
 
 
@@ -1229,7 +1238,7 @@ func _strike_reachable_target_ids() -> Array:
 ## Returns null when `encounter` is unwired or no matching entry exists —
 ## resolve_reactive()/resolution.gd both degrade safely to "reaction
 ## untracked" in that case (never a crash).
-func _action_economy_for(combatant: Dictionary):
+func _action_economy_for(combatant):
 	if encounter == null:
 		return null
 
@@ -1238,11 +1247,11 @@ func _action_economy_for(combatant: Dictionary):
 		if is_same(order[i], combatant):
 			return encounter.get_action_economy(i)
 
-	var combatant_id: String = combatant.get("combatant_id", combatant.get("name", ""))
+	var combatant_id: String = combatant.display_id()
 	if combatant_id != "":
 		for i in range(order.size()):
-			var candidate: Dictionary = order[i]
-			if candidate.get("combatant_id", candidate.get("name", "")) == combatant_id:
+			var candidate = order[i]
+			if candidate.display_id() == combatant_id:
 				return encounter.get_action_economy(i)
 
 	return null
@@ -1256,7 +1265,7 @@ func _action_economy_for(combatant: Dictionary):
 ## uses. Defaults to "not spent" when no tracked ActionEconomy exists (a
 ## fixture/test-double reactor), mirroring _action_economy_for()'s own
 ## documented "reaction untracked" degrade-safely contract.
-func _is_reactor_reaction_spent(reactor: Dictionary) -> bool:
+func _is_reactor_reaction_spent(reactor) -> bool:
 	return _reaction().is_reactor_reaction_spent(reactor)
 
 
@@ -1284,7 +1293,7 @@ func _is_reactor_reaction_spent(reactor: Dictionary) -> bool:
 ## result Dictionary (`-> void` previously) so core/combat/ai.gd's
 ## `_stride_toward_target()` can read `"mover_downed"` and cancel the Stride
 ## when a lethal opportunistic Strike defeats `mover`.
-func _resolve_enemy_stride_opportunistic_window(mover: Dictionary, mover_start_hex, candidate_reactors: Array) -> Dictionary:
+func _resolve_enemy_stride_opportunistic_window(mover, mover_start_hex, candidate_reactors: Array) -> Dictionary:
 	return await _reaction().resolve_enemy_stride_opportunistic_window(mover, mover_start_hex, candidate_reactors)
 
 
@@ -1302,7 +1311,7 @@ func _resolve_enemy_stride_opportunistic_window(mover: Dictionary, mover_start_h
 ## ever commits a position change. Degrades safely to Pass
 ## ({"choice": "none"}) when `turn_controller` is unwired (never
 ## crashes/hangs).
-func _resolve_player_opportunistic_strike_reaction(reactor: Dictionary, context: Dictionary) -> Dictionary:
+func _resolve_player_opportunistic_strike_reaction(reactor, context: Dictionary) -> Dictionary:
 	return await _reaction().resolve_player_opportunistic_strike_reaction(reactor, context)
 
 
@@ -1317,7 +1326,7 @@ func _resolve_player_opportunistic_strike_reaction(reactor: Dictionary, context:
 ## the enemy's own reaction decision here (mirrors
 ## _verb_bar_strike_execute()'s identical iteration-K "no pop-up UI opens
 ## during the enemy's reaction window" contract for Strikes).
-func _resolve_enemy_opportunistic_strike_reaction(reactor: Dictionary, context: Dictionary) -> Dictionary:
+func _resolve_enemy_opportunistic_strike_reaction(reactor, context: Dictionary) -> Dictionary:
 	return _reaction().resolve_enemy_opportunistic_strike_reaction(reactor, context)
 
 
@@ -1483,9 +1492,11 @@ func _on_selection_overlay_resolved(_verb_id: String, _result) -> void:
 	if verb_bar_view != null:
 		verb_bar_view.refresh_availability()
 	if round_session != null:
-		var actor: Dictionary = round_session.current_actor()
-		var actor_id: String = actor.get("combatant_id", actor.get("name", ""))
-		_turn_presentation().highlight_legal_moves(actor, actor_id)
+		# Phase C.3/C.4: highlight_legal_moves is instance-native (it configures the
+		# mutating movement controller), so pass the LIVE actor instance.
+		var actor = round_session.current_actor_entity()
+		if actor != null:
+			_turn_presentation().highlight_legal_moves(actor, actor.display_id())
 
 
 ## _turn_presentation() — lazily builds (once) and returns the extracted
@@ -1591,7 +1602,7 @@ func _current_turn_order():
 ## MainScene's seam: TurnController's active_actor_changed signal and the booted
 ## integration tests drive it here. The controller is built lazily on first use
 ## and reaches the live session via the RoundSessionHolder.
-func _on_active_actor_changed(combatant: Dictionary) -> void:
+func _on_active_actor_changed(combatant) -> void:
 	_turn_presentation().on_active_actor_changed(combatant)
 
 
@@ -1742,7 +1753,9 @@ func _after_successful_move() -> void:
 		hex_grid_view.set_selectable_hexes([])
 	_refresh_off_guard_conditions()
 	if round_session != null:
-		_on_active_actor_changed(round_session.current_actor())
+		# Phase C.3/C.4: on_active_actor_changed is instance-native (configures the
+		# mutating movement controller) — pass the LIVE actor instance.
+		_on_active_actor_changed(round_session.current_actor_entity())
 
 
 ## _other_living_combatants(combatant) -> Array — every living (hp_current >
@@ -1751,11 +1764,11 @@ func _after_successful_move() -> void:
 ## this file -- the occupancy list movement_input_controller.configure()
 ## requires (core/rules/movement.gd Movement.step()'s `other_combatants`
 ## parameter must never include the mover itself).
-func _other_living_combatants(combatant: Dictionary) -> Array:
-	var self_id: String = combatant.get("combatant_id", combatant.get("name", ""))
+func _other_living_combatants(combatant) -> Array:
+	var self_id: String = combatant.display_id()
 	var others: Array = []
 	for c in _living_combatants(_party + _enemies):
-		if c.get("combatant_id", c.get("name", "")) != self_id:
+		if c.display_id() != self_id:
 			others.append(c)
 	return others
 
@@ -1768,11 +1781,11 @@ func _other_living_combatants(combatant: Dictionary) -> Array:
 ## _other_living_combatants()'s own identity matching. Returns an empty
 ## Dictionary (never null) when not found, matching this file's existing
 ## "empty Dictionary == not found" convention (e.g. _find_strike_reachable_target()).
-func _find_combatant_by_id(combatant_id: String) -> Dictionary:
+func _find_combatant_by_id(combatant_id: String):
 	for c in _party + _enemies:
-		if c.get("combatant_id", c.get("name", "")) == combatant_id:
+		if c.display_id() == combatant_id:
 			return c
-	return {}
+	return null
 
 
 ## _query_selectable_step_hexes(combatant_id) -> Array -- FEAT-002 (US-002,
@@ -1790,8 +1803,8 @@ func _find_combatant_by_id(combatant_id: String) -> Dictionary:
 ## was last configure()d for). Returns an empty Array (never fabricates a
 ## hex) when `combatant_id` cannot be found on the current roster.
 func _query_selectable_step_hexes(combatant_id: String) -> Array:
-	var combatant: Dictionary = _find_combatant_by_id(combatant_id)
-	if combatant.is_empty():
+	var combatant = _find_combatant_by_id(combatant_id)
+	if combatant == null:
 		return []
 	return movement_input_controller.get_selectable_step_hexes_for(combatant, _other_living_combatants(combatant))
 
@@ -1803,7 +1816,7 @@ func _query_selectable_step_hexes(combatant_id: String) -> Array:
 func _living_combatants(combatants: Array) -> Array:
 	var living: Array = []
 	for c in combatants:
-		if c.get("hp_current", 0) > 0:
+		if c.hp_current > 0:
 			living.append(c)
 	return living
 
@@ -1909,16 +1922,16 @@ func _refresh_off_guard_conditions() -> void:
 	var living_enemies: Array = _living_combatants(_enemies)
 
 	for combatant in _party:
-		var combatant_id: String = combatant.get("combatant_id", combatant.get("name", ""))
+		var combatant_id: String = combatant.display_id()
 		var off_guard: bool = FlankingClass.is_off_guard(combatant, living_enemies)
-		combatant["conditions"] = FlankingClass.off_guard_conditions(combatant, living_enemies)
+		combatant.conditions = FlankingClass.off_guard_conditions(combatant, living_enemies)
 		if status_panel_view != null:
 			status_panel_view.set_off_guard(combatant_id, off_guard)
 
 	for combatant in _enemies:
-		var combatant_id: String = combatant.get("combatant_id", combatant.get("name", ""))
+		var combatant_id: String = combatant.display_id()
 		var off_guard: bool = FlankingClass.is_off_guard(combatant, living_party)
-		combatant["conditions"] = FlankingClass.off_guard_conditions(combatant, living_party)
+		combatant.conditions = FlankingClass.off_guard_conditions(combatant, living_party)
 		if status_panel_view != null:
 			status_panel_view.set_off_guard(combatant_id, off_guard)
 

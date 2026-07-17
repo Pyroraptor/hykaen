@@ -213,19 +213,19 @@ func test_strike_via_verb_registry_emits_attack_event_through_real_event_sink() 
 	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent)
 	assert_eq(attack_events.size(), 1, "MainScene's real event-sink adapter must have observed exactly one AttackEvent")
 
-	var target_combatant: Dictionary = {}
+	var target_combatant = null
 	for enemy in instance._enemies:
-		if enemy.get("combatant_id", "") == target_id:
+		if enemy.display_id() == target_id:
 			target_combatant = enemy
 			break
-	assert_false(target_combatant.is_empty(), "fixture assumption: the selected target must be one of MainScene's live enemy combatants")
+	assert_false(target_combatant == null, "fixture assumption: the selected target must be one of MainScene's live enemy combatants")
 
 	# StatusPanelView clamps a displayed HP at 0 (it never shows an "overkill"
 	# negative value), while the live domain Dictionary MainScene mutates may
 	# go negative -- compare against the same floor StatusPanelView applies.
 	var status: Dictionary = instance.status_panel_view.get_status(target_id)
 	assert_eq(
-		status.get("hp_current", -1), maxi(target_combatant.get("hp_current", -2), 0),
+		status.get("hp_current", -1), maxi(target_combatant.hp_current, 0),
 		"StatusPanelView must reflect the Strike's outcome (the SAME live combatant Dictionary MainScene mutated) via the real event-sink pipeline"
 	)
 
@@ -347,7 +347,7 @@ func test_boot_does_not_auto_resolve_the_encounter_without_any_input() -> void:
 
 func test_boot_off_guard_is_false_when_only_a_single_combatant_is_adjacent() -> void:
 	var instance = _boot_main_scene()
-	var target_id: String = instance._enemies[0].get("combatant_id", "")
+	var target_id: String = instance._enemies[0].display_id()
 
 	assert_false(
 		instance.status_panel_view.is_off_guard(target_id),
@@ -357,7 +357,7 @@ func test_boot_off_guard_is_false_when_only_a_single_combatant_is_adjacent() -> 
 
 func test_off_guard_wiring_flags_target_once_two_opposing_combatants_flank_it() -> void:
 	var instance = _boot_main_scene()
-	var target_id: String = instance._enemies[0].get("combatant_id", "")
+	var target_id: String = instance._enemies[0].display_id()
 
 	# Skeleton sits at hex (1,0); Titus already occupies (0,0), the neighbor
 	# directly opposite hex (2,0) around Skeleton. Appending a second party
@@ -383,7 +383,7 @@ func test_off_guard_wiring_flags_target_once_two_opposing_combatants_flank_it() 
 
 func test_off_guard_wiring_does_not_flag_target_for_non_opposite_flankers() -> void:
 	var instance = _boot_main_scene()
-	var target_id: String = instance._enemies[0].get("combatant_id", "")
+	var target_id: String = instance._enemies[0].display_id()
 
 	# hex (1,-1) is adjacent to Skeleton (1,0) but NOT opposite Titus's
 	# (0,0) -- a non-opposite second flanker must not flag Off-Guard.
@@ -404,7 +404,7 @@ func test_off_guard_wiring_does_not_flag_target_for_non_opposite_flankers() -> v
 
 func test_off_guard_wiring_clears_once_a_flanker_moves_away() -> void:
 	var instance = _boot_main_scene()
-	var target_id: String = instance._enemies[0].get("combatant_id", "")
+	var target_id: String = instance._enemies[0].display_id()
 
 	var ally: Dictionary = {
 		"name": "Marigold",

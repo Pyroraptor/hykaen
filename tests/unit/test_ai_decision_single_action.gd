@@ -38,6 +38,7 @@ const SeedPolicyClass              = preload("res://infrastructure/seed_policy.g
 const RunRoundUseCaseClass         = preload("res://core/application/run_round_use_case.gd")
 const ResolveActionUseCaseClass    = preload("res://core/application/resolve_action_use_case.gd")
 const DetermineOutcomeUseCaseClass = preload("res://core/application/determine_outcome_use_case.gd")
+const CombatantClass               = preload("res://core/domain/combatant.gd")
 
 
 # ── Test doubles ─────────────────────────────────────────────────────────
@@ -125,8 +126,8 @@ func after_each() -> void:
 
 # ── Fixture helpers ─────────────────────────────────────────────────────
 
-func _melee_combatant(hex_coord) -> Dictionary:
-	return {
+func _melee_combatant(hex_coord):
+	return CombatantClass.from_dict({
 		"name":        "Skeleton",
 		"hp_current":  8,
 		"ac":          12,
@@ -137,14 +138,14 @@ func _melee_combatant(hex_coord) -> Dictionary:
 			"proficiency_bonus": 1,
 			"damage_die": 6
 		}
-	}
+	})
 
 
-func _target(name: String, hex_coord, hp: int = 18) -> Dictionary:
-	return {"name": name, "hp_current": hp, "ac": 14, "strength": 5, "hex_coord": hex_coord}
+func _target(name: String, hex_coord, hp: int = 18):
+	return CombatantClass.from_dict({"name": name, "hp_current": hp, "ac": 14, "strength": 5, "hex_coord": hex_coord})
 
 
-func _entry(combatant: Dictionary, action_economy = null) -> Dictionary:
+func _entry(combatant, action_economy = null) -> Dictionary:
 	return {"combatant": combatant, "action_economy": action_economy if action_economy != null else ActionEconomyClass.new()}
 
 
@@ -172,27 +173,27 @@ func _make_use_case(entries: Array, random_number_port) -> Dictionary:
 
 func test_decide_action_returns_strike_when_target_already_in_reach() -> void:
 	var ai = AIClass.new()
-	var combatant: Dictionary = _melee_combatant(HexCoordClass.new(0, 0))
-	var target: Dictionary = _target("Titus", HexCoordClass.new(1, 0))  # adjacent
+	var combatant = _melee_combatant(HexCoordClass.new(0, 0))
+	var target = _target("Titus", HexCoordClass.new(1, 0))  # adjacent
 	var action_economy = ActionEconomyClass.new()
 	action_economy.start_of_turn()
 
 	var result: Dictionary = await ai.decide_action(combatant, [target], action_economy, [])
 
 	assert_eq(result.get("action_type", ""), "Strike", "a living target already in reach must be Struck immediately")
-	assert_eq(result.get("target", {}).get("name", ""), "Titus")
+	assert_eq(result.get("target").name, "Titus")
 	assert_true(result.get("will_strike", false), "a Strike decision must report will_strike:true")
 	assert_null(result.get("destination", "MISSING"), "no Stride destination is issued for an immediate Strike")
 
 
 func test_decide_action_returns_strike_for_ranged_target_already_in_range() -> void:
 	var ai = AIClass.new()
-	var combatant: Dictionary = {
+	var combatant = CombatantClass.from_dict({
 		"name": "Archer", "hp_current": 8, "ac": 12, "dexterity": 2,
 		"hex_coord": HexCoordClass.new(0, 0),
 		"weapon": {"damage_modifier_attribute": "dexterity", "proficiency_bonus": 1, "damage_die": 6, "range_hexes": 8},
-	}
-	var target: Dictionary = _target("Titus", HexCoordClass.new(5, 0))  # distance 5, within range 8
+	})
+	var target = _target("Titus", HexCoordClass.new(5, 0))  # distance 5, within range 8
 	var action_economy = ActionEconomyClass.new()
 	action_economy.start_of_turn()
 
@@ -210,9 +211,9 @@ func test_decide_action_returns_strike_for_ranged_target_already_in_range() -> v
 func test_decide_action_returns_stride_toward_best_target_when_none_in_reach() -> void:
 	var ai = AIClass.new()
 	var origin_hex = HexCoordClass.new(0, 0)
-	var combatant: Dictionary = _melee_combatant(origin_hex)
+	var combatant = _melee_combatant(origin_hex)
 	var target_hex = HexCoordClass.new(6, 0)
-	var target: Dictionary = _target("Titus", target_hex)
+	var target = _target("Titus", target_hex)
 	var action_economy = ActionEconomyClass.new()
 	action_economy.start_of_turn()
 
@@ -243,9 +244,9 @@ func test_decide_action_never_returns_both_stride_and_strike_in_one_call() -> vo
 	# decision back in, if the FEAT-005 path were not truly removed.
 	var ai = AIClass.new()
 	var origin_hex = HexCoordClass.new(0, 0)
-	var combatant: Dictionary = _melee_combatant(origin_hex)
+	var combatant = _melee_combatant(origin_hex)
 	var target_hex = HexCoordClass.new(4, 0)
-	var target: Dictionary = _target("Titus", target_hex)
+	var target = _target("Titus", target_hex)
 	var action_economy = ActionEconomyClass.new()
 	action_economy.start_of_turn()
 
@@ -270,8 +271,8 @@ func test_decide_action_no_stride_available_returns_no_action_never_a_phantom_st
 	# target remains out of reach, so decide_action() must return a clean
 	# no-op, never fabricate a Strike it cannot legally take.
 	var ai = AIClass.new()
-	var combatant: Dictionary = _melee_combatant(HexCoordClass.new(0, 0))
-	var target: Dictionary = _target("Titus", HexCoordClass.new(6, 0))
+	var combatant = _melee_combatant(HexCoordClass.new(0, 0))
+	var target = _target("Titus", HexCoordClass.new(6, 0))
 	var action_economy = ActionEconomyClass.new()
 	action_economy.mark_movement_used()
 
@@ -376,8 +377,8 @@ func test_stride_tie_break_is_deterministic_under_a_pinned_seed_across_repeated_
 	var chosen_destinations: Array = []
 	for i in range(10):
 		var ai = AIClass.new()
-		var combatant: Dictionary = _melee_combatant(HexCoordClass.new(origin_hex.q, origin_hex.r))
-		var target: Dictionary = _target("Titus", HexCoordClass.new(target_hex.q, target_hex.r))
+		var combatant = _melee_combatant(HexCoordClass.new(origin_hex.q, origin_hex.r))
+		var target = _target("Titus", HexCoordClass.new(target_hex.q, target_hex.r))
 		var action_economy = ActionEconomyClass.new()
 		action_economy.start_of_turn()
 
@@ -406,10 +407,10 @@ func _is_lower_coord(a, b) -> bool:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_advance_ai_turn_spends_exactly_one_action_when_target_already_in_reach() -> void:
-	var goblin: Dictionary = _melee_combatant(HexCoordClass.new(0, 0))
-	goblin["_is_enemy"] = true
-	var titus: Dictionary = _target("Titus", HexCoordClass.new(1, 0), 200)  # adjacent -- in reach
-	titus["_is_enemy"] = false
+	var goblin = _melee_combatant(HexCoordClass.new(0, 0))
+	goblin.is_enemy = true
+	var titus = _target("Titus", HexCoordClass.new(1, 0), 200)  # adjacent -- in reach
+	titus.is_enemy = false
 
 	var goblin_action_economy = SpyActionEconomy.new()
 	var entries: Array = [_entry(goblin, goblin_action_economy), _entry(titus)]
@@ -431,13 +432,13 @@ func test_advance_ai_turn_spends_exactly_one_action_when_target_already_in_reach
 
 
 func test_advance_ai_turn_spends_exactly_one_action_when_target_out_of_reach() -> void:
-	var goblin: Dictionary = _melee_combatant(HexCoordClass.new(0, 0))
-	goblin["_is_enemy"] = true
+	var goblin = _melee_combatant(HexCoordClass.new(0, 0))
+	goblin.is_enemy = true
 	# Out of reach, but a single Speed-4 Stride closes it fully into melee
 	# reach -- the scenario the removed FEAT-005 composite used to spend a
 	# SECOND (rejected) spend_action() call for.
-	var titus: Dictionary = _target("Titus", HexCoordClass.new(4, 0), 200)
-	titus["_is_enemy"] = false
+	var titus = _target("Titus", HexCoordClass.new(4, 0), 200)
+	titus.is_enemy = false
 
 	var goblin_action_economy = SpyActionEconomy.new()
 	var entries: Array = [_entry(goblin, goblin_action_economy), _entry(titus)]

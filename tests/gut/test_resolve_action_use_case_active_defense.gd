@@ -55,6 +55,7 @@ extends GutTest
 
 const ResolveActionUseCaseClass = preload("res://core/application/resolve_action_use_case.gd")
 const ActionEconomyClass        = preload("res://core/rules/action_economy.gd")
+const CombatantClass            = preload("res://core/domain/combatant.gd")
 
 
 # ── Local test doubles (each suite in this project owns its own, per
@@ -109,8 +110,8 @@ class SpyResolution:
 	var calls: Array = []
 
 	func resolve_weapon_attack(
-		attacker: Dictionary,
-		target: Dictionary,
+		attacker,
+		target,
 		weapon: Dictionary,
 		defense_type: String,
 		active_defense: String = "none",
@@ -140,8 +141,8 @@ class SpyResolution:
 
 # ── Shared fixtures ──────────────────────────────────────────────────────────
 
-func _attacker() -> Dictionary:
-	return {
+func _attacker():
+	return CombatantClass.from_dict({
 		"name":     "Attacker",
 		"strength": 0,
 		"weapon": {
@@ -149,11 +150,11 @@ func _attacker() -> Dictionary:
 			"proficiency_bonus": 0,
 			"damage_die": 6
 		}
-	}
+	})
 
 
-func _target() -> Dictionary:
-	return {"name": "Target", "hp_current": 50, "ac": 12}
+func _target():
+	return CombatantClass.from_dict({"name": "Target", "hp_current": 50, "ac": 12})
 
 
 func _fresh_action_economy():

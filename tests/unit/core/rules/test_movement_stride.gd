@@ -246,11 +246,11 @@ func test_strike_out_of_reach_becomes_in_reach_after_striding_adjacent() -> void
 	var history := FakeRoundHistoryPort.new()
 	var use_case := ResolveActionUseCaseClass.new(rng, event_sink, history)
 
-	var attacker: Dictionary = {
+	var attacker = CombatantClass.from_dict({
 		"name": "Attacker", "strength": 3, "hex_coord": HexCoordClass.new(0, 0),
 		"weapon": {"damage_modifier_attribute": "strength", "proficiency_bonus": 2, "damage_die": 6}
-	}
-	var target: Dictionary = {"name": "Target", "hp_current": 50, "ac": 10, "hex_coord": HexCoordClass.new(4, -2)}
+	})
+	var target = CombatantClass.from_dict({"name": "Target", "hp_current": 50, "ac": 10, "hex_coord": HexCoordClass.new(4, -2)})
 
 	# Before striding: hex_distance(attacker, target) == 4 -- out of melee reach.
 	var before_result: Dictionary = use_case.resolve(attacker, ae, target, "Strike", 1, 0)

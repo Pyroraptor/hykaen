@@ -565,11 +565,11 @@ func set_step_hex_query_fn(fn: Callable) -> void:
 ## non-empty `target` reach ResolveDodgeStepUseCase.resolve() unless a hex was
 ## actually chosen, which itself requires both `_step_hex_query_fn` and
 ## `_hex_choice_resolver_fn` to already be injected.
-func _resolve_dodge_step_prompt(target: Dictionary, partial: Dictionary) -> void:
+func _resolve_dodge_step_prompt(target, partial: Dictionary) -> void:
 	if not partial.get("defender_stepped", false):
 		return
 
-	var defender_id: String = target.get("combatant_id", target.get("name", ""))
+	var defender_id: String = target.display_id()
 	var legal_hexes: Array = []
 	if _step_hex_query_fn.is_valid():
 		legal_hexes = _step_hex_query_fn.call(defender_id)
@@ -883,19 +883,19 @@ func _reaction_choice_to_active_defense(reaction_result: Dictionary) -> String:
 ## _build_defense_context()'s "action_economy" the single, authoritative
 ## spend site for this call path, exactly as
 ## tests/gut/test_enemy_strike_reaction_window.gd already pins.
-func _build_reaction_trigger(attacker: Dictionary, target: Dictionary, _target_action_economy = null) -> Dictionary:
+func _build_reaction_trigger(attacker, target, _target_action_economy = null) -> Dictionary:
 	return {
-		"attacker_id":            attacker.get("combatant_id", attacker.get("name", "")),
-		"target_id":              target.get("combatant_id", target.get("name", "")),
+		"attacker_id":            attacker.display_id(),
+		"target_id":              target.display_id(),
 		"defense_type":           "ac",
-		"attack_context":         {"attacker_weapon": attacker.get("weapon", {})},
+		"attack_context":         {"attacker_weapon": attacker.weapon},
 		"round_number":           _round_number,
 		"attacker":               attacker,
 		"target":                 target,
 		"reactor_action_economy": null,
 		"trigger_type":           "WeaponAttack",
 		"reactor":                target,
-		"weapon":                 target.get("weapon", {}),
+		"weapon":                 target.weapon,
 	}
 
 
@@ -916,19 +916,19 @@ func _build_reaction_trigger(attacker: Dictionary, target: Dictionary, _target_a
 ## resolution.gd, so a resolver driving reaction_window.gd's own open()/
 ## resume() pair (rather than its open_and_resolve_prehit_avoidance()
 ## convenience method) never double-spends the same reaction.
-func _build_prehit_avoidance_trigger(attacker: Dictionary, target: Dictionary) -> Dictionary:
+func _build_prehit_avoidance_trigger(attacker, target) -> Dictionary:
 	return {
-		"attacker_id":            attacker.get("combatant_id", attacker.get("name", "")),
-		"target_id":              target.get("combatant_id", target.get("name", "")),
+		"attacker_id":            attacker.display_id(),
+		"target_id":              target.display_id(),
 		"defense_type":           "ac",
-		"attack_context":         {"attacker_weapon": attacker.get("weapon", {})},
+		"attack_context":         {"attacker_weapon": attacker.weapon},
 		"round_number":           _round_number,
 		"attacker":               attacker,
 		"target":                 target,
 		"reactor_action_economy": null,
 		"trigger_type":           "PreHitAvoidance",
 		"reactor":                target,
-		"weapon":                 target.get("weapon", {}),
+		"weapon":                 target.weapon,
 	}
 
 
@@ -967,19 +967,19 @@ func _build_prehit_avoidance_trigger(attacker: Dictionary, target: Dictionary) -
 ## this session never hands a live resolver's own ReactionWindow.resume() the
 ## authority to spend the reactor's reaction directly (see those methods' own
 ## FEAT-008 doc for the full double-spend rationale this mirrors).
-func _build_onhit_mitigation_trigger(attacker: Dictionary, target: Dictionary, attack_hit: bool) -> Dictionary:
+func _build_onhit_mitigation_trigger(attacker, target, attack_hit: bool) -> Dictionary:
 	return {
-		"attacker_id":            attacker.get("combatant_id", attacker.get("name", "")),
-		"target_id":              target.get("combatant_id", target.get("name", "")),
+		"attacker_id":            attacker.display_id(),
+		"target_id":              target.display_id(),
 		"defense_type":           "ac",
-		"attack_context":         {"attacker_weapon": attacker.get("weapon", {})},
+		"attack_context":         {"attacker_weapon": attacker.weapon},
 		"round_number":           _round_number,
 		"attacker":               attacker,
 		"target":                 target,
 		"reactor_action_economy": null,
 		"trigger_type":           "OnHitMitigation",
 		"reactor":                target,
-		"weapon":                 target.get("weapon", {}),
+		"weapon":                 target.weapon,
 		"attack_hit":             attack_hit,
 		"reaction_already_spent": false,
 	}
@@ -998,16 +998,16 @@ func _build_onhit_mitigation_trigger(attacker: Dictionary, target: Dictionary, a
 ## that rebuild an equal-but-distinct Dictionary. Returns null (a safe,
 ## documented sentinel — see _build_defense_context()'s handling) if no
 ## matching entry exists.
-func _find_action_economy_for(combatant: Dictionary):
+func _find_action_economy_for(combatant):
 	for entry in _entries:
 		if is_same(entry["combatant"], combatant):
 			return entry["action_economy"]
 
-	var combatant_id: String = combatant.get("combatant_id", combatant.get("name", ""))
+	var combatant_id: String = combatant.display_id()
 	if combatant_id != "":
 		for entry in _entries:
-			var candidate: Dictionary = entry["combatant"]
-			if candidate.get("combatant_id", candidate.get("name", "")) == combatant_id:
+			var candidate = entry["combatant"]
+			if candidate.display_id() == combatant_id:
 				return entry["action_economy"]
 
 	return null
@@ -1054,8 +1054,8 @@ func _find_action_economy_for(combatant: Dictionary):
 ##                             query, not stored" — a future feature may
 ##                             thread a real query in without changing this
 ##                             method's other keys).
-func _build_defense_context(target: Dictionary, target_action_economy) -> Dictionary:
-	var target_weapon: Dictionary = target.get("weapon", {})
+func _build_defense_context(target, target_action_economy) -> Dictionary:
+	var target_weapon: Dictionary = target.weapon
 	# A Parry is an opposed ATTACK roll by the defender: d20 + the defender's
 	# full attack bonus (attribute modifier + weapon proficiency) + the weapon's
 	# parry_bonus — mirroring resolution.gd resolve_to_hit()'s attacker roll
@@ -1065,7 +1065,7 @@ func _build_defense_context(target: Dictionary, target_action_economy) -> Dictio
 	# rules layer stays a pure reformatter of already-resolved inputs.
 	var parry_attribute: String = target_weapon.get("damage_modifier_attribute", "")
 	var parry_attack_bonus: int = (
-		int(target.get(parry_attribute, 0)) + int(target_weapon.get("proficiency_bonus", 0))
+		target.attribute(parry_attribute) + int(target_weapon.get("proficiency_bonus", 0))
 	)
 	return {
 		"action_economy":       target_action_economy,
@@ -1080,9 +1080,31 @@ func _build_defense_context(target: Dictionary, target_action_economy) -> Dictio
 
 ## current_actor() -> Dictionary — the combatant whose turn it is, or {}
 ## when the round is over.
+##
+## Phase C.3 bridge: `_entries` now holds Combatant INSTANCES, but this is a
+## READ-ONLY accessor Presentation (turn_controller / verb-bar controllers) and
+## the encounter test-suite consume as a Dictionary (name/_is_enemy/combatant_id
+## reads). Emitting a to_dict() SNAPSHOT keeps that contract intact without a
+## dict-or-instance duck-type at every caller — the live-instance mutation path
+## (advance_ai_turn()/resolve()) never routes through this accessor, so a
+## snapshot copy here loses nothing. Flip these consumers onto the instance
+## directly in Phase C.4 and drop this bridge.
 func current_actor() -> Dictionary:
 	if _round_over or _cursor == -1:
 		return {}
+	return _entries[_cursor]["combatant"].to_dict()
+
+
+## current_actor_entity() -> Combatant or null — the LIVE current-actor
+## instance (never a to_dict() copy), for the MUTATING presentation seams:
+## a player Strike/Stride/Step passes this straight into resolve()/
+## ResolveStrideUseCase/MovementClass, where damage (take_damage) and position
+## (move_to) must land on the same instance the container holds. current_actor()
+## above stays the read-only Dictionary bridge for the display views. Returns
+## null (not {}) when the round is over — the instance-world "no actor" sentinel.
+func current_actor_entity():
+	if _round_over or _cursor == -1:
+		return null
 	return _entries[_cursor]["combatant"]
 
 
@@ -1109,10 +1131,10 @@ func current_action_economy():
 func action_budget_snapshot() -> Array:
 	var snapshot: Array = []
 	for entry in _entries:
-		var combatant: Dictionary = entry["combatant"]
+		var combatant = entry["combatant"]
 		var action_economy = entry["action_economy"]
 		snapshot.append({
-			"combatant_id": combatant.get("combatant_id", combatant.get("name", "")),
+			"combatant_id": combatant.display_id(),
 			"remaining":    action_economy.get_remaining(),
 			"spent":        action_economy.is_spent(),
 		})
@@ -1202,8 +1224,8 @@ func advance_ai_turn() -> Dictionary:
 		return {"ok": false}
 
 	var entry: Dictionary = _entries[_cursor]
-	var combatant: Dictionary = entry["combatant"]
-	if not combatant.get("_is_enemy", false):
+	var combatant = entry["combatant"]
+	if not combatant.is_enemy:
 		return {"ok": false, "error": "ERR_NOT_ENEMY_TURN"}
 
 	var action_economy = entry["action_economy"]
@@ -1226,7 +1248,7 @@ func advance_ai_turn() -> Dictionary:
 	# resolves synchronously within the same call (NFR-004).
 	var ai_decision: Dictionary = await _decide_ai_action(combatant, action_economy)
 	var action_name: String = ai_decision.get("action_type", "")
-	var target: Dictionary = ai_decision.get("target", {})
+	var target = ai_decision.get("target", null)
 
 	var any_action_taken: bool = false
 
@@ -1237,7 +1259,7 @@ func advance_ai_turn() -> Dictionary:
 		# on this combatant's next turn, never resolved in this same call.
 		any_action_taken = true
 		_reposition_token_after_ai_stride(combatant, ai_decision)
-	elif action_name != "" and not target.is_empty():
+	elif action_name != "" and target != null:
 		# FEAT-003 proved awaiting the injected ReactionResolverPort BEFORE
 		# resolving an enemy-Strikes-player Strike is safe (no deadlock, no
 		# double-advance). FEAT-004 (US-003 / FR-003, ADR-004) now ACTS on
@@ -1465,7 +1487,7 @@ func advance_ai_turn() -> Dictionary:
 			if not spend_result.get("success", false):
 				resolve_result = {"resolved": false, "ok": false, "error": "ERR_NO_ACTION_REMAINING"}
 			else:
-				var weapon: Dictionary = combatant.get("weapon", {})
+				var weapon: Dictionary = combatant.weapon
 				var to_hit_uc = _resolve_action_use_case.get_resolve_to_hit_use_case()
 				var partial: Dictionary = to_hit_uc.resolve_to_hit(combatant, target, weapon, "ac", "none", {})
 				var attack_hit: bool = partial.get("hit", false)
@@ -1516,7 +1538,7 @@ func advance_ai_turn() -> Dictionary:
 				reaction_reduced_by_for_log = max(0, partial.get("damage_raw", 0) - apply_result.get("damage_final", 0))
 
 				var history_entry = RoundEventsClass.RoundHistoryEntry.new(
-					_round_number, _cycle_index, combatant.get("name", ""), action_name, spend_result.get("remaining", -1)
+					_round_number, _cycle_index, combatant.name, action_name, spend_result.get("remaining", -1)
 				)
 				_round_history_port.append({
 					"attacker":         combatant,
@@ -1576,7 +1598,7 @@ func advance_ai_turn() -> Dictionary:
 			var resolved_attack_event_for_log = resolve_result.get("event", null)
 			if resolved_attack_event_for_log != null:
 				var attack_event_id: String = _generate_attack_event_id()
-				var log_weapon: Dictionary = combatant.get("weapon", {})
+				var log_weapon: Dictionary = combatant.weapon
 				# FEAT-219 (PR-002 remediation): the structured, storage-shaped
 				# AttackEvent's damage_raw field must carry the ACTUAL
 				# pre-mitigation damage (strike_damage_raw_for_log, captured
@@ -1596,8 +1618,8 @@ func advance_ai_turn() -> Dictionary:
 				var structured_attack_event = AttackEventClass.new(
 					attack_event_id,
 					_round_number,
-					combatant.get("combatant_id", combatant.get("name", "")),
-					target.get("combatant_id", target.get("name", "")),
+					combatant.display_id(),
+					target.display_id(),
 					log_weapon.get("weapon_id", log_weapon.get("name", "")),
 					resolved_attack_event_for_log.roll,
 					resolved_attack_event_for_log.hit,
@@ -1703,14 +1725,14 @@ func advance_ai_turn() -> Dictionary:
 			var reaction_budget_delta: int = reaction_budget_before - reaction_budget_after
 			var budget_gate_label: String = "round=%d attacker=%s target=%s" % [
 				_round_number,
-				combatant.get("combatant_id", combatant.get("name", "")),
-				target.get("combatant_id", target.get("name", "")),
+				combatant.display_id(),
+				target.display_id(),
 			]
 			if not ReactionWindowClass.assert_reaction_budget_delta(reaction_budget_delta, budget_gate_label):
 				_reaction_budget_violations.append({
 					"round_number": _round_number,
-					"attacker_id": combatant.get("combatant_id", combatant.get("name", "")),
-					"target_id":   target.get("combatant_id", target.get("name", "")),
+					"attacker_id": combatant.display_id(),
+					"target_id":   target.display_id(),
 					"delta":       reaction_budget_delta,
 				})
 	else:
@@ -1724,7 +1746,7 @@ func advance_ai_turn() -> Dictionary:
 	if not any_action_taken:
 		push_warning(
 			"RoundSession.advance_ai_turn: no action resolved for '%s'; advancing turn regardless (CWE-835 guard)"
-			% combatant.get("name", "")
+			% combatant.name
 		)
 		_advance_cursor()
 		return {"ok": true, "resolved": false}
@@ -1752,7 +1774,7 @@ func advance_ai_turn() -> Dictionary:
 ## `_stride_reaction_resolver_fn` doc) is genuinely awaited to completion —
 ## every pre-existing 2-argument test double's call remains un-awaited (those
 ## never contain `await` internally, so nothing here changes for them).
-func _decide_ai_action(combatant: Dictionary, action_economy) -> Dictionary:
+func _decide_ai_action(combatant, action_economy) -> Dictionary:
 	var decide_callable := Callable(_ai_decision_port, "decide_action")
 	if decide_callable.get_argument_count() < 4:
 		return decide_callable.call(combatant, _party)
@@ -1778,13 +1800,13 @@ func _decide_ai_action(combatant: Dictionary, action_economy) -> Dictionary:
 ## set_token_reposition_fn()) or when the decision carries no destination
 ## (defensive — decide_action() always supplies one for action_type
 ## "Stride", but this guards regardless of caller shape).
-func _reposition_token_after_ai_stride(combatant: Dictionary, ai_decision: Dictionary) -> void:
+func _reposition_token_after_ai_stride(combatant, ai_decision: Dictionary) -> void:
 	if not _token_reposition_fn.is_valid():
 		return
 	var destination = ai_decision.get("destination", null)
 	if destination == null:
 		return
-	var actor_id: String = combatant.get("combatant_id", combatant.get("name", ""))
+	var actor_id: String = combatant.display_id()
 	_token_reposition_fn.call(actor_id, destination)
 
 
@@ -1882,11 +1904,11 @@ func run_autonomous_to_completion() -> void:
 			if decided_outcome != "":
 				break
 
-			var combatant: Dictionary = entry["combatant"]
+			var combatant = entry["combatant"]
 			var action_economy = entry["action_economy"]
 
 			# Dead combatants are skipped — no cycle slot consumed (AC-4)
-			if combatant.get("hp_current", 0) <= 0:
+			if combatant.hp_current <= 0:
 				continue
 
 			# Spent combatants are skipped — no cycle slot consumed (AC-4)
@@ -1895,26 +1917,26 @@ func run_autonomous_to_completion() -> void:
 
 			action_economy.start_of_turn()
 
-			var is_enemy: bool = combatant.get("_is_enemy", false)
+			var is_enemy: bool = combatant.is_enemy
 			var target_pool: Array = _party if is_enemy else _enemies
 
-			var target: Dictionary = {}
+			var target = null
 			var action_name: String = ""
 
 			if is_enemy:
 				var ai_decision: Dictionary = _ai_decision_port.decide_action(combatant, target_pool)
 				action_name = ai_decision.get("action_type", "")
-				target      = ai_decision.get("target", {})
+				target      = ai_decision.get("target", null)
 			else:
 				for t in target_pool:
-					if t.get("hp_current", 0) > 0:
+					if t.hp_current > 0:
 						target = t
 						break
-				if not target.is_empty():
+				if target != null:
 					action_name = "Strike"
 
 			# No living target found — skip this combatant for the cycle.
-			if action_name == "" or target.is_empty():
+			if action_name == "" or target == null:
 				continue
 
 			var resolve_result: Dictionary = _resolve_action_use_case.resolve(
@@ -2026,11 +2048,11 @@ func _advance_cursor() -> void:
 	_entries[_cursor]["action_economy"].start_of_turn()
 	_turn_start_budget = _entries[_cursor]["action_economy"].get_remaining()
 
-	var combatant: Dictionary = _entries[_cursor]["combatant"]
+	var combatant = _entries[_cursor]["combatant"]
 	_event_sink_port.emit(RoundEventsClass.TurnAdvancedEvent.new(
 		_round_number,
-		combatant.get("name", ""),
-		combatant.get("combatant_id", "")
+		combatant.name,
+		combatant.combatant_id
 	))
 
 
@@ -2068,8 +2090,8 @@ func _find_next_actionable_index(from_index: int) -> int:
 
 
 func _is_actionable(entry: Dictionary) -> bool:
-	var combatant: Dictionary = entry["combatant"]
-	if combatant.get("hp_current", 0) <= 0:
+	var combatant = entry["combatant"]
+	if combatant.hp_current <= 0:
 		return false
 	return not entry["action_economy"].is_spent()
 
@@ -2080,8 +2102,8 @@ func _is_actionable(entry: Dictionary) -> bool:
 ## name, relocated here for run_autonomous_to_completion()'s exclusive use.
 func _has_living_unspent(entries: Array) -> bool:
 	for entry in entries:
-		var combatant: Dictionary = entry["combatant"]
-		if combatant.get("hp_current", 0) <= 0:
+		var combatant = entry["combatant"]
+		if combatant.hp_current <= 0:
 			continue
 		if not entry["action_economy"].is_spent():
 			return true

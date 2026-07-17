@@ -65,7 +65,7 @@ const HexMathClass = preload("res://core/geometry/hex_math.gd")
 ##   4. melee reach     — reactor's weapon must NOT carry "range_hexes" (a
 ##                        ranged weapon has no opportunistic MELEE strike to
 ##                        make).
-static func eligible(reactor: Dictionary, mover: Dictionary, mover_start_hex, reactor_spent: bool = false) -> bool:
+static func eligible(reactor, mover, mover_start_hex, reactor_spent: bool = false) -> bool:
 	if reactor_spent:
 		return false
 	if not _is_hostile(reactor, mover):
@@ -82,8 +82,8 @@ static func eligible(reactor: Dictionary, mover: Dictionary, mover_start_hex, re
 ## missing/defaulting to false (an untagged fixture) reads as "not hostile" —
 ## the safe default (never offers an opportunistic strike against an
 ## unrecognized/ambiguous faction).
-static func _is_hostile(reactor: Dictionary, mover: Dictionary) -> bool:
-	return reactor.get("_is_enemy", false) != mover.get("_is_enemy", false)
+static func _is_hostile(reactor, mover) -> bool:
+	return reactor.is_enemy != mover.is_enemy
 
 
 ## _is_adjacent(reactor, mover_start_hex) -> bool — true iff reactor.hex_coord
@@ -91,8 +91,8 @@ static func _is_hostile(reactor: Dictionary, mover: Dictionary) -> bool:
 ## (core/geometry/hex_math.gd HexMath.hex_neighbors()) — the SAME adjacency
 ## rule melee Strike reach/Step already use (ADR-001: one shared domain rule,
 ## never re-derived).
-static func _is_adjacent(reactor: Dictionary, mover_start_hex) -> bool:
-	var reactor_hex = reactor.get("hex_coord", null)
+static func _is_adjacent(reactor, mover_start_hex) -> bool:
+	var reactor_hex = reactor.hex_coord
 	if reactor_hex == null or mover_start_hex == null:
 		return false
 	for neighbor in HexMathClass.hex_neighbors(mover_start_hex):
@@ -105,6 +105,6 @@ static func _is_adjacent(reactor: Dictionary, mover_start_hex) -> bool:
 ## does NOT carry a "range_hexes" key — mirrors core/combat/ai.gd's
 ## _is_ranged_weapon()/core/application/resolve_action_use_case.gd's
 ## identically-behaved helper exactly (never a re-derived notion of "melee").
-static func _has_melee_reach(reactor: Dictionary) -> bool:
-	var weapon: Dictionary = reactor.get("weapon", {})
+static func _has_melee_reach(reactor) -> bool:
+	var weapon: Dictionary = reactor.weapon
 	return not weapon.has("range_hexes")

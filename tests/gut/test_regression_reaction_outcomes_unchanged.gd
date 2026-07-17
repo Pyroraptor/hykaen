@@ -89,13 +89,13 @@ func _boot_main_scene():
 	return instance
 
 
-func _titus(instance) -> Dictionary:
+func _titus(instance):
 	return instance._party[0]
 
 
 func _titus_id(instance) -> String:
-	var titus: Dictionary = _titus(instance)
-	return titus.get("combatant_id", titus.get("name", ""))
+	var titus = _titus(instance)
+	return titus.display_id()
 
 
 func _hp_of(instance, titus_id: String) -> int:
@@ -126,7 +126,7 @@ func _drive_incoming_strike_and_choose(instance, on_hit_choice: String) -> Array
 
 func test_real_stats_parry_outcome_matches_pinned_corrected_baseline() -> void:
 	var instance = _boot_main_scene()
-	var titus: Dictionary = _titus(instance)
+	var titus = _titus(instance)
 	titus["ac"] = AC_GUARANTEED_HIT
 	var titus_id: String = _titus_id(instance)
 
@@ -143,7 +143,7 @@ func test_real_stats_parry_outcome_matches_pinned_corrected_baseline() -> void:
 
 func test_real_stats_block_outcome_matches_pinned_corrected_baseline() -> void:
 	var instance = _boot_main_scene()
-	var titus: Dictionary = _titus(instance)
+	var titus = _titus(instance)
 	titus["ac"] = AC_GUARANTEED_HIT
 	var titus_id: String = _titus_id(instance)
 
@@ -157,7 +157,7 @@ func test_real_stats_block_outcome_matches_pinned_corrected_baseline() -> void:
 
 func test_real_stats_pass_outcome_matches_pinned_corrected_baseline() -> void:
 	var instance = _boot_main_scene()
-	var titus: Dictionary = _titus(instance)
+	var titus = _titus(instance)
 	titus["ac"] = AC_GUARANTEED_HIT
 	var titus_id: String = _titus_id(instance)
 
@@ -176,7 +176,7 @@ func test_real_stats_pass_outcome_matches_pinned_corrected_baseline() -> void:
 
 func test_overwhelming_parry_still_fully_suppresses_damage_to_the_pinned_absolute_hp() -> void:
 	var instance = _boot_main_scene()
-	var titus: Dictionary = _titus(instance)
+	var titus = _titus(instance)
 	titus["ac"] = AC_GUARANTEED_HIT
 	titus["weapon"]["parry_bonus"] = OVERWHELMING_MITIGATION_STAT
 	var titus_id: String = _titus_id(instance)
@@ -191,7 +191,7 @@ func test_overwhelming_parry_still_fully_suppresses_damage_to_the_pinned_absolut
 
 func test_overwhelming_block_still_fully_suppresses_damage_to_the_pinned_absolute_hp() -> void:
 	var instance = _boot_main_scene()
-	var titus: Dictionary = _titus(instance)
+	var titus = _titus(instance)
 	titus["ac"] = AC_GUARANTEED_HIT
 	titus["weapon"]["block_value"] = OVERWHELMING_MITIGATION_STAT
 	var titus_id: String = _titus_id(instance)

@@ -63,12 +63,16 @@ func enter_selection() -> Dictionary:
 
 
 func execute(selection = null) -> Dictionary:
-	var actor: Dictionary = current_actor()
-	var actor_id: String = actor.get("combatant_id", "")
+	# Phase C.3/C.4: the mover is the LIVE actor instance — it is passed straight
+	# into ResolveStrideUseCase.execute(), where an Opportunistic Strike against
+	# the mover applies take_damage() by reference; a to_dict() copy here would
+	# silently drop that damage (the mover-downed gate would never fire).
+	var actor = current_actor_entity()
+	var actor_id: String = actor.display_id() if actor != null else ""
 	var action_economy = current_action_economy()
 
-	var mover_start_hex = actor.get("hex_coord", null)
-	if not actor.is_empty() and mover_start_hex != null:
+	var mover_start_hex = actor.hex_coord if actor != null else null
+	if actor != null and mover_start_hex != null:
 		var candidate_reactors: Array = _reaction.order_candidate_reactors_by_initiative(_living_enemy_reactors_fn.call())
 		var turn_order = _turn_order_fn.call()
 		if turn_order != null:

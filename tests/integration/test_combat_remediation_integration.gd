@@ -92,6 +92,7 @@ const WeaponResource     = preload("res://core/model/weapon_resource.gd")
 const EncounterClass     = preload("res://core/combat/encounter.gd")
 const RNGClass            = preload("res://core/rules/rng.gd")
 const RoundEventsClass    = preload("res://core/rules/round_events.gd")
+const CombatantClass      = preload("res://core/domain/combatant.gd")
 
 
 ## ─────────────────────────────────────────────────────────────────────────────
@@ -708,8 +709,8 @@ func test_spec_content_ci_gates_present_in_test_yml() -> void:
 ## the CR-001 budget-persistence/round-boundary-reset assertions below from
 ## win/loss early-termination (mirrors tests/test_encounter_round_loop.gd /
 ## tests/integration/test_encounter_integration.gd's identical pattern).
-func _cr001_durable_titus() -> Dictionary:
-	return {
+func _cr001_durable_titus():
+	return CombatantClass.from_dict({
 		"name": "Titus",
 		"hp_current": 2000,
 		"ac": 14,
@@ -721,12 +722,12 @@ func _cr001_durable_titus() -> Dictionary:
 			"proficiency_bonus": 2,
 			"damage_die": 12
 		}
-	}
+	})
 
 
 ## A durable enemy stub (hp=2000) — opposing side for _cr001_durable_titus().
-func _cr001_durable_skeleton() -> Dictionary:
-	return {
+func _cr001_durable_skeleton():
+	return CombatantClass.from_dict({
 		"name": "Skeleton",
 		"hp_current": 2000,
 		"ac": 12,
@@ -738,7 +739,7 @@ func _cr001_durable_skeleton() -> Dictionary:
 			"proficiency_bonus": 1,
 			"damage_die": 6
 		}
-	}
+	})
 
 
 ## CR-001 AC-1/AC-2 (domain-level): budget_remaining and is_spent must

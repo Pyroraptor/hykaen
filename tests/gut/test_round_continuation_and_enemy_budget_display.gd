@@ -63,7 +63,7 @@ func _force_all_spent(instance) -> void:
 func _enemy_index(instance) -> int:
 	var order: Array = instance.encounter.get_turn_order()
 	for i in range(order.size()):
-		if order[i].get("_is_enemy", false):
+		if order[i].is_enemy:
 			return i
 	return -1
 
@@ -76,8 +76,8 @@ func _enemy_combatant_id(instance) -> String:
 	var i: int = _enemy_index(instance)
 	if i == -1:
 		return ""
-	var combatant: Dictionary = instance.encounter.get_turn_order()[i]
-	return combatant.get("combatant_id", combatant.get("name", ""))
+	var combatant = instance.encounter.get_turn_order()[i]
+	return combatant.display_id()
 
 
 ## _displayed_budget(instance, combatant_id) -> int — the action budget currently

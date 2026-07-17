@@ -56,6 +56,7 @@ const SeededRandomAdapterClass     = preload("res://core/combat/seeded_random_ad
 const AIClass                      = preload("res://core/combat/ai.gd")
 const TurnControllerClass          = preload("res://presentation/turn_controller.gd")
 const EndTurnControlScene: PackedScene = preload("res://presentation/end_turn_control.tscn")
+const CombatantClass               = preload("res://core/domain/combatant.gd")
 
 
 # ── Fake/double port implementations (mirrors tests/gut/
@@ -128,8 +129,8 @@ func _entry(combatant: Dictionary) -> Dictionary:
 	return {"combatant": combatant, "action_economy": ActionEconomyClass.new()}
 
 
-func _durable_combatant(p_name: String, p_is_enemy: bool, p_combatant_id: String = "") -> Dictionary:
-	return {
+func _durable_combatant(p_name: String, p_is_enemy: bool, p_combatant_id: String = ""):
+	return CombatantClass.from_dict({
 		"name":         p_name,
 		"combatant_id": p_combatant_id,
 		"hp_current":   2000,
@@ -143,7 +144,7 @@ func _durable_combatant(p_name: String, p_is_enemy: bool, p_combatant_id: String
 			"proficiency_bonus": 2,
 			"damage_die": 6
 		}
-	}
+	})
 
 
 ## Builds a fully-wired, REAL RunRoundUseCase plus its fake ports (mirrors
@@ -221,8 +222,8 @@ func _strip_comment_lines(text: String) -> String:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_advance_ai_turn_awaits_a_genuinely_delayed_resolver_without_double_advancing() -> void:
-	var bravo: Dictionary = _durable_combatant("Bravo", true, "bravo")   # Enemy
-	var alpha: Dictionary = _durable_combatant("Alpha", false, "alpha")  # Player
+	var bravo = _durable_combatant("Bravo", true, "bravo")   # Enemy
+	var alpha = _durable_combatant("Alpha", false, "alpha")  # Player
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
 	var rig: Dictionary = _make_session(entries, [alpha], [bravo], 42)
@@ -233,7 +234,7 @@ func test_advance_ai_turn_awaits_a_genuinely_delayed_resolver_without_double_adv
 	var resolver := DelayedReactionResolver.new(get_tree(), 0.03, "none")
 	session.set_reaction_resolver_fn(Callable(resolver, "resolve"))
 
-	var hp_before: int = alpha.get("hp_current", 0)
+	var hp_before: int = alpha.hp_current
 	var result: Dictionary = await session.advance_ai_turn()
 
 	assert_eq(resolver.calls.size(), 1, "the injected delayed resolver must be awaited exactly once for this Strike")
@@ -243,7 +244,7 @@ func test_advance_ai_turn_awaits_a_genuinely_delayed_resolver_without_double_adv
 		rig["history"].entries.size(), 1,
 		"advance_ai_turn() must resolve exactly ONE action via resolve_action_use_case — a suspending await must never cause a double-resolve/double-advance"
 	)
-	assert_true(alpha.get("hp_current", 0) <= hp_before, "the awaited Strike must still be able to resolve damage once it completes")
+	assert_true(alpha.hp_current <= hp_before, "the awaited Strike must still be able to resolve damage once it completes")
 	assert_eq(
 		session.current_actor().get("name", ""), "Alpha",
 		"the cursor must have advanced to the next actor EXACTLY once, only after the delayed await fully resolved"
@@ -255,8 +256,8 @@ func test_advance_ai_turn_delayed_resolver_trigger_carries_the_expected_shape() 
 	# data_model) -- attacker_id/target_id/defense_type/round_number -- so a
 	# future feature that consumes it (e.g. a real ReactionWindow) can rely
 	# on this shape without re-deriving it.
-	var bravo: Dictionary = _durable_combatant("Bravo", true, "bravo")
-	var alpha: Dictionary = _durable_combatant("Alpha", false, "alpha")
+	var bravo = _durable_combatant("Bravo", true, "bravo")
+	var alpha = _durable_combatant("Alpha", false, "alpha")
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
 	var rig: Dictionary = _make_session(entries, [alpha], [bravo], 42)
@@ -282,8 +283,8 @@ func test_advance_ai_turn_delayed_resolver_trigger_carries_the_expected_shape() 
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_turn_controller_drive_awaits_a_genuinely_delayed_resolver_without_deadlock_or_double_advance() -> void:
-	var goblin: Dictionary = _durable_combatant("Goblin", true, "goblin")
-	var titus: Dictionary  = _durable_combatant("Titus", false, "titus")
+	var goblin = _durable_combatant("Goblin", true, "goblin")
+	var titus  = _durable_combatant("Titus", false, "titus")
 	var entries: Array = [_entry(goblin), _entry(titus)]
 
 	var rig: Dictionary = _make_session(entries, [titus], [goblin], 3)
@@ -328,8 +329,8 @@ func test_turn_controller_drive_awaits_a_genuinely_delayed_resolver_without_dead
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_advance_ai_turn_without_an_injected_resolver_is_still_synchronous_and_unchanged() -> void:
-	var bravo: Dictionary = _durable_combatant("Bravo", true, "bravo")
-	var alpha: Dictionary = _durable_combatant("Alpha", false, "alpha")
+	var bravo = _durable_combatant("Bravo", true, "bravo")
+	var alpha = _durable_combatant("Alpha", false, "alpha")
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
 	var rig: Dictionary = _make_session(entries, [alpha], [bravo], 42)
@@ -355,8 +356,8 @@ func test_advance_ai_turn_without_an_injected_resolver_is_still_synchronous_and_
 
 
 func test_turn_controller_set_session_without_an_injected_resolver_is_still_synchronous_and_unchanged() -> void:
-	var goblin: Dictionary = _durable_combatant("Goblin", true, "goblin")
-	var titus: Dictionary  = _durable_combatant("Titus", false, "titus")
+	var goblin = _durable_combatant("Goblin", true, "goblin")
+	var titus  = _durable_combatant("Titus", false, "titus")
 	var entries: Array = [_entry(goblin), _entry(titus)]
 
 	var rig: Dictionary = _make_session(entries, [titus], [goblin], 3)

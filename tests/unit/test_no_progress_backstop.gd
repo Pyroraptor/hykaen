@@ -51,6 +51,7 @@ const ResolveActionUseCaseClass    = preload("res://core/application/resolve_act
 const DetermineOutcomeUseCaseClass = preload("res://core/application/determine_outcome_use_case.gd")
 const ActionEconomyClass           = preload("res://core/rules/action_economy.gd")
 const SeededRandomAdapterClass     = preload("res://core/combat/seeded_random_adapter.gd")
+const CombatantClass               = preload("res://core/domain/combatant.gd")
 
 ## Defensive test-side bound only -- proves the backstop fires WAY before
 ## turn_controller.gd's own 1000-turn last-resort guard would ever be
@@ -100,11 +101,11 @@ class FakeRoundHistoryPort:
 class FakeAIDecisionPort:
 	extends "res://core/application/ai_decision_port.gd"
 
-	func decide_action(_combatant: Dictionary, targets: Array) -> Dictionary:
+	func decide_action(_combatant, targets: Array) -> Dictionary:
 		for t in targets:
-			if t.get("hp_current", 0) > 0:
+			if t.hp_current > 0:
 				return {"action_type": "Strike", "target": t}
-		return {"action_type": "", "target": {}}
+		return {"action_type": "", "target": null}
 
 
 ## BrokenAIDecisionPort — always returns an empty/invalid decision. Used by
@@ -114,14 +115,14 @@ class FakeAIDecisionPort:
 class BrokenAIDecisionPort:
 	extends "res://core/application/ai_decision_port.gd"
 
-	func decide_action(_combatant: Dictionary, _targets: Array) -> Dictionary:
+	func decide_action(_combatant, _targets: Array) -> Dictionary:
 		return {}
 
 
 # ── Shared fixture helpers ─────────────────────────────────────────────────
 
-func _durable_combatant(p_name: String, p_is_enemy: bool, p_combatant_id: String = "") -> Dictionary:
-	return {
+func _durable_combatant(p_name: String, p_is_enemy: bool, p_combatant_id: String = ""):
+	return CombatantClass.from_dict({
 		"name":         p_name,
 		"combatant_id": p_combatant_id,
 		"hp_current":   2000,
@@ -135,10 +136,10 @@ func _durable_combatant(p_name: String, p_is_enemy: bool, p_combatant_id: String
 			"proficiency_bonus": 2,
 			"damage_die": 6
 		}
-	}
+	})
 
 
-func _entry(combatant: Dictionary) -> Dictionary:
+func _entry(combatant) -> Dictionary:
 	return {"combatant": combatant, "action_economy": ActionEconomyClass.new()}
 
 
@@ -176,8 +177,8 @@ func _make_use_case(entries: Array, ai_port, seed: int) -> Dictionary:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_interactive_all_player_stall_terminates_via_backstop_not_1000_turn_guard() -> void:
-	var alpha: Dictionary = _durable_combatant("Alpha", false, "alpha")
-	var bravo: Dictionary = _durable_combatant("Bravo", true, "bravo")
+	var alpha = _durable_combatant("Alpha", false, "alpha")
+	var bravo = _durable_combatant("Bravo", true, "bravo")
 	var entries: Array = [_entry(alpha), _entry(bravo)]
 
 	# Both sides have a living combatant (so DetermineOutcomeUseCase never
@@ -219,9 +220,9 @@ func test_interactive_all_player_stall_terminates_via_backstop_not_1000_turn_gua
 
 
 func test_interactive_stall_backstop_fires_after_exactly_one_full_cycle_pass() -> void:
-	var alpha: Dictionary = _durable_combatant("Alpha", false)
-	var bravo: Dictionary = _durable_combatant("Bravo", false)
-	var charlie: Dictionary = _durable_combatant("Charlie", true)
+	var alpha = _durable_combatant("Alpha", false)
+	var bravo = _durable_combatant("Bravo", false)
+	var charlie = _durable_combatant("Charlie", true)
 	var entries: Array = [_entry(alpha), _entry(bravo), _entry(charlie)]
 
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 2)
@@ -240,8 +241,8 @@ func test_interactive_stall_backstop_fires_after_exactly_one_full_cycle_pass() -
 
 
 func test_interactive_backstop_does_not_fire_when_a_combatant_actually_acts() -> void:
-	var alpha: Dictionary = _durable_combatant("Alpha", false)
-	var bravo: Dictionary = _durable_combatant("Bravo", true)
+	var alpha = _durable_combatant("Alpha", false)
+	var bravo = _durable_combatant("Bravo", true)
 	var entries: Array = [_entry(alpha), _entry(bravo)]
 
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 3)
@@ -274,8 +275,8 @@ func test_interactive_backstop_does_not_fire_when_a_combatant_actually_acts() ->
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_autonomous_sim_backstop_regression_unchanged_behavior() -> void:
-	var alpha: Dictionary = _durable_combatant("Alpha", false)
-	var bravo: Dictionary = _durable_combatant("Bravo", true)
+	var alpha = _durable_combatant("Alpha", false)
+	var bravo = _durable_combatant("Bravo", true)
 	var entries: Array = [_entry(alpha), _entry(bravo)]
 
 	# Bravo's AIDecisionPort never returns a usable decision -- in the

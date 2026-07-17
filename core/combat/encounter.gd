@@ -206,19 +206,21 @@ func _init(party: Array, enemies: Array, rng, ai_decision_port = null) -> void:
 ##
 ## Creates one ActionEconomy instance per combatant (parallel to _turn_order).
 func initialize() -> void:
-	# Tag each combatant with their faction (used in run_round targeting)
+	# Tag each combatant with their faction (used in run_round targeting).
+	# Phase C.3: _party/_enemies are Combatant instances — set the entity's
+	# is_enemy field directly (was the "_is_enemy" dict key).
 	for combatant in _party:
-		combatant["_is_enemy"] = false
+		combatant.is_enemy = false
 	for combatant in _enemies:
-		combatant["_is_enemy"] = true
+		combatant.is_enemy = true
 
 	# Roll initiative: d20 + intuition + dexterity (per ADR-006)
 	var entries: Array = []
 	for combatant in (_party + _enemies):
 		var roll: int = _rng.d20() \
-			+ combatant.get("intuition", 0) \
-			+ combatant.get("dexterity", 0)
-		combatant["_initiative_roll"] = roll
+			+ combatant.intuition \
+			+ combatant.dexterity
+		combatant.initiative_roll = roll
 		entries.append({"combatant": combatant, "roll": roll})
 
 	# Sort descending — highest initiative acts first

@@ -78,7 +78,7 @@ class FakeRoundHistoryPort:
 		return entries
 
 
-func _entry(combatant: Dictionary) -> Dictionary:
+func _entry(combatant) -> Dictionary:
 	return {"combatant": combatant, "action_economy": ActionEconomyClass.new()}
 
 
@@ -123,14 +123,14 @@ func test_enemy_token_repositions_on_screen_after_ai_driven_stride() -> void:
 	var goblin_hex := HexCoordClass.new(0, 0)
 	var titus_hex := HexCoordClass.new(9, 0)  # hex_distance 9 -- beyond a single Speed-4 Stride's reach (mirrors tests/unit/core/combat/test_ai_stride_then_strike.gd's guard fixture): the AI Strides but does NOT close into reach, so this test never depends on resolve_action_use_case's Strike math -- it isolates the Stride-reposition behavior this feature adds.
 
-	var goblin: Dictionary = {
+	var goblin = CombatantClass.from_dict({
 		"name": "Goblin", "combatant_id": "goblin", "hp_current": 8, "ac": 12,
 		"strength": 2, "hex_coord": goblin_hex, "_is_enemy": true,
-	}
-	var titus: Dictionary = {
+	})
+	var titus = CombatantClass.from_dict({
 		"name": "Titus", "combatant_id": "titus", "hp_current": 20, "ac": 14,
 		"strength": 5, "hex_coord": titus_hex, "_is_enemy": false,
-	}
+	})
 	var entries: Array = [_entry(goblin), _entry(titus)]
 
 	# The REAL HexGridView -- a separate rendering-layer object from the
@@ -167,7 +167,7 @@ func test_enemy_token_repositions_on_screen_after_ai_driven_stride() -> void:
 
 	# Sanity check: the AI must have actually issued a Stride (domain
 	# hex_coord changed) -- otherwise this test would prove nothing.
-	var moved_hex = goblin.get("hex_coord")
+	var moved_hex = goblin.hex_coord
 	assert_false(moved_hex.equals(goblin_hex), "fixture assumption: the out-of-reach AI must Stride toward its target")
 
 	var token_after = hex_grid_view.get_token("goblin")

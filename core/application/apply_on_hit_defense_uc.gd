@@ -134,8 +134,8 @@ func legal_onhit_reactions(weapon: Dictionary) -> Array:
 ##   "event"                  — the emitted RoundEvents.AttackEvent instance.
 func apply(
 	partial: Dictionary,
-	attacker: Dictionary,
-	target: Dictionary,
+	attacker,
+	target,
 	on_hit_defense: String = "none",
 	ctx: Dictionary = {},
 	round_number: int = 0,
@@ -155,13 +155,15 @@ func apply(
 		on_hit_suppressed      = post.get("on_hit_suppressed", false)
 
 	# ── The ONLY hp_current mutation in this entire two-phase split ─────────
+	# Phase C.3: mutate the live Combatant entity by reference (take_damage),
+	# so the hit persists on the same instance the container holds.
 	if damage_final > 0:
-		target["hp_current"] = target.get("hp_current", 0) - damage_final
+		target.take_damage(damage_final)
 
 	var attack_event = RoundEventsClass.AttackEvent.new(
 		round_number,
-		attacker.get("name", ""),
-		target.get("name", ""),
+		attacker.name,
+		target.name,
 		partial.get("roll_total", 0),
 		partial.get("defense_type", "ac"),
 		partial.get("defense_value", 0),
@@ -175,10 +177,10 @@ func apply(
 	# ── CombatantDefeatedEvent: gated STRICTLY on hp_current <= 0 AFTER
 	# mitigation. Never evaluated against damage_raw/pre-mitigation state —
 	# this is the "lethal-but-parried" invariant test_criteria pins. ────────
-	var defender_defeated: bool = target.get("hp_current", 0) <= 0
+	var defender_defeated: bool = target.hp_current <= 0
 	if defender_defeated:
 		var defeated_event = RoundEventsClass.CombatantDefeatedEvent.new(
-			round_number, target.get("name", ""), attacker.get("name", "")
+			round_number, target.name, attacker.name
 		)
 		_event_sink_port.emit(defeated_event)
 

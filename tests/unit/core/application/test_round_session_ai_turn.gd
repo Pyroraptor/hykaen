@@ -125,7 +125,7 @@ class FakeStrikeActionControl:
 	func configure(_actor: Dictionary, _action_economy, _resolve_action_use_case, candidate_targets: Array, _round_number: int = 1, _cycle_index: int = 0) -> void:
 		_selectable_target_ids = []
 		for target in candidate_targets:
-			_selectable_target_ids.append(target.get("combatant_id", target.get("name", "")))
+			_selectable_target_ids.append(target.display_id())
 
 	func get_button_count() -> int:
 		return _selectable_target_ids.size()
@@ -154,8 +154,9 @@ class ScriptedRandomNumberPort:
 
 # ── Shared fixture helpers ─────────────────────────────────────────────────
 
-func _durable_combatant(p_name: String, p_is_enemy: bool, p_combatant_id: String = "") -> Dictionary:
-	return {
+func _durable_combatant(p_name: String, p_is_enemy: bool, p_combatant_id: String = ""):
+	# Phase C.3: the round pipeline consumes Combatant INSTANCES.
+	return CombatantClass.from_dict({
 		"name":         p_name,
 		"combatant_id": p_combatant_id,
 		"hp_current":   2000,
@@ -169,10 +170,10 @@ func _durable_combatant(p_name: String, p_is_enemy: bool, p_combatant_id: String
 			"proficiency_bonus": 2,
 			"damage_die": 6
 		}
-	}
+	})
 
 
-func _entry(combatant: Dictionary) -> Dictionary:
+func _entry(combatant) -> Dictionary:
 	return {"combatant": combatant, "action_economy": ActionEconomyClass.new()}
 
 
@@ -207,8 +208,8 @@ func _make_use_case(entries: Array, ai_port, random_number_port, event_sink_port
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_advance_ai_turn_drives_the_real_ai_module_and_resolves_via_the_shared_pipeline() -> void:
-	var bravo: Dictionary = _durable_combatant("Bravo", true, "bravo")
-	var alpha: Dictionary = _durable_combatant("Alpha", false, "alpha")
+	var bravo = _durable_combatant("Bravo", true, "bravo")
+	var alpha = _durable_combatant("Alpha", false, "alpha")
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
 	var event_sink_port    = FakeEventSinkPort.new()
@@ -217,7 +218,7 @@ func test_advance_ai_turn_drives_the_real_ai_module_and_resolves_via_the_shared_
 	var session = rig["use_case"].begin_round(1, [alpha], [bravo])
 
 	assert_eq(session.current_actor().get("name", ""), "Bravo", "the Enemy must be the current actor")
-	var hp_before: int = alpha.get("hp_current", 0)
+	var hp_before: int = alpha.hp_current
 
 	var result: Dictionary = session.advance_ai_turn()
 
@@ -230,7 +231,7 @@ func test_advance_ai_turn_drives_the_real_ai_module_and_resolves_via_the_shared_
 		rig["history"].entries[0]["attacker"].get("name", ""), "Bravo",
 		"the resolved action must belong to the AI-selected (real ai.gd) actor/target pair"
 	)
-	assert_true(alpha.get("hp_current", 0) <= hp_before, "the AI's resolved Strike must be able to damage its target")
+	assert_true(alpha.hp_current <= hp_before, "the AI's resolved Strike must be able to damage its target")
 	assert_eq(session.current_actor().get("name", ""), "Alpha", "advance_ai_turn() must advance the cursor to the next living, un-Spent actor")
 
 
@@ -241,8 +242,8 @@ func test_advance_ai_turn_drives_the_real_ai_module_and_resolves_via_the_shared_
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_advance_ai_turn_defensive_fallback_resolves_wait_logs_via_event_sink_port_and_still_advances() -> void:
-	var bravo: Dictionary = _durable_combatant("Bravo", true)
-	var alpha: Dictionary = _durable_combatant("Alpha", false)
+	var bravo = _durable_combatant("Bravo", true)
+	var alpha = _durable_combatant("Alpha", false)
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 	var bravo_action_economy = entries[0]["action_economy"]
 
@@ -283,7 +284,7 @@ func test_advance_ai_turn_defensive_fallback_resolves_wait_logs_via_event_sink_p
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_ai_driven_attack_event_renders_through_hex_grid_status_panel_and_event_log_views() -> void:
-	var goblin: Dictionary = _durable_combatant("Goblin", true, "goblin")
+	var goblin = _durable_combatant("Goblin", true, "goblin")
 	var titus: Dictionary  = _durable_combatant("Titus", false, "titus")
 	var entries: Array = [_entry(goblin), _entry(titus)]
 
@@ -355,7 +356,7 @@ func test_ai_driven_attack_event_renders_through_hex_grid_status_panel_and_event
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_turn_controller_disables_strike_action_control_and_end_turn_control_while_driving_enemy_turn() -> void:
-	var goblin: Dictionary = _durable_combatant("Goblin", true, "goblin")
+	var goblin = _durable_combatant("Goblin", true, "goblin")
 	var titus: Dictionary  = _durable_combatant("Titus", false, "titus")
 	var entries: Array = [_entry(goblin), _entry(titus)]
 

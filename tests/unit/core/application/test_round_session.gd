@@ -38,6 +38,7 @@ const DetermineOutcomeUseCaseClass = preload("res://core/application/determine_o
 const ActionEconomyClass           = preload("res://core/rules/action_economy.gd")
 const SeededRandomAdapterClass     = preload("res://core/combat/seeded_random_adapter.gd")
 const RoundEventsClass             = preload("res://core/rules/round_events.gd")
+const CombatantClass               = preload("res://core/domain/combatant.gd")
 
 
 # ── Fake/double port implementations (mirrors tests/test_run_round_use_case.gd) ──
@@ -81,11 +82,11 @@ class FakeRoundHistoryPort:
 class FakeAIDecisionPort:
 	extends "res://core/application/ai_decision_port.gd"
 
-	func decide_action(_combatant: Dictionary, targets: Array) -> Dictionary:
+	func decide_action(_combatant, targets: Array) -> Dictionary:
 		for t in targets:
-			if t.get("hp_current", 0) > 0:
+			if t.hp_current > 0:
 				return {"action_type": "Strike", "target": t}
-		return {"action_type": "", "target": {}}
+		return {"action_type": "", "target": null}
 
 
 ## BrokenAIDecisionPort — always returns an empty/invalid decision, used to
@@ -93,14 +94,14 @@ class FakeAIDecisionPort:
 class BrokenAIDecisionPort:
 	extends "res://core/application/ai_decision_port.gd"
 
-	func decide_action(_combatant: Dictionary, _targets: Array) -> Dictionary:
+	func decide_action(_combatant, _targets: Array) -> Dictionary:
 		return {}
 
 
 # ── Shared fixture helpers ─────────────────────────────────────────────────
 
-func _durable_combatant(p_name: String, p_is_enemy: bool, p_combatant_id: String = "") -> Dictionary:
-	return {
+func _durable_combatant(p_name: String, p_is_enemy: bool, p_combatant_id: String = ""):
+	return CombatantClass.from_dict({
 		"name":         p_name,
 		"combatant_id": p_combatant_id,
 		"hp_current":   2000,
@@ -114,11 +115,11 @@ func _durable_combatant(p_name: String, p_is_enemy: bool, p_combatant_id: String
 			"proficiency_bonus": 2,
 			"damage_die": 6
 		}
-	}
+	})
 
 
-func _fragile_combatant(p_name: String, p_is_enemy: bool) -> Dictionary:
-	return {
+func _fragile_combatant(p_name: String, p_is_enemy: bool):
+	return CombatantClass.from_dict({
 		"name":       p_name,
 		"hp_current": 1,
 		"ac":         1,
@@ -131,10 +132,10 @@ func _fragile_combatant(p_name: String, p_is_enemy: bool) -> Dictionary:
 			"proficiency_bonus": 1,
 			"damage_die": 4
 		}
-	}
+	})
 
 
-func _entry(combatant: Dictionary) -> Dictionary:
+func _entry(combatant) -> Dictionary:
 	return {"combatant": combatant, "action_economy": ActionEconomyClass.new()}
 
 
@@ -169,8 +170,8 @@ func _make_use_case(entries: Array, ai_port, seed: int) -> Dictionary:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_begin_round_grants_budget_and_positions_at_first_living_unspent() -> void:
-	var alpha: Dictionary = _durable_combatant("Alpha", false, "alpha")
-	var bravo: Dictionary = _durable_combatant("Bravo", true, "bravo")
+	var alpha = _durable_combatant("Alpha", false, "alpha")
+	var bravo = _durable_combatant("Bravo", true, "bravo")
 	var entries: Array = [_entry(alpha), _entry(bravo)]
 
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 1)
@@ -185,9 +186,9 @@ func test_begin_round_grants_budget_and_positions_at_first_living_unspent() -> v
 
 
 func test_begin_round_skips_a_dead_combatant_when_positioning_cursor() -> void:
-	var dead: Dictionary = {"name": "Dead", "hp_current": 0, "ac": 10, "_is_enemy": false}
-	var alpha: Dictionary = _durable_combatant("Alpha", false)
-	var bravo: Dictionary = _durable_combatant("Bravo", true)
+	var dead = CombatantClass.from_dict({"name": "Dead", "hp_current": 0, "ac": 10, "_is_enemy": false})
+	var alpha = _durable_combatant("Alpha", false)
+	var bravo = _durable_combatant("Bravo", true)
 	var entries: Array = [_entry(dead), _entry(alpha), _entry(bravo)]
 
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 1)
@@ -197,8 +198,8 @@ func test_begin_round_skips_a_dead_combatant_when_positioning_cursor() -> void:
 
 
 func test_current_action_economy_matches_current_actor() -> void:
-	var alpha: Dictionary = _durable_combatant("Alpha", false)
-	var bravo: Dictionary = _durable_combatant("Bravo", true)
+	var alpha = _durable_combatant("Alpha", false)
+	var bravo = _durable_combatant("Bravo", true)
 	var entries: Array = [_entry(alpha), _entry(bravo)]
 
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 1)
@@ -214,8 +215,8 @@ func test_current_action_economy_matches_current_actor() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_end_current_turn_advances_cursor_and_emits_turn_advanced_event() -> void:
-	var alpha: Dictionary = _durable_combatant("Alpha", false, "alpha")
-	var bravo: Dictionary = _durable_combatant("Bravo", true, "bravo")
+	var alpha = _durable_combatant("Alpha", false, "alpha")
+	var bravo = _durable_combatant("Bravo", true, "bravo")
 	var entries: Array = [_entry(alpha), _entry(bravo)]
 
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 1)
@@ -238,8 +239,8 @@ func test_end_current_turn_advances_cursor_and_emits_turn_advanced_event() -> vo
 
 
 func test_end_current_turn_is_always_available_even_when_no_action_was_spent() -> void:
-	var alpha: Dictionary = _durable_combatant("Alpha", false)
-	var bravo: Dictionary = _durable_combatant("Bravo", true)
+	var alpha = _durable_combatant("Alpha", false)
+	var bravo = _durable_combatant("Bravo", true)
 	var entries: Array = [_entry(alpha), _entry(bravo)]
 
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 1)
@@ -254,8 +255,8 @@ func test_end_current_turn_is_always_available_even_when_no_action_was_spent() -
 
 
 func test_end_current_turn_is_also_available_when_an_action_was_spent() -> void:
-	var alpha: Dictionary = _durable_combatant("Alpha", false)
-	var bravo: Dictionary = _durable_combatant("Bravo", true)
+	var alpha = _durable_combatant("Alpha", false)
+	var bravo = _durable_combatant("Bravo", true)
 	var entries: Array = [_entry(alpha), _entry(bravo)]
 
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 1)
@@ -275,8 +276,8 @@ func test_end_current_turn_is_also_available_when_an_action_was_spent() -> void:
 
 
 func test_is_round_over_becomes_true_once_every_living_combatant_is_spent() -> void:
-	var alpha: Dictionary = _durable_combatant("Alpha", false)
-	var bravo: Dictionary = _durable_combatant("Bravo", true)
+	var alpha = _durable_combatant("Alpha", false)
+	var bravo = _durable_combatant("Bravo", true)
 	var entries: Array = [_entry(alpha), _entry(bravo)]
 
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 1)
@@ -308,7 +309,7 @@ func test_is_round_over_becomes_true_once_every_living_combatant_is_spent() -> v
 
 
 func test_end_current_turn_is_a_no_op_after_round_over() -> void:
-	var alpha: Dictionary = _durable_combatant("Alpha", false)
+	var alpha = _durable_combatant("Alpha", false)
 	var entries: Array = [_entry(alpha)]
 
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 1)
@@ -330,27 +331,27 @@ func test_end_current_turn_is_a_no_op_after_round_over() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_advance_ai_turn_resolves_via_the_real_pipeline_and_advances_cursor() -> void:
-	var bravo: Dictionary = _durable_combatant("Bravo", true)
-	var alpha: Dictionary = _durable_combatant("Alpha", false)
+	var bravo = _durable_combatant("Bravo", true)
+	var alpha = _durable_combatant("Alpha", false)
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 42)
 	var session = rig["use_case"].begin_round(1, [alpha], [bravo])
 
 	assert_eq(session.current_actor().get("name", ""), "Bravo")
-	var hp_before: int = alpha.get("hp_current", 0)
+	var hp_before: int = alpha.hp_current
 
 	var result: Dictionary = session.advance_ai_turn()
 
 	assert_true(result.get("ok", false))
 	assert_eq(rig["history"].entries.size(), 1, "advance_ai_turn() must resolve exactly one action via resolve_action_use_case")
-	assert_true(alpha.get("hp_current", 0) <= hp_before, "the AI's resolved Strike must be able to damage its target")
+	assert_true(alpha.hp_current <= hp_before, "the AI's resolved Strike must be able to damage its target")
 	assert_eq(session.current_actor().get("name", ""), "Alpha", "advance_ai_turn() must advance the cursor")
 
 
 func test_advance_ai_turn_rejects_when_current_actor_is_not_enemy() -> void:
-	var alpha: Dictionary = _durable_combatant("Alpha", false)
-	var bravo: Dictionary = _durable_combatant("Bravo", true)
+	var alpha = _durable_combatant("Alpha", false)
+	var bravo = _durable_combatant("Bravo", true)
 	var entries: Array = [_entry(alpha), _entry(bravo)]
 
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 1)
@@ -364,8 +365,8 @@ func test_advance_ai_turn_rejects_when_current_actor_is_not_enemy() -> void:
 
 
 func test_advance_ai_turn_defensive_fallback_still_advances_on_broken_ai() -> void:
-	var bravo: Dictionary = _durable_combatant("Bravo", true)
-	var alpha: Dictionary = _durable_combatant("Alpha", false)
+	var bravo = _durable_combatant("Bravo", true)
+	var alpha = _durable_combatant("Alpha", false)
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
 	var rig: Dictionary = _make_use_case(entries, BrokenAIDecisionPort.new(), 1)
@@ -382,8 +383,8 @@ func test_advance_ai_turn_defensive_fallback_still_advances_on_broken_ai() -> vo
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_end_current_turn_decides_outcome_and_emits_encounter_result_event() -> void:
-	var lethal: Dictionary  = _durable_combatant("Lethal", false)
-	var fragile: Dictionary = _fragile_combatant("Fragile", true)
+	var lethal = _durable_combatant("Lethal", false)
+	var fragile = _fragile_combatant("Fragile", true)
 	var entries: Array = [_entry(lethal), _entry(fragile)]
 
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 99)
@@ -396,7 +397,7 @@ func test_end_current_turn_decides_outcome_and_emits_encounter_result_event() ->
 		lethal, entries[0]["action_economy"], fragile, "Strike", 1, 0
 	)
 	assert_true(resolve_result.get("resolved", false))
-	assert_true(fragile.get("hp_current", 1) <= 0, "Fragile must have died to this Strike (fixture assumption)")
+	assert_true(fragile.hp_current <= 0, "Fragile must have died to this Strike (fixture assumption)")
 
 	var result: Dictionary = session.end_current_turn()
 
@@ -416,8 +417,8 @@ func test_end_current_turn_decides_outcome_and_emits_encounter_result_event() ->
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_finish_resets_action_economy_and_returns_round_result_shape() -> void:
-	var alpha: Dictionary = _durable_combatant("Alpha", false)
-	var bravo: Dictionary = _durable_combatant("Bravo", true)
+	var alpha = _durable_combatant("Alpha", false)
+	var bravo = _durable_combatant("Bravo", true)
 	var entries: Array = [_entry(alpha), _entry(bravo)]
 
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 1)

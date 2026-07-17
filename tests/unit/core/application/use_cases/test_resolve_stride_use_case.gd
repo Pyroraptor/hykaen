@@ -41,11 +41,11 @@ const HexCoord = preload("res://core/geometry/hex_coord.gd")
 
 
 func _mover() -> Dictionary:
-	return {"name": "Skeleton", "hex_coord": HexCoord.new(0, 0), "_is_enemy": true, "weapon": {"damage_die": 6}}
+	return {"name": "Skeleton", "hex_coord": HexCoord.new(0, 0), "is_enemy": true, "weapon": {"damage_die": 6}}
 
 
 func _reactor(name: String, hex_coord) -> Dictionary:
-	return {"name": name, "hex_coord": hex_coord, "_is_enemy": false, "weapon": {"damage_die": 6}}
+	return {"name": name, "hex_coord": hex_coord, "is_enemy": false, "weapon": {"damage_die": 6}}
 
 
 ## RecordingResolver -- a reactor_resolver_fn double recording every call
@@ -59,8 +59,8 @@ class RecordingResolver:
 	func _init(choice: String) -> void:
 		choice_to_return = choice
 
-	func resolve(reactor: Dictionary, _context: Dictionary) -> Dictionary:
-		calls.append(reactor.get("name", ""))
+	func resolve(reactor, _context: Dictionary) -> Dictionary:
+		calls.append(reactor.name)
 		return {"choice": choice_to_return}
 
 
@@ -79,18 +79,18 @@ class FakeStrikeUseCase:
 	var calls: Array = []
 	var defeats_by_call_index: Array = []
 
-	func resolve(combatant: Dictionary, _action_economy, target: Dictionary, action_name: String, round_number: int, cycle_index: int) -> Dictionary:
+	func resolve(combatant, _action_economy, target, action_name: String, round_number: int, cycle_index: int) -> Dictionary:
 		var index: int = calls.size()
 		calls.append({
-			"reactor_name": combatant.get("name", ""),
-			"mover_name":   target.get("name", ""),
+			"reactor_name": combatant.name,
+			"mover_name":   target.name,
 			"action_name":  action_name,
 			"round_number": round_number,
 			"cycle_index":  cycle_index,
 		})
 		var defeated: bool = defeats_by_call_index[index] if index < defeats_by_call_index.size() else false
 		if defeated:
-			target["hp_current"] = 0
+			target.hp_current = 0
 		return {"resolved": true, "ok": true, "target_defeated": defeated, "damage_final": 5}
 
 
@@ -119,7 +119,7 @@ class FakeReactorActionEconomy:
 ## MainScene.gd's real `_action_economy_for()` shape: Callable(reactor) ->
 ## ActionEconomy-like).
 func _reactor_action_economy_fn() -> Callable:
-	return func(_reactor: Dictionary):
+	return func(_reactor):
 		return FakeReactorActionEconomy.new()
 
 
@@ -128,8 +128,8 @@ func _reactor_action_economy_fn() -> Callable:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_eligible_reactor_is_offered_a_window_and_resolved() -> void:
-	var mover: Dictionary = _mover()
-	var titus: Dictionary = _reactor("Titus", HexCoord.new(1, 0))  # adjacent to (0,0)
+	var mover = _mover()
+	var titus = _reactor("Titus", HexCoord.new(1, 0))  # adjacent to (0,0)
 
 	var resolver := RecordingResolver.new("opportunistic_strike")
 	var use_case := ResolveStrideUseCaseClass.new()
@@ -149,8 +149,8 @@ func test_eligible_reactor_is_offered_a_window_and_resolved() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_non_adjacent_reactor_never_offered_a_window() -> void:
-	var mover: Dictionary = _mover()
-	var far_away: Dictionary = _reactor("Far Away", HexCoord.new(9, 9))
+	var mover = _mover()
+	var far_away = _reactor("Far Away", HexCoord.new(9, 9))
 
 	var resolver := RecordingResolver.new("none")
 	var use_case := ResolveStrideUseCaseClass.new()
@@ -168,13 +168,13 @@ func test_non_adjacent_reactor_never_offered_a_window() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_spent_reactor_is_filtered_out_via_reactor_spent_fn() -> void:
-	var mover: Dictionary = _mover()
-	var titus: Dictionary = _reactor("Titus", HexCoord.new(1, 0))
+	var mover = _mover()
+	var titus = _reactor("Titus", HexCoord.new(1, 0))
 
 	var resolver := RecordingResolver.new("none")
 	var use_case := ResolveStrideUseCaseClass.new()
 
-	var always_spent := func(_reactor: Dictionary) -> bool:
+	var always_spent := func(_reactor) -> bool:
 		return true
 
 	var result: Dictionary = await use_case.execute(
@@ -190,9 +190,9 @@ func test_spent_reactor_is_filtered_out_via_reactor_spent_fn() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_reactors_resolved_in_the_order_supplied() -> void:
-	var mover: Dictionary = _mover()
-	var second: Dictionary = _reactor("Second", HexCoord.new(-1, 0))
-	var first: Dictionary = _reactor("First", HexCoord.new(1, 0))
+	var mover = _mover()
+	var second = _reactor("Second", HexCoord.new(-1, 0))
+	var first = _reactor("First", HexCoord.new(1, 0))
 
 	var resolver := RecordingResolver.new("none")
 	var use_case := ResolveStrideUseCaseClass.new()
@@ -209,8 +209,8 @@ func test_reactors_resolved_in_the_order_supplied() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_unwired_resolver_fn_degrades_safely() -> void:
-	var mover: Dictionary = _mover()
-	var titus: Dictionary = _reactor("Titus", HexCoord.new(1, 0))
+	var mover = _mover()
+	var titus = _reactor("Titus", HexCoord.new(1, 0))
 
 	var use_case := ResolveStrideUseCaseClass.new()
 	var result: Dictionary = await use_case.execute(mover, mover["hex_coord"], [titus])
@@ -223,8 +223,8 @@ func test_unwired_resolver_fn_degrades_safely() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_omitted_reactor_spent_fn_treats_every_candidate_as_not_spent() -> void:
-	var mover: Dictionary = _mover()
-	var titus: Dictionary = _reactor("Titus", HexCoord.new(1, 0))
+	var mover = _mover()
+	var titus = _reactor("Titus", HexCoord.new(1, 0))
 
 	var resolver := RecordingResolver.new("none")
 	var use_case := ResolveStrideUseCaseClass.new()
@@ -243,8 +243,8 @@ func test_omitted_reactor_spent_fn_treats_every_candidate_as_not_spent() -> void
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_lethal_opportunistic_strike_cancels_stride() -> void:
-	var mover: Dictionary = _mover()
-	var titus: Dictionary = _reactor("Titus", HexCoord.new(1, 0))
+	var mover = _mover()
+	var titus = _reactor("Titus", HexCoord.new(1, 0))
 
 	var resolver := RecordingResolver.new("opportunistic_strike")
 	var strike_use_case := FakeStrikeUseCase.new()
@@ -268,8 +268,8 @@ func test_lethal_opportunistic_strike_cancels_stride() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_non_lethal_opportunistic_strike_allows_stride_to_complete() -> void:
-	var mover: Dictionary = _mover()
-	var titus: Dictionary = _reactor("Titus", HexCoord.new(1, 0))
+	var mover = _mover()
+	var titus = _reactor("Titus", HexCoord.new(1, 0))
 
 	var resolver := RecordingResolver.new("opportunistic_strike")
 	var strike_use_case := FakeStrikeUseCase.new()
@@ -293,9 +293,9 @@ func test_non_lethal_opportunistic_strike_allows_stride_to_complete() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_two_eligible_reactors_resolve_strikes_in_strict_initiative_order() -> void:
-	var mover: Dictionary = _mover()
-	var first: Dictionary = _reactor("First", HexCoord.new(1, 0))
-	var second: Dictionary = _reactor("Second", HexCoord.new(-1, 0))
+	var mover = _mover()
+	var first = _reactor("First", HexCoord.new(1, 0))
+	var second = _reactor("Second", HexCoord.new(-1, 0))
 
 	var resolver := RecordingResolver.new("opportunistic_strike")
 	var strike_use_case := FakeStrikeUseCase.new()
@@ -323,9 +323,9 @@ func test_two_eligible_reactors_resolve_strikes_in_strict_initiative_order() -> 
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_first_lethal_reactor_in_initiative_order_stops_the_second_reactor() -> void:
-	var mover: Dictionary = _mover()
-	var first: Dictionary = _reactor("First", HexCoord.new(1, 0))
-	var second: Dictionary = _reactor("Second", HexCoord.new(-1, 0))
+	var mover = _mover()
+	var first = _reactor("First", HexCoord.new(1, 0))
+	var second = _reactor("Second", HexCoord.new(-1, 0))
 
 	var resolver := RecordingResolver.new("opportunistic_strike")
 	var strike_use_case := FakeStrikeUseCase.new()

@@ -50,6 +50,16 @@ func current_actor() -> Dictionary:
 	return session.current_actor() if session != null else {}
 
 
+## current_actor_entity() -> Combatant or null — the LIVE current-actor instance
+## (never a to_dict() copy), for verbs whose execute() feeds the actor into a
+## MUTATING seam (resolve()/ResolveStrideUseCase), where the entity must travel
+## by reference so take_damage()/move_to() land on the container's instance.
+## Null when there is no live session (mirrors current_actor()'s empty sentinel).
+func current_actor_entity():
+	var session = _session()
+	return session.current_actor_entity() if session != null else null
+
+
 ## current_action_economy() — the current actor's live ActionEconomy (the SAME
 ## instance round_session.current_action_economy() exposes), or null when there
 ## is no live session. Every verb's availability gate reads this.

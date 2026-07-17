@@ -154,6 +154,15 @@ func defense(kind: String) -> int:
 func is_conscious() -> bool:
 	return hp_current > 0
 
+## display_id() → String — the stable identity string the pipeline uses to key
+## a combatant: its combatant_id when set, otherwise its name. Collapses the
+## `x.get("combatant_id", x.get("name", ""))` idiom threaded through
+## round_session.gd / resolve_action_use_case.gd (migration Phase C.3). A
+## combatant built without an explicit id (e.g. the balance simulator's
+## dict-sourced combatants) falls back to name exactly as that idiom did.
+func display_id() -> String:
+	return combatant_id if combatant_id != "" else name
+
 ## take_damage(amount) — reduce HP by `amount`. NOT clamped, mirroring the raw
 ## `hp_current -= damage` mutation the resolution pipeline performs today (Phase
 ## C swaps those sites to this method; keeping identical arithmetic preserves
@@ -218,9 +227,17 @@ static func from_dict(spec: Dictionary) -> Combatant:
 	var c := Combatant.new(
 		String(spec.get("combatant_id", "")),
 		String(spec.get("name", "")),
-		String(spec.get("team", "Enemy" if is_enemy_flag else "Player")),
-		spec.get("hex_coord", null)
+		String(spec.get("team", "Enemy" if is_enemy_flag else "Player"))
 	)
+	# Phase C.3 parity: PRESERVE an ABSENT position as null rather than the
+	# _init (0,0) default. Historically the pipeline passed positionless
+	# combatant DICTS (no "hex_coord" key — e.g. core/sim/simulator.gd, many unit
+	# fixtures); reach-gating (resolve_action_use_case / ai) skips a combatant
+	# whose hex_coord is null. Defaulting an absent position to (0,0) here would
+	# make two positionless combatants co-located and reach-REJECT every Strike
+	# (a positionless sim battle would then never deal damage → never terminate).
+	# A combatant built via new() (not from_dict) still defaults to (0,0).
+	c.hex_coord = spec.get("hex_coord", null)
 	c.hp_current      = int(spec.get("hp_current", 0))
 	c.hp_max          = int(spec.get("hp_max", 0))
 	c.stamina         = int(spec.get("stamina", 0))

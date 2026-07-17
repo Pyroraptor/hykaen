@@ -37,6 +37,7 @@ const StatusPanelViewScene: PackedScene = preload("res://presentation/status_pan
 const ResolveActionUseCaseClass         = preload("res://core/application/resolve_action_use_case.gd")
 const ActionEconomyClass                = preload("res://core/rules/action_economy.gd")
 const RoundEventsClass                  = preload("res://core/rules/round_events.gd")
+const CombatantClass                    = preload("res://core/domain/combatant.gd")
 
 const STATUS_PANEL_VIEW_SOURCE_PATH: String = "res://presentation/status_panel_view.gd"
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
@@ -113,8 +114,8 @@ func _sample_view_models() -> Array:
 	]
 
 
-func _attacker() -> Dictionary:
-	return {
+func _attacker():
+	return CombatantClass.from_dict({
 		"name": "Titus",
 		"combatant_id": "player_0",
 		"strength": 3,
@@ -123,11 +124,11 @@ func _attacker() -> Dictionary:
 			"proficiency_bonus": 2,
 			"damage_die": 6,
 		},
-	}
+	})
 
 
-func _target() -> Dictionary:
-	return {"name": "Skeleton", "combatant_id": "enemy_0", "hp_current": 8, "ac": 10}
+func _target():
+	return CombatantClass.from_dict({"name": "Skeleton", "combatant_id": "enemy_0", "hp_current": 8, "ac": 10})
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -186,7 +187,7 @@ func test_action_budget_remaining_and_spent_true_after_seventh_strike() -> void:
 		var event_sink = FakeEventSinkPort.new()
 		var history    = FakeRoundHistoryPort.new()
 		var use_case   = ResolveActionUseCaseClass.new(rng_port, event_sink, history)
-		var target: Dictionary = _target()  # a fresh, undefeated target for each iteration
+		var target = _target()  # a fresh, undefeated target for each iteration
 		var result: Dictionary = use_case.resolve(_attacker(), action_economy, target, "Strike", 1, i)
 		assert_true(result.get("resolved", false), "fixture assumption: each of the 7 Strikes must resolve")
 		last_event = result["event"]

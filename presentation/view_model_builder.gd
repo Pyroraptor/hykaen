@@ -35,22 +35,24 @@ func build_status_view_models(hex_combatants: Array, party: Array, enemies: Arra
 	var action_economy_by_name: Dictionary = {}
 	var turn_order: Array = encounter_instance.get_turn_order()
 	for i in range(turn_order.size()):
-		action_economy_by_name[turn_order[i].get("name", "")] = encounter_instance.get_action_economy(i)
+		action_economy_by_name[turn_order[i].name] = encounter_instance.get_action_economy(i)
 
 	var all_combatants: Array = party + enemies
 	var view_models: Array = []
 	for i in range(all_combatants.size()):
-		var combatant: Dictionary = all_combatants[i]
+		# Phase C.3: party/enemies + the encounter's turn_order are now
+		# Combatant instances; read fields directly off the entity.
+		var combatant = all_combatants[i]
 		var combatant_id: String = hex_combatants[i].combatant_id if i < hex_combatants.size() else ""
-		var action_economy = action_economy_by_name.get(combatant.get("name", ""), null)
+		var action_economy = action_economy_by_name.get(combatant.name, null)
 
 		view_models.append({
 			"combatant_id":             combatant_id,
-			"name":                     combatant.get("name", ""),
-			"hp_current":               combatant.get("hp_current", 0),
-			"hp_max":                   combatant.get("hp_max", combatant.get("hp_current", 0)),
-			"stamina_current":          combatant.get("stamina", 0),
-			"stamina_max":              combatant.get("stamina", 0),
+			"name":                     combatant.name,
+			"hp_current":               combatant.hp_current,
+			"hp_max":                   combatant.hp_max,
+			"stamina_current":          combatant.stamina,
+			"stamina_max":              combatant.stamina,
 			"action_budget_remaining":  action_economy.get_remaining() if action_economy != null else 0,
 			"spent":                    action_economy.is_spent() if action_economy != null else false,
 			"conditions":               [],
@@ -79,14 +81,14 @@ func build_initiative_view_models(hex_combatants: Array, party: Array, enemies: 
 	var all_combatants: Array = party + enemies
 	for i in range(all_combatants.size()):
 		var combatant_id: String = hex_combatants[i].combatant_id if i < hex_combatants.size() else ""
-		combatant_id_by_name[all_combatants[i].get("name", "")] = combatant_id
+		combatant_id_by_name[all_combatants[i].name] = combatant_id
 
 	var view_models: Array = []
 	for combatant in encounter_instance.get_turn_order():
-		var name: String = combatant.get("name", "")
+		var name: String = combatant.name
 		view_models.append({
 			"combatant_id":     combatant_id_by_name.get(name, ""),
 			"name":             name,
-			"initiative_order": combatant.get("_initiative_roll", 0),
+			"initiative_order": combatant.initiative_roll,
 		})
 	return view_models

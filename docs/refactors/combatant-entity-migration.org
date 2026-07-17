@@ -217,3 +217,102 @@ Cast-a-Spell / Combinations (#3–#6). The Casting-state hooks (=is_casting/
 advance_cast/cancel_cast=) are stubbed in Phase A and filled when the spell
 feature lands. Phase C is a focused multi-commit effort (see the playbook above),
 NOT a quick job — sequence it as its own work session.
+
+* RESUME POINT — C.3 done-in-tree + C.4-partial (uncommitted WIP, 2026-07-17)
+
+A resume session ran the ACTUAL gate (built godot, imported, executed
+scripts/test_command.sh) against the uncommitted C.3 working tree and found it
+does NOT hold together — C.3 was written but never run. Findings + progress:
+
+** What was already in the working tree (the prior C.3 attempt)
+- The full C.3 mutation-chain flip was IMPLEMENTED but UNCOMMITTED and had never
+  been run: containers build instances (=CombatantClass.from_dict= at MainScene/
+  encounter/simulator), mutation sites use =take_damage()=, read-only display
+  consumers bridged with =to_dict()=, and ~40 test files re-authored via
+  =CombatantClass.from_dict(spec)=. Coherent on paper; broken at runtime.
+
+** Confirmed bug fixed this session
+- =MainScene._action_economy_for(combatant: Dictionary)= was NEVER de-typed while
+  its body calls =combatant.display_id()= → HARD PARSE ERROR (MainScene.gd would
+  not compile at all; the agent de-typed the twin =round_session._find_action_
+  economy_for= but missed this one). FIXED (de-typed the param). This was the
+  stage-2 gate abort. NOTE: stage-1 GUT smoke "passed 4/4" while MainScene was a
+  dead Nil — its asserts are too weak to catch a non-loading composition root.
+
+** THE KEY DISCOVERY — the scope is bigger than the mutation-map (§ "C.3 — hands-on")
+The map covered the container→resolve mutation chain. But =resolve()= /
+=resolve_reactive()= call =_check_preconditions_and_spend()= →
+=_combatant_identifier(combatant)= → =combatant.display_id()= (resolve_action_
+use_case.gd:495/643), so ANY combatant handed to resolve — attacker OR reactor —
+MUST be a live instance; a dict copy crashes there. Because the PLAYER's own
+Strike/Stride/movement/reactions route their combatants THROUGH the presentation
+controllers into resolve()/take_damage()/move_to(), those controllers (which C.4
+was meant to defer) CANNOT stay on to_dict dicts. So finishing C.3 necessarily
+pulls the MUTATING half of C.4 forward. Split:
+- MUST be instance-native (on mutating paths): strike/stride/movement/reaction/
+  turn controllers + a live-actor accessor. DONE this session (see below).
+- May stay dict-bridged (pure display, defer): status_panel_view, event_log_view,
+  initiative_view, verb_bar_view, ViewModelBuilder.
+
+** DONE this session (uncommitted, on branch prework/spell-combine-foundations)
+- =round_session.current_actor_entity()= + =action_controller.current_actor_entity()=
+  — the LIVE-instance accessor (never a to_dict copy) for the mutating seams;
+  =current_actor()= stays the read-only Dictionary bridge. Returns null (not {}).
+- Flipped to instance-native: =strike_action_controller= (actor via
+  current_actor_entity, targets live, null sentinel), =stride_action_controller=
+  (mover = live instance — a to_dict copy would silently drop Opportunistic-Strike
+  damage against the mover), =turn_presentation_controller= (receives the live
+  instance via active_actor_changed; configures the MUTATING movement controller —
+  move_to persists on the instance), =turn_controller= (emits current_actor_entity()),
+  =reaction_controller= (target/reactor/candidate/turn_order reads → display_id()/
+  initiative_roll), =MainScene= glue (_on_selection_overlay_resolved / _after_
+  successful_move / _on_active_actor_changed pass instances; 4 reaction delegators
+  de-typed). movement_input_controller was already dict-or-instance tolerant
+  (_identifier_of, movement.gd _hex_of/_set_hex).
+
+** REMAINING — the reaction/event/trigger subsystem (NOT yet flipped)
+Runtime gate error (surfaced under godot 4.4): =reaction_window.gd:140 Trying to
+assign 'Object' to 'Dictionary'= — an instance now flows in as trigger["reactor"].
+The reactor is DUAL-USE: read-only in reaction_window (name/conditions/conscious)
+but the STRIKING combatant into resolve() (needs display_id) — so a plain to_dict
+bridge won't do; reaction_window must accept instances. Sites to flip (+ their
+fixtures):
+- =core/application/reaction_window.gd= — 4× =var reactor: Dictionary =
+  trigger.get("reactor", {})= (:140/:317/:443/:663) + reactor.get("name"/
+  "conditions"/"conscious") reads.
+- =core/application/use_cases/resolve_stride_use_case.gd= — reactor param (:319),
+  =reaction_entry {"reactor": reactor}= (:270).
+- The trigger BUILDERS that store a combatant as "reactor"/"target"
+  (round_session._build_*_trigger, resolution.gd's reaction path,
+  resolve_dodge_step_use_case).
+- Test fixtures: =core/application/tests/test_reaction_window_prehit.gd= +
+  =test_reaction_window_onhit.gd= (~25 =_reactor()= dict builders each), plus the
+  ~20 presentation controller test files that feed dict combatants into the now-
+  instance-native controllers (build via CombatantClass.from_dict).
+
+** ENVIRONMENT CAVEAT (why local gating is unreliable — NOT a migration bug)
+- =core/rules/round_events.gd= declares INNER classes =AttackEvent= /
+  =ReactionResolvedEvent= that SHADOW the GLOBAL =class_name= versions in
+  =core/log/attack_event.gd= / =reaction_resolved_event.gd= (coexisting since
+  FEAT-007 — both are actively used: RoundEventsClass.AttackEvent.new vs
+  AttackEventClass.new). A stock godot install downloaded fresh and run via
+  =--headless --import= then =-s <file> --check-only= treats the shadow as a
+  FATAL parse error on isolated compile, cascading to MainScene ("Compilation
+  failed"). PROVEN pre-existing: with ALL changes stashed to HEAD the bare
+  =MainScene.tscn= boot fails identically, so this is NOT a migration bug.
+  IMPORTANT: the project's real gate env IS godot 4.3 (confirmed by the team) and
+  the gate is GREEN there — so 4.3 does NOT fail this in the AEF setup; the local
+  failure is an import/parse-ORDER / global-class-cache difference from how a raw
+  =--headless --import= builds the cache vs the AEF/editor import, NOT a Godot
+  version issue. (A local 4.4 run was used only for CLEARER error messages — 4.3
+  emits empty "Compile Error:" lines — and it surfaced the reaction_window Object
+  ->Dictionary error; it is not the gate version.) Consequence: gate this WIP in
+  the AEF env, where MainScene boots.
+
+** Recommended finish (handed to AEF/CI)
+Flip the reaction/event/trigger subsystem to instances (reaction_window +
+resolve_stride + trigger builders) and update the reaction-window + controller
+test fixtures, then run scripts/test_command.sh in the real env. The mutation
+chain + controllers are already instance-native; the reaction layer is the last
+consumer group. Keep the mutating reactor as a live instance end-to-end (it feeds
+resolve()); only pure-display views stay to_dict-bridged.

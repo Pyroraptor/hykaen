@@ -40,6 +40,7 @@ const ActionEconomyClass        = preload("res://core/rules/action_economy.gd")
 const RoundEventsClass          = preload("res://core/rules/round_events.gd")
 const FlankingClass             = preload("res://core/rules/flanking.gd")
 const SeededRandomAdapterClass  = preload("res://core/combat/seeded_random_adapter.gd")
+const CombatantClass            = preload("res://core/domain/combatant.gd")
 
 const RESOLVE_ACTION_USE_CASE_PATH: String = "res://core/application/resolve_action_use_case.gd"
 const RESOLUTION_PATH: String = "res://core/rules/resolution.gd"
@@ -123,8 +124,8 @@ func _read_file(res_path: String) -> String:
 #                             flip caused ENTIRELY by the +2 bonus).
 # ══════════════════════════════════════════════════════════════════════════
 
-func _off_guard_attacker() -> Dictionary:
-	return {
+func _off_guard_attacker():
+	return CombatantClass.from_dict({
 		"name":     "Attacker",
 		"strength": 0,
 		"weapon": {
@@ -132,11 +133,11 @@ func _off_guard_attacker() -> Dictionary:
 			"proficiency_bonus": 0,
 			"damage_die": 6
 		}
-	}
+	})
 
 
-func _off_guard_target(conditions: Array = []) -> Dictionary:
-	return {"name": "Target", "hp_current": 50, "ac": 12, "conditions": conditions}
+func _off_guard_target(conditions: Array = []):
+	return CombatantClass.from_dict({"name": "Target", "hp_current": 50, "ac": 12, "conditions": conditions})
 
 
 func test_pin_baseline_defense_value_equals_plain_ac() -> void:
@@ -187,8 +188,8 @@ func test_pin_unrelated_condition_does_not_reduce_defense_value() -> void:
 #                   the boundary; still a hit, never a crit).
 # ══════════════════════════════════════════════════════════════════════════
 
-func _crit_attacker() -> Dictionary:
-	return {
+func _crit_attacker():
+	return CombatantClass.from_dict({
 		"name":     "Attacker",
 		"strength": 3,
 		"weapon": {
@@ -196,7 +197,7 @@ func _crit_attacker() -> Dictionary:
 			"proficiency_bonus": 2,
 			"damage_die": 6
 		}
-	}
+	})
 
 
 func test_pin_crit_fires_at_exactly_ten_over_defense_value() -> void:
@@ -204,7 +205,7 @@ func test_pin_crit_fires_at_exactly_ten_over_defense_value() -> void:
 	# Crit damage: roll(6,2) scripted as a single summed value (9) + strength_mod(3)*2 = 15.
 	var rig: Dictionary = _make_use_case([20, 9])
 	var result: Dictionary = rig["use_case"].resolve(
-		_crit_attacker(), _fresh_ae(), {"name": "Target", "hp_current": 50, "ac": 15}, "Strike", 1, 0
+		_crit_attacker(), _fresh_ae(), CombatantClass.from_dict({"name": "Target", "hp_current": 50, "ac": 15}), "Strike", 1, 0
 	)
 	assert_true(result["event"].hit, "PINNED: roll_total(25) >= ac(15) -> hit")
 	assert_true(result["event"].crit, "PINNED: excess(25-15=10) >= 10 -> crit at the exact boundary")
@@ -216,7 +217,7 @@ func test_pin_no_crit_one_below_the_boundary() -> void:
 	# raw=20 -> roll_total=25 vs ac=16 -> excess=9 -> hit but NOT crit.
 	var rig: Dictionary = _make_use_case([20, 5])
 	var result: Dictionary = rig["use_case"].resolve(
-		_crit_attacker(), _fresh_ae(), {"name": "Target", "hp_current": 50, "ac": 16}, "Strike", 1, 0
+		_crit_attacker(), _fresh_ae(), CombatantClass.from_dict({"name": "Target", "hp_current": 50, "ac": 16}), "Strike", 1, 0
 	)
 	assert_true(result["event"].hit, "PINNED: roll_total(25) >= ac(16) -> hit")
 	assert_false(result["event"].crit, "PINNED: excess(25-16=9) < 10 -> must not crit, one below the boundary")
@@ -331,8 +332,8 @@ func test_resolve_action_use_case_no_longer_defines_off_guard_reduction_helper()
 # ONE underlying seeded RNG source rather than two independent ones.
 # ══════════════════════════════════════════════════════════════════════════
 
-func _shared_attacker() -> Dictionary:
-	return {
+func _shared_attacker():
+	return CombatantClass.from_dict({
 		"name":     "Attacker",
 		"strength": 3,
 		"weapon": {
@@ -340,7 +341,7 @@ func _shared_attacker() -> Dictionary:
 			"proficiency_bonus": 2,
 			"damage_die": 8
 		}
-	}
+	})
 
 
 func test_unified_rng_produces_identical_results_across_both_former_call_paths() -> void:
@@ -361,7 +362,7 @@ func test_unified_rng_produces_identical_results_across_both_former_call_paths()
 	# with the SAME seed.
 	var seeded_port = SeededRandomAdapterClass.new(seed_value)
 	var use_case = ResolveActionUseCaseClass.new(seeded_port, FakeEventSinkPort.new(), FakeRoundHistoryPort.new())
-	var live_target: Dictionary = {"name": "Target", "hp_current": 50, "ac": 13}
+	var live_target = CombatantClass.from_dict({"name": "Target", "hp_current": 50, "ac": 13})
 	var live_result: Dictionary = use_case.resolve(
 		_shared_attacker(), _fresh_ae(), live_target, "Strike", 1, 0
 	)
@@ -390,13 +391,13 @@ func test_unified_rng_is_reproducible_across_two_independent_live_path_runs() ->
 	var port_a = SeededRandomAdapterClass.new(seed_value)
 	var use_case_a = ResolveActionUseCaseClass.new(port_a, FakeEventSinkPort.new(), FakeRoundHistoryPort.new())
 	var result_a: Dictionary = use_case_a.resolve(
-		_shared_attacker(), _fresh_ae(), {"name": "Target", "hp_current": 50, "ac": 13}, "Strike", 1, 0
+		_shared_attacker(), _fresh_ae(), CombatantClass.from_dict({"name": "Target", "hp_current": 50, "ac": 13}), "Strike", 1, 0
 	)
 
 	var port_b = SeededRandomAdapterClass.new(seed_value)
 	var use_case_b = ResolveActionUseCaseClass.new(port_b, FakeEventSinkPort.new(), FakeRoundHistoryPort.new())
 	var result_b: Dictionary = use_case_b.resolve(
-		_shared_attacker(), _fresh_ae(), {"name": "Target", "hp_current": 50, "ac": 13}, "Strike", 1, 0
+		_shared_attacker(), _fresh_ae(), CombatantClass.from_dict({"name": "Target", "hp_current": 50, "ac": 13}), "Strike", 1, 0
 	)
 
 	assert_eq(result_a["event"].hit, result_b["event"].hit, "same seed, live path: hit must be reproducible")

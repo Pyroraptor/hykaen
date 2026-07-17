@@ -37,6 +37,7 @@ const ActionEconomyClass        = preload("res://core/rules/action_economy.gd")
 const RoundEventsClass          = preload("res://core/rules/round_events.gd")
 const HexCoordClass             = preload("res://core/geometry/hex_coord.gd")
 const WeaponResourceClass       = preload("res://core/model/weapon_resource.gd")
+const CombatantClass            = preload("res://core/domain/combatant.gd")
 
 
 class FakeEventSinkPort:
@@ -80,8 +81,8 @@ class ScriptedRandomNumberPort:
 const RANGED_RANGE_HEXES: int = 8  # mirrors shortbow's 40 ft. short range (5 ft. == 1 hex)
 
 
-func _ranged_attacker(hex_coord, range_hexes: int = RANGED_RANGE_HEXES) -> Dictionary:
-	return {
+func _ranged_attacker(hex_coord, range_hexes: int = RANGED_RANGE_HEXES):
+	return CombatantClass.from_dict({
 		"name":      "Archer",
 		"dexterity": 3,
 		"hex_coord": hex_coord,
@@ -91,11 +92,11 @@ func _ranged_attacker(hex_coord, range_hexes: int = RANGED_RANGE_HEXES) -> Dicti
 			"damage_die": 6,
 			"range_hexes": range_hexes
 		}
-	}
+	})
 
 
-func _target(hex_coord, hp: int = 50, ac: int = 10) -> Dictionary:
-	return {"name": "Target", "hp_current": hp, "ac": ac, "hex_coord": hex_coord}
+func _target(hex_coord, hp: int = 50, ac: int = 10):
+	return CombatantClass.from_dict({"name": "Target", "hp_current": hp, "ac": ac, "hex_coord": hex_coord})
 
 
 func _make_use_case(scripted_values: Array) -> Dictionary:
@@ -116,8 +117,8 @@ func test_ranged_strike_against_target_within_range_resolves_and_returns_attack_
 
 	# raw=12 -> roll_total = 12 + dexterity(3) + proficiency(2) = 17 vs ac=10 -> hit.
 	var rig: Dictionary = _make_use_case([12, 4])
-	var attacker: Dictionary = _ranged_attacker(HexCoordClass.new(0, 0))
-	var target: Dictionary = _target(HexCoordClass.new(RANGED_RANGE_HEXES, 0))  # hex_distance == range_hexes
+	var attacker = _ranged_attacker(HexCoordClass.new(0, 0))
+	var target = _target(HexCoordClass.new(RANGED_RANGE_HEXES, 0))  # hex_distance == range_hexes
 
 	var result: Dictionary = rig["use_case"].resolve(attacker, ae, target, "Strike", 1, 0)
 
@@ -137,8 +138,8 @@ func test_ranged_strike_against_a_nearby_but_non_adjacent_target_resolves_succes
 	ae.start_of_round()
 
 	var rig: Dictionary = _make_use_case([12, 4])
-	var attacker: Dictionary = _ranged_attacker(HexCoordClass.new(0, 0))
-	var target: Dictionary = _target(HexCoordClass.new(3, 0))
+	var attacker = _ranged_attacker(HexCoordClass.new(0, 0))
+	var target = _target(HexCoordClass.new(3, 0))
 
 	var result: Dictionary = rig["use_case"].resolve(attacker, ae, target, "Strike", 1, 0)
 
@@ -154,8 +155,8 @@ func test_ranged_strike_against_target_beyond_range_is_rejected_with_no_side_eff
 	ae.start_of_round()
 
 	var rig: Dictionary = _make_use_case([12, 4])
-	var attacker: Dictionary = _ranged_attacker(HexCoordClass.new(0, 0))
-	var target: Dictionary = _target(HexCoordClass.new(RANGED_RANGE_HEXES + 1, 0))  # 1 hex beyond range
+	var attacker = _ranged_attacker(HexCoordClass.new(0, 0))
+	var target = _target(HexCoordClass.new(RANGED_RANGE_HEXES + 1, 0))  # 1 hex beyond range
 
 	var result: Dictionary = rig["use_case"].resolve(attacker, ae, target, "Strike", 1, 0)
 
@@ -168,7 +169,7 @@ func test_ranged_strike_against_target_beyond_range_is_rejected_with_no_side_eff
 
 	assert_eq(rig["event_sink"].events.size(), 0, "No AttackEvent may be emitted for a rejected out-of-range ranged Strike")
 	assert_eq(rig["history"].entries.size(), 0, "No round-history entry may be appended for a rejected ranged Strike")
-	assert_eq(target.get("hp_current", -1), 50, "Target HP must be untouched when the ranged Strike is rejected")
+	assert_eq(target.hp_current, 50, "Target HP must be untouched when the ranged Strike is rejected")
 	assert_eq(
 		ae.get_remaining(), ActionEconomyClass.MAX_BUDGET,
 		"The actor's action budget must remain UNSPENT when the ranged reach precondition rejects the Strike"
@@ -180,8 +181,8 @@ func test_ranged_strike_far_beyond_range_is_still_rejected() -> void:
 	ae.start_of_round()
 
 	var rig: Dictionary = _make_use_case([12, 4])
-	var attacker: Dictionary = _ranged_attacker(HexCoordClass.new(0, 0), 2)  # tiny 2-hex range weapon
-	var target: Dictionary = _target(HexCoordClass.new(10, 0))
+	var attacker = _ranged_attacker(HexCoordClass.new(0, 0), 2)  # tiny 2-hex range weapon
+	var target = _target(HexCoordClass.new(10, 0))
 
 	var result: Dictionary = rig["use_case"].resolve(attacker, ae, target, "Strike", 1, 0)
 
@@ -205,7 +206,7 @@ func test_shortbow_resource_range_hexes_gates_the_ranged_reach_check() -> void:
 	ae.start_of_round()
 
 	var rig: Dictionary = _make_use_case([12, 4])
-	var attacker: Dictionary = {
+	var attacker = CombatantClass.from_dict({
 		"name": "Archer", "dexterity": 3, "hex_coord": HexCoordClass.new(0, 0),
 		"weapon": {
 			"damage_modifier_attribute": shortbow.damage_modifier_attribute,
@@ -213,16 +214,16 @@ func test_shortbow_resource_range_hexes_gates_the_ranged_reach_check() -> void:
 			"damage_die": shortbow.damage_die,
 			"range_hexes": shortbow.range_hexes
 		}
-	}
+	})
 
-	var in_range_target: Dictionary = _target(HexCoordClass.new(shortbow.range_hexes, 0))
+	var in_range_target = _target(HexCoordClass.new(shortbow.range_hexes, 0))
 	var in_range_result: Dictionary = rig["use_case"].resolve(attacker, ae, in_range_target, "Strike", 1, 0)
 	assert_true(in_range_result.get("ok", false), "Target at shortbow.range_hexes must be in range")
 
 	var ae2 = ActionEconomyClass.new()
 	ae2.start_of_round()
 	var rig2: Dictionary = _make_use_case([12, 4])
-	var out_of_range_target: Dictionary = _target(HexCoordClass.new(shortbow.range_hexes + 5, 0))
+	var out_of_range_target = _target(HexCoordClass.new(shortbow.range_hexes + 5, 0))
 	var out_of_range_result: Dictionary = rig2["use_case"].resolve(attacker, ae2, out_of_range_target, "Strike", 1, 0)
 	assert_false(out_of_range_result.get("ok", true), "Target well beyond shortbow.range_hexes must be rejected")
 	assert_eq(out_of_range_result.get("error", ""), "ERR_TARGET_OUT_OF_REACH")
@@ -237,14 +238,14 @@ func test_melee_weapon_without_range_hexes_key_still_uses_adjacency_check() -> v
 	ae.start_of_round()
 
 	var rig: Dictionary = _make_use_case([12, 4])
-	var attacker: Dictionary = {
+	var attacker = CombatantClass.from_dict({
 		"name": "Attacker", "strength": 3, "hex_coord": HexCoordClass.new(0, 0),
 		"weapon": {"damage_modifier_attribute": "strength", "proficiency_bonus": 2, "damage_die": 6}
-	}
+	})
 	# hex_distance 3 -- would be in range for an 8-hex ranged weapon, but this
 	# weapon Dictionary carries no "range_hexes" key, so it must still be
 	# treated as melee and rejected as not-adjacent.
-	var target: Dictionary = _target(HexCoordClass.new(3, 0))
+	var target = _target(HexCoordClass.new(3, 0))
 
 	var result: Dictionary = rig["use_case"].resolve(attacker, ae, target, "Strike", 1, 0)
 

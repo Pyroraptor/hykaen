@@ -14,12 +14,13 @@ extends GutTest
 ##   5. decide_action() with a dead target and a living target picks the living one
 
 const AIClass = preload("res://core/combat/ai.gd")
+const CombatantClass = preload("res://core/domain/combatant.gd")
 
 
 # ── Fixture helpers ───────────────────────────────────────────────────────────
 
-func _make_enemy() -> Dictionary:
-	return {
+func _make_enemy():
+	return CombatantClass.from_dict({
 		"name": "Skeleton",
 		"hp_current": 8,
 		"ac": 12,
@@ -31,16 +32,16 @@ func _make_enemy() -> Dictionary:
 			"proficiency_bonus": 1,
 			"damage_die": 6
 		}
-	}
+	})
 
 
-func _make_target(name: String, hp: int) -> Dictionary:
-	return {
+func _make_target(name: String, hp: int):
+	return CombatantClass.from_dict({
 		"name": name,
 		"hp_current": hp,
 		"ac": 14,
 		"strength": 5
-	}
+	})
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -50,7 +51,7 @@ func _make_target(name: String, hp: int) -> Dictionary:
 
 func test_decide_action_returns_dict_with_action_type_key() -> void:
 	var ai = AIClass.new()
-	var combatant: Dictionary = _make_enemy()
+	var combatant = _make_enemy()
 	var targets: Array = [_make_target("Titus", 18)]
 
 	var result: Dictionary = await ai.decide_action(combatant, targets)
@@ -67,7 +68,7 @@ func test_decide_action_returns_dict_with_action_type_key() -> void:
 
 func test_decide_action_returns_dict_with_target_key() -> void:
 	var ai = AIClass.new()
-	var combatant: Dictionary = _make_enemy()
+	var combatant = _make_enemy()
 	var targets: Array = [_make_target("Titus", 18)]
 
 	var result: Dictionary = await ai.decide_action(combatant, targets)
@@ -85,7 +86,7 @@ func test_decide_action_returns_dict_with_target_key() -> void:
 
 func test_decide_action_returns_strike_for_living_enemy_with_valid_target() -> void:
 	var ai = AIClass.new()
-	var combatant: Dictionary = _make_enemy()
+	var combatant = _make_enemy()
 	var targets: Array = [_make_target("Titus", 18)]
 
 	var result: Dictionary = await ai.decide_action(combatant, targets)
@@ -99,15 +100,15 @@ func test_decide_action_returns_strike_for_living_enemy_with_valid_target() -> v
 
 func test_decide_action_target_matches_first_living_target() -> void:
 	var ai = AIClass.new()
-	var combatant: Dictionary = _make_enemy()
-	var titus: Dictionary = _make_target("Titus", 18)
+	var combatant = _make_enemy()
+	var titus = _make_target("Titus", 18)
 	var targets: Array = [titus]
 
 	var result: Dictionary = await ai.decide_action(combatant, targets)
 
-	var chosen: Dictionary = result.get("target", {})
+	var chosen = result.get("target")
 	assert_eq(
-		chosen.get("name", ""),
+		chosen.name,
 		"Titus",
 		"decide_action() must choose 'Titus' as the first valid target"
 	)
@@ -149,8 +150,8 @@ func test_ai_gd_does_not_extend_control() -> void:
 
 func test_decide_action_no_living_targets_returns_empty_action_type() -> void:
 	var ai = AIClass.new()
-	var combatant: Dictionary = _make_enemy()
-	var dead_target: Dictionary = _make_target("Corpse", 0)
+	var combatant = _make_enemy()
+	var dead_target = _make_target("Corpse", 0)
 	var targets: Array = [dead_target]
 
 	var result: Dictionary = await ai.decide_action(combatant, targets)
@@ -164,7 +165,7 @@ func test_decide_action_no_living_targets_returns_empty_action_type() -> void:
 
 func test_decide_action_empty_targets_array_returns_empty_action_type() -> void:
 	var ai = AIClass.new()
-	var combatant: Dictionary = _make_enemy()
+	var combatant = _make_enemy()
 
 	var result: Dictionary = await ai.decide_action(combatant, [])
 
@@ -181,9 +182,9 @@ func test_decide_action_empty_targets_array_returns_empty_action_type() -> void:
 
 func test_decide_action_skips_dead_targets() -> void:
 	var ai = AIClass.new()
-	var combatant: Dictionary = _make_enemy()
-	var dead_target: Dictionary = _make_target("Corpse", 0)
-	var living_target: Dictionary = _make_target("Titus", 18)
+	var combatant = _make_enemy()
+	var dead_target = _make_target("Corpse", 0)
+	var living_target = _make_target("Titus", 18)
 	var targets: Array = [dead_target, living_target]
 
 	var result: Dictionary = await ai.decide_action(combatant, targets)
@@ -193,9 +194,9 @@ func test_decide_action_skips_dead_targets() -> void:
 		"Strike",
 		"decide_action() must choose Strike against the living target"
 	)
-	var chosen: Dictionary = result.get("target", {})
+	var chosen = result.get("target")
 	assert_eq(
-		chosen.get("name", ""),
+		chosen.name,
 		"Titus",
 		"decide_action() must skip dead targets and pick the living one"
 	)

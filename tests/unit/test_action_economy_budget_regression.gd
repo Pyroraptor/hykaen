@@ -41,6 +41,7 @@ const RunRoundUseCaseClass         = preload("res://core/application/run_round_u
 const ResolveActionUseCaseClass    = preload("res://core/application/resolve_action_use_case.gd")
 const DetermineOutcomeUseCaseClass = preload("res://core/application/determine_outcome_use_case.gd")
 const SeededRandomAdapterClass     = preload("res://core/combat/seeded_random_adapter.gd")
+const CombatantClass               = preload("res://core/domain/combatant.gd")
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -372,21 +373,21 @@ class FakeRoundHistoryPort:
 class FakeAIDecisionPort:
 	extends "res://core/application/ai_decision_port.gd"
 
-	func decide_action(_combatant: Dictionary, _targets: Array) -> Dictionary:
-		return {"action_type": "", "target": {}}
+	func decide_action(_combatant, _targets: Array) -> Dictionary:
+		return {"action_type": "", "target": null}
 
 
-func _regression_combatant(p_name: String, p_is_enemy: bool, p_combatant_id: String) -> Dictionary:
-	return {
+func _regression_combatant(p_name: String, p_is_enemy: bool, p_combatant_id: String):
+	return CombatantClass.from_dict({
 		"name":         p_name,
 		"combatant_id": p_combatant_id,
 		"hp_current":   2000,
 		"ac":           10,
 		"_is_enemy":    p_is_enemy,
-	}
+	})
 
 
-func _regression_entry(combatant: Dictionary) -> Dictionary:
+func _regression_entry(combatant) -> Dictionary:
 	return {"combatant": combatant, "action_economy": ActionEconomyClass.new()}
 
 
@@ -409,9 +410,9 @@ func _begin_regression_round(entries: Array, party: Array, enemies: Array):
 
 
 func test_round_session_reaction_between_two_other_actors_turns_is_unaffected_by_cursor_advance() -> void:
-	var alpha:   Dictionary = _regression_combatant("Alpha",   false, "alpha")
-	var bravo:   Dictionary = _regression_combatant("Bravo",   true,  "bravo")
-	var charlie: Dictionary = _regression_combatant("Charlie", false, "charlie")
+	var alpha   = _regression_combatant("Alpha",   false, "alpha")
+	var bravo   = _regression_combatant("Bravo",   true,  "bravo")
+	var charlie = _regression_combatant("Charlie", false, "charlie")
 
 	var alpha_entry:   Dictionary = _regression_entry(alpha)
 	var bravo_entry:   Dictionary = _regression_entry(bravo)

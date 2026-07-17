@@ -298,14 +298,17 @@ func resolve_reaction(trigger: Dictionary, resolved_by: String = "player") -> Di
 ## speculatively without a null-guard, matching resolve_reaction()'s own
 ## contract.
 func resolve_opportunistic_strike_reaction(
-	reactor: Dictionary,
+	reactor,
 	context: Dictionary,
 	reactor_action_economy = null,
 	round_number: int = 0
 ) -> Dictionary:
+	# Phase C.3/C.4: `reactor` is the LIVE reactor instance (passed through from
+	# reaction_controller); read its id via display_id() rather than dict keys.
+	var reactor_id: String = reactor.display_id()
 	var trigger: Dictionary = {
-		"attacker_id":            reactor.get("combatant_id", reactor.get("name", "")),
-		"target_id":              reactor.get("combatant_id", reactor.get("name", "")),
+		"attacker_id":            reactor_id,
+		"target_id":              reactor_id,
 		"defense_type":           "ac",
 		"attack_context":         context,
 		"round_number":           round_number,
@@ -444,7 +447,9 @@ func _drive() -> void:
 	if _round_session.is_round_over():
 		round_over.emit()
 	else:
-		active_actor_changed.emit(_round_session.current_actor())
+		# Phase C.3/C.4: emit the LIVE actor instance — turn_presentation_controller
+		# configures the mutating movement controller with it (move_to() by reference).
+		active_actor_changed.emit(_round_session.current_actor_entity())
 
 
 ## _disable_strike_action_control() -> void — clears the injected

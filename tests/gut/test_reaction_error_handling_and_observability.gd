@@ -34,6 +34,7 @@ const SeededRandomAdapterClass     = preload("res://core/combat/seeded_random_ad
 const AIClass                      = preload("res://core/combat/ai.gd")
 const TurnControllerClass          = preload("res://presentation/turn_controller.gd")
 const ReactionWindowClass          = preload("res://core/application/reaction_window.gd")
+const CombatantClass               = preload("res://core/domain/combatant.gd")
 
 
 # ── Fake/double port implementations (mirrors tests/gut/
@@ -159,12 +160,12 @@ class TreeExitingReactionChooser:
 		return _choice_to_return
 
 
-func _entry(combatant: Dictionary) -> Dictionary:
+func _entry(combatant) -> Dictionary:
 	return {"combatant": combatant, "action_economy": ActionEconomyClass.new()}
 
 
-func _durable_combatant(p_name: String, p_is_enemy: bool, p_combatant_id: String = "") -> Dictionary:
-	return {
+func _durable_combatant(p_name: String, p_is_enemy: bool, p_combatant_id: String = ""):
+	return CombatantClass.from_dict({
 		"name":         p_name,
 		"combatant_id": p_combatant_id,
 		"hp_current":   2000,
@@ -178,7 +179,7 @@ func _durable_combatant(p_name: String, p_is_enemy: bool, p_combatant_id: String
 			"proficiency_bonus": 2,
 			"damage_die": 6
 		}
-	}
+	})
 
 
 ## Builds a fully-wired, REAL RunRoundUseCase plus its fake ports (mirrors
@@ -216,8 +217,8 @@ func _fresh_ae():
 	return ae
 
 
-func _sanitize_attacker() -> Dictionary:
-	return {
+func _sanitize_attacker():
+	return CombatantClass.from_dict({
 		"name":     "Attacker",
 		"strength": 0,
 		"weapon": {
@@ -225,11 +226,11 @@ func _sanitize_attacker() -> Dictionary:
 			"proficiency_bonus": 0,
 			"damage_die": 6
 		}
-	}
+	})
 
 
-func _sanitize_target() -> Dictionary:
-	return {"name": "Target", "hp_current": 50, "ac": 5, "conditions": []}
+func _sanitize_target():
+	return CombatantClass.from_dict({"name": "Target", "hp_current": 50, "ac": 5, "conditions": []})
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -238,8 +239,8 @@ func _sanitize_target() -> Dictionary:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_reaction_choice_to_active_defense_missing_choice_key_falls_back_to_none() -> void:
-	var bravo: Dictionary = _durable_combatant("Bravo", true, "bravo")
-	var alpha: Dictionary = _durable_combatant("Alpha", false, "alpha")
+	var bravo = _durable_combatant("Bravo", true, "bravo")
+	var alpha = _durable_combatant("Alpha", false, "alpha")
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
 	var rig: Dictionary = _make_session(entries, [alpha], [bravo], 42)
@@ -254,8 +255,8 @@ func test_reaction_choice_to_active_defense_missing_choice_key_falls_back_to_non
 
 
 func test_advance_ai_turn_with_resolver_missing_choice_key_falls_back_without_crash_or_hang() -> void:
-	var bravo: Dictionary = _durable_combatant("Bravo", true, "bravo")
-	var alpha: Dictionary = _durable_combatant("Alpha", false, "alpha")
+	var bravo = _durable_combatant("Bravo", true, "bravo")
+	var alpha = _durable_combatant("Alpha", false, "alpha")
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
 	var rig: Dictionary = _make_session(entries, [alpha], [bravo], 42)
@@ -300,7 +301,7 @@ func test_turn_controller_coerces_illegal_chooser_choice_to_pass_and_resume_stil
 	add_child_autofree(turn_controller)
 	turn_controller.configure_reactions(window, chooser)
 
-	var ae := _fresh_ae()
+	var ae = _fresh_ae()
 	var trigger: Dictionary = {
 		"trigger_type":           "Block",
 		"reactor":                {"name": "Reactor"},
@@ -326,7 +327,7 @@ func test_reaction_window_resume_still_rejects_an_illegal_choice_directly() -> v
 	# on top of this, never a replacement for it.
 	var sink := FakeEventSinkPort.new()
 	var window := ReactionWindowClass.new(sink)
-	var ae := _fresh_ae()
+	var ae = _fresh_ae()
 	var trigger: Dictionary = {
 		"trigger_type":           "Block",
 		"reactor":                {"name": "Reactor"},
@@ -354,13 +355,13 @@ func test_reaction_window_resume_still_rejects_an_illegal_choice_directly() -> v
 
 func test_unknown_active_defense_is_coerced_to_none_with_no_damage_corruption() -> void:
 	var rig_none: Dictionary = _make_resolve_action_use_case_rig([10, 4])
-	var target_none: Dictionary = _sanitize_target()
+	var target_none = _sanitize_target()
 	var result_none: Dictionary = rig_none["use_case"].resolve(
 		_sanitize_attacker(), _fresh_ae(), target_none, "Strike", 1, 0, "", "none", {}
 	)
 
 	var rig_bogus: Dictionary = _make_resolve_action_use_case_rig([10, 4])
-	var target_bogus: Dictionary = _sanitize_target()
+	var target_bogus = _sanitize_target()
 	var result_bogus: Dictionary = rig_bogus["use_case"].resolve(
 		_sanitize_attacker(), _fresh_ae(), target_bogus, "Strike", 1, 0, "", "definitely_not_a_real_defense", {}
 	)
@@ -378,7 +379,7 @@ func test_unknown_active_defense_is_coerced_to_none_with_no_damage_corruption() 
 	assert_eq(result_bogus["event"].crit, result_none["event"].crit, "crit outcome must be identical to the 'none' baseline")
 	assert_eq(result_bogus["event"].defense_value, result_none["event"].defense_value, "defense_value must be identical to the 'none' baseline")
 	assert_eq(
-		target_bogus.get("hp_current", 0), target_none.get("hp_current", 0),
+		target_bogus.hp_current, target_none.hp_current,
 		"target hp_current must land identically -- no damage-number corruption from the malformed active_defense"
 	)
 	assert_eq(
@@ -392,7 +393,7 @@ func test_recognized_active_defense_values_pass_through_unmodified() -> void:
 	# accepts must NOT be coerced -- only genuinely unrecognized Strings are.
 	for recognized in ["none", "dodge", "block", "parry", "steel"]:
 		var rig: Dictionary = _make_resolve_action_use_case_rig([1, 4])
-		var target: Dictionary = _sanitize_target()
+		var target = _sanitize_target()
 		var result: Dictionary = rig["use_case"].resolve(
 			_sanitize_attacker(), _fresh_ae(), target, "Strike", 1, 0, "", recognized, {}
 		)
@@ -419,7 +420,7 @@ func test_turn_controller_aborts_cleanly_when_owning_node_exits_tree_mid_await()
 	var chooser := TreeExitingReactionChooser.new(parent, turn_controller, "block")
 	turn_controller.configure_reactions(window, chooser)
 
-	var ae := _fresh_ae()
+	var ae = _fresh_ae()
 	var trigger: Dictionary = {
 		"trigger_type":           "Block",
 		"reactor":                {"name": "Reactor"},
@@ -447,8 +448,8 @@ func test_turn_controller_aborts_cleanly_when_owning_node_exits_tree_mid_await()
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_round_session_debug_trace_is_suppressed_by_default() -> void:
-	var bravo: Dictionary = _durable_combatant("Bravo", true, "bravo")
-	var alpha: Dictionary = _durable_combatant("Alpha", false, "alpha")
+	var bravo = _durable_combatant("Bravo", true, "bravo")
+	var alpha = _durable_combatant("Alpha", false, "alpha")
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
 	var rig: Dictionary = _make_session(entries, [alpha], [bravo], 42)
@@ -466,8 +467,8 @@ func test_round_session_debug_trace_is_suppressed_by_default() -> void:
 
 
 func test_round_session_debug_trace_emits_all_three_points_when_enabled() -> void:
-	var bravo: Dictionary = _durable_combatant("Bravo", true, "bravo")
-	var alpha: Dictionary = _durable_combatant("Alpha", false, "alpha")
+	var bravo = _durable_combatant("Bravo", true, "bravo")
+	var alpha = _durable_combatant("Alpha", false, "alpha")
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
 	var rig: Dictionary = _make_session(entries, [alpha], [bravo], 42)
@@ -496,7 +497,7 @@ func test_turn_controller_debug_trace_is_suppressed_by_default() -> void:
 	add_child_autofree(turn_controller)
 	turn_controller.configure_reactions(window, chooser)
 
-	var ae := _fresh_ae()
+	var ae = _fresh_ae()
 	var trigger: Dictionary = {
 		"trigger_type":           "Block",
 		"reactor":                {"name": "Reactor"},
@@ -525,7 +526,7 @@ func test_turn_controller_debug_trace_emits_reaction_resolved_line_when_enabled(
 	turn_controller.configure_reactions(window, chooser)
 	turn_controller.set_debug_trace_enabled(true)
 
-	var ae := _fresh_ae()
+	var ae = _fresh_ae()
 	var trigger: Dictionary = {
 		"trigger_type":           "Block",
 		"reactor":                {"name": "Reactor"},

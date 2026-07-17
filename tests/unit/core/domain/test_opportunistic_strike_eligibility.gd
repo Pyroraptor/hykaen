@@ -25,26 +25,27 @@ extends GutTest
 const OpportunisticStrikeEligibilityClass = preload("res://core/domain/opportunistic_strike_eligibility.gd")
 const OPPORTUNISTIC_STRIKE_ELIGIBILITY_PATH: String = "res://core/domain/opportunistic_strike_eligibility.gd"
 const HexCoord = preload("res://core/geometry/hex_coord.gd")
+const CombatantClass = preload("res://core/domain/combatant.gd")
 
 
 ## _mover() -- an enemy (Skeleton) about to Stride, starting at (0, 0).
-func _mover() -> Dictionary:
-	return {
+func _mover():
+	return CombatantClass.from_dict({
 		"name":       "Skeleton",
 		"hex_coord":  HexCoord.new(0, 0),
 		"_is_enemy":  true,
 		"weapon":     {"damage_die": 6},
-	}
+	})
 
 
 ## _melee_reactor(hex_coord) -- a hostile (player) melee-armed reactor.
-func _melee_reactor(hex_coord) -> Dictionary:
-	return {
+func _melee_reactor(hex_coord):
+	return CombatantClass.from_dict({
 		"name":       "Titus",
 		"hex_coord":  hex_coord,
 		"_is_enemy":  false,
 		"weapon":     {"damage_die": 6},
-	}
+	})
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -52,8 +53,8 @@ func _melee_reactor(hex_coord) -> Dictionary:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_eligible_when_adjacent_hostile_not_spent_and_melee_reach() -> void:
-	var mover: Dictionary = _mover()
-	var reactor: Dictionary = _melee_reactor(HexCoord.new(1, 0))  # a neighbor of (0,0)
+	var mover = _mover()
+	var reactor = _melee_reactor(HexCoord.new(1, 0))  # a neighbor of (0,0)
 
 	assert_true(
 		OpportunisticStrikeEligibilityClass.eligible(reactor, mover, mover["hex_coord"], false),
@@ -66,8 +67,8 @@ func test_eligible_when_adjacent_hostile_not_spent_and_melee_reach() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_not_eligible_when_not_adjacent() -> void:
-	var mover: Dictionary = _mover()
-	var reactor: Dictionary = _melee_reactor(HexCoord.new(5, 5))  # far away
+	var mover = _mover()
+	var reactor = _melee_reactor(HexCoord.new(5, 5))  # far away
 
 	assert_false(
 		OpportunisticStrikeEligibilityClass.eligible(reactor, mover, mover["hex_coord"], false),
@@ -76,8 +77,8 @@ func test_not_eligible_when_not_adjacent() -> void:
 
 
 func test_not_eligible_when_reactor_has_no_hex_coord() -> void:
-	var mover: Dictionary = _mover()
-	var reactor: Dictionary = {"name": "Titus", "_is_enemy": false, "weapon": {"damage_die": 6}}
+	var mover = _mover()
+	var reactor = CombatantClass.from_dict({"name": "Titus", "_is_enemy": false, "weapon": {"damage_die": 6}})
 
 	assert_false(
 		OpportunisticStrikeEligibilityClass.eligible(reactor, mover, mover["hex_coord"], false),
@@ -90,13 +91,13 @@ func test_not_eligible_when_reactor_has_no_hex_coord() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_not_eligible_when_same_faction_as_mover() -> void:
-	var mover: Dictionary = _mover()
-	var ally: Dictionary = {
+	var mover = _mover()
+	var ally = CombatantClass.from_dict({
 		"name":       "Other Skeleton",
 		"hex_coord":  HexCoord.new(1, 0),
 		"_is_enemy":  true,  # SAME faction as mover
 		"weapon":     {"damage_die": 6},
-	}
+	})
 
 	assert_false(
 		OpportunisticStrikeEligibilityClass.eligible(ally, mover, mover["hex_coord"], false),
@@ -109,8 +110,8 @@ func test_not_eligible_when_same_faction_as_mover() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_not_eligible_when_reactor_spent() -> void:
-	var mover: Dictionary = _mover()
-	var reactor: Dictionary = _melee_reactor(HexCoord.new(1, 0))
+	var mover = _mover()
+	var reactor = _melee_reactor(HexCoord.new(1, 0))
 
 	assert_false(
 		OpportunisticStrikeEligibilityClass.eligible(reactor, mover, mover["hex_coord"], true),
@@ -123,13 +124,13 @@ func test_not_eligible_when_reactor_spent() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_not_eligible_when_reactor_has_no_melee_reach() -> void:
-	var mover: Dictionary = _mover()
-	var reactor: Dictionary = {
+	var mover = _mover()
+	var reactor = CombatantClass.from_dict({
 		"name":       "Archer",
 		"hex_coord":  HexCoord.new(1, 0),
 		"_is_enemy":  false,
 		"weapon":     {"damage_die": 6, "range_hexes": 6},
-	}
+	})
 
 	assert_false(
 		OpportunisticStrikeEligibilityClass.eligible(reactor, mover, mover["hex_coord"], false),
@@ -138,10 +139,10 @@ func test_not_eligible_when_reactor_has_no_melee_reach() -> void:
 
 
 func test_eligible_for_every_one_of_the_six_flat_top_neighbors() -> void:
-	var mover: Dictionary = _mover()
+	var mover = _mover()
 	var mover_hex = mover["hex_coord"]
 	for neighbor in _six_neighbors_of(mover_hex):
-		var reactor: Dictionary = _melee_reactor(neighbor)
+		var reactor = _melee_reactor(neighbor)
 		assert_true(
 			OpportunisticStrikeEligibilityClass.eligible(reactor, mover, mover_hex, false),
 			"every one of the mover's 6 flat-top axial neighbors must count as adjacent"

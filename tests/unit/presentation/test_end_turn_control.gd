@@ -36,6 +36,7 @@ const DetermineOutcomeUseCaseClass = preload("res://core/application/determine_o
 const ActionEconomyClass           = preload("res://core/rules/action_economy.gd")
 const SeededRandomAdapterClass     = preload("res://core/combat/seeded_random_adapter.gd")
 const TurnControllerClass          = preload("res://presentation/turn_controller.gd")
+const CombatantClass               = preload("res://core/domain/combatant.gd")
 
 
 class FakeTurnOrderPort:
@@ -79,17 +80,17 @@ class FakeRoundHistoryPort:
 class FakeAIDecisionPort:
 	extends "res://core/application/ai_decision_port.gd"
 
-	func decide_action(_combatant: Dictionary, targets: Array) -> Dictionary:
+	func decide_action(_combatant, targets: Array) -> Dictionary:
 		for t in targets:
-			if t.get("hp_current", 0) > 0:
+			if t.hp_current > 0:
 				return {"action_type": "Strike", "target": t}
-		return {"action_type": "", "target": {}}
+		return {"action_type": "", "target": null}
 
 
 # ── Shared fixture helpers ─────────────────────────────────────────────────
 
-func _durable_combatant(p_name: String, p_is_enemy: bool, p_combatant_id: String = "") -> Dictionary:
-	return {
+func _durable_combatant(p_name: String, p_is_enemy: bool, p_combatant_id: String = ""):
+	return CombatantClass.from_dict({
 		"name":         p_name,
 		"combatant_id": p_combatant_id,
 		"hp_current":   2000,
@@ -103,10 +104,10 @@ func _durable_combatant(p_name: String, p_is_enemy: bool, p_combatant_id: String
 			"proficiency_bonus": 2,
 			"damage_die": 6
 		}
-	}
+	})
 
 
-func _entry(combatant: Dictionary) -> Dictionary:
+func _entry(combatant) -> Dictionary:
 	return {"combatant": combatant, "action_economy": ActionEconomyClass.new()}
 
 
@@ -148,8 +149,8 @@ func before_each() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_enabled_for_active_player_combatant_when_no_action_spent() -> void:
-	var alpha: Dictionary = _durable_combatant("Alpha", false)
-	var bravo: Dictionary = _durable_combatant("Bravo", true)
+	var alpha = _durable_combatant("Alpha", false)
+	var bravo = _durable_combatant("Bravo", true)
 	var entries: Array = [_entry(alpha), _entry(bravo)]
 
 	var rig: Dictionary = _make_session(entries, [alpha], [bravo], 1)
@@ -159,8 +160,8 @@ func test_enabled_for_active_player_combatant_when_no_action_spent() -> void:
 
 
 func test_enabled_for_active_player_combatant_after_an_action_was_spent() -> void:
-	var alpha: Dictionary = _durable_combatant("Alpha", false)
-	var bravo: Dictionary = _durable_combatant("Bravo", true)
+	var alpha = _durable_combatant("Alpha", false)
+	var bravo = _durable_combatant("Bravo", true)
 	var entries: Array = [_entry(alpha), _entry(bravo)]
 
 	var rig: Dictionary = _make_session(entries, [alpha], [bravo], 1)
@@ -172,8 +173,8 @@ func test_enabled_for_active_player_combatant_after_an_action_was_spent() -> voi
 
 
 func test_disabled_when_current_actor_is_enemy() -> void:
-	var bravo: Dictionary = _durable_combatant("Bravo", true)
-	var alpha: Dictionary = _durable_combatant("Alpha", false)
+	var bravo = _durable_combatant("Bravo", true)
+	var alpha = _durable_combatant("Alpha", false)
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
 	var rig: Dictionary = _make_session(entries, [alpha], [bravo], 1)
@@ -187,7 +188,7 @@ func test_disabled_when_no_session_configured() -> void:
 
 
 func test_disabled_once_round_is_over() -> void:
-	var alpha: Dictionary = _durable_combatant("Alpha", false)
+	var alpha = _durable_combatant("Alpha", false)
 	var entries: Array = [_entry(alpha)]
 
 	var rig: Dictionary = _make_session(entries, [alpha], [], 1)
@@ -205,8 +206,8 @@ func test_disabled_once_round_is_over() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_press_forwards_to_end_current_turn_and_emits_turn_ended() -> void:
-	var alpha: Dictionary = _durable_combatant("Alpha", false)
-	var bravo: Dictionary = _durable_combatant("Bravo", true)
+	var alpha = _durable_combatant("Alpha", false)
+	var bravo = _durable_combatant("Bravo", true)
 	var entries: Array = [_entry(alpha), _entry(bravo)]
 
 	var rig: Dictionary = _make_session(entries, [alpha], [bravo], 1)
@@ -231,8 +232,8 @@ func test_press_without_a_configured_session_is_a_no_op() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_turn_controller_auto_drives_leading_enemy_turn_via_advance_ai_turn() -> void:
-	var goblin: Dictionary = _durable_combatant("Goblin", true, "goblin")
-	var titus: Dictionary  = _durable_combatant("Titus", false, "titus")
+	var goblin = _durable_combatant("Goblin", true, "goblin")
+	var titus = _durable_combatant("Titus", false, "titus")
 	var entries: Array = [_entry(goblin), _entry(titus)]
 
 	var rig: Dictionary = _make_session(entries, [titus], [goblin], 3)
@@ -256,9 +257,9 @@ func test_turn_controller_auto_drives_leading_enemy_turn_via_advance_ai_turn() -
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_pressing_end_turn_drives_real_session_and_advances_initiative_view_highlight() -> void:
-	var titus: Dictionary    = _durable_combatant("Titus", false, "titus")
-	var marigold: Dictionary = _durable_combatant("Marigold", false, "marigold")
-	var goblin: Dictionary   = _durable_combatant("Goblin", true, "goblin")
+	var titus = _durable_combatant("Titus", false, "titus")
+	var marigold = _durable_combatant("Marigold", false, "marigold")
+	var goblin = _durable_combatant("Goblin", true, "goblin")
 	var entries: Array = [_entry(titus), _entry(marigold), _entry(goblin)]
 
 	var rig: Dictionary = _make_session(entries, [titus, marigold], [goblin], 11)

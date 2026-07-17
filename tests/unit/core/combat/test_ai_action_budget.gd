@@ -33,6 +33,7 @@ const RunRoundUseCaseClass         = preload("res://core/application/run_round_u
 const ResolveActionUseCaseClass    = preload("res://core/application/resolve_action_use_case.gd")
 const DetermineOutcomeUseCaseClass = preload("res://core/application/determine_outcome_use_case.gd")
 const SeededRandomAdapterClass     = preload("res://core/combat/seeded_random_adapter.gd")
+const CombatantClass               = preload("res://core/domain/combatant.gd")
 
 
 # ── Fake/double port implementations (mirrors tests/unit/core/application/test_round_session_ai_turn.gd) ──
@@ -87,8 +88,8 @@ class ScriptedRandomNumberPort:
 
 # ── Shared fixture helpers ─────────────────────────────────────────────────
 
-func _melee_combatant(hex_coord) -> Dictionary:
-	return {
+func _melee_combatant(hex_coord):
+	return CombatantClass.from_dict({
 		"name":        "Skeleton",
 		"hp_current":  8,
 		"ac":          12,
@@ -99,14 +100,14 @@ func _melee_combatant(hex_coord) -> Dictionary:
 			"proficiency_bonus": 1,
 			"damage_die": 6
 		}
-	}
+	})
 
 
-func _target(name: String, hex_coord, hp: int = 18) -> Dictionary:
-	return {"name": name, "hp_current": hp, "ac": 14, "strength": 5, "hex_coord": hex_coord}
+func _target(name: String, hex_coord, hp: int = 18):
+	return CombatantClass.from_dict({"name": name, "hp_current": hp, "ac": 14, "strength": 5, "hex_coord": hex_coord})
 
 
-func _entry(combatant: Dictionary) -> Dictionary:
+func _entry(combatant) -> Dictionary:
 	return {"combatant": combatant, "action_economy": ActionEconomyClass.new()}
 
 
@@ -137,11 +138,11 @@ func _make_use_case(entries: Array, random_number_port) -> Dictionary:
 
 func test_ai_never_issues_a_second_stride_within_the_same_turn() -> void:
 	var ai = AIClass.new()
-	var combatant: Dictionary = _melee_combatant(HexCoordClass.new(0, 0))
+	var combatant = _melee_combatant(HexCoordClass.new(0, 0))
 	# Far enough that a single Speed-4 Stride cannot close it into reach --
 	# mirrors tests/unit/core/combat/test_ai_stride_then_strike.gd's own
 	# "does not close into reach" guard fixture.
-	var target: Dictionary = _target("Titus", HexCoordClass.new(9, 0))
+	var target = _target("Titus", HexCoordClass.new(9, 0))
 	var action_economy = ActionEconomyClass.new()
 	action_economy.start_of_turn()
 
@@ -178,8 +179,8 @@ func test_ai_does_not_stride_when_a_step_already_used_the_movement_gate_this_tur
 	# domain path sharing the SAME ActionEconomy) must not then Stride
 	# either, even though its action budget is untouched.
 	var ai = AIClass.new()
-	var combatant: Dictionary = _melee_combatant(HexCoordClass.new(0, 0))
-	var target: Dictionary = _target("Titus", HexCoordClass.new(9, 0))
+	var combatant = _melee_combatant(HexCoordClass.new(0, 0))
+	var target = _target("Titus", HexCoordClass.new(9, 0))
 	var action_economy = ActionEconomyClass.new()
 	action_economy.start_of_turn()
 
@@ -202,11 +203,11 @@ func test_ai_does_not_stride_when_a_step_already_used_the_movement_gate_this_tur
 
 func test_ai_never_exceeds_its_action_budget_across_multiple_simulated_turns() -> void:
 	var ai = AIClass.new()
-	var combatant: Dictionary = _melee_combatant(HexCoordClass.new(0, 0))
+	var combatant = _melee_combatant(HexCoordClass.new(0, 0))
 	# A target far enough away that it can never be closed into reach no
 	# matter how many Strides accumulate -- every simulated turn attempts
 	# (and, while budget/gate allow, succeeds at) exactly one Stride.
-	var target: Dictionary = _target("Titus", HexCoordClass.new(100, 0))
+	var target = _target("Titus", HexCoordClass.new(100, 0))
 	var action_economy = ActionEconomyClass.new()
 	action_economy.start_of_round()
 
@@ -250,10 +251,10 @@ func test_ai_never_exceeds_its_action_budget_across_multiple_simulated_turns() -
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_round_session_advance_ai_turn_executes_stride_but_defers_strike_to_next_turn() -> void:
-	var goblin: Dictionary = _melee_combatant(HexCoordClass.new(0, 0))
-	goblin["_is_enemy"] = true
-	var titus: Dictionary  = _target("Titus", HexCoordClass.new(4, 0), 200)
-	titus["_is_enemy"] = false
+	var goblin = _melee_combatant(HexCoordClass.new(0, 0))
+	goblin.is_enemy = true
+	var titus = _target("Titus", HexCoordClass.new(4, 0), 200)
+	titus.is_enemy = false
 	var entries: Array = [_entry(goblin), _entry(titus)]
 
 	# raw=12 -> roll_total = 12 + strength(2) + proficiency(1) = 15 vs ac=14 -> hit,
@@ -287,7 +288,7 @@ func test_round_session_advance_ai_turn_executes_stride_but_defers_strike_to_nex
 		goblin_action_economy.get_remaining(), budget_before - 1,
 		"exactly one action must be spent this turn -- the Stride (core/rules/movement.gd); the Strike attempt must not decrement the budget further"
 	)
-	assert_eq(titus.get("hp_current", 0), 200, "the target must be undamaged -- the Strike attempt must not resolve in the same turn as the Stride")
+	assert_eq(titus.hp_current, 200, "the target must be undamaged -- the Strike attempt must not resolve in the same turn as the Stride")
 	assert_eq(session.current_actor().get("name", ""), "Titus", "advance_ai_turn() must still advance the cursor after the composite decision")
 
 
