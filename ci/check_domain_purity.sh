@@ -14,6 +14,17 @@
 # catches an injected violation) so it can be wired in as its own named,
 # blocking stage (see ci/pipeline.yml's domain_purity_check stage).
 #
+# FEAT-001 (US-001) extends this gate's coverage to the new
+# core/domain/effect*.gd Effect value-object family (Effect base +
+# EffectKind + DamageEffect/HealEffect/ConditionEffect/MoveEffect/
+# AddEnergyEffect) — no change to this script's logic was required: it
+# already recursively scans every *.gd file under target_dir (default
+# "core"), so a new file dropped under core/domain/ is covered
+# automatically. See tests/unit/test_effect_value_objects.gd's
+# test_domain_purity_check_passes_scoped_to_core_domain() for the
+# regression proof this gate actually covers the new module, and
+# tests/ci/test_static_checks.gd for this script's own general coverage.
+#
 # Usage:
 #   ci/check_domain_purity.sh [target_dir]
 #

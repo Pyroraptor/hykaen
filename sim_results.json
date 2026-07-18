@@ -1,9 +1,9 @@
 {
 	"avg_rounds": 1.068,
-	"commit_hash": "81628dda107aa8adeecb04b10d3a20a4ea6ac4d9",
+	"commit_hash": "8b4d7882229e7fd11410552a169f31e867caaab7",
 	"confidence_interval": 0.0287162408681916,
 	"seed": 12345,
-	"timestamp": "2026-07-18 15:47:42",
+	"timestamp": "2026-07-18 16:24:14",
 	"total_battles": 1000,
 	"win_rate": 0.688
 }
