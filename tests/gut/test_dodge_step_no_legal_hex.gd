@@ -101,8 +101,8 @@ func test_successful_dodge_with_zero_legal_hexes_negates_damage_never_prompts_an
 	var defender: Dictionary = instance.round_session.current_actor()
 	assert_eq(defender.get("name", ""), "Titus", "fixture: Titus (the real player combatant) must be the current actor at boot")
 
-	var attacker: Dictionary = instance._enemies[0]
-	var attacker_weapon: Dictionary = attacker.get("weapon", {})
+	var attacker = instance._enemies[0]
+	var attacker_weapon = attacker.weapon
 	assert_false(attacker_weapon.is_empty(), "fixture assumption: the real enemy combatant must carry a weapon Dictionary")
 
 	# ── Criterion 1: force a genuinely successful Dodge (mobility check beats

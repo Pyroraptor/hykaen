@@ -304,7 +304,7 @@ func test_turn_controller_coerces_illegal_chooser_choice_to_pass_and_resume_stil
 	var ae = _fresh_ae()
 	var trigger: Dictionary = {
 		"trigger_type":           "Block",
-		"reactor":                {"name": "Reactor"},
+		"reactor":                CombatantClass.from_dict({"name": "Reactor"}),
 		"reactor_action_economy": ae,
 		"weapon":                 {"block_value": 3, "damage_die": 8, "parry_bonus": 0},
 		"defense_type":           "ac",
@@ -330,7 +330,7 @@ func test_reaction_window_resume_still_rejects_an_illegal_choice_directly() -> v
 	var ae = _fresh_ae()
 	var trigger: Dictionary = {
 		"trigger_type":           "Block",
-		"reactor":                {"name": "Reactor"},
+		"reactor":                CombatantClass.from_dict({"name": "Reactor"}),
 		"reactor_action_economy": ae,
 		"weapon":                 {"block_value": 3, "damage_die": 8, "parry_bonus": 0},
 		"defense_type":           "ac",
@@ -423,7 +423,7 @@ func test_turn_controller_aborts_cleanly_when_owning_node_exits_tree_mid_await()
 	var ae = _fresh_ae()
 	var trigger: Dictionary = {
 		"trigger_type":           "Block",
-		"reactor":                {"name": "Reactor"},
+		"reactor":                CombatantClass.from_dict({"name": "Reactor"}),
 		"reactor_action_economy": ae,
 		"weapon":                 {"block_value": 3, "damage_die": 8, "parry_bonus": 0},
 		"defense_type":           "ac",
@@ -500,7 +500,7 @@ func test_turn_controller_debug_trace_is_suppressed_by_default() -> void:
 	var ae = _fresh_ae()
 	var trigger: Dictionary = {
 		"trigger_type":           "Block",
-		"reactor":                {"name": "Reactor"},
+		"reactor":                CombatantClass.from_dict({"name": "Reactor"}),
 		"reactor_action_economy": ae,
 		"weapon":                 {"block_value": 3, "damage_die": 8, "parry_bonus": 0},
 		"defense_type":           "ac",
@@ -529,7 +529,7 @@ func test_turn_controller_debug_trace_emits_reaction_resolved_line_when_enabled(
 	var ae = _fresh_ae()
 	var trigger: Dictionary = {
 		"trigger_type":           "Block",
-		"reactor":                {"name": "Reactor"},
+		"reactor":                CombatantClass.from_dict({"name": "Reactor"}),
 		"reactor_action_economy": ae,
 		"weapon":                 {"block_value": 3, "damage_die": 8, "parry_bonus": 0},
 		"defense_type":           "ac",

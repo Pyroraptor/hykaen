@@ -106,6 +106,7 @@ const RoundEventsClass = preload("res://core/rules/round_events.gd")
 const AIClass           = preload("res://core/combat/ai.gd")
 const HexCoordClass     = preload("res://core/geometry/hex_coord.gd")
 const HexMathClass      = preload("res://core/geometry/hex_math.gd")
+const CombatantClass    = preload("res://core/domain/combatant.gd")
 
 ## PROLOGUE_SEED — this project's established known-good fixture seed:
 ## Titus acts first and the sole enemy (Skeleton) starts adjacent to him
@@ -144,8 +145,8 @@ func _boot_main_scene():
 	return instance
 
 
-func _id(combatant: Dictionary) -> String:
-	return combatant.get("combatant_id", combatant.get("name", ""))
+func _id(combatant) -> String:
+	return combatant.combatant_id
 
 
 func _hex_tuple(hex_coord) -> Array:
@@ -168,17 +169,17 @@ func test_enemy_mover_lethal_opportunistic_strike_cancels_stride_via_real_ai_dec
 		"fixture assumption: Titus (the player) acts first at seed=%d" % PROLOGUE_SEED
 	)
 
-	var titus: Dictionary = instance._party[0]
-	var skeleton: Dictionary = instance._enemies[0]
+	var titus = instance._party[0]
+	var skeleton = instance._enemies[0]
 	var titus_id: String = _id(titus)
 	var skeleton_id: String = _id(skeleton)
 
-	var mover_start_hex = skeleton.get("hex_coord", null)
+	var mover_start_hex = skeleton.hex_coord
 	assert_not_null(mover_start_hex, "fixture assumption: the Skeleton carries a hex_coord before its Stride")
 
 	var is_titus_adjacent_at_boot: bool = false
 	for neighbor in HexMathClass.hex_neighbors(mover_start_hex):
-		if neighbor.equals(titus.get("hex_coord")):
+		if neighbor.equals(titus.hex_coord):
 			is_titus_adjacent_at_boot = true
 			break
 	assert_true(is_titus_adjacent_at_boot, "fixture assumption: Titus starts adjacent to the Skeleton's own hex at the PROLOGUE_SEED fixture's boot position -- no repositioning is needed for eligibility")
@@ -210,13 +211,13 @@ func test_enemy_mover_lethal_opportunistic_strike_cancels_stride_via_real_ai_dec
 	# tests/integration/test_ai_decide_action_opportunistic_strike_trigger.gd
 	# (FEAT-233) and tests/e2e/test_reactions_fully_live.gd (FEAT-234)
 	# already establish and justify at length in their own header docs.
-	var decoy_target: Dictionary = {
+	var decoy_target = CombatantClass.from_dict({
 		"name": "Lethal Test Decoy Target",
 		"combatant_id": "lethal_test_decoy_target",
 		"hp_current": 20, "hp_max": 20, "ac": 14,
 		"hex_coord": HexCoordClass.new(mover_start_hex.q + DECOY_TARGET_DISTANCE, mover_start_hex.r),
 		"_is_enemy": false,
-	}
+	})
 
 	var displayed_options_when_opened: Array = []
 	var press_opportunistic_strike := func():
@@ -238,11 +239,11 @@ func test_enemy_mover_lethal_opportunistic_strike_cancels_stride_via_real_ai_dec
 	var real_stride_resolver := Callable(instance, "_resolve_enemy_stride_opportunistic_window")
 	var _capture: Dictionary = {"result": {}, "mover_hex_immediately_after_reaction": [], "mover_hp_immediately_after_reaction": -1}
 
-	var observed_stride_resolver := func(mover: Dictionary, mover_start, candidate_reactors: Array):
+	var observed_stride_resolver := func(mover, mover_start, candidate_reactors: Array):
 		var result: Dictionary = await real_stride_resolver.call(mover, mover_start, candidate_reactors)
 		_capture["result"] = result
-		_capture["mover_hex_immediately_after_reaction"] = _hex_tuple(mover.get("hex_coord", mover_start))
-		_capture["mover_hp_immediately_after_reaction"] = mover.get("hp_current", -1)
+		_capture["mover_hex_immediately_after_reaction"] = _hex_tuple(mover.hex_coord)
+		_capture["mover_hp_immediately_after_reaction"] = mover.hp_current
 		return result
 
 	var ai_instance = AIClass.new()
@@ -296,14 +297,14 @@ func test_enemy_mover_lethal_opportunistic_strike_cancels_stride_via_real_ai_dec
 	# ── Criterion: the mover's real hex_coord/on-screen token are UNCHANGED
 	# from its start hex -- core/rules/movement.gd's Movement.stride() was
 	# never reached. ───────────────────────────────────────────────────────
-	assert_true(skeleton.get("hex_coord").equals(mover_start_hex), "the Skeleton's live hex_coord must remain at its start hex -- Movement.stride() must never have been called once the mover was downed")
+	assert_true(skeleton.hex_coord.equals(mover_start_hex), "the Skeleton's live hex_coord must remain at its start hex -- Movement.stride() must never have been called once the mover was downed")
 	var skeleton_token = instance.hex_grid_view.get_token(skeleton_id)
 	assert_not_null(skeleton_token, "the real HexGridView must still carry a token for the Skeleton after the cancelled Stride")
 	assert_true(skeleton_token.hex_coord.equals(mover_start_hex), "the Skeleton's on-screen token must remain at its start hex -- no token reposition was ever driven for a cancelled Stride")
 
 	# ── The mover's hp_current still reflects the lethal damage at the end
 	# of the whole choreography, not merely transiently. ──────────────────
-	assert_true(skeleton.get("hp_current", 1) <= 0, "the Skeleton's hp_current must still reflect the lethal Opportunistic Strike's real damage")
+	assert_true(skeleton.hp_current <= 0, "the Skeleton's hp_current must still reflect the lethal Opportunistic Strike's real damage")
 
 	# ── Titus (the reactor) paid via spend_reaction(), never a second
 	# spend_action() -- the SAME live ActionEconomy instance every other
@@ -339,12 +340,12 @@ func test_player_mover_lethal_opportunistic_strike_cancels_stride_via_real_mains
 	)
 
 	assert_true(instance._enemies.size() > 0, "fixture assumption: the prologue encounter has at least one enemy")
-	var titus: Dictionary = instance._party[0]
-	var skeleton: Dictionary = instance._enemies[0]
+	var titus = instance._party[0]
+	var skeleton = instance._enemies[0]
 	var titus_id: String = _id(titus)
 
-	var titus_start_hex = titus.get("hex_coord", null)
-	var skeleton_hex = skeleton.get("hex_coord", null)
+	var titus_start_hex = titus.hex_coord
+	var skeleton_hex = skeleton.hex_coord
 	assert_not_null(titus_start_hex, "fixture assumption: Titus carries a hex_coord before Striding")
 	assert_not_null(skeleton_hex, "fixture assumption: the Skeleton carries a hex_coord")
 
@@ -400,13 +401,13 @@ func test_player_mover_lethal_opportunistic_strike_cancels_stride_via_real_mains
 	# ── Criterion: the mover's real hex_coord/on-screen token are UNCHANGED
 	# from its start hex -- movement_input_controller.stride_to() was never
 	# reached (StrideActionController's own execute() returns early). ──────
-	assert_true(titus.get("hex_coord").equals(titus_start_hex), "Titus's live hex_coord must remain at his start hex -- movement_input_controller.stride_to() must never have been called once he was downed")
+	assert_true(titus.hex_coord.equals(titus_start_hex), "Titus's live hex_coord must remain at his start hex -- movement_input_controller.stride_to() must never have been called once he was downed")
 	var titus_token = instance.hex_grid_view.get_token(titus_id)
 	assert_not_null(titus_token, "the real HexGridView must still carry a token for Titus after the cancelled Stride")
 	assert_true(titus_token.hex_coord.equals(titus_start_hex), "Titus's on-screen token must remain at his start hex -- no token reposition was ever driven for a cancelled Stride")
 
 	# ── Criterion: the mover's hp_current reflects the lethal damage. ─────
-	assert_true(titus.get("hp_current", 1) <= 0, "Titus's hp_current must reflect the Skeleton's real, lethal Opportunistic Strike damage")
+	assert_true(titus.hp_current <= 0, "Titus's hp_current must reflect the Skeleton's real, lethal Opportunistic Strike damage")
 
 	# ── The Skeleton (the reactor) paid via spend_reaction(), never a
 	# second spend_action(). ───────────────────────────────────────────────
@@ -426,4 +427,4 @@ func test_player_mover_lethal_opportunistic_strike_cancels_stride_via_real_mains
 	# Sanity check: the Skeleton (the reactor) never moved -- only Titus (the
 	# mover) attempted to Stride in this scenario, and that Stride was
 	# cancelled.
-	assert_true(skeleton.get("hex_coord").equals(skeleton_hex), "the Skeleton (the reactor) must remain at its own hex")
+	assert_true(skeleton.hex_coord.equals(skeleton_hex), "the Skeleton (the reactor) must remain at its own hex")

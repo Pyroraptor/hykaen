@@ -48,7 +48,7 @@ func _boot_main_scene_with_seed(seed_value: int):
 func _far_unoccupied_hex(instance):
 	var occupied: Dictionary = {}
 	for combatant in instance._party + instance._enemies:
-		var hex_coord = combatant.get("hex_coord", null)
+		var hex_coord = combatant.hex_coord
 		if hex_coord != null:
 			occupied["%d,%d" % [hex_coord.q, hex_coord.r]] = true
 

@@ -315,7 +315,7 @@ func resolve_opportunistic_strike_reaction(
 		"reactor_action_economy": reactor_action_economy,
 		"trigger_type":           "OpportunisticStrike",
 		"reactor":                reactor,
-		"weapon":                 reactor.get("weapon", {}),
+		"weapon":                 reactor.weapon,
 	}
 	return await resolve_reaction(trigger, "player")
 

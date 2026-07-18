@@ -70,11 +70,11 @@ func _boot_main_scene_with_seed(seed_value: int):
 ## Dictionaries core/rules/movement.gd Movement.stride() mutates in place),
 ## mirroring tests/gut/test_step_layer2_integration.gd's identically-named
 ## helper.
-func _find_combatant_by_id(instance, combatant_id: String) -> Dictionary:
+func _find_combatant_by_id(instance, combatant_id: String):
 	for combatant in instance._party + instance._enemies:
-		if combatant.get("combatant_id", "") == combatant_id:
+		if combatant.combatant_id == combatant_id:
 			return combatant
-	return {}
+	return null
 
 
 ## _occupied_hexes(instance) -> Dictionary -- "q,r" -> true set of every
@@ -83,9 +83,9 @@ func _find_combatant_by_id(instance, combatant_id: String) -> Dictionary:
 func _occupied_hexes(instance) -> Dictionary:
 	var occupied: Dictionary = {}
 	for combatant in instance._party + instance._enemies:
-		if combatant.get("hp_current", 1) <= 0:
+		if combatant.hp_current <= 0:
 			continue
-		var hex_coord = combatant.get("hex_coord", null)
+		var hex_coord = combatant.hex_coord
 		if hex_coord != null:
 			occupied["%d,%d" % [hex_coord.q, hex_coord.r]] = true
 	return occupied
@@ -217,10 +217,10 @@ func test_clicking_a_highlighted_destination_moves_the_token_and_spends_one_acti
 
 	assert_false(instance.selection_overlay.is_active(), "SelectionOverlay must return to Layer 1 once the click resolves a real Stride")
 
-	var moved_combatant: Dictionary = _find_combatant_by_id(instance, actor_id)
-	assert_false(moved_combatant.is_empty(), "fixture assumption: the moved actor must be one of MainScene's live combatant Dictionaries")
+	var moved_combatant = _find_combatant_by_id(instance, actor_id)
+	assert_false(moved_combatant == null, "fixture assumption: the moved actor must be one of MainScene's live combatant Dictionaries")
 	assert_true(
-		moved_combatant.get("hex_coord").equals(destination),
+		moved_combatant.hex_coord.equals(destination),
 		"Combatant.position (the live combatant Dictionary's hex_coord) must move to the EXACT clicked axial coordinate via move_token()/stride_to()"
 	)
 
@@ -288,8 +288,8 @@ func test_a_hex_beyond_speed_is_never_offered_as_a_candidate_and_a_click_there_p
 
 	assert_true(instance.selection_overlay.is_active(), "Stride's Layer 2 selection must remain active after a rejected, beyond-Speed click (no accidental cancel)")
 
-	var unmoved_combatant: Dictionary = _find_combatant_by_id(instance, actor_id)
-	assert_true(unmoved_combatant.get("hex_coord").equals(actor_hex), "a beyond-Speed click must not move the actor at all")
+	var unmoved_combatant = _find_combatant_by_id(instance, actor_id)
+	assert_true(unmoved_combatant.hex_coord.equals(actor_hex), "a beyond-Speed click must not move the actor at all")
 
 	assert_eq(
 		action_economy.get_remaining(), before_remaining,

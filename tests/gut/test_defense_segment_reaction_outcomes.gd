@@ -184,8 +184,8 @@ func test_successful_dodge_through_advance_ai_turn_relocates_defender_via_live_w
 	await get_tree().process_frame
 
 	var titus = instance._party[0]
-	var titus_id: String = titus.get("combatant_id", titus.get("name", ""))
-	var original_hex = titus.get("hex_coord", null)
+	var titus_id: String = titus.combatant_id
+	var original_hex = titus.hex_coord
 	assert_not_null(original_hex, "fixture: Titus must carry a hex_coord at boot")
 
 	# Pick a REAL legal Step destination and script the player's hex pick to it,
@@ -200,7 +200,7 @@ func test_successful_dodge_through_advance_ai_turn_relocates_defender_via_live_w
 	_resolve_one_real_enemy_strike(instance, "dodge", "none")
 
 	assert_true(
-		titus.get("hex_coord", null).equals(chosen_hex),
+		titus.hex_coord.equals(chosen_hex),
 		"a successful Dodge resolved through advance_ai_turn()'s LIVE coroutine must relocate Titus to the player-picked hex — the wiring that was dead in play until round_session.advance_ai_turn() invoked _resolve_dodge_step_prompt()"
 	)
 

@@ -51,11 +51,11 @@ func _boot_main_scene(seed_value: int = PINNED_SEED):
 ## Dictionaries core/rules/movement.gd Movement.step()/stride() mutate in
 ## place), mirroring the identically-named helper already established by
 ## tests/integration/test_movement_affordance_integration.gd.
-func _find_combatant_by_id(instance, combatant_id: String) -> Dictionary:
+func _find_combatant_by_id(instance, combatant_id: String):
 	for combatant in instance._party + instance._enemies:
-		if combatant.get("combatant_id", "") == combatant_id:
+		if combatant.combatant_id == combatant_id:
 			return combatant
-	return {}
+	return null
 
 
 ## _assert_token_matches_combatant_position(instance, actor_id, context) ->
@@ -63,9 +63,9 @@ func _find_combatant_by_id(instance, combatant_id: String) -> Dictionary:
 ## KEPT HexGridView's token hex_coord/rendered pixel position both equal
 ## Combatant.position (the live combatant Dictionary's hex_coord).
 func _assert_token_matches_combatant_position(instance, actor_id: String, context: String) -> void:
-	var combatant: Dictionary = _find_combatant_by_id(instance, actor_id)
-	assert_false(combatant.is_empty(), "%s: fixture assumption -- the moved actor must be one of MainScene's live combatant Dictionaries" % context)
-	if combatant.is_empty():
+	var combatant = _find_combatant_by_id(instance, actor_id)
+	assert_false(combatant == null, "%s: fixture assumption -- the moved actor must be one of MainScene's live combatant Dictionaries" % context)
+	if combatant == null:
 		return
 
 	var token = instance.hex_grid_view.get_token(actor_id)
@@ -74,11 +74,11 @@ func _assert_token_matches_combatant_position(instance, actor_id: String, contex
 		return
 
 	assert_true(
-		token.hex_coord.equals(combatant.get("hex_coord")),
+		token.hex_coord.equals(combatant.hex_coord),
 		"%s: HexGridView token's hex_coord must match Combatant.position (the live combatant Dictionary's hex_coord)" % context
 	)
 	assert_eq(
-		token.position, instance.hex_grid_view.axial_to_pixel_with_offset(combatant.get("hex_coord")),
+		token.position, instance.hex_grid_view.axial_to_pixel_with_offset(combatant.hex_coord),
 		(
 			"%s: HexGridView token's rendered pixel position must match axial_to_pixel(Combatant.position), honoring the "
 			+ "composition root's FEAT-002 viewport-centering origin offset"
@@ -112,9 +112,9 @@ func test_hex_grid_view_token_resyncs_to_combatant_position_after_step() -> void
 	var step_result: Dictionary = instance._verb_registry.execute("STEP", destination)
 	assert_true(step_result.get("ok", false), "executing STEP against the selected destination must resolve a real Step")
 
-	var moved: Dictionary = _find_combatant_by_id(instance, actor_id)
+	var moved = _find_combatant_by_id(instance, actor_id)
 	assert_true(
-		moved.get("hex_coord").equals(destination),
+		moved.hex_coord.equals(destination),
 		"Combatant.position must change to the selected legal Step hex via movement_input_controller.step_to()"
 	)
 
@@ -172,9 +172,9 @@ func test_hex_grid_view_token_resyncs_to_combatant_position_after_stride() -> vo
 	var stride_result: Dictionary = instance._verb_registry.execute("STRIDE", stride_only_destination)
 	assert_true(stride_result.get("ok", false), "executing STRIDE against the selected destination must resolve a real Stride")
 
-	var moved: Dictionary = _find_combatant_by_id(instance, actor_id)
+	var moved = _find_combatant_by_id(instance, actor_id)
 	assert_true(
-		moved.get("hex_coord").equals(stride_only_destination),
+		moved.hex_coord.equals(stride_only_destination),
 		"Combatant.position must change to the selected legal Stride hex via movement_input_controller.stride_to()"
 	)
 

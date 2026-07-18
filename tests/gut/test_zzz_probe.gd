@@ -30,7 +30,7 @@ func test_probe_real_depletion(seed_value = use_parameters([959, 13269])) -> voi
 	var actor_id: String = instance.round_session.current_actor().get("combatant_id", "")
 	var enemy_id: String = ""
 	for e in instance._enemies:
-		enemy_id = e.get("combatant_id", e.get("name", ""))
+		enemy_id = e.combatant_id
 		break
 
 	var action_economy = instance.round_session.current_action_economy()
@@ -60,8 +60,8 @@ func test_probe_real_depletion(seed_value = use_parameters([959, 13269])) -> voi
 	# Now stride to a different hex still adjacent to the enemy.
 	var enemy_hex = null
 	for e in instance._enemies:
-		if e.get("combatant_id", e.get("name","")) == enemy_id:
-			enemy_hex = e.get("hex_coord")
+		if e.combatant_id == enemy_id:
+			enemy_hex = e.hex_coord
 			break
 
 	action_economy.start_of_turn()

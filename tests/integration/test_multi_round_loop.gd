@@ -47,6 +47,7 @@ const ResolveActionUseCaseClass    = preload("res://core/application/resolve_act
 const DetermineOutcomeUseCaseClass = preload("res://core/application/determine_outcome_use_case.gd")
 const HexCoordClass                = preload("res://core/geometry/hex_coord.gd")
 const RoundEventsClass             = preload("res://core/rules/round_events.gd")
+const CombatantClass               = preload("res://core/domain/combatant.gd")
 
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 const AutoReactionChooserClass = preload("res://infrastructure/auto_reaction_chooser.gd")
@@ -94,9 +95,9 @@ class FakeRoundHistoryPort:
 class FakeAIDecisionPort:
 	extends "res://core/application/ai_decision_port.gd"
 
-	func decide_action(combatant: Dictionary, targets: Array) -> Dictionary:
+	func decide_action(combatant, targets: Array) -> Dictionary:
 		for target in targets:
-			if target.get("hp_current", 0) > 0:
+			if target.hp_current > 0:
 				return {"action_type": "Strike", "target": target}
 		return {"action_type": "", "target": {}}
 
@@ -129,7 +130,7 @@ func _read_file(path: String) -> String:
 	return content
 
 
-func _entry(combatant: Dictionary) -> Dictionary:
+func _entry(combatant) -> Dictionary:
 	return {"combatant": combatant, "action_economy": ActionEconomyClass.new()}
 
 
@@ -143,20 +144,20 @@ func _weapon() -> Dictionary:
 ## against a scripted roll of 1 -- guaranteeing every Strike in round 1
 ## misses regardless of RNG concerns -- until a test explicitly lowers one
 ## side's `ac` (and/or `hp_current`) to force a decisive hit.
-func _hero() -> Dictionary:
-	return {
+func _hero():
+	return CombatantClass.from_dict({
 		"name": "Hero", "combatant_id": "hero", "hp_current": 50, "hp_max": 50,
 		"ac": 100, "strength": 0, "hex_coord": HexCoordClass.new(0, 0),
 		"_is_enemy": false, "weapon": _weapon(),
-	}
+	})
 
 
-func _golem() -> Dictionary:
-	return {
+func _golem():
+	return CombatantClass.from_dict({
 		"name": "Golem", "combatant_id": "golem", "hp_current": 1, "hp_max": 1,
 		"ac": 100, "strength": 0, "hex_coord": HexCoordClass.new(1, 0),
 		"_is_enemy": true, "weapon": _weapon(),
-	}
+	})
 
 
 ## FEAT-006 (US-005/FR-005, ADR-002): MainScene now wires RoundSession's
@@ -196,7 +197,7 @@ func _boot_main_scene():
 ## root wiring (TurnController/EndTurnControl/VerbBarView/`_verb_registry`)
 ## against fully deterministic combatants, rather than the prologue
 ## encounter's own randomized/seed-sensitive Titus-vs-Skeleton fight.
-func _wire_synthetic_fixture(instance, hero: Dictionary, golem: Dictionary) -> void:
+func _wire_synthetic_fixture(instance, hero, golem) -> void:
 	var entries: Array = [_entry(hero), _entry(golem)]
 	var turn_order_port = FakeTurnOrderPort.new(entries)
 	var round_history_port = FakeRoundHistoryPort.new()
@@ -240,8 +241,8 @@ func _make_use_case(entries: Array, rng_value: int) -> Dictionary:
 
 
 func test_finish_resets_budgets_to_max_on_undecided_outcome() -> void:
-	var alpha: Dictionary = {"name": "Alpha", "hp_current": 20, "ac": 100, "strength": 0, "weapon": _weapon()}
-	var bravo: Dictionary = {"name": "Bravo", "hp_current": 20, "ac": 100, "strength": 0, "weapon": _weapon()}
+	var alpha = CombatantClass.from_dict({"name": "Alpha", "hp_current": 20, "ac": 100, "strength": 0, "weapon": _weapon()})
+	var bravo = CombatantClass.from_dict({"name": "Bravo", "hp_current": 20, "ac": 100, "strength": 0, "weapon": _weapon()})
 	var entries: Array = [_entry(alpha), _entry(bravo)]
 
 	var rig: Dictionary = _make_use_case(entries, 1)  # scripted miss (roll 1 vs ac 100)
@@ -266,8 +267,8 @@ func test_finish_resets_budgets_to_max_on_undecided_outcome() -> void:
 
 
 func test_finish_does_not_reset_budgets_on_decided_outcome() -> void:
-	var lethal: Dictionary = {"name": "Lethal", "hp_current": 20, "ac": -100, "strength": 0, "weapon": _weapon()}
-	var fragile: Dictionary = {"name": "Fragile", "hp_current": 1, "ac": -100, "strength": 0, "weapon": _weapon()}
+	var lethal = CombatantClass.from_dict({"name": "Lethal", "hp_current": 20, "ac": -100, "strength": 0, "weapon": _weapon()})
+	var fragile = CombatantClass.from_dict({"name": "Fragile", "hp_current": 1, "ac": -100, "strength": 0, "weapon": _weapon()})
 	var entries: Array = [_entry(lethal), _entry(fragile)]
 
 	var rig: Dictionary = _make_use_case(entries, 20)  # scripted hit+crit (roll 20 vs ac -100)
@@ -277,7 +278,7 @@ func test_finish_does_not_reset_budgets_on_decided_outcome() -> void:
 		lethal, entries[0]["action_economy"], fragile, "Strike", 1, 0
 	)
 	assert_true(resolve_result.get("resolved", false))
-	assert_true(fragile.get("hp_current", 1) <= 0, "fixture assumption: Fragile must die to this scripted Strike")
+	assert_true(fragile.hp_current <= 0, "fixture assumption: Fragile must die to this scripted Strike")
 
 	var end_result: Dictionary = session.end_current_turn()
 	assert_eq(end_result.get("outcome", "MISSING"), "won")
@@ -358,8 +359,8 @@ func test_rewire_session_is_the_single_reusable_composition_root_rewiring_method
 
 func test_rewire_session_wires_token_reposition_and_turn_controller_for_a_fresh_round() -> void:
 	var instance = _boot_main_scene()
-	var hero: Dictionary = _hero()
-	var golem: Dictionary = _golem()
+	var hero = _hero()
+	var golem = _golem()
 	_wire_synthetic_fixture(instance, hero, golem)
 
 	assert_not_null(instance.round_session, "rewire_session() must assign a real RoundSession")
@@ -370,7 +371,7 @@ func test_rewire_session_wires_token_reposition_and_turn_controller_for_a_fresh_
 	assert_eq(reposition_fn.get_object(), instance.hex_grid_view)
 	assert_eq(reposition_fn.get_method(), &"move_token")
 
-	assert_false(instance.round_session.current_actor().get("_is_enemy", true), "Hero (party) must act first in this synthetic fixture")
+	assert_false(instance.round_session.current_actor().is_enemy, "Hero (party) must act first in this synthetic fixture")
 	assert_true(instance.end_turn_control.is_enabled(), "rewire_session() must hand the new session to TurnController.set_session(), which configures EndTurnControl")
 
 
@@ -381,10 +382,10 @@ func test_rewire_session_wires_token_reposition_and_turn_controller_for_a_fresh_
 
 func test_decided_outcome_routes_to_result_screen_view_and_starts_no_new_round() -> void:
 	var instance = _boot_main_scene()
-	var hero: Dictionary = _hero()
-	hero["ac"] = -100
-	hero["hp_current"] = 1
-	var golem: Dictionary = _golem()
+	var hero = _hero()
+	hero.ac = -100
+	hero.hp_current = 1
+	var golem = _golem()
 	_wire_synthetic_fixture(instance, hero, golem)
 
 	assert_false(instance.result_screen_view.is_shown(), "fixture assumption: no result yet before any turn is taken")
@@ -414,8 +415,8 @@ func test_decided_outcome_routes_to_result_screen_view_and_starts_no_new_round()
 
 func test_multi_round_loop_round_one_undecided_continues_into_round_two_decided() -> void:
 	var instance = _boot_main_scene()
-	var hero: Dictionary = _hero()
-	var golem: Dictionary = _golem()
+	var hero = _hero()
+	var golem = _golem()
 	_wire_synthetic_fixture(instance, hero, golem)
 
 	assert_eq(instance.ROUND_NUMBER, 1, "fixture setup: the synthetic rig must start on round 1")
@@ -435,11 +436,11 @@ func test_multi_round_loop_round_one_undecided_continues_into_round_two_decided(
 			# budget against each other's unhittable ac=100, per the fixture's
 			# doc) -- now make Hero's counter-Strike lethal against Golem's
 			# next AI turn so round 2 concludes decisively.
-			hero["ac"] = -100
-			hero["hp_current"] = 1
+			hero.ac = -100
+			hero.hp_current = 1
 			made_lethal = true
 
-		if not instance.round_session.current_actor().get("_is_enemy", false):
+		if not instance.round_session.current_actor().is_enemy:
 			instance._verb_registry.execute("STRIKE", "golem")
 		instance.end_turn_control.press()
 

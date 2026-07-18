@@ -538,7 +538,11 @@ func _finalize_strike_result(
 	if damage > 0:
 		# Phase C.3: mutate the live Combatant entity by reference — the same
 		# instance the container (_party/_enemies) holds — so the hit persists.
-		target.take_damage(damage)
+		# Dict-tolerant shim: pre-migration callers (encounter.gd) still pass dicts.
+		if target is CombatantClass:
+			target.take_damage(damage)
+		else:
+			target["hp_current"] = target.get("hp_current", 0) - damage
 
 	# ── FEAT-009 / US-009 / FR-014 (ADR-003): snapshot the acting combatant's
 	# ActionBudget immediately after the spend_action() call above, so
@@ -584,9 +588,9 @@ func _finalize_strike_result(
 		# via .get()). Snapshot the live entities to_dict() at append time (post-
 		# damage, matching the pre-migration live-dict-reference semantics) so those
 		# consumers keep their dict contract. Flip them onto the entity in C.4.
-		"attacker":         combatant.to_dict(),
+		"attacker":         combatant.to_dict() if combatant is CombatantClass else combatant,
 		"action":           action_name,
-		"target":           target.to_dict(),
+		"target":           target.to_dict() if target is CombatantClass else target,
 		"roll":             strike_result.get("roll_total", 0),
 		"damage_final":     damage,
 		"budget_remaining": spend_result.get("remaining", -1),
@@ -650,7 +654,9 @@ func _combatant_identifier(combatant) -> String:
 ## combatant Dictionaries; for those, this use case remains a no-op on reach
 ## — preserving the pre-FEAT-003 contract exactly (backward compatibility).
 func _requires_reach_check(combatant, target) -> bool:
-	return combatant.hex_coord != null and target.hex_coord != null
+	var c_hex = combatant.hex_coord if combatant is CombatantClass else combatant.get("hex_coord", null)
+	var t_hex = target.hex_coord if target is CombatantClass else target.get("hex_coord", null)
+	return c_hex != null and t_hex != null
 
 
 ## _is_adjacent(combatant, target) -> bool — true iff target.hex_coord is one

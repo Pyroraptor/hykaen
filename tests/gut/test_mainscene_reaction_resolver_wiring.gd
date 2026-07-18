@@ -227,9 +227,9 @@ func test_real_player_combatant_weapon_carries_defensive_reaction_fields() -> vo
 	var instance = _boot_main_scene()
 	await get_tree().process_frame
 
-	var player: Dictionary = instance.round_session.current_actor()
-	assert_false(player.get("_is_enemy", true), "fixture: Titus (player) is the current actor at boot")
-	var weapon: Dictionary = player.get("weapon", {})
+	var player = instance.round_session.current_actor()
+	assert_false(player.is_enemy, "fixture: Titus (player) is the current actor at boot")
+	var weapon: Dictionary = player.weapon
 	assert_true(
 		weapon.get("parry_bonus", 0) > 0,
 		"the REAL player combatant's weapon must carry parry_bonus (longsword=4) -- without it the live pop-up can never offer Parry"
@@ -245,8 +245,8 @@ func test_live_reaction_window_offers_dodge_parry_and_block_for_the_real_player(
 	var instance = _boot_main_scene()
 	await get_tree().process_frame
 
-	var player: Dictionary = instance.round_session.current_actor()
-	assert_false(player.get("_is_enemy", true), "fixture: Titus (player) is the current actor at boot")
+	var player = instance.round_session.current_actor()
+	assert_false(player.is_enemy, "fixture: Titus (player) is the current actor at boot")
 
 	# A WeaponAttack trigger shaped exactly as round_session._build_reaction_trigger()
 	# builds on the live enemy-strikes-player path, but from the REAL player combatant.
@@ -254,7 +254,7 @@ func test_live_reaction_window_offers_dodge_parry_and_block_for_the_real_player(
 		"trigger_type":           "WeaponAttack",
 		"defense_type":           "ac",
 		"reactor":                player,
-		"weapon":                 player.get("weapon", {}),
+		"weapon":                 player.weapon,
 		"attack_context":         {"attacker_weapon": {}},
 		"reactor_action_economy": instance.round_session.current_action_economy(),
 		"round_number":           1,

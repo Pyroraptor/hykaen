@@ -172,7 +172,7 @@ func test_no_event_enemy_spend_is_synced_to_the_status_row_on_settle() -> void:
 
 	# Control settles back on the player after an AI turn — the moment MainScene
 	# must re-push every combatant's budget to the panel.
-	instance._on_active_actor_changed(instance.round_session.current_actor())
+	instance._on_active_actor_changed(instance.round_session.current_actor_entity())
 
 	assert_eq(
 		_displayed_budget(instance, enemy_id), 6,

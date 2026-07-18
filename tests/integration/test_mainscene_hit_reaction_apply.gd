@@ -95,13 +95,13 @@ func _boot_main_scene():
 	return instance
 
 
-func _titus(instance) -> Dictionary:
+func _titus(instance):
 	return instance._party[0]
 
 
 func _titus_id(instance) -> String:
-	var titus: Dictionary = _titus(instance)
-	return titus.get("combatant_id", titus.get("name", ""))
+	var titus = _titus(instance)
+	return titus.combatant_id
 
 
 func _press_end_turn_and_drive_enemy_strike(instance) -> void:
@@ -149,7 +149,7 @@ func _latest_structured_attack_event(instance):
 
 func test_hit_then_parry_leaves_titus_hp_panel_unchanged() -> void:
 	var instance = _boot_main_scene()
-	var titus: Dictionary = _titus(instance)
+	var titus = _titus(instance)
 	titus["ac"] = AC_GUARANTEED_HIT
 	titus["weapon"]["parry_bonus"] = OVERWHELMING_MITIGATION_STAT
 
@@ -200,7 +200,7 @@ func test_hit_then_parry_leaves_titus_hp_panel_unchanged() -> void:
 
 func test_hit_then_block_leaves_titus_hp_panel_reflecting_the_mitigation_formula() -> void:
 	var instance = _boot_main_scene()
-	var titus: Dictionary = _titus(instance)
+	var titus = _titus(instance)
 	titus["ac"] = AC_GUARANTEED_HIT
 	titus["weapon"]["block_value"] = OVERWHELMING_MITIGATION_STAT
 
@@ -246,7 +246,7 @@ func test_hit_then_block_leaves_titus_hp_panel_reflecting_the_mitigation_formula
 
 func test_hit_then_pass_leaves_titus_hp_panel_showing_full_unmitigated_damage() -> void:
 	var instance = _boot_main_scene()
-	var titus: Dictionary = _titus(instance)
+	var titus = _titus(instance)
 	titus["ac"] = AC_GUARANTEED_HIT
 
 	var titus_id: String = _titus_id(instance)
@@ -289,7 +289,7 @@ func test_hit_then_pass_leaves_titus_hp_panel_showing_full_unmitigated_damage() 
 
 func test_lethal_but_parried_hit_never_defeats_titus_or_shows_a_loss_state() -> void:
 	var instance = _boot_main_scene()
-	var titus: Dictionary = _titus(instance)
+	var titus = _titus(instance)
 	titus["ac"] = AC_GUARANTEED_HIT
 	titus["weapon"]["parry_bonus"] = OVERWHELMING_MITIGATION_STAT
 	# Any unmitigated hit is lethal at 1 HP -- the die alone (>=1) already
@@ -303,7 +303,7 @@ func test_lethal_but_parried_hit_never_defeats_titus_or_shows_a_loss_state() -> 
 	instance.reaction_prompt_ui.press_option("parry")
 	assert_false(instance.reaction_prompt_ui.is_open())
 
-	assert_eq(titus.get("hp_current", 0), 1, "a lethal-but-PARRIED hit must never reduce Titus's real hp_current")
+	assert_eq(titus.hp_current, 1, "a lethal-but-PARRIED hit must never reduce Titus's real hp_current")
 	assert_false(_has_combatant_defeated_event(instance), "no CombatantDefeatedEvent may ever be emitted for a lethal-but-parried hit")
 	assert_false(instance.result_screen_view.is_shown(), "no loss/result state may be shown once the lethal hit was genuinely negated by Parry")
 

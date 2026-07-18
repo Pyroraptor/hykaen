@@ -269,7 +269,7 @@ func test_full_journey_strike_pass_ai_turn_and_result_screen_stays_locked_throug
 	# call on strike_action_control/end_turn_control AFTER the result screen
 	# has shown must remain locked/rejected.
 	# ══════════════════════════════════════════════════════════════════════
-	var stray_actor: Dictionary = instance._party[0]
+	var stray_actor = instance._party[0]
 	instance.strike_action_control.configure(
 		stray_actor, ActionEconomyClass.new(), instance.resolve_action_use_case, instance._enemies
 	)
@@ -280,7 +280,7 @@ func test_full_journey_strike_pass_ai_turn_and_result_screen_stays_locked_throug
 	assert_true(instance.end_turn_control.is_locked(), "EndTurnControl must stay locked through a later, stray configure() call")
 	assert_false(instance.end_turn_control.is_enabled(), "a stray reconfigure() must not re-enable EndTurnControl")
 
-	var stray_target_id: String = instance._enemies[0].get("combatant_id", instance._enemies[0].get("name", ""))
+	var stray_target_id: String = instance._enemies[0].combatant_id
 	var stray_strike_result: Dictionary = instance.strike_action_control.select_target(stray_target_id)
 	assert_false(stray_strike_result.get("ok", true), "select_target() must be rejected after the result screen has shown, even after a stray reconfigure()")
 	assert_eq(stray_strike_result.get("error", ""), "ENCOUNTER_ALREADY_RESOLVED")
@@ -331,7 +331,7 @@ func test_hex_grid_view_resyncs_token_position_after_step_and_stride() -> void:
 	var step_result: Dictionary = instance.movement_input_controller.step_to(step_destination)
 	assert_true(step_result.get("ok", false), "fixture assumption: Step to (-1,0) must succeed: %s" % step_result)
 
-	var domain_actor: Dictionary = instance._party[0]
+	var domain_actor = instance._party[0]
 	assert_true(
 		domain_actor["hex_coord"].equals(step_destination),
 		"the real Movement.step() must update the live combatant Dictionary's hex_coord in place"

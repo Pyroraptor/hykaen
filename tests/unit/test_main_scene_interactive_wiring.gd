@@ -45,6 +45,7 @@ const RunRoundUseCaseClass = preload("res://core/application/run_round_use_case.
 const RoundEventsClass     = preload("res://core/rules/round_events.gd")
 const HexCoordClass        = preload("res://core/geometry/hex_coord.gd")
 const AutoReactionChooserClass = preload("res://infrastructure/auto_reaction_chooser.gd")
+const CombatantClass = preload("res://core/domain/combatant.gd")
 
 
 ## FEAT-002 / US-002: this whole file's scenarios assume the prologue
@@ -123,7 +124,7 @@ func test_ready_hands_the_round_session_to_turn_controller() -> void:
 		instance.end_turn_control.is_enabled(),
 		"TurnController must have configured EndTurnControl from the live RoundSession, enabled for the first (player) actor"
 	)
-	assert_false(instance.round_session.current_actor().get("_is_enemy", true))
+	assert_false(instance.round_session.current_actor().is_enemy)
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -239,7 +240,7 @@ func test_strike_via_verb_registry_emits_attack_event_through_real_event_sink() 
 func test_pressing_end_turn_control_advances_cursor_and_auto_drives_enemy_turn() -> void:
 	var instance = _boot_main_scene()
 
-	var first_actor_name: String = instance.round_session.current_actor().get("name", "")
+	var first_actor_name: String = instance.round_session.current_actor().name
 	assert_ne(first_actor_name, "", "fixture assumption: a living actor is active before End Turn is pressed")
 
 	var events_before: int = instance.event_sink.log.size()
@@ -270,7 +271,7 @@ func test_pressing_end_turn_control_advances_cursor_and_auto_drives_enemy_turn()
 		# enemy->player transition advance_ai_turn() emits when it advances the
 		# cursor again).
 		assert_false(
-			instance.round_session.current_actor().get("_is_enemy", false),
+			instance.round_session.current_actor().is_enemy,
 			"TurnController must auto-drive any Enemy turn so the session settles back on a player combatant"
 		)
 
@@ -362,12 +363,12 @@ func test_off_guard_wiring_flags_target_once_two_opposing_combatants_flank_it() 
 	# Skeleton sits at hex (1,0); Titus already occupies (0,0), the neighbor
 	# directly opposite hex (2,0) around Skeleton. Appending a second party
 	# combatant at (2,0) completes the opposite-adjacent flanking pair.
-	var ally: Dictionary = {
+	var ally = CombatantClass.from_dict({
 		"name": "Marigold",
 		"hp_current": 10,
 		"combatant_id": "synthetic_ally_off_guard_test",
 		"hex_coord": HexCoordClass.new(2, 0),
-	}
+	})
 	instance._party.append(ally)
 	instance._refresh_off_guard_conditions()
 
@@ -387,12 +388,12 @@ func test_off_guard_wiring_does_not_flag_target_for_non_opposite_flankers() -> v
 
 	# hex (1,-1) is adjacent to Skeleton (1,0) but NOT opposite Titus's
 	# (0,0) -- a non-opposite second flanker must not flag Off-Guard.
-	var ally: Dictionary = {
+	var ally = CombatantClass.from_dict({
 		"name": "Marigold",
 		"hp_current": 10,
 		"combatant_id": "synthetic_ally_non_opposite_test",
 		"hex_coord": HexCoordClass.new(1, -1),
-	}
+	})
 	instance._party.append(ally)
 	instance._refresh_off_guard_conditions()
 
@@ -406,17 +407,17 @@ func test_off_guard_wiring_clears_once_a_flanker_moves_away() -> void:
 	var instance = _boot_main_scene()
 	var target_id: String = instance._enemies[0].display_id()
 
-	var ally: Dictionary = {
+	var ally = CombatantClass.from_dict({
 		"name": "Marigold",
 		"hp_current": 10,
 		"combatant_id": "synthetic_ally_unflank_test",
 		"hex_coord": HexCoordClass.new(2, 0),
-	}
+	})
 	instance._party.append(ally)
 	instance._refresh_off_guard_conditions()
 	assert_true(instance.status_panel_view.is_off_guard(target_id), "fixture setup: target must be Off-Guard before the ally moves away")
 
-	ally["hex_coord"] = HexCoordClass.new(9, 9)
+	ally.hex_coord = HexCoordClass.new(9, 9)
 	instance._refresh_off_guard_conditions()
 
 	assert_false(

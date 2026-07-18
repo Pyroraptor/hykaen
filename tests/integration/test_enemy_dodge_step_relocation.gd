@@ -109,12 +109,12 @@ func _boot_main_scene():
 ## 10+mobility > targeted_defense_value) AND core/rules/resolution.gd's own
 ## real, seeded mobility-check roll beats the attacker's roll_total
 ## regardless of which face either die actually shows.
-func _force_guaranteed_dodge_success(combatant: Dictionary) -> void:
+func _force_guaranteed_dodge_success(combatant) -> void:
 	combatant["skills"] = {"mobility": 500, "determination": 500}
 
 
-func _combatant_id(combatant: Dictionary) -> String:
-	return combatant.get("combatant_id", combatant.get("name", ""))
+func _combatant_id(combatant) -> String:
+	return combatant.combatant_id
 
 
 ## _resolve_one_real_player_strike_against(instance, target_id) -> void —
@@ -146,11 +146,11 @@ func test_forced_skeleton_dodge_relocates_hex_coord_and_token_on_real_boot() -> 
 	await get_tree().process_frame
 
 	assert_true(instance._enemies.size() > 0, "fixture assumption: the prologue encounter has at least one enemy")
-	var skeleton: Dictionary = instance._enemies[0]
-	assert_eq(skeleton.get("name", ""), "Skeleton", "fixture assumption: the sole enemy is the Skeleton")
+	var skeleton = instance._enemies[0]
+	assert_eq(skeleton.name, "Skeleton", "fixture assumption: the sole enemy is the Skeleton")
 	var skeleton_id: String = _combatant_id(skeleton)
 
-	var original_hex = skeleton.get("hex_coord", null)
+	var original_hex = skeleton.hex_coord
 	assert_not_null(original_hex, "fixture assumption: the Skeleton must already carry a hex_coord at boot")
 
 	var token_before = instance.hex_grid_view.get_token(skeleton_id)
@@ -173,7 +173,7 @@ func test_forced_skeleton_dodge_relocates_hex_coord_and_token_on_real_boot() -> 
 
 	# Sanity check: the Skeleton must have actually relocated — otherwise
 	# this test would prove nothing about the relocation contract.
-	var moved_hex = skeleton.get("hex_coord", null)
+	var moved_hex = skeleton.hex_coord
 	assert_not_null(moved_hex, "the Skeleton must still carry a hex_coord after the resolved Strike")
 	assert_false(moved_hex.equals(original_hex), "fixture assumption: the forced-successful Dodge must actually relocate the Skeleton to a NEW hex")
 
@@ -181,7 +181,7 @@ func test_forced_skeleton_dodge_relocates_hex_coord_and_token_on_real_boot() -> 
 	# Dictionary this suite already holds a reference to via `skeleton`) was
 	# updated in place.
 	assert_true(
-		skeleton.get("hex_coord", null).equals(moved_hex),
+		skeleton.hex_coord.equals(moved_hex),
 		"the Skeleton's Combatant.hex_coord must equal the AI-chosen hex after the successful Dodge-Step"
 	)
 
@@ -214,14 +214,14 @@ func test_no_legal_adjacent_hex_still_negates_hit_with_no_step() -> void:
 	assert_true(instance._party.size() > 0, "fixture assumption: MainScene must boot with at least one party combatant")
 	assert_true(instance._enemies.size() > 0, "fixture assumption: MainScene must boot with at least one enemy combatant")
 
-	var attacker: Dictionary = instance._party[0]
-	assert_eq(attacker.get("name", ""), "Titus", "fixture: Titus (the real player combatant) is the attacker on this path")
+	var attacker = instance._party[0]
+	assert_eq(attacker.name, "Titus", "fixture: Titus (the real player combatant) is the attacker on this path")
 
-	var defender: Dictionary = instance._enemies[0]
-	assert_eq(defender.get("name", ""), "Skeleton", "fixture assumption: the sole enemy is the Skeleton")
+	var defender = instance._enemies[0]
+	assert_eq(defender.name, "Skeleton", "fixture assumption: the sole enemy is the Skeleton")
 	var defender_id: String = _combatant_id(defender)
 
-	var attacker_weapon: Dictionary = attacker.get("weapon", {})
+	var attacker_weapon = attacker.weapon
 	assert_false(attacker_weapon.is_empty(), "fixture assumption: the real player combatant must carry a weapon Dictionary")
 
 	# ── Force a genuinely successful Dodge using the REAL domain-layer
@@ -233,7 +233,7 @@ func test_no_legal_adjacent_hex_still_negates_hit_with_no_step() -> void:
 	# miss -- mirrors tests/gut/test_dodge_step_no_legal_hex.gd's own
 	# established convention exactly, applied to the Skeleton as defender. ──
 	_force_guaranteed_dodge_success(defender)
-	var original_hex = defender.get("hex_coord", null)
+	var original_hex = defender.hex_coord
 	assert_not_null(original_hex, "fixture assumption: the Skeleton must already carry a hex_coord at boot")
 
 	var token_before = instance.hex_grid_view.get_token(defender_id)
@@ -257,13 +257,13 @@ func test_no_legal_adjacent_hex_still_negates_hit_with_no_step() -> void:
 	# own Dodge-Step. The test itself completing (rather than hanging
 	# forever) IS this criterion's stall/deadlock proof. ────────────────────
 	await instance._resolve_enemy_dodge_step(
-		defender, {"defender_stepped": attack_result["defender_stepped"]}, attacker.get("hex_coord", null), []
+		defender, {"defender_stepped": attack_result["defender_stepped"]}, attacker.hex_coord, []
 	)
 
 	# Criterion: no Step occurred -- the Skeleton's Combatant.hex_coord is
 	# unchanged.
 	assert_true(
-		defender.get("hex_coord", null).equals(original_hex),
+		defender.hex_coord.equals(original_hex),
 		"a successful Dodge with zero legal Step hexes must leave the Skeleton's Combatant.hex_coord unchanged"
 	)
 

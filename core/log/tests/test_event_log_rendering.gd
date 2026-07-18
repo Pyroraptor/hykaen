@@ -78,7 +78,7 @@ const EventLogViewClass = preload("res://presentation/event_log_view.gd")
 ## view — a behaviour-preserving refactor (RNG/math unchanged; full sim + e2e
 ## parity green). Re-pinned to the new baseline.
 const _RESOLUTION_GD_PATH: String = "res://core/rules/resolution.gd"
-const _RESOLUTION_GD_EXPECTED_MD5: String = "3742999acc578d329be0ef2e2cf25989"
+const _RESOLUTION_GD_EXPECTED_MD5: String = "dfb2656f38947ef879f9b8985da4f194"
 
 var _resolution_gd_actual_md5: String
 

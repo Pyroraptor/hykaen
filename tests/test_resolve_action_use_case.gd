@@ -27,6 +27,7 @@ extends GutTest
 const ResolveActionUseCaseClass = preload("res://core/application/resolve_action_use_case.gd")
 const ActionEconomyClass        = preload("res://core/rules/action_economy.gd")
 const RoundEventsClass          = preload("res://core/rules/round_events.gd")
+const CombatantClass            = preload("res://core/domain/combatant.gd")
 
 ## NOTE (FEAT-100 regression fix / FIND-096): FEAT-099 switched
 ## EventSinkPort.emit() to receive TYPED RefCounted value objects
@@ -84,8 +85,8 @@ class FakeRoundHistoryPort:
 
 # ── Shared fixtures ──────────────────────────────────────────────────────────
 
-func _attacker() -> Dictionary:
-	return {
+func _attacker():
+	return CombatantClass.from_dict({
 		"name":     "Attacker",
 		"strength": 3,
 		"weapon": {
@@ -93,11 +94,11 @@ func _attacker() -> Dictionary:
 			"proficiency_bonus": 2,
 			"damage_die": 6
 		}
-	}
+	})
 
 
-func _target(hp: int = 50, ac: int = 10) -> Dictionary:
-	return {"name": "Target", "hp_current": hp, "ac": ac}
+func _target(hp: int = 50, ac: int = 10):
+	return CombatantClass.from_dict({"name": "Target", "hp_current": hp, "ac": ac})
 
 
 func _make_use_case(scripted_values: Array) -> Dictionary:
@@ -124,8 +125,8 @@ func test_already_spent_action_economy_returns_unresolved_with_no_side_effects()
 	assert_true(ae.is_spent(), "sanity: ActionEconomy must be Spent after MAX_BUDGET spends")
 
 	var rig: Dictionary = _make_use_case([12, 4])
-	var attacker: Dictionary = _attacker()
-	var target: Dictionary = _target()
+	var attacker = _attacker()
+	var target = _target()
 
 	var result: Dictionary = rig["use_case"].resolve(attacker, ae, target, "Strike", 1, 0)
 
@@ -137,7 +138,7 @@ func test_already_spent_action_economy_returns_unresolved_with_no_side_effects()
 	)
 	assert_eq(rig["event_sink"].events.size(), 0, "No events may be emitted when the spend fails")
 	assert_eq(rig["history"].entries.size(), 0, "No history entry may be recorded when the spend fails")
-	assert_eq(target.get("hp_current", -1), 50, "Target HP must be untouched when the spend fails")
+	assert_eq(target.hp_current, 50, "Target HP must be untouched when the spend fails")
 
 
 func test_successful_spend_consumes_one_budget_and_resolves() -> void:
@@ -145,8 +146,8 @@ func test_successful_spend_consumes_one_budget_and_resolves() -> void:
 	ae.start_of_round()
 
 	var rig: Dictionary = _make_use_case([12, 4])  # raw=12 (miss, see below), no damage roll consumed
-	var attacker: Dictionary = _attacker()
-	var target: Dictionary = _target(50, 99)  # very high AC -> guaranteed miss
+	var attacker = _attacker()
+	var target = _target(50, 99)  # very high AC -> guaranteed miss
 
 	var result: Dictionary = rig["use_case"].resolve(attacker, ae, target, "Strike", 1, 0)
 
@@ -166,14 +167,14 @@ func test_hit_non_crit_applies_correct_damage_via_random_number_port() -> void:
 	# raw=12 -> roll_total = 12 + strength(3) + proficiency(2) = 17 vs ac=10
 	# -> hit (17>=10), not crit (17-10=7 < 10). Damage roll value=4 -> damage_final = 4 + 3 = 7.
 	var rig: Dictionary = _make_use_case([12, 4])
-	var attacker: Dictionary = _attacker()
-	var target: Dictionary = _target(50, 10)
+	var attacker = _attacker()
+	var target = _target(50, 10)
 
 	var result: Dictionary = rig["use_case"].resolve(attacker, ae, target, "Strike", 1, 0)
 
 	assert_true(result.get("resolved", false))
 	assert_eq(result.get("damage_final", -1), 7, "damage_final must equal damage_roll(4) + strength_mod(3) = 7")
-	assert_eq(target.get("hp_current", -1), 43, "target.hp_current must be reduced by damage_final (50 - 7 = 43)")
+	assert_eq(target.hp_current, 43, "target.hp_current must be reduced by damage_final (50 - 7 = 43)")
 	assert_false(result.get("target_defeated", true), "Target must not be defeated (43 HP remaining)")
 
 	# RNG consumption order: d20 attack roll first, THEN the damage roll.
@@ -189,13 +190,13 @@ func test_crit_doubles_damage_dice_and_attribute_modifier() -> void:
 	# raw=20 -> roll_total = 20 + 3 + 2 = 25 vs ac=10 -> hit, diff=15>=10 -> crit.
 	# Crit damage roll value=9 (sum of 2 dice) -> damage_final = 9 + 3*2 = 15.
 	var rig: Dictionary = _make_use_case([20, 9])
-	var attacker: Dictionary = _attacker()
-	var target: Dictionary = _target(50, 10)
+	var attacker = _attacker()
+	var target = _target(50, 10)
 
 	var result: Dictionary = rig["use_case"].resolve(attacker, ae, target, "Strike", 1, 0)
 
 	assert_eq(result.get("damage_final", -1), 15, "Crit damage_final must equal damage_roll(9) + strength_mod(3)*2 = 15")
-	assert_eq(target.get("hp_current", -1), 35, "target.hp_current must be reduced to 35 (50 - 15)")
+	assert_eq(target.hp_current, 35, "target.hp_current must be reduced to 35 (50 - 15)")
 	assert_eq(rig["rng_port"].calls[1], {"die": 6, "count": 2}, "A crit must roll 2 damage dice, not 1")
 
 	var attack_events: Array = rig["event_sink"].events.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
@@ -209,13 +210,13 @@ func test_miss_applies_zero_damage_and_consumes_no_damage_roll() -> void:
 
 	# raw=1 -> roll_total = 1 + 3 + 2 = 6 vs ac=10 -> miss. No damage roll consumed.
 	var rig: Dictionary = _make_use_case([1])
-	var attacker: Dictionary = _attacker()
-	var target: Dictionary = _target(50, 10)
+	var attacker = _attacker()
+	var target = _target(50, 10)
 
 	var result: Dictionary = rig["use_case"].resolve(attacker, ae, target, "Strike", 1, 0)
 
 	assert_eq(result.get("damage_final", -1), 0, "A miss must apply zero damage")
-	assert_eq(target.get("hp_current", -1), 50, "target.hp_current must be untouched on a miss")
+	assert_eq(target.hp_current, 50, "target.hp_current must be untouched on a miss")
 	assert_eq(rig["rng_port"].calls.size(), 1, "A miss must consume only the attack roll, never a damage roll")
 
 	var attack_events: Array = rig["event_sink"].events.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
@@ -232,8 +233,8 @@ func test_attack_event_emitted_with_correct_fields() -> void:
 	ae.start_of_round()
 
 	var rig: Dictionary = _make_use_case([12, 4])
-	var attacker: Dictionary = _attacker()
-	var target: Dictionary = _target(50, 10)
+	var attacker = _attacker()
+	var target = _target(50, 10)
 
 	rig["use_case"].resolve(attacker, ae, target, "Strike", 3, 2)
 
@@ -255,13 +256,13 @@ func test_combatant_defeated_event_emitted_when_hp_drops_to_zero_or_below() -> v
 
 	# raw=12 -> roll_total=17 vs ac=10 -> hit; damage roll value=4 -> damage_final=7.
 	var rig: Dictionary = _make_use_case([12, 4])
-	var attacker: Dictionary = _attacker()
-	var target: Dictionary = _target(5, 10)  # 5 HP — lethal given damage_final=7
+	var attacker = _attacker()
+	var target = _target(5, 10)  # 5 HP — lethal given damage_final=7
 
 	var result: Dictionary = rig["use_case"].resolve(attacker, ae, target, "Strike", 1, 0)
 
 	assert_true(result.get("target_defeated", false), "target_defeated must be true once HP <= 0")
-	assert_true(target.get("hp_current", 1) <= 0, "target.hp_current must be <= 0")
+	assert_true(target.hp_current <= 0, "target.hp_current must be <= 0")
 
 	var events: Array = rig["event_sink"].events
 	assert_eq(events.size(), 2, "Both 'attack' and 'combatant_defeated' events must be emitted")
@@ -276,8 +277,8 @@ func test_no_combatant_defeated_event_when_target_survives() -> void:
 	ae.start_of_round()
 
 	var rig: Dictionary = _make_use_case([12, 4])
-	var attacker: Dictionary = _attacker()
-	var target: Dictionary = _target(1000, 10)
+	var attacker = _attacker()
+	var target = _target(1000, 10)
 
 	rig["use_case"].resolve(attacker, ae, target, "Strike", 1, 0)
 
@@ -300,8 +301,8 @@ func test_round_history_entry_records_post_spend_budget_and_cycle_index() -> voi
 	ae.start_of_turn()
 
 	var rig: Dictionary = _make_use_case([12, 4])
-	var attacker: Dictionary = _attacker()
-	var target: Dictionary = _target(50, 10)
+	var attacker = _attacker()
+	var target = _target(50, 10)
 
 	rig["use_case"].resolve(attacker, ae, target, "Strike", 4, 3)
 
@@ -331,8 +332,8 @@ func test_target_does_not_exist_returns_err_target_invalid_with_no_side_effects(
 	ae.start_of_round()
 
 	var rig: Dictionary = _make_use_case([12, 4])
-	var attacker: Dictionary = _attacker()
-	var missing_target: Dictionary = {}  # "does not exist" sentinel
+	var attacker = _attacker()
+	var missing_target = null  # "does not exist" sentinel
 
 	var result: Dictionary = rig["use_case"].resolve(attacker, ae, missing_target, "Strike", 1, 0)
 
@@ -349,8 +350,8 @@ func test_target_already_defeated_returns_err_target_invalid_with_no_side_effect
 	ae.start_of_round()
 
 	var rig: Dictionary = _make_use_case([12, 4])
-	var attacker: Dictionary = _attacker()
-	var defeated_target: Dictionary = _target(0, 10)  # hp_current <= 0 -> already defeated
+	var attacker = _attacker()
+	var defeated_target = _target(0, 10)  # hp_current <= 0 -> already defeated
 
 	var result: Dictionary = rig["use_case"].resolve(attacker, ae, defeated_target, "Strike", 1, 0)
 
@@ -367,8 +368,8 @@ func test_non_active_combatant_returns_err_not_active_combatant_with_no_side_eff
 	ae.start_of_round()
 
 	var rig: Dictionary = _make_use_case([12, 4])
-	var attacker: Dictionary = _attacker()
-	var target: Dictionary = _target(50, 10)
+	var attacker = _attacker()
+	var target = _target(50, 10)
 
 	# The current turn's actor is "someone_else" -- attacker ("Attacker") is
 	# not the active combatant.
@@ -381,7 +382,7 @@ func test_non_active_combatant_returns_err_not_active_combatant_with_no_side_eff
 	assert_eq(result.get("error", ""), "ERR_NOT_ACTIVE_COMBATANT")
 	assert_eq(rig["event_sink"].events.size(), 0, "No events may be emitted for a non-active combatant")
 	assert_eq(rig["history"].entries.size(), 0, "No history entry may be recorded for a non-active combatant")
-	assert_eq(target.get("hp_current", -1), 50, "Target HP must be untouched")
+	assert_eq(target.hp_current, 50, "Target HP must be untouched")
 	assert_eq(ae.get_remaining(), ActionEconomyClass.MAX_BUDGET, "The actor's action budget must remain UNSPENT")
 
 
@@ -390,9 +391,9 @@ func test_active_combatant_id_matching_combatant_id_key_resolves_normally() -> v
 	ae.start_of_round()
 
 	var rig: Dictionary = _make_use_case([12, 4])
-	var attacker: Dictionary = _attacker()
-	attacker["combatant_id"] = "attacker_1"
-	var target: Dictionary = _target(50, 10)
+	var attacker = _attacker()
+	attacker.combatant_id = "attacker_1"
+	var target = _target(50, 10)
 
 	var result: Dictionary = rig["use_case"].resolve(
 		attacker, ae, target, "Strike", 1, 0, "attacker_1"
@@ -407,8 +408,8 @@ func test_active_combatant_id_omitted_is_backward_compatible_no_op() -> void:
 	ae.start_of_round()
 
 	var rig: Dictionary = _make_use_case([12, 4])
-	var attacker: Dictionary = _attacker()
-	var target: Dictionary = _target(50, 10)
+	var attacker = _attacker()
+	var target = _target(50, 10)
 
 	# StrikeActionControl/RoundSession never pass active_combatant_id -- the
 	# 6-positional-argument call shape (FEAT-098/FEAT-003, unchanged) must

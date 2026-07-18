@@ -68,8 +68,8 @@ func _boot_main_scene():
 	return instance
 
 
-func _id(combatant: Dictionary) -> String:
-	return combatant.get("combatant_id", combatant.get("name", ""))
+func _id(combatant) -> String:
+	return combatant.combatant_id
 
 
 ## _make_ranged(combatant) -> void — stamps the SAME "range_hexes" key
@@ -78,7 +78,7 @@ func _id(combatant: Dictionary) -> String:
 ## opportunistic_strike_eligibility.gd's _has_melee_reach() all consult onto
 ## `combatant`'s own real, live weapon Dictionary — never a fabricated
 ## fixture weapon of this test's own.
-func _make_ranged(combatant: Dictionary) -> void:
+func _make_ranged(combatant) -> void:
 	combatant["weapon"]["range_hexes"] = RANGED_WEAPON_RANGE_HEXES
 
 
@@ -108,12 +108,12 @@ func test_ranged_reactor_adjacent_to_mover_is_never_offered_opportunistic_strike
 	await get_tree().process_frame
 
 	assert_true(instance._enemies.size() > 0, "fixture assumption: the prologue encounter has at least one enemy")
-	var skeleton: Dictionary = instance._enemies[0]
-	var titus: Dictionary = instance._party[0]
+	var skeleton = instance._enemies[0]
+	var titus = instance._party[0]
 	var titus_id: String = _id(titus)
 
 	assert_true(
-		titus.has("weapon") and not titus["weapon"].has("range_hexes"),
+		not titus.weapon.has("range_hexes"),
 		"fixture assumption: Titus starts with a genuine MELEE weapon (no 'range_hexes' key) before this test forces him ranged"
 	)
 	_make_ranged(titus)
@@ -122,7 +122,7 @@ func test_ranged_reactor_adjacent_to_mover_is_never_offered_opportunistic_strike
 	assert_not_null(titus_ae, "fixture assumption: Titus must have a live ActionEconomy wired at boot")
 	var titus_budget_before: int = titus_ae.get_remaining()
 
-	var mover_start_hex = skeleton.get("hex_coord", null)
+	var mover_start_hex = skeleton.hex_coord
 	assert_not_null(mover_start_hex, "fixture assumption: the Skeleton carries a hex_coord before its Stride")
 
 	assert_false(instance.reaction_prompt_ui.is_open(), "fixture assumption: no reaction pop-up is open before this Stride is driven")
@@ -149,7 +149,7 @@ func test_ranged_reactor_adjacent_to_mover_is_never_offered_opportunistic_strike
 
 	# No ReactionWindowOpenedEvent may ever have been emitted for Titus --
 	# proven directly against the real, live event_sink's own log.
-	var opened_events_for_titus: Array = _reaction_window_opened_events_for(instance, titus.get("name", ""))
+	var opened_events_for_titus: Array = _reaction_window_opened_events_for(instance, titus.name)
 	assert_eq(opened_events_for_titus.size(), 0, "no ReactionWindowOpenedEvent may ever be emitted for a ranged reactor filtered out before a window is opened")
 
 	# Titus's own live ActionEconomy budget must be left completely

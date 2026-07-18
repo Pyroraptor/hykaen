@@ -138,8 +138,8 @@ func _event_index(instance, event) -> int:
 ## action_budget_snapshot() (never a second/independent derivation of the
 ## budget).
 func _titus_action_budget_remaining(instance) -> int:
-	var titus: Dictionary = instance._party[0]
-	var titus_id: String = titus.get("combatant_id", titus.get("name", ""))
+	var titus = instance._party[0]
+	var titus_id: String = titus.combatant_id
 	for row in instance.round_session.action_budget_snapshot():
 		if row["combatant_id"] == titus_id:
 			return row["remaining"]

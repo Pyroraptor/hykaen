@@ -82,11 +82,11 @@ func _boot_main_scene_with_seed(seed_value: int):
 	return instance
 
 
-func _find_combatant_by_id(instance, combatant_id: String) -> Dictionary:
+func _find_combatant_by_id(instance, combatant_id: String):
 	for combatant in instance._party + instance._enemies:
-		if combatant.get("combatant_id", "") == combatant_id:
+		if combatant.combatant_id == combatant_id:
 			return combatant
-	return {}
+	return null
 
 
 ## _snapshot_positions(instance) -> Dictionary — combatant_id -> Vector2i(q,r)
@@ -96,8 +96,8 @@ func _find_combatant_by_id(instance, combatant_id: String) -> Dictionary:
 func _snapshot_positions(instance) -> Dictionary:
 	var snapshot: Dictionary = {}
 	for combatant in instance._party + instance._enemies:
-		var combatant_id: String = combatant.get("combatant_id", combatant.get("name", ""))
-		var hex_coord = combatant.get("hex_coord", null)
+		var combatant_id: String = combatant.combatant_id
+		var hex_coord = combatant.hex_coord
 		if hex_coord != null:
 			snapshot[combatant_id] = Vector2i(hex_coord.q, hex_coord.r)
 	return snapshot
@@ -106,8 +106,8 @@ func _snapshot_positions(instance) -> Dictionary:
 func _snapshot_hp(instance) -> Dictionary:
 	var snapshot: Dictionary = {}
 	for combatant in instance._party + instance._enemies:
-		var combatant_id: String = combatant.get("combatant_id", combatant.get("name", ""))
-		snapshot[combatant_id] = combatant.get("hp_current", -1)
+		var combatant_id: String = combatant.combatant_id
+		snapshot[combatant_id] = combatant.hp_current
 	return snapshot
 
 
@@ -242,8 +242,8 @@ func test_step_flow_moves_token_via_move_token_with_no_action_spent() -> void:
 	# the full Layer2->Layer1 UI transition is exercised too.
 	instance.hex_grid_view.hex_clicked.emit(destination)
 
-	var moved_combatant: Dictionary = _find_combatant_by_id(instance, actor_id)
-	assert_true(moved_combatant.get("hex_coord").equals(destination), "the live combatant Dictionary's hex_coord must move to the selected hex via move_token()")
+	var moved_combatant = _find_combatant_by_id(instance, actor_id)
+	assert_true(moved_combatant.hex_coord.equals(destination), "the live combatant Dictionary's hex_coord must move to the selected hex via move_token()")
 
 	var token_after = instance.hex_grid_view.get_token(actor_id)
 	assert_true(token_after.hex_coord.equals(destination), "the real HexGridView's token must resync to the new hex after the Step")
@@ -288,8 +288,8 @@ func test_stride_flow_moves_token_via_move_token_with_one_action_spent() -> void
 	# the full Layer2->Layer1 UI transition is exercised too.
 	instance.hex_grid_view.hex_clicked.emit(destination)
 
-	var moved_combatant: Dictionary = _find_combatant_by_id(instance, actor_id)
-	assert_true(moved_combatant.get("hex_coord").equals(destination), "the live combatant Dictionary's hex_coord must move to the selected hex via move_token()")
+	var moved_combatant = _find_combatant_by_id(instance, actor_id)
+	assert_true(moved_combatant.hex_coord.equals(destination), "the live combatant Dictionary's hex_coord must move to the selected hex via move_token()")
 
 	var token_after = instance.hex_grid_view.get_token(actor_id)
 	assert_true(token_after.hex_coord.equals(destination), "the real HexGridView's token must resync to the new hex after the Stride")

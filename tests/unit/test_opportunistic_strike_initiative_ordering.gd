@@ -49,6 +49,7 @@ extends GutTest
 const MainSceneClass = preload("res://MainScene.gd")
 const ResolveStrideUseCaseClass = preload("res://core/application/use_cases/resolve_stride_use_case.gd")
 const HexCoord = preload("res://core/geometry/hex_coord.gd")
+const CombatantClass = preload("res://core/domain/combatant.gd")
 
 var _instance = null
 
@@ -68,8 +69,8 @@ func after_each() -> void:
 ## test_resolve_stride_use_case.gd's own `_reactor()` fixture shape plus the
 ## "_initiative_roll"/"combatant_id" fields core/combat/encounter.gd's
 ## initialize() stamps onto every combatant Dictionary in real play.
-func _reactor(name: String, initiative_roll: int, hex_coord) -> Dictionary:
-	return {
+func _reactor(name: String, initiative_roll: int, hex_coord):
+	return CombatantClass.from_dict({
 		"name": name,
 		"combatant_id": name,
 		"hex_coord": hex_coord,
@@ -77,13 +78,13 @@ func _reactor(name: String, initiative_roll: int, hex_coord) -> Dictionary:
 		"_is_enemy": true,
 		"_initiative_roll": initiative_roll,
 		"weapon": {"damage_die": 6},
-	}
+	})
 
 
 ## _mover() -- the (player) Stride actor, starting at (0, 0), hostile to
 ## every `_reactor()` fixture above.
-func _mover() -> Dictionary:
-	return {"name": "Titus", "combatant_id": "titus", "hex_coord": HexCoord.new(0, 0), "_is_enemy": false, "weapon": {"damage_die": 6}}
+func _mover():
+	return CombatantClass.from_dict({"name": "Titus", "combatant_id": "titus", "hex_coord": HexCoord.new(0, 0), "_is_enemy": false, "weapon": {"damage_die": 6}})
 
 
 ## RecordingResolver -- a reactor_resolver_fn double recording every call
@@ -94,8 +95,8 @@ class RecordingResolver:
 
 	var calls: Array = []
 
-	func resolve(reactor: Dictionary, _context: Dictionary) -> Dictionary:
-		calls.append(reactor.get("name", ""))
+	func resolve(reactor, _context: Dictionary) -> Dictionary:
+		calls.append(reactor.name)
 		return {"choice": "opportunistic_strike"}
 
 
@@ -109,8 +110,8 @@ func test_candidate_reactors_ordered_by_rolled_initiative_not_spawn_order() -> v
 	# order): the LOW-initiative reactor was authored/spawned FIRST, the
 	# HIGH-initiative reactor SECOND -- the exact spawn-order-vs-initiative
 	# divergence FIND-224 identified.
-	var low_roll_spawned_first: Dictionary = _reactor("EarlySpawnLowRoll", 5, HexCoord.new(1, 0))
-	var high_roll_spawned_second: Dictionary = _reactor("LateSpawnHighRoll", 20, HexCoord.new(-1, 0))
+	var low_roll_spawned_first = _reactor("EarlySpawnLowRoll", 5, HexCoord.new(1, 0))
+	var high_roll_spawned_second = _reactor("LateSpawnHighRoll", 20, HexCoord.new(-1, 0))
 
 	var spawn_order: Array = [low_roll_spawned_first, high_roll_spawned_second]
 
@@ -125,8 +126,8 @@ func test_candidate_reactors_ordered_by_rolled_initiative_not_spawn_order() -> v
 
 
 func test_ordering_is_stable_for_equal_initiative_rolls() -> void:
-	var first: Dictionary = _reactor("First", 10, HexCoord.new(1, 0))
-	var second: Dictionary = _reactor("Second", 10, HexCoord.new(-1, 0))
+	var first = _reactor("First", 10, HexCoord.new(1, 0))
+	var second = _reactor("Second", 10, HexCoord.new(-1, 0))
 
 	var ordered: Array = _instance._order_candidate_reactors_by_initiative([first, second])
 
@@ -138,8 +139,8 @@ func test_ordering_is_stable_for_equal_initiative_rolls() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_ordering_violation_triggers_fail_loud_assertion() -> void:
-	var low_roll: Dictionary = _reactor("EarlySpawnLowRoll", 5, HexCoord.new(1, 0))
-	var high_roll: Dictionary = _reactor("LateSpawnHighRoll", 20, HexCoord.new(-1, 0))
+	var low_roll = _reactor("EarlySpawnLowRoll", 5, HexCoord.new(1, 0))
+	var high_roll = _reactor("LateSpawnHighRoll", 20, HexCoord.new(-1, 0))
 
 	# The rolled initiative table (encounter.get_turn_order()'s own shape --
 	# descending, one entry per combatant) says high_roll acts before
@@ -158,8 +159,8 @@ func test_ordering_violation_triggers_fail_loud_assertion() -> void:
 
 
 func test_ordering_violation_reports_true_when_a_candidate_is_absent_from_turn_order() -> void:
-	var low_roll: Dictionary = _reactor("EarlySpawnLowRoll", 5, HexCoord.new(1, 0))
-	var high_roll: Dictionary = _reactor("LateSpawnHighRoll", 20, HexCoord.new(-1, 0))
+	var low_roll = _reactor("EarlySpawnLowRoll", 5, HexCoord.new(1, 0))
+	var high_roll = _reactor("LateSpawnHighRoll", 20, HexCoord.new(-1, 0))
 
 	# turn_order is missing `low_roll` entirely -- ordering can never be
 	# verified against the table, which must also fail loud.
@@ -172,8 +173,8 @@ func test_ordering_violation_reports_true_when_a_candidate_is_absent_from_turn_o
 
 
 func test_consistent_ordering_does_not_trigger_the_assertion() -> void:
-	var low_roll: Dictionary = _reactor("EarlySpawnLowRoll", 5, HexCoord.new(1, 0))
-	var high_roll: Dictionary = _reactor("LateSpawnHighRoll", 20, HexCoord.new(-1, 0))
+	var low_roll = _reactor("EarlySpawnLowRoll", 5, HexCoord.new(1, 0))
+	var high_roll = _reactor("LateSpawnHighRoll", 20, HexCoord.new(-1, 0))
 
 	var turn_order: Array = [high_roll, low_roll]
 	var consistent_order: Array = [high_roll, low_roll]
@@ -191,15 +192,15 @@ func test_consistent_ordering_does_not_trigger_the_assertion() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_two_eligible_reactors_resolve_in_initiative_order() -> void:
-	var mover: Dictionary = _mover()
+	var mover = _mover()
 
 	# Both reactors are adjacent to mover's start hex (0, 0) and melee-armed
 	# -- both OpportunisticStrikeEligibility-eligible. Spawn order (the
 	# pre-FEAT-228 buggy candidate_reactors order) is
 	# [EarlySpawnLowRoll, LateSpawnHighRoll] -- the LOWER-initiative reactor
 	# spawned first.
-	var early_spawn_low_roll: Dictionary = _reactor("EarlySpawnLowRoll", 5, HexCoord.new(1, 0))
-	var late_spawn_high_roll: Dictionary = _reactor("LateSpawnHighRoll", 20, HexCoord.new(-1, 0))
+	var early_spawn_low_roll = _reactor("EarlySpawnLowRoll", 5, HexCoord.new(1, 0))
+	var late_spawn_high_roll = _reactor("LateSpawnHighRoll", 20, HexCoord.new(-1, 0))
 	var spawn_order: Array = [early_spawn_low_roll, late_spawn_high_roll]
 
 	# This is FEAT-228's actual fix, exercised exactly as
@@ -211,7 +212,7 @@ func test_two_eligible_reactors_resolve_in_initiative_order() -> void:
 	var use_case := ResolveStrideUseCaseClass.new()
 
 	await use_case.execute(
-		mover, mover["hex_coord"], candidate_reactors, Callable(), Callable(resolver, "resolve")
+		mover, mover.hex_coord, candidate_reactors, Callable(), Callable(resolver, "resolve")
 	)
 
 	assert_eq(

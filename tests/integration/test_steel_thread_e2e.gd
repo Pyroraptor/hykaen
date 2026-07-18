@@ -70,6 +70,7 @@ const RoundEventsClass              = preload("res://core/rules/round_events.gd"
 const ResolutionClass              = preload("res://core/rules/resolution.gd")
 const ReactionChooserPortClass     = preload("res://core/application/ports/reaction_chooser_port.gd")
 const AutoReactionChooserRef       = preload("res://infrastructure/auto_reaction_chooser.gd")
+const CombatantClass               = preload("res://core/domain/combatant.gd")
 
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 
@@ -119,9 +120,9 @@ class FakeRoundHistoryPort:
 class FakeAIDecisionPort:
 	extends "res://core/application/ai_decision_port.gd"
 
-	func decide_action(combatant: Dictionary, targets: Array) -> Dictionary:
+	func decide_action(combatant, targets: Array) -> Dictionary:
 		for target in targets:
-			if target.get("hp_current", 0) > 0:
+			if target.hp_current > 0:
 				return {"action_type": "Strike", "target": target}
 		return {"action_type": "", "target": {}}
 
@@ -171,7 +172,7 @@ class SequenceRNG:
 # Shared fixture helpers
 # ══════════════════════════════════════════════════════════════════════════
 
-func _entry(combatant: Dictionary) -> Dictionary:
+func _entry(combatant) -> Dictionary:
 	return {"combatant": combatant, "action_economy": ActionEconomyClass.new()}
 
 
@@ -186,20 +187,20 @@ func _weapon() -> Dictionary:
 ## guaranteeing every Strike misses (spending the action, but resolving —
 ## never tripping the no-progress backstop) until a test explicitly lowers
 ## one side's `ac`/`hp_current` to force a decisive hit.
-func _hero() -> Dictionary:
-	return {
+func _hero():
+	return CombatantClass.from_dict({
 		"name": "Hero", "combatant_id": "hero", "hp_current": 50, "hp_max": 50,
 		"ac": 100, "strength": 0, "hex_coord": HexCoordClass.new(0, 0),
 		"_is_enemy": false, "weapon": _weapon(),
-	}
+	})
 
 
-func _golem() -> Dictionary:
-	return {
+func _golem():
+	return CombatantClass.from_dict({
 		"name": "Golem", "combatant_id": "golem", "hp_current": 1, "hp_max": 1,
 		"ac": 100, "strength": 0, "hex_coord": HexCoordClass.new(1, 0),
 		"_is_enemy": true, "weapon": _weapon(),
-	}
+	})
 
 
 ## FEAT-006 (US-005/FR-005, ADR-002): MainScene now wires RoundSession's
@@ -236,7 +237,7 @@ func _boot_main_scene():
 ## `_verb_registry`) against fully deterministic combatants. Mirrors
 ## tests/integration/test_multi_round_loop.gd's identically-named helper
 ## exactly.
-func _wire_synthetic_fixture(instance, hero: Dictionary, golem: Dictionary) -> void:
+func _wire_synthetic_fixture(instance, hero, golem) -> void:
 	var entries: Array = [_entry(hero), _entry(golem)]
 	var turn_order_port = FakeTurnOrderPort.new(entries)
 	var round_history_port = FakeRoundHistoryPort.new()
@@ -263,7 +264,8 @@ func _wire_synthetic_fixture(instance, hero: Dictionary, golem: Dictionary) -> v
 ## real, unmodified production RoundSession instance — never a mock/stub).
 func _action_economy_by_id(instance, combatant_id: String):
 	for entry in instance.round_session._entries:
-		if entry.get("combatant", {}).get("combatant_id", "") == combatant_id:
+		var comb = entry.get("combatant")
+		if comb != null and comb.combatant_id == combatant_id:
 			return entry.get("action_economy")
 	return null
 
@@ -275,8 +277,8 @@ func _action_economy_by_id(instance, combatant_id: String):
 
 func test_criterion1_round_begins_with_full_seven_action_budgets() -> void:
 	var instance = _boot_main_scene()
-	var hero: Dictionary = _hero()
-	var golem: Dictionary = _golem()
+	var hero = _hero()
+	var golem = _golem()
 	_wire_synthetic_fixture(instance, hero, golem)
 
 	assert_not_null(instance.round_session, "rewire_session() (which internally calls run_round_use_case.begin_round()) must assign a real RoundSession")
@@ -314,8 +316,8 @@ func test_criterion1_round_begins_with_full_seven_action_budgets() -> void:
 ## drive loop, not a hang, is what eventually exits it.
 func test_criterion2_and_3_multi_round_loop_never_hangs_and_never_trips_the_1000_turn_guard() -> void:
 	var instance = _boot_main_scene()
-	var hero: Dictionary = _hero()
-	var golem: Dictionary = _golem()
+	var hero = _hero()
+	var golem = _golem()
 	_wire_synthetic_fixture(instance, hero, golem)
 
 	assert_eq(instance.ROUND_NUMBER, 1, "fixture setup: the synthetic rig must start on round 1")
@@ -343,7 +345,7 @@ func test_criterion2_and_3_multi_round_loop_never_hangs_and_never_trips_the_1000
 		# guarantee). ─────────────────────────────────────────────────────────
 		if not instance.round_session.is_round_over():
 			assert_false(
-				instance.round_session.current_actor().get("_is_enemy", true),
+				instance.round_session.current_actor().is_enemy,
 				"presentation/turn_controller.gd's 1000-turn last-resort guard must NEVER be what terminates _drive() — " +
 				"the settled current actor must be the Player whenever the round is not yet over (iteration %d)" % guard
 			)
@@ -354,10 +356,10 @@ func test_criterion2_and_3_multi_round_loop_never_hangs_and_never_trips_the_1000
 			# Golem hittable (it already carries hp_current=1, per _golem()'s
 			# fixture) so Hero's own next Strike lethally decides round 3 in
 			# the PLAYER's favor ("won").
-			golem["ac"] = -100
+			golem.ac = -100
 			made_lethal = true
 
-		if not instance.round_session.current_actor().get("_is_enemy", false):
+		if not instance.round_session.current_actor().is_enemy:
 			instance._verb_registry.execute("STRIKE", "golem")
 		instance.end_turn_control.press()
 
@@ -398,8 +400,8 @@ func test_criterion2_and_3_multi_round_loop_never_hangs_and_never_trips_the_1000
 
 func test_criterion4_and_5_live_attack_reaction_pop_up_alters_outcome_via_parry() -> void:
 	var instance = _boot_main_scene()
-	var hero: Dictionary = _hero()
-	var golem: Dictionary = _golem()
+	var hero = _hero()
+	var golem = _golem()
 	_wire_synthetic_fixture(instance, hero, golem)
 	await get_tree().process_frame
 
@@ -426,10 +428,10 @@ func test_criterion4_and_5_live_attack_reaction_pop_up_alters_outcome_via_parry(
 	assert_not_null(hero_action_economy, "fixture assumption: Hero's real, round-shared ActionEconomy must be reachable off round_session")
 	assert_eq(hero_action_economy.get_remaining(), ActionEconomyClass.MAX_BUDGET, "fixture assumption: Hero has not yet spent any action/reaction this round")
 
-	var reactor: Dictionary = hero.duplicate()
-	reactor["ac"] = 13
-	reactor["conditions"] = []
-	reactor["skills"] = {}
+	var reactor = _hero()
+	reactor.ac = 13
+	reactor.conditions = []
+	reactor.skills = {}
 
 	var parrying_weapon: Dictionary = {"damage_die": 8, "parry_bonus": 3, "block_value": 0}
 	var attacker: Dictionary = {"name": "Golem", "strength": 3}
@@ -513,16 +515,16 @@ func test_criterion4_and_5_live_attack_reaction_pop_up_alters_outcome_via_parry(
 ## resolution.gd regardless of what is chosen.
 func test_criterion4_and_5_sibling_auto_passed_reaction_never_suppresses_damage() -> void:
 	var instance = _boot_main_scene()
-	var hero: Dictionary = _hero()
-	var golem: Dictionary = _golem()
+	var hero = _hero()
+	var golem = _golem()
 	_wire_synthetic_fixture(instance, hero, golem)
 	await get_tree().process_frame
 
 	var hero_action_economy = _action_economy_by_id(instance, "hero")
-	var reactor: Dictionary = hero.duplicate()
-	reactor["ac"] = 13
-	reactor["conditions"] = []
-	reactor["skills"] = {}
+	var reactor = _hero()
+	reactor.ac = 13
+	reactor.conditions = []
+	reactor.skills = {}
 
 	var parrying_weapon: Dictionary = {"damage_die": 8, "parry_bonus": 3, "block_value": 0}
 	var attacker: Dictionary = {"name": "Golem", "strength": 3}
@@ -568,8 +570,8 @@ func test_criterion4_and_5_sibling_auto_passed_reaction_never_suppresses_damage(
 
 func test_criterion6_round_ultimately_resolves_to_a_decided_outcome() -> void:
 	var instance = _boot_main_scene()
-	var hero: Dictionary = _hero()
-	var golem: Dictionary = _golem()
+	var hero = _hero()
+	var golem = _golem()
 	_wire_synthetic_fixture(instance, hero, golem)
 
 	# Make Hero's very first Strike lethal against Golem (already carrying
@@ -582,7 +584,7 @@ func test_criterion6_round_ultimately_resolves_to_a_decided_outcome() -> void:
 	var guard: int = 0
 	while not instance.round_session.is_round_over() and guard < _MAX_DRIVE_ITERATIONS:
 		guard += 1
-		if not instance.round_session.current_actor().get("_is_enemy", false):
+		if not instance.round_session.current_actor().is_enemy:
 			instance._verb_registry.execute("STRIKE", "golem")
 		instance.end_turn_control.press()
 

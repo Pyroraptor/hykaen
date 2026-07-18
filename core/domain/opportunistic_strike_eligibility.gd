@@ -92,7 +92,7 @@ static func _is_hostile(reactor, mover) -> bool:
 ## rule melee Strike reach/Step already use (ADR-001: one shared domain rule,
 ## never re-derived).
 static func _is_adjacent(reactor, mover_start_hex) -> bool:
-	var reactor_hex = reactor.hex_coord
+	var reactor_hex = reactor.hex_coord if not (reactor is Dictionary) else reactor.get("hex_coord", null)
 	if reactor_hex == null or mover_start_hex == null:
 		return false
 	for neighbor in HexMathClass.hex_neighbors(mover_start_hex):

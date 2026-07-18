@@ -46,6 +46,7 @@ const MainSceneClass        = preload("res://MainScene.gd")
 const HexCoordClass         = preload("res://core/geometry/hex_coord.gd")
 const ActionEconomyClass    = preload("res://core/rules/action_economy.gd")
 const ResultScreenViewScene = preload("res://presentation/result_screen_view.tscn")
+const CombatantClass        = preload("res://core/domain/combatant.gd")
 
 
 ## SpyHexGridView -- a minimal stand-in for presentation/hex_grid_view.gd that
@@ -71,14 +72,14 @@ class SpyHexGridView:
 ## observed immediately, exactly like the real RoundSession/live-combatant
 ## relationship this mirrors.
 class FakeRoundSession:
-	var _actor: Dictionary
+	var _actor
 	var _action_economy
 
-	func _init(actor: Dictionary, action_economy) -> void:
+	func _init(actor, action_economy) -> void:
 		_actor = actor
 		_action_economy = action_economy
 
-	func current_actor() -> Dictionary:
+	func current_actor():
 		return _actor
 
 	func current_action_economy():
@@ -102,13 +103,13 @@ func after_each() -> void:
 	_hex_grid_view = null
 
 
-func _origin_actor(combatant_id: String, is_enemy: bool, hex_coord = null) -> Dictionary:
-	return {
+func _origin_actor(combatant_id: String, is_enemy: bool, hex_coord = null):
+	return CombatantClass.from_dict({
 		"name":         combatant_id,
 		"combatant_id": combatant_id,
 		"hex_coord":    hex_coord if hex_coord != null else HexCoordClass.new(0, 0),
 		"_is_enemy":    is_enemy,
-	}
+	})
 
 
 func _last_call() -> Array:
@@ -121,7 +122,7 @@ func _last_call() -> Array:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_highlight_cleared_when_turn_started_fires_for_a_non_active_player_combatant() -> void:
-	var player_actor: Dictionary = _origin_actor("titus", false)
+	var player_actor = _origin_actor("titus", false)
 	_instance.round_session = FakeRoundSession.new(player_actor, ActionEconomyClass.new())
 	_instance._on_active_actor_changed(player_actor)
 
@@ -130,7 +131,7 @@ func test_highlight_cleared_when_turn_started_fires_for_a_non_active_player_comb
 		"sanity check: the player's own turn_started event highlights a non-empty selectable-hex set"
 	)
 
-	var enemy_actor: Dictionary = _origin_actor("skeleton", true)
+	var enemy_actor = _origin_actor("skeleton", true)
 	_instance._on_active_actor_changed(enemy_actor)
 
 	assert_eq(
@@ -140,7 +141,7 @@ func test_highlight_cleared_when_turn_started_fires_for_a_non_active_player_comb
 
 
 func test_highlight_cleared_directly_on_a_non_active_player_turn_started_event() -> void:
-	var enemy_actor: Dictionary = _origin_actor("skeleton", true)
+	var enemy_actor = _origin_actor("skeleton", true)
 	_instance.round_session = FakeRoundSession.new(enemy_actor, ActionEconomyClass.new())
 
 	_instance._on_active_actor_changed(enemy_actor)
@@ -161,7 +162,7 @@ func test_highlight_cleared_directly_on_a_non_active_player_turn_started_event()
 ## _verb_bar_step_execute() directly -- the SOLE Step entry point now that the
 ## legacy hex_grid_view.hex_clicked auto-resolve handler has been deleted.
 func test_highlight_cleared_immediately_after_a_successful_step() -> void:
-	var actor: Dictionary = _origin_actor("titus", false)
+	var actor = _origin_actor("titus", false)
 	_instance.round_session = FakeRoundSession.new(actor, ActionEconomyClass.new())
 	_instance._on_active_actor_changed(actor)
 
@@ -198,7 +199,7 @@ func test_highlight_cleared_immediately_after_a_successful_step() -> void:
 func test_highlight_cleared_immediately_after_a_successful_stride() -> void:
 	var action_economy := ActionEconomyClass.new()
 	action_economy.start_of_round()
-	var actor: Dictionary = _origin_actor("titus", false)
+	var actor = _origin_actor("titus", false)
 	_instance.round_session = FakeRoundSession.new(actor, action_economy)
 	_instance._on_active_actor_changed(actor)
 
@@ -229,7 +230,7 @@ func test_highlight_cleared_immediately_after_a_successful_stride() -> void:
 ## as the deleted hex_grid_view.hex_clicked auto-resolve handler used to
 ## reject a doubly-out-of-range click.
 func test_highlight_not_cleared_by_a_verb_execute_that_resolves_to_neither_step_nor_stride() -> void:
-	var actor: Dictionary = _origin_actor("titus", false)
+	var actor = _origin_actor("titus", false)
 	_instance.round_session = FakeRoundSession.new(actor, ActionEconomyClass.new())
 	_instance._on_active_actor_changed(actor)
 
@@ -258,7 +259,7 @@ func test_highlight_not_cleared_by_a_verb_execute_that_resolves_to_neither_step_
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_highlight_stays_empty_and_cannot_be_repopulated_after_encounter_resolved() -> void:
-	var actor: Dictionary = _origin_actor("titus", false)
+	var actor = _origin_actor("titus", false)
 	_instance.round_session = FakeRoundSession.new(actor, ActionEconomyClass.new())
 	_instance._on_active_actor_changed(actor)
 

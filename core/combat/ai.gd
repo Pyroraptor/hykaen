@@ -309,8 +309,8 @@ func _stride_toward_target(
 	if action_economy.get_remaining() <= 0 or not action_economy.can_take_movement_action():
 		return {"action_type": "", "target": null, "destination": null, "will_strike": false}
 
-	var origin = combatant.hex_coord
-	var target_hex = chosen_target.hex_coord
+	var origin = combatant.hex_coord if not (combatant is Dictionary) else combatant.get("hex_coord", null)
+	var target_hex = chosen_target.hex_coord if not (chosen_target is Dictionary) else chosen_target.get("hex_coord", null)
 	var occupancy: Array = targets + other_combatants
 
 	var destinations: Array = MovementClass.get_stride_destinations(combatant, occupancy)
@@ -387,14 +387,14 @@ func _select_target(combatant, targets: Array):
 	if living.is_empty():
 		return null
 
-	var combatant_hex = combatant.hex_coord
+	var combatant_hex = combatant.hex_coord if not (combatant is Dictionary) else combatant.get("hex_coord", null)
 	if combatant_hex == null:
 		return living[0]
 
 	var nearest = null
 	var nearest_distance: int = -1
 	for t in living:
-		var t_hex = t.hex_coord
+		var t_hex = t.hex_coord if not (t is Dictionary) else t.get("hex_coord", null)
 		if t_hex == null:
 			continue
 		var distance: int = HexMathClass.hex_distance(combatant_hex, t_hex)
@@ -431,7 +431,9 @@ func _is_in_reach(combatant, target) -> bool:
 ## helper so the AI's notion of "in reach" and the use case that later
 ## executes a Strike never disagree.
 func _requires_reach_check(combatant, target) -> bool:
-	return combatant.hex_coord != null and target.hex_coord != null
+	var c_hex = combatant.hex_coord if not (combatant is Dictionary) else combatant.get("hex_coord", null)
+	var t_hex = target.hex_coord if not (target is Dictionary) else target.get("hex_coord", null)
+	return c_hex != null and t_hex != null
 
 
 ## _is_adjacent(combatant, target) -> bool — true iff target.hex_coord is one

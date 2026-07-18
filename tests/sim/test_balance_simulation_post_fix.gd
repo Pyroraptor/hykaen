@@ -58,6 +58,7 @@ const SimulatorClass  = preload("res://core/sim/simulator.gd")
 const EncounterClass  = preload("res://core/combat/encounter.gd")
 const RNGClass        = preload("res://core/rules/rng.gd")
 const AttributesClass = preload("res://core/rules/attributes.gd")
+const CombatantClass  = preload("res://core/domain/combatant.gd")
 
 ## Pinned seed/count for the post-fix N=1000 re-run — deterministic.
 const BALANCE_SEED: int = 12345
@@ -138,7 +139,7 @@ const MAX_ROUNDS_GUARD: int = 50
 ## values) and tests/unit/test_enemy_resource_weapon_defense_fields.gd for
 ## the FEAT-001 data suite.
 const _EXPECTED_HASHES: Dictionary = {
-	"res://core/sim/simulator.gd":      "a0caa3aa612bd7532187d4074d49b4ab",
+	"res://core/sim/simulator.gd":      "6120b8e4b096193d2f5c587f683ae4a9",
 	"res://data/characters/titus.tres": "da31ef348d95fd313c1a895ca02e0417",
 	"res://data/enemies/skeleton.tres": "a197dd1bc0c15c016b1ee33dc202951c",
 	"res://data/weapons/longsword.tres": "248339f6e3f256d6cdc6a943ca824587",
@@ -294,7 +295,7 @@ func test_run_round_entry_exit_contract_no_mocking() -> void:
 	var titus_hp: int = attrs.compute_hp(titus_char.attributes, titus_char.class_ref)
 	var titus_ac: int = attrs.compute_ac(titus_char.attributes, scale_mail.ac_base, scale_mail.category)
 
-	var titus: Dictionary = {
+	var titus = CombatantClass.from_dict({
 		"name":       titus_char.name,
 		"hp_current": titus_hp,
 		"ac":         titus_ac,
@@ -306,8 +307,8 @@ func test_run_round_entry_exit_contract_no_mocking() -> void:
 			"proficiency_bonus":         weapon_res.proficiency_bonus,
 			"damage_die":                weapon_res.damage_die,
 		}
-	}
-	var skeleton: Dictionary = {
+	})
+	var skeleton = CombatantClass.from_dict({
 		"name":       skeleton_res.name,
 		"hp_current": 50,
 		"ac":         14,
@@ -319,7 +320,7 @@ func test_run_round_entry_exit_contract_no_mocking() -> void:
 			"proficiency_bonus": skeleton_res.weapon.get("proficiency_bonus", 1),
 			"damage_die":        skeleton_res.weapon.get("die", 8),
 		}
-	}
+	})
 
 	# Real RNG (core/rules/rng.gd) — no test double, no domain-layer mocking.
 	var enc = EncounterClass.new([titus], [skeleton], RNGClass.new(CONTRACT_SEED))

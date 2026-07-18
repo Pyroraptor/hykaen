@@ -176,7 +176,7 @@ func test_mainscene_boot_renders_every_token_within_viewport_bounds() -> void:
 	)
 	var combatant_ids: Array = []
 	for combatant in instance._party + instance._enemies:
-		combatant_ids.append(combatant.get("combatant_id", ""))
+		combatant_ids.append(combatant.combatant_id)
 
 	assert_true(combatant_ids.size() > 0, "the prologue fixture must supply at least one combatant to check")
 

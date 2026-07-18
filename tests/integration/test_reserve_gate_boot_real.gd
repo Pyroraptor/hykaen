@@ -104,14 +104,14 @@ func _boot_main_scene():
 	return instance
 
 
-func _id(combatant: Dictionary) -> String:
-	return combatant.get("combatant_id", combatant.get("name", ""))
+func _id(combatant) -> String:
+	return combatant.combatant_id
 
 
-func _skeleton(instance) -> Dictionary:
+func _skeleton(instance):
 	assert_true(instance._enemies.size() > 0, "fixture assumption: the prologue encounter has at least one enemy")
-	var skeleton: Dictionary = instance._enemies[0]
-	assert_eq(skeleton.get("name", ""), "Skeleton", "fixture assumption: the sole enemy is the Skeleton")
+	var skeleton = instance._enemies[0]
+	assert_eq(skeleton.name, "Skeleton", "fixture assumption: the sole enemy is the Skeleton")
 	return skeleton
 
 
@@ -126,7 +126,7 @@ func _skeleton(instance) -> Dictionary:
 ## "Dodge/Parry/Block would otherwise be worthwhile" precondition this
 ## feature's test_criteria require, driven entirely off the Skeleton's own
 ## real production data (skills/weapon), never a fabricated Dictionary.
-func _force_guaranteed_hit_and_overwhelming_mitigation(combatant: Dictionary) -> void:
+func _force_guaranteed_hit_and_overwhelming_mitigation(combatant) -> void:
 	combatant["ac"] = AC_GUARANTEED_HIT
 	combatant["hp_current"] = SURVIVABLE_HP
 	combatant["weapon"]["parry_bonus"] = OVERWHELMING_MITIGATION_STAT
@@ -195,10 +195,11 @@ func _latest_structured_attack_event(instance):
 ## parry_worthwhile() check below reads the exact same value
 ## infrastructure/ai_reaction_policy.gd's real AIReactionPolicy would have
 ## consulted for this SAME Strike.
-func _parry_attack_bonus(combatant: Dictionary) -> int:
-	var weapon: Dictionary = combatant.get("weapon", {})
+func _parry_attack_bonus(combatant) -> int:
+	var weapon: Dictionary = combatant.weapon
 	var parry_attribute: String = weapon.get("damage_modifier_attribute", "")
-	return int(combatant.get(parry_attribute, 0)) + int(weapon.get("proficiency_bonus", 0))
+	var attr_val = combatant.get(parry_attribute)
+	return int(attr_val if attr_val != null else 0) + int(weapon.get("proficiency_bonus", 0))
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -215,12 +216,12 @@ func test_skeleton_at_one_action_passes_reaction_on_real_boot() -> void:
 	var instance = _boot_main_scene()
 	await get_tree().process_frame
 
-	var skeleton: Dictionary = _skeleton(instance)
+	var skeleton = _skeleton(instance)
 	var skeleton_id: String = _id(skeleton)
 	_force_guaranteed_hit_and_overwhelming_mitigation(skeleton)
 
-	var mobility: int = int(skeleton.get("skills", {}).get("mobility", 0))
-	var targeted_defense_value: int = int(skeleton.get("ac", 0))
+	var mobility: int = int(skeleton.skills.get("mobility", 0))
+	var targeted_defense_value: int = int(skeleton.ac)
 	assert_true(
 		MobilityDodgeRuleClass.dodge_worthwhile(mobility, targeted_defense_value),
 		"fixture assumption: the Skeleton's own real Mobility skill against its forced-low ac must make Dodge genuinely worthwhile per the REAL MobilityDodgeRule"
@@ -277,7 +278,7 @@ func test_no_action_budget_drop_and_unmitigated_hit_at_reserve_floor() -> void:
 	var instance = _boot_main_scene()
 	await get_tree().process_frame
 
-	var skeleton: Dictionary = _skeleton(instance)
+	var skeleton = _skeleton(instance)
 	var skeleton_id: String = _id(skeleton)
 	_force_guaranteed_hit_and_overwhelming_mitigation(skeleton)
 
@@ -288,7 +289,7 @@ func test_no_action_budget_drop_and_unmitigated_hit_at_reserve_floor() -> void:
 	var budget_before: int = ae.get_remaining()
 	assert_eq(budget_before, ActionEconomyClass.RESERVE, "fixture assumption: the Skeleton's own live ActionEconomy sits at the RESERVE floor before the Strike")
 
-	var hp_before: int = skeleton.get("hp_current", -1)
+	var hp_before: int = skeleton.hp_current
 
 	_resolve_one_real_player_strike_against(instance, skeleton_id)
 
@@ -304,7 +305,7 @@ func test_no_action_budget_drop_and_unmitigated_hit_at_reserve_floor() -> void:
 	assert_true(attack_event.hit, "fixture assumption: the guaranteed-hit AC must actually produce a hit once Dodge is forced to Pass")
 	assert_true(attack_event.damage_final > 0, "the unmitigated hit must deal real, positive damage")
 
-	var hp_after: int = skeleton.get("hp_current", -1)
+	var hp_after: int = skeleton.hp_current
 	assert_eq(hp_before - hp_after, attack_event.damage_final, "the Skeleton's hp_current must drop by EXACTLY the unmitigated final damage -- no Parry/Block silently applied")
 
 	# Criterion: the hit is fully UNMITIGATED -- final damage equals the

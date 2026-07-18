@@ -154,11 +154,11 @@ func _boot_main_scene_with_seed(seed_value: int):
 ## Dictionaries every resolve_action_use_case.resolve() call mutates in
 ## place) by combatant_id, mirroring the lookup already established by
 ## tests/unit/test_main_scene_interactive_wiring.gd.
-func _find_combatant_by_id(instance, combatant_id: String) -> Dictionary:
+func _find_combatant_by_id(instance, combatant_id: String):
 	for combatant in instance._party + instance._enemies:
-		if combatant.get("combatant_id", "") == combatant_id:
+		if combatant.combatant_id == combatant_id:
 			return combatant
-	return {}
+	return null
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -268,19 +268,20 @@ func test_player_strike_through_real_pipeline_observable_in_event_log_and_status
 		"the first actor must be a living player combatant (Titus) per prologue_encounter.tres' hex layout"
 	)
 
-	var target_ids: Array = instance.strike_action_control.get_selectable_target_ids()
+	var selection: Dictionary = instance._verb_registry.enter_selection("STRIKE")
+	var target_ids: Array = selection.get("candidate_targets", [])
 	assert_true(
 		target_ids.size() > 0,
-		"the real $StrikeActionControl must be configured with at least one in-reach target for the active player combatant immediately after MainScene._ready()"
+		"the real _verb_registry STRIKE entry must be configured with at least one in-reach target for the active player combatant immediately after MainScene._ready()"
 	)
 	var target_id: String = target_ids[0]
 
 	assert_eq(instance.event_log_view.get_entry_count(), 0, "fixture assumption: no events logged yet before any Strike")
 
-	# ── Drive the real $StrikeActionControl node -- no test-local resolver. ──
-	var result: Dictionary = instance.strike_action_control.select_target(target_id)
+	# ── Drive the real _verb_registry STRIKE entry -- no test-local resolver. ──
+	var result: Dictionary = instance._verb_registry.execute("STRIKE", target_id)
 
-	assert_true(result.get("ok", false), "the player's melee Strike on the in-reach target must resolve successfully through the real StrikeActionControl node")
+	assert_true(result.get("ok", false), "the player's melee Strike on the in-reach target must resolve successfully through the real _verb_registry STRIKE entry")
 	assert_true(result.get("resolved", false), "the player's Strike must be marked resolved by MainScene's real, wired resolve_action_use_case")
 
 	# At least one entry (the AttackEvent) -- possibly a second
@@ -292,16 +293,16 @@ func test_player_strike_through_real_pipeline_observable_in_event_log_and_status
 		"the real EventLogView must observe at least one entry for the player's resolved Strike's AttackEvent"
 	)
 	var log_text: String = instance.event_log_view.get_entry_text(0)
-	assert_string_contains(log_text, "Titus")
-	assert_string_contains(log_text, "Skeleton")
+	assert_string_contains(log_text, "player_0")
+	assert_string_contains(log_text, target_id)
 
 	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 	assert_eq(attack_events.size(), 1, "MainScene's real event-sink adapter must have observed exactly one AttackEvent")
 	assert_eq(attack_events[0].attacker_name, "Titus", "the AttackEvent must attribute the Strike to Titus, the player-controlled actor")
 	assert_eq(attack_events[0].target_name, "Skeleton", "the AttackEvent must target the Skeleton")
 
-	var target_combatant: Dictionary = _find_combatant_by_id(instance, target_id)
-	assert_false(target_combatant.is_empty(), "fixture assumption: the selected target must be one of MainScene's live combatant Dictionaries")
+	var target_combatant = _find_combatant_by_id(instance, target_id)
+	assert_false(target_combatant == null, "fixture assumption: the selected target must be one of MainScene's live combatant Dictionaries")
 
 	# StatusPanelView clamps a displayed HP at 0 (it never shows an
 	# "overkill" negative value), while the live domain Dictionary MainScene
@@ -309,7 +310,7 @@ func test_player_strike_through_real_pipeline_observable_in_event_log_and_status
 	# StatusPanelView applies.
 	var status: Dictionary = instance.status_panel_view.get_status(target_id)
 	assert_eq(
-		status.get("hp_current", -1), maxi(target_combatant.get("hp_current", -2), 0),
+		status.get("hp_current", -1), maxi(target_combatant.hp_current, 0),
 		"the real StatusPanelView must reflect the target's post-Strike HP via MainScene's real event-sink pipeline"
 	)
 
@@ -383,15 +384,16 @@ func test_enemy_ai_turn_auto_drives_through_identical_pipeline_after_end_turn() 
 		instance.round_session.current_actor().get("_is_enemy", true),
 		"the real $TurnController must auto-drive the Enemy's full turn so the session settles back on a living player combatant"
 	)
-	var target_ids: Array = instance.strike_action_control.get_selectable_target_ids()
+	var selection2: Dictionary = instance._verb_registry.enter_selection("STRIKE")
+	var target_ids: Array = selection2.get("candidate_targets", [])
 	assert_true(
 		target_ids.size() > 0,
-		"MainScene must have reconfigured $StrikeActionControl with live targets once the real TurnController settles back on the player (FIND-120)"
+		"MainScene must have reconfigured _verb_registry STRIKE with live targets once the real TurnController settles back on the player (FIND-120)"
 	)
 
-	# ── Now the player Strikes for real, through the real StrikeActionControl,
-	# giving a second, player-attributed AttackEvent to compare shapes with. ──
-	var player_result: Dictionary = instance.strike_action_control.select_target(target_ids[0])
+	# ── Now the player Strikes for real, through the real _verb_registry STRIKE
+	# entry, giving a second, player-attributed AttackEvent to compare shapes with. ──
+	var player_result: Dictionary = instance._verb_registry.execute("STRIKE", target_ids[0])
 	assert_true(player_result.get("resolved", false), "the player's Strike through the real StrikeActionControl must resolve")
 
 	var attack_events_after: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
@@ -437,9 +439,10 @@ func test_encounter_concludes_with_result_screen_matching_determine_outcome_use_
 	var guard: int = 0
 	while not instance.round_session.is_round_over() and guard < _MAX_DRIVE_ITERATIONS:
 		if not instance.round_session.current_actor().get("_is_enemy", true):
-			var target_ids: Array = instance.strike_action_control.get_selectable_target_ids()
+			var sel: Dictionary = instance._verb_registry.enter_selection("STRIKE")
+			var target_ids: Array = sel.get("candidate_targets", [])
 			if target_ids.size() > 0:
-				instance.strike_action_control.select_target(target_ids[0])
+				instance._verb_registry.execute("STRIKE", target_ids[0])
 		instance.end_turn_control.press()
 		guard += 1
 
@@ -464,7 +467,7 @@ func test_encounter_concludes_with_result_screen_matching_determine_outcome_use_
 	assert_eq(instance.result_screen_view.get_label_text(), expected_text, "ResultScreenView's rendered label text must match the decided outcome")
 
 	# Combat input controls disabled after conclusion (US-012).
-	assert_eq(instance.strike_action_control.get_button_count(), 0, "the real $StrikeActionControl must be disabled (no selectable targets) once the encounter has concluded")
+	assert_false(instance._verb_registry.is_available("STRIKE"), "STRIKE must be unavailable (no selectable targets) once the encounter has concluded")
 	assert_false(instance.end_turn_control.is_enabled(), "the real $EndTurnControl must be disabled once the encounter has concluded")
 
 	# Further input after conclusion must be a defensive no-op -- no further

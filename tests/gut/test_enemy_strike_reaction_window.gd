@@ -222,7 +222,7 @@ func _make_session(entries: Array, party: Array, enemies: Array, random_number_p
 ## real resolver (presentation/turn_controller.gd's resolve_reaction())
 ## would when translating a RoundSession-issued trigger into a live
 ## reaction-window prompt.
-func _reaction_window_trigger(trigger_type: String, reactor: Dictionary, weapon: Dictionary) -> Dictionary:
+func _reaction_window_trigger(trigger_type: String, reactor, weapon: Dictionary) -> Dictionary:
 	return {
 		"trigger_type":   trigger_type,
 		"reactor":        reactor,
@@ -247,7 +247,7 @@ func test_dodge_reaction_negates_the_strike_and_spends_defenders_reaction() -> v
 	# unmodified gate -- never re-derived by this suite.
 	var event_sink := FakeEventSinkPort.new()
 	var window := ReactionWindowClass.new(event_sink)
-	var opened: Dictionary = window.open(_reaction_window_trigger("Dodge", alpha.to_dict(), alpha["weapon"]))
+	var opened: Dictionary = window.open(_reaction_window_trigger("Dodge", alpha, alpha["weapon"]))
 	assert_eq(opened.get("legal_reactions", []), ["dodge"], "Dodge must be legal per reaction_window.gd's own is_dodge_eligible() gate for this fixture (not Immobilized, open space)")
 
 	# RNG order (resolution.gd doc): [1] Mobility check d20, [2] attack d20.
@@ -291,7 +291,7 @@ func test_block_reaction_reduces_damage_using_the_resolved_blocking_weapon() -> 
 
 	var event_sink := FakeEventSinkPort.new()
 	var window := ReactionWindowClass.new(event_sink)
-	var opened: Dictionary = window.open(_reaction_window_trigger("Block", alpha.to_dict(), alpha["weapon"]))
+	var opened: Dictionary = window.open(_reaction_window_trigger("Block", alpha, alpha["weapon"]))
 	assert_eq(opened.get("legal_reactions", []), ["block"], "Block must be legal per reaction_window.gd's own is_block_eligible() gate for this fixture (weapon.block_value > 0)")
 
 	# RNG order: [1] attack d20 (10 -> roll_total 15, hits ac 10, not a
@@ -335,7 +335,7 @@ func test_parry_beats_roll_zeroes_damage_using_the_resolved_parrying_weapon() ->
 
 	var event_sink := FakeEventSinkPort.new()
 	var window := ReactionWindowClass.new(event_sink)
-	var opened: Dictionary = window.open(_reaction_window_trigger("Parry", alpha.to_dict(), alpha["weapon"]))
+	var opened: Dictionary = window.open(_reaction_window_trigger("Parry", alpha, alpha["weapon"]))
 	assert_eq(opened.get("legal_reactions", []), ["parry"], "Parry must be legal per reaction_window.gd's own is_parry_eligible() gate for this fixture (weapon.parry_bonus > 0)")
 
 	# RNG order: [1] attack d20 (10 -> roll_total 15, hits), [2] damage die
@@ -377,7 +377,7 @@ func test_steel_is_never_offered_as_legal_by_reaction_window_and_stays_dormant_i
 	# legalize it, regardless of the reactor's own state.
 	var event_sink := FakeEventSinkPort.new()
 	var window := ReactionWindowClass.new(event_sink)
-	var opened: Dictionary = window.open(_reaction_window_trigger("Steel", alpha.to_dict(), alpha["weapon"]))
+	var opened: Dictionary = window.open(_reaction_window_trigger("Steel", alpha, alpha["weapon"]))
 	assert_eq(opened.get("legal_reactions", []), [], "Steel must NEVER be legal for an 'ac' defense_type, per reaction_window.gd's own is_steel_eligible() gate")
 
 	# Defense in depth: even if a misbehaving/malicious resolver answers

@@ -205,10 +205,10 @@ func test_round1_player_strike_then_enemy_forced_dodge_strike_each_produce_one_r
 
 	# ── Round 1, Strike 2: the Skeleton strikes back at Titus, with a FORCED
 	# successful Dodge. ───────────────────────────────────────────────────────
-	var defender: Dictionary = instance._party[0]
-	assert_eq(defender.get("name", ""), "Titus", "fixture: Titus (the real player combatant) must be the prologue's defender")
-	var defender_id: String = defender.get("combatant_id", defender.get("name", ""))
-	var original_hex = defender.get("hex_coord", null)
+	var defender = instance._party[0]
+	assert_eq(defender.name, "Titus", "fixture: Titus (the real player combatant) must be the prologue's defender")
+	var defender_id: String = defender.combatant_id
+	var original_hex = defender.hex_coord
 	assert_not_null(original_hex, "fixture assumption: the defender must already carry a hex_coord")
 
 	_force_guaranteed_dodge_success(instance)
@@ -271,7 +271,7 @@ func test_round1_player_strike_then_enemy_forced_dodge_strike_each_produce_one_r
 
 	assert_eq(scripted.call_count, 1, "the Skeleton's forced-successful Dodge must invoke the Step-selection prompt exactly once")
 	assert_true(
-		defender.get("hex_coord", null).equals(chosen_hex),
+		defender.hex_coord.equals(chosen_hex),
 		"the defender's Combatant.hex_coord must equal the scripted chosen hex after the successful Dodge-Step"
 	)
 

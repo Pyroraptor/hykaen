@@ -221,11 +221,11 @@ func test_capstone_successful_dodge_relocates_defender_and_renders_single_rich_l
 	# scripts anything.
 	_assert_seams_are_the_real_composition_root_bindings(instance)
 
-	var defender: Dictionary = instance._party[0]
-	assert_eq(defender.get("name", ""), "Titus", "fixture: Titus (the real player combatant) must be the prologue's defender")
-	var defender_id: String = defender.get("combatant_id", defender.get("name", ""))
+	var defender = instance._party[0]
+	assert_eq(defender.name, "Titus", "fixture: Titus (the real player combatant) must be the prologue's defender")
+	var defender_id: String = defender.combatant_id
 
-	var original_hex = defender.get("hex_coord", null)
+	var original_hex = defender.hex_coord
 	assert_not_null(original_hex, "fixture assumption: the defender must already carry a hex_coord at boot")
 
 	var token_before = instance.hex_grid_view.get_token(defender_id)
@@ -288,7 +288,7 @@ func test_capstone_successful_dodge_relocates_defender_and_renders_single_rich_l
 	var chosen_hex = legal_hexes[0]
 	assert_false(chosen_hex.equals(original_hex), "fixture assumption: the scripted chosen hex must actually differ from the defender's current hex")
 
-	assert_true(defender.get("hex_coord", null).equals(original_hex), "sanity: the defender must not yet have moved before the Dodge-Step prompt is driven")
+	assert_true(defender.hex_coord.equals(original_hex), "sanity: the defender must not yet have moved before the Dodge-Step prompt is driven")
 
 	var scripted := ScriptedHexChoiceResolver.new(chosen_hex)
 	instance.hex_choice_resolver = scripted
@@ -313,7 +313,7 @@ func test_capstone_successful_dodge_relocates_defender_and_renders_single_rich_l
 
 	# Criterion: defender Combatant.hex_coord equals the chosen hex.
 	assert_true(
-		defender.get("hex_coord", null).equals(chosen_hex),
+		defender.hex_coord.equals(chosen_hex),
 		"the defender's Combatant.hex_coord must equal the scripted chosen hex after the successful Dodge-Step"
 	)
 

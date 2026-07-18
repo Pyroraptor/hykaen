@@ -32,6 +32,7 @@ const DetermineOutcomeUseCaseClass = preload("res://core/application/determine_o
 const ActionEconomyClass           = preload("res://core/rules/action_economy.gd")
 const SeededRandomAdapterClass     = preload("res://core/combat/seeded_random_adapter.gd")
 const RoundEventsClass             = preload("res://core/rules/round_events.gd")
+const CombatantClass               = preload("res://core/domain/combatant.gd")
 
 ## NOTE (FEAT-100 regression fix / FIND-096): FEAT-099 switched
 ## EventSinkPort.emit() to receive TYPED RefCounted value objects instead of
@@ -93,12 +94,12 @@ class FakeAIDecisionPort:
 	var call_count: int = 0
 	var calls_by_name: Dictionary = {}
 
-	func decide_action(combatant: Dictionary, targets: Array) -> Dictionary:
+	func decide_action(combatant, targets: Array) -> Dictionary:
 		call_count += 1
-		var name: String = combatant.get("name", "")
+		var name: String = combatant.name
 		calls_by_name[name] = calls_by_name.get(name, 0) + 1
 		for t in targets:
-			if t.get("hp_current", 0) > 0:
+			if t.hp_current > 0:
 				return {"action_type": "Strike", "target": t}
 		return {"action_type": "", "target": {}}
 
@@ -109,14 +110,14 @@ class FakeAIDecisionPort:
 class BrokenAIDecisionPort:
 	extends "res://core/application/ai_decision_port.gd"
 
-	func decide_action(_combatant: Dictionary, _targets: Array) -> Dictionary:
+	func decide_action(_combatant, _targets: Array) -> Dictionary:
 		return {}
 
 
 # ── Shared fixture helpers ─────────────────────────────────────────────────────
 
-func _durable_combatant(p_name: String, p_is_enemy: bool) -> Dictionary:
-	return {
+func _durable_combatant(p_name: String, p_is_enemy: bool):
+	return CombatantClass.from_dict({
 		"name":       p_name,
 		"hp_current": 2000,
 		"ac":         10,
@@ -129,11 +130,11 @@ func _durable_combatant(p_name: String, p_is_enemy: bool) -> Dictionary:
 			"proficiency_bonus": 2,
 			"damage_die": 6
 		}
-	}
+	})
 
 
-func _fragile_combatant(p_name: String, p_is_enemy: bool) -> Dictionary:
-	return {
+func _fragile_combatant(p_name: String, p_is_enemy: bool):
+	return CombatantClass.from_dict({
 		"name":       p_name,
 		"hp_current": 1,
 		"ac":         1,
@@ -146,10 +147,10 @@ func _fragile_combatant(p_name: String, p_is_enemy: bool) -> Dictionary:
 			"proficiency_bonus": 1,
 			"damage_die": 4
 		}
-	}
+	})
 
 
-func _entry(combatant: Dictionary) -> Dictionary:
+func _entry(combatant) -> Dictionary:
 	return {"combatant": combatant, "action_economy": ActionEconomyClass.new()}
 
 
@@ -183,8 +184,8 @@ func _make_use_case(entries: Array, ai_port, seed: int) -> Dictionary:
 # ══════════════════════════════════════════════════════════════════════════════
 
 func test_interleaved_strike_order_two_equal_budget_combatants() -> void:
-	var alpha: Dictionary = _durable_combatant("Alpha", false)
-	var bravo: Dictionary = _durable_combatant("Bravo", true)
+	var alpha = _durable_combatant("Alpha", false)
+	var bravo = _durable_combatant("Bravo", true)
 	var entries: Array = [_entry(alpha), _entry(bravo)]
 
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 42)
@@ -214,9 +215,9 @@ func test_interleaved_strike_order_two_equal_budget_combatants() -> void:
 # ══════════════════════════════════════════════════════════════════════════════
 
 func test_dead_combatant_skipped_without_consuming_cycle_slot() -> void:
-	var fragile: Dictionary       = _fragile_combatant("Fragile", false)
-	var durable_party: Dictionary = _durable_combatant("DurableParty", false)
-	var durable_enemy: Dictionary = _durable_combatant("DurableEnemy", true)
+	var fragile = _fragile_combatant("Fragile", false)
+	var durable_party = _durable_combatant("DurableParty", false)
+	var durable_enemy = _durable_combatant("DurableEnemy", true)
 	var entries: Array = [_entry(fragile), _entry(durable_party), _entry(durable_enemy)]
 
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 7)
@@ -239,8 +240,8 @@ func test_dead_combatant_skipped_without_consuming_cycle_slot() -> void:
 # ══════════════════════════════════════════════════════════════════════════════
 
 func test_round_terminates_when_all_living_combatants_spent() -> void:
-	var x: Dictionary = _durable_combatant("X", false)
-	var y: Dictionary = _durable_combatant("Y", true)
+	var x = _durable_combatant("X", false)
+	var y = _durable_combatant("Y", true)
 	var entries: Array = [_entry(x), _entry(y)]
 
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 123)
@@ -270,8 +271,8 @@ func test_round_terminates_when_all_living_combatants_spent() -> void:
 # ══════════════════════════════════════════════════════════════════════════════
 
 func test_round_terminates_on_decided_outcome_before_all_spent() -> void:
-	var lethal: Dictionary  = _durable_combatant("Lethal", false)
-	var fragile: Dictionary = _fragile_combatant("Fragile", true)
+	var lethal = _durable_combatant("Lethal", false)
+	var fragile = _fragile_combatant("Fragile", true)
 	var entries: Array = [_entry(lethal), _entry(fragile)]
 
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 99)
@@ -309,7 +310,7 @@ func test_empty_turn_order_returns_draw_without_cycling() -> void:
 
 
 func test_zero_living_enemies_returns_won_without_cycling() -> void:
-	var alpha: Dictionary = _durable_combatant("Alpha", false)
+	var alpha = _durable_combatant("Alpha", false)
 	var entries: Array = [_entry(alpha)]
 
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 1)
@@ -321,7 +322,7 @@ func test_zero_living_enemies_returns_won_without_cycling() -> void:
 
 
 func test_zero_living_party_returns_lost_without_cycling() -> void:
-	var bravo: Dictionary = _durable_combatant("Bravo", true)
+	var bravo = _durable_combatant("Bravo", true)
 	var entries: Array = [_entry(bravo)]
 
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 1)
@@ -332,8 +333,8 @@ func test_zero_living_party_returns_lost_without_cycling() -> void:
 
 
 func test_both_sides_fully_dead_returns_draw_without_cycling() -> void:
-	var dead_party: Dictionary = {"name": "DeadParty", "hp_current": 0, "ac": 10, "_is_enemy": false}
-	var dead_enemy: Dictionary = {"name": "DeadEnemy", "hp_current": 0, "ac": 10, "_is_enemy": true}
+	var dead_party = CombatantClass.from_dict({"name": "DeadParty", "hp_current": 0, "ac": 10, "_is_enemy": false})
+	var dead_enemy = CombatantClass.from_dict({"name": "DeadEnemy", "hp_current": 0, "ac": 10, "_is_enemy": true})
 	var entries: Array = [_entry(dead_party), _entry(dead_enemy)]
 
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 1)
@@ -344,8 +345,8 @@ func test_both_sides_fully_dead_returns_draw_without_cycling() -> void:
 
 
 func test_stalled_cycle_backstop_terminates_with_draw() -> void:
-	var alpha: Dictionary = _durable_combatant("Alpha", false)
-	var bravo: Dictionary = _durable_combatant("Bravo", true)
+	var alpha = _durable_combatant("Alpha", false)
+	var bravo = _durable_combatant("Bravo", true)
 	var entries: Array = [_entry(alpha), _entry(bravo)]
 
 	# Bravo's AIDecisionPort never returns a usable decision — only the
@@ -370,8 +371,8 @@ func test_stalled_cycle_backstop_terminates_with_draw() -> void:
 # ══════════════════════════════════════════════════════════════════════════════
 
 func test_history_result_scoped_to_requested_round_number() -> void:
-	var x: Dictionary = _durable_combatant("X", false)
-	var y: Dictionary = _durable_combatant("Y", true)
+	var x = _durable_combatant("X", false)
+	var y = _durable_combatant("Y", true)
 	var entries: Array = [_entry(x), _entry(y)]
 
 	var turn_order_port    = FakeTurnOrderPort.new(entries)

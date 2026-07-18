@@ -36,6 +36,7 @@ const ResolutionClass          = preload("res://core/rules/resolution.gd")
 const ActionEconomyClass       = preload("res://core/rules/action_economy.gd")
 const AutoReactionChooserClass = preload("res://infrastructure/auto_reaction_chooser.gd")
 const RoundEventsClass         = preload("res://core/rules/round_events.gd")
+const CombatantClass           = preload("res://core/domain/combatant.gd")
 
 
 # ── Fake/double EventSinkPort (mirrors tests/unit/test_reaction_window.gd's
@@ -107,7 +108,7 @@ var _weapon: Dictionary = {
 }
 
 
-func _reactor(overrides: Dictionary = {}) -> Dictionary:
+func _reactor(overrides: Dictionary = {}):
 	var base: Dictionary = {
 		"name": "Titus",
 		"ac": 13, "reflex": 12, "fortitude": 14, "will": 11,
@@ -117,7 +118,7 @@ func _reactor(overrides: Dictionary = {}) -> Dictionary:
 	}
 	for key in overrides:
 		base[key] = overrides[key]
-	return base
+	return CombatantClass.from_dict(base)
 
 
 ## The reactor's OWN parrying weapon — used both for eligibility

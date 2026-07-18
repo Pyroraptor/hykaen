@@ -177,14 +177,16 @@ class MalformedResolver:
 		return {}
 
 
-func _entry(combatant: Dictionary) -> Dictionary:
+const CombatantClass = preload("res://core/domain/combatant.gd")
+
+func _entry(combatant) -> Dictionary:
 	return {"combatant": combatant, "action_economy": ActionEconomyClass.new()}
 
 
 ## _attacker() -- the enemy (Bravo). roll_total = raw_d20 + strength(3) +
 ## proficiency_bonus(2) = raw_d20 + 5.
-func _attacker() -> Dictionary:
-	return {
+func _attacker():
+	return CombatantClass.from_dict({
 		"name":         "Bravo",
 		"combatant_id": "bravo",
 		"hp_current":   2000,
@@ -196,14 +198,14 @@ func _attacker() -> Dictionary:
 			"proficiency_bonus": 2,
 			"damage_die": 6,
 		},
-	}
+	})
 
 
 ## _defender() -- the player (Alpha). Carries a weapon eligible for BOTH
 ## Parry (parry_bonus 3) and Block (block_value 2), and a Mobility skill
 ## Dodge's substituted defense value is computed from.
-func _defender() -> Dictionary:
-	return {
+func _defender():
+	return CombatantClass.from_dict({
 		"name":         "Alpha",
 		"combatant_id": "alpha",
 		"hp_current":   2000,
@@ -219,7 +221,7 @@ func _defender() -> Dictionary:
 			"parry_bonus": 3,
 			"block_value": 2,
 		},
-	}
+	})
 
 
 ## _make_session(entries, party, enemies, random_number_port) -> Dictionary --
@@ -265,8 +267,8 @@ func _assert_valid_firing_order(call_order: Array, context: String) -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_pass_scenario_completes_without_stalling_and_never_asks_onhit_on_a_miss() -> void:
-	var bravo: Dictionary = _attacker()
-	var alpha: Dictionary = _defender()
+	var bravo = _attacker()
+	var alpha = _defender()
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
 	# attack_d20=1 -> roll_total = 1 + 3 + 2 = 6 < ac(10) -> MISS.
@@ -296,8 +298,8 @@ func test_pass_scenario_completes_without_stalling_and_never_asks_onhit_on_a_mis
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_dodge_fail_scenario_completes_without_stalling_and_never_asks_onhit() -> void:
-	var bravo: Dictionary = _attacker()
-	var alpha: Dictionary = _defender()
+	var bravo = _attacker()
+	var alpha = _defender()
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
 	# mob_d20=2 -> mobility_check=2+1=3. attack_d20=10 -> roll_total=15.
@@ -328,8 +330,8 @@ func test_dodge_fail_scenario_completes_without_stalling_and_never_asks_onhit() 
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_dodge_success_scenario_completes_without_stalling_and_never_asks_onhit() -> void:
-	var bravo: Dictionary = _attacker()
-	var alpha: Dictionary = _defender()
+	var bravo = _attacker()
+	var alpha = _defender()
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
 	# mob_d20=15 -> mobility_check=16. attack_d20=1 -> roll_total=6 < 16 -> Dodge SUCCEEDS.
@@ -361,8 +363,8 @@ func test_dodge_success_scenario_completes_without_stalling_and_never_asks_onhit
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_hit_then_parry_scenario_fires_prehit_then_onhit_in_order_without_stalling() -> void:
-	var bravo: Dictionary = _attacker()
-	var alpha: Dictionary = _defender()
+	var bravo = _attacker()
+	var alpha = _defender()
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
 	# attack_d20=10 -> roll_total=15, hits ac(10). damage die=4 -> damage_raw=7.
@@ -413,8 +415,8 @@ func test_hit_then_parry_scenario_fires_prehit_then_onhit_in_order_without_stall
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_hit_then_block_scenario_fires_prehit_then_onhit_in_order_without_stalling() -> void:
-	var bravo: Dictionary = _attacker()
-	var alpha: Dictionary = _defender()
+	var bravo = _attacker()
+	var alpha = _defender()
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
 	# FEAT-003 (G3 remediation): the on-hit window's chosen Block is now
@@ -460,8 +462,8 @@ func test_hit_then_block_scenario_fires_prehit_then_onhit_in_order_without_stall
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_advance_ai_turn_awaits_a_genuinely_delayed_resolver_for_both_windows_without_deadlock() -> void:
-	var bravo: Dictionary = _attacker()
-	var alpha: Dictionary = _defender()
+	var bravo = _attacker()
+	var alpha = _defender()
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
 	# FEAT-003 (G3 remediation): the chosen Block is now genuinely applied, so
@@ -493,8 +495,8 @@ func test_advance_ai_turn_awaits_a_genuinely_delayed_resolver_for_both_windows_w
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_malformed_onhit_resolver_answer_falls_back_to_pass_without_stalling() -> void:
-	var bravo: Dictionary = _attacker()
-	var alpha: Dictionary = _defender()
+	var bravo = _attacker()
+	var alpha = _defender()
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
 	var rng := ScriptedRandomNumberPort.new([10, 4])
@@ -521,8 +523,8 @@ func test_malformed_onhit_resolver_answer_falls_back_to_pass_without_stalling() 
 ## _resolve_onhit_mitigation() doc, exercised here end-to-end through
 ## advance_ai_turn() rather than by calling the seam directly.
 func test_unset_onhit_resolver_still_completes_the_hit_scenario_without_stalling() -> void:
-	var bravo: Dictionary = _attacker()
-	var alpha: Dictionary = _defender()
+	var bravo = _attacker()
+	var alpha = _defender()
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
 	var rng := ScriptedRandomNumberPort.new([10, 4])
@@ -549,8 +551,8 @@ func test_unset_onhit_resolver_still_completes_the_hit_scenario_without_stalling
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_legacy_weapon_attack_path_is_unaffected_when_onhit_resolver_is_unset() -> void:
-	var bravo: Dictionary = _attacker()
-	var alpha: Dictionary = _defender()
+	var bravo = _attacker()
+	var alpha = _defender()
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
 	# RNG order for the legacy combined WeaponAttack path choosing "block":

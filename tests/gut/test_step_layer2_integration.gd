@@ -57,11 +57,11 @@ func _boot_main_scene_with_seed(seed_value: int):
 ## Dictionaries core/rules/movement.gd Movement.step() mutates in place),
 ## mirroring tests/integration/test_movement_affordance_integration.gd's
 ## identically-named helper.
-func _find_combatant_by_id(instance, combatant_id: String) -> Dictionary:
+func _find_combatant_by_id(instance, combatant_id: String):
 	for combatant in instance._party + instance._enemies:
-		if combatant.get("combatant_id", "") == combatant_id:
+		if combatant.combatant_id == combatant_id:
 			return combatant
-	return {}
+	return null
 
 
 ## _occupied_hexes(instance) -> Dictionary -- "q,r" -> true set of every
@@ -70,9 +70,9 @@ func _find_combatant_by_id(instance, combatant_id: String) -> Dictionary:
 func _occupied_hexes(instance) -> Dictionary:
 	var occupied: Dictionary = {}
 	for combatant in instance._party + instance._enemies:
-		if combatant.get("hp_current", 1) <= 0:
+		if combatant.hp_current <= 0:
 			continue
-		var hex_coord = combatant.get("hex_coord", null)
+		var hex_coord = combatant.hex_coord
 		if hex_coord != null:
 			occupied["%d,%d" % [hex_coord.q, hex_coord.r]] = true
 	return occupied
@@ -184,10 +184,10 @@ func test_clicking_a_highlighted_hex_moves_the_token_to_that_exact_axial_coordin
 
 	assert_false(instance.selection_overlay.is_active(), "SelectionOverlay must return to Layer 1 once the click resolves a real Step")
 
-	var moved_combatant: Dictionary = _find_combatant_by_id(instance, actor_id)
-	assert_false(moved_combatant.is_empty(), "fixture assumption: the moved actor must be one of MainScene's live combatant Dictionaries")
+	var moved_combatant = _find_combatant_by_id(instance, actor_id)
+	assert_false(moved_combatant == null, "fixture assumption: the moved actor must be one of MainScene's live combatant Dictionaries")
 	assert_true(
-		moved_combatant.get("hex_coord").equals(destination),
+		moved_combatant.hex_coord.equals(destination),
 		"Combatant.position (the live combatant Dictionary's hex_coord) must move to the EXACT clicked axial coordinate via move_token()/step_to()"
 	)
 

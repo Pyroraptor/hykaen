@@ -36,6 +36,7 @@ const RunRoundUseCaseClass         = preload("res://core/application/run_round_u
 const ResolveActionUseCaseClass    = preload("res://core/application/resolve_action_use_case.gd")
 const DetermineOutcomeUseCaseClass = preload("res://core/application/determine_outcome_use_case.gd")
 const AIClass                      = preload("res://core/combat/ai.gd")
+const CombatantClass               = preload("res://core/domain/combatant.gd")
 
 
 # ── Fake/double EventSinkPort (mirrors core/application/tests/
@@ -113,7 +114,7 @@ var _weapon: Dictionary = {
 }
 
 
-func _reactor(overrides: Dictionary = {}) -> Dictionary:
+func _reactor(overrides: Dictionary = {}):
 	var base: Dictionary = {
 		"name": "Titus",
 		"ac": 13, "reflex": 12, "fortitude": 14, "will": 11,
@@ -123,7 +124,7 @@ func _reactor(overrides: Dictionary = {}) -> Dictionary:
 	}
 	for key in overrides:
 		base[key] = overrides[key]
-	return base
+	return CombatantClass.from_dict(base)
 
 
 func _window() -> Dictionary:

@@ -57,8 +57,8 @@ func _boot_main_scene_with_seed(seed_value: int):
 func _snapshot_positions(instance) -> Dictionary:
 	var snapshot: Dictionary = {}
 	for combatant in instance._party + instance._enemies:
-		var combatant_id: String = combatant.get("combatant_id", combatant.get("name", ""))
-		var hex_coord = combatant.get("hex_coord", null)
+		var combatant_id: String = combatant.combatant_id
+		var hex_coord = combatant.hex_coord
 		if hex_coord != null:
 			snapshot[combatant_id] = Vector2i(hex_coord.q, hex_coord.r)
 	return snapshot

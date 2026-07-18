@@ -158,7 +158,10 @@ func apply(
 	# Phase C.3: mutate the live Combatant entity by reference (take_damage),
 	# so the hit persists on the same instance the container holds.
 	if damage_final > 0:
-		target.take_damage(damage_final)
+		if target.has_method("take_damage"):
+			target.take_damage(damage_final)
+		else:
+			target["hp_current"] = target.get("hp_current", 0) - damage_final
 
 	var attack_event = RoundEventsClass.AttackBroadcast.new(
 		round_number,

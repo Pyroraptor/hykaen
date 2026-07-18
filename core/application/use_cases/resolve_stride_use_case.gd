@@ -234,7 +234,7 @@ const REACTION_OPPORTUNISTIC_STRIKE: String = "opportunistic_strike"
 
 
 func execute(
-	mover: Dictionary,
+	mover,
 	mover_start_hex,
 	candidate_reactors: Array,
 	reactor_spent_fn: Callable = Callable(),
@@ -316,8 +316,8 @@ func execute(
 ## result Dictionary verbatim (resolved/ok/event/target_defeated/damage_final/...
 ## — see core/application/resolve_action_use_case.gd's resolve() doc).
 func _resolve_opportunistic_strike_effect(
-	reactor: Dictionary,
-	mover: Dictionary,
+	reactor,
+	mover,
 	strike_use_case,
 	reactor_action_economy_fn: Callable,
 	round_number: int,

@@ -69,6 +69,7 @@ const HexMathClass        = preload("res://core/geometry/hex_math.gd")
 const ActionEconomyClass  = preload("res://core/rules/action_economy.gd")
 const FlankingClass       = preload("res://core/rules/flanking.gd")
 const WeaponResourceClass = preload("res://core/model/weapon_resource.gd")
+const CombatantClass = preload("res://core/domain/combatant.gd")
 
 ## The pinned deterministic-test fixture seed (matches
 ## data/encounters/prologue_encounter.tres' own `seed` field, 42) --
@@ -176,23 +177,23 @@ func test_off_guard_condition_reduces_defense_value_by_two_in_live_event_log() -
 	# combatant at (2,0) -- the hex directly OPPOSITE (0,0) around (1,0) --
 	# completes a flanking pair, matching FEAT-153's own MainScene wiring
 	# fixture (tests/unit/core/application/test_resolve_action_off_guard.gd).
-	var ally: Dictionary = {
+	var ally = CombatantClass.from_dict({
 		"name": "Marigold",
 		"hp_current": 10,
 		"combatant_id": "steel_thread_off_guard_ally",
 		"hex_coord": HexCoordClass.new(2, 0),
-	}
+	})
 	instance._party.append(ally)
 
 	assert_eq(
-		instance._enemies[0].get("conditions", []), [],
+		instance._enemies[0].conditions, [],
 		"fixture assumption: before any flanking, the live Skeleton carries no conditions"
 	)
 
 	instance._refresh_off_guard_conditions()
 
 	assert_true(
-		FlankingClass.OFF_GUARD_CONDITION in instance._enemies[0].get("conditions", []),
+		FlankingClass.OFF_GUARD_CONDITION in instance._enemies[0].conditions,
 		"MainScene._refresh_off_guard_conditions() must write Off-Guard into the LIVE _enemies[0] Dictionary"
 	)
 
@@ -200,7 +201,7 @@ func test_off_guard_condition_reduces_defense_value_by_two_in_live_event_log() -
 	# field, untouched by the conditions list (core/application/
 	# resolve_action_use_case.gd computes defense_value = target["ac"] -
 	# off_guard_reduction -- this IS the "non-Off-Guard baseline").
-	var baseline_defense_value: int = instance._enemies[0]["ac"]
+	var baseline_defense_value: int = instance._enemies[0].ac
 
 	# Resolve a REAL Strike through MainScene's own, live
 	# resolve_action_use_case -- the SAME instance wired into the composition
@@ -210,8 +211,8 @@ func test_off_guard_condition_reduces_defense_value_by_two_in_live_event_log() -
 	# live round_session's own turn-order/budget bookkeeping.
 	var ae = ActionEconomyClass.new()
 	ae.start_of_round()
-	var attacker: Dictionary = instance._party[0]
-	var target: Dictionary = instance._enemies[0]
+	var attacker = instance._party[0]
+	var target = instance._enemies[0]
 
 	var events_before: int = instance.event_sink.log.size()
 	var result: Dictionary = instance.resolve_action_use_case.resolve(
@@ -257,14 +258,14 @@ func test_ranged_shortbow_strike_against_target_three_hexes_away_is_selectable_a
 	var shortbow = ResourceLoader.load("res://data/weapons/shortbow.tres")
 	assert_not_null(shortbow, "data/weapons/shortbow.tres must load (FIX-001)")
 
-	var actor: Dictionary = instance.round_session.current_actor()
-	var actor_hex = actor.get("hex_coord", null)
+	var actor = instance.round_session.current_actor_entity()
+	var actor_hex = actor.hex_coord
 	assert_not_null(actor_hex, "fixture assumption: the live active actor has a hex_coord")
 
 	# Equip the LIVE active actor with the shortbow fixture in place -- the
 	# SAME live Dictionary `_verb_registry`'s STRIKE entry reads from, never a
 	# second/independent actor.
-	actor["weapon"] = {
+	actor.weapon = {
 		"damage_modifier_attribute": shortbow.damage_modifier_attribute,
 		"proficiency_bonus":         shortbow.proficiency_bonus,
 		"damage_die":                shortbow.damage_die,
@@ -296,14 +297,14 @@ func test_ranged_shortbow_strike_against_target_three_hexes_away_is_selectable_a
 	# target Immobilized keeps it ineligible for Dodge (core/rules/
 	# resolution.gd's is_dodge_eligible()), restoring the deterministic
 	# guaranteed-hit contract this scenario has always relied on.
-	var target: Dictionary = {
+	var target = CombatantClass.from_dict({
 		"name":        "SteelThreadRangedTarget",
 		"combatant_id": "steel_thread_ranged_target",
 		"hp_current":  50,
 		"ac":          -1000,
 		"hex_coord":   target_hex,
 		"conditions":  ["Immobilized"]
-	}
+	})
 	instance._enemies.append(target)
 
 	# ── Pre-resolution: the 3+ hex target must be offered as selectable
@@ -330,7 +331,7 @@ func test_ranged_shortbow_strike_against_target_three_hexes_away_is_selectable_a
 	)
 	assert_eq(new_attack_events.size(), 1, "the resolved ranged Strike must appear in MainScene's real, full captured event log")
 	var logged_event = new_attack_events[0]
-	assert_eq(logged_event.attacker_name, actor.get("name", ""), "the logged AttackEvent must attribute the ranged Strike to the shortbow-equipped actor")
+	assert_eq(logged_event.attacker_name, actor.name, "the logged AttackEvent must attribute the ranged Strike to the shortbow-equipped actor")
 	assert_eq(logged_event.target_name, "SteelThreadRangedTarget", "the logged AttackEvent must target the 3+ hex-away target")
 	assert_true(logged_event.hit, "the ranged Strike must be a successful (hit) Strike, per this fixture's guaranteed-hit target ac")
 
@@ -355,7 +356,7 @@ func test_seed_42_fixture_concludes_with_encounter_result_event_and_matches_pre_
 
 	assert_false(instance.result_screen_view.is_shown(), "fixture assumption: no result is shown before any input")
 	assert_false(
-		instance.round_session.current_actor().get("_is_enemy", true),
+		instance.round_session.current_actor().is_enemy,
 		"fixture assumption (seed 42): the first actor is the living player combatant Titus"
 	)
 
@@ -364,7 +365,7 @@ func test_seed_42_fixture_concludes_with_encounter_result_event_and_matches_pre_
 	# real $TurnController via MainScene's EndTurnControl.turn_ended handoff. ──
 	var guard: int = 0
 	while not instance.round_session.is_round_over() and guard < _MAX_DRIVE_ITERATIONS:
-		if not instance.round_session.current_actor().get("_is_enemy", true):
+		if not instance.round_session.current_actor().is_enemy:
 			if instance._verb_registry.is_available("STRIKE"):
 				var selection: Dictionary = instance.verb_bar_view.press("STRIKE")
 				var target_ids: Array = selection.get("candidate_targets", [])

@@ -74,11 +74,11 @@ func _boot_main_scene_with_seed(seed_value: int):
 ## Dictionaries core/rules/movement.gd Movement.step()/stride() mutate in
 ## place), mirroring the identically-named helper already established by
 ## tests/integration/test_steel_thread_prologue_encounter.gd.
-func _find_combatant_by_id(instance, combatant_id: String) -> Dictionary:
+func _find_combatant_by_id(instance, combatant_id: String):
 	for combatant in instance._party + instance._enemies:
-		if combatant.get("combatant_id", "") == combatant_id:
+		if combatant.combatant_id == combatant_id:
 			return combatant
-	return {}
+	return null
 
 
 ## _as_key_set(hexes) -> Dictionary -- a "q,r" -> true set built from an Array
@@ -219,10 +219,10 @@ func test_step_verb_execute_moves_the_combatant_and_resyncs_the_hex_grid_view_to
 	var step_result: Dictionary = instance._verb_registry.execute("STEP", destination)
 	assert_true(step_result.get("ok", false), "executing STEP against the selected destination must resolve a real Step")
 
-	var moved_combatant: Dictionary = _find_combatant_by_id(instance, actor_id)
-	assert_false(moved_combatant.is_empty(), "fixture assumption: the moved actor must be one of MainScene's live combatant Dictionaries")
+	var moved_combatant = _find_combatant_by_id(instance, actor_id)
+	assert_false(moved_combatant == null, "fixture assumption: the moved actor must be one of MainScene's live combatant Dictionaries")
 	assert_true(
-		moved_combatant.get("hex_coord").equals(destination),
+		moved_combatant.hex_coord.equals(destination),
 		"Combatant.position (the live combatant Dictionary's hex_coord) must change to the clicked legal hex via step_to()"
 	)
 
