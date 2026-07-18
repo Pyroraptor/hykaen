@@ -112,6 +112,23 @@
 #      (mirroring stage 1/7/9's convention of invoking gut_cmdln.gd
 #      directly rather than the -- --gut-run-all/HeadlessRunner path).
 #
+# FEAT-246 (US-015): tests/e2e/test_steel_thread_strike_full_flow.gd — the
+# steel thread's final end-to-end smoke test, consolidating this
+# iteration's additive selection/execute generalization work
+# (FEAT-004..FEAT-014, FEAT-242..FEAT-245) into one continuous proof: a
+# boot-real player-Strike and a boot-real enemy-reaction scenario both
+# mutate hp through the single EffectsApplier seam with an AttackEvent/log
+# outcome byte-identical to the established pre-retrofit baseline, the
+# SAME selection/execute pipeline additively resolves an option-list pick
+# and a fully-resolved AREA target set into execute() without regressing
+# Strike or END_TURN, and a pinned-seed rerun reproduces an identical
+# hp/AttackEvent/log outcome (determinism). This stage list stays at 10
+# stages — the new file lives under res://tests/e2e, so it is already
+# picked up automatically by stage 8's full-project run (the root
+# .gutconfig.json's ("res://tests", include_subdirs=true) scope), exactly
+# like tests/e2e/test_steel_thread_post_remediation_smoke.gd before it; it
+# gains no dedicated numbered stage of its own.
+#
 # Exit code: 0 only if every stage above exits 0. `set -euo pipefail`
 # ensures a single failing assertion anywhere aborts the script
 # immediately with a non-zero exit code.
