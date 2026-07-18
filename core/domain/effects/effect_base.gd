@@ -10,8 +10,9 @@
 ##
 ## EffectBase is the abstract base of a tagged-union / discriminated-subtype
 ## value-object family (design notes' data_model): DamageEffect,
-## HealEffect, ConditionEffect, MoveEffect, AddEnergyEffect (the five
-## concrete siblings in this same directory, core/domain/effects/).
+## HealEffect, ConditionEffect, MoveEffect, and a reserved add-energy
+## sibling (see add_energy_effect.gd) — five concrete siblings in total,
+## all living in this same directory, core/domain/effects/.
 ## Immutable after construction — every field is set exactly once in
 ## _init() and never mutated again — and carries no identity of its own;
 ## `target_id` is a logical FK resolved against the live combatant set at

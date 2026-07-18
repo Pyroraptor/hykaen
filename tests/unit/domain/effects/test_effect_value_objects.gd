@@ -375,6 +375,11 @@ func test_domain_purity_check_fails_on_engine_import_injected_into_effects_fixtu
 ## test_add_energy_effect_has_no_live_call_site() -- greps the WHOLE
 ## repository for the literal token "AddEnergyEffect" and asserts every
 ## hit is confined to:
+##   - `##` doc-comment lines (e.g. effect_base.gd's family-overview header,
+##     which legitimately names every sibling VO including AddEnergyEffect)
+##     -- filtered out the same way ci/check_no_duplicate_seams.sh's
+##     check_seam_sole_caller() filters comment-only lines before counting
+##     real call sites (see that script's ":##" pattern)
 ##   - its own definition file (core/domain/effects/add_energy_effect.gd)
 ##   - test files (this suite, or any future one under tests/)
 ## i.e. no application/presentation/infrastructure production file
@@ -387,8 +392,9 @@ func test_add_energy_effect_has_no_live_call_site() -> void:
 		"bash",
 		[
 			"-c",
-			"grep -rl 'AddEnergyEffect' " + repo_root.quote() + " --include='*.gd' " +
-			"| grep -v '/core/domain/effects/add_energy_effect\\.gd$' " +
+			"grep -rn 'AddEnergyEffect' '" + repo_root + "' --include='*.gd' " +
+			"| grep -vE ':[[:space:]]*##' " +
+			"| grep -v '/core/domain/effects/add_energy_effect\\.gd:' " +
 			"| grep -v '/tests/'",
 		],
 		out,
@@ -399,5 +405,5 @@ func test_add_energy_effect_has_no_live_call_site() -> void:
 		combined_output += String(line) + "\n"
 	assert_ne(
 		rc, 0,
-		"AddEnergyEffect must have zero live (non-definition, non-test) call sites this sprint; found: %s" % combined_output
+		"AddEnergyEffect must have zero live (non-definition, non-test, non-comment) call sites this sprint; found: %s" % combined_output
 	)
