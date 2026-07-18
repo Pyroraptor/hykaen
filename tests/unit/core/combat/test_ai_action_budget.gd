@@ -344,6 +344,15 @@ func test_application_layer_contains_no_new_port_or_use_case_class() -> void:
 	# infrastructure/ai_reaction_policy.gd's AIReactionPolicy (see each
 	# file's own header doc, and core/application/resolve_action_use_case.gd's
 	# resolve_reactive() doc).
+	#
+	# FEAT-007 (US-007) deliberately extends this whitelist by ONE more file:
+	# core/application/selection_descriptor.gd (SelectionDescriptor) -- a
+	# plain RefCounted DATA value object (not a port, not a use case) mirroring
+	# core/application/verb_registry.py's SelectionDescriptor dataclass shape,
+	# additively extended with an optional `candidate_options` field. It
+	# introduces no new port/use-case orchestration of its own (see that
+	# file's own header doc) and is whitelisted here purely because this
+	# check's dir.list_dir_begin() scan is name-based, not type-based.
 	var expected_files: Array = [
 		"_build_defense_context.gd",
 		"ai_decision_port.gd",
@@ -359,6 +368,7 @@ func test_application_layer_contains_no_new_port_or_use_case_class() -> void:
 		"round_history_port.gd",
 		"round_session.gd",
 		"run_round_use_case.gd",
+		"selection_descriptor.gd",
 		"turn_order_port.gd",
 	]
 
