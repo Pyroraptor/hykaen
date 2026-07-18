@@ -34,6 +34,25 @@
 ## here rather than inventing a second highlight mechanism (ADR-002 /
 ## CR-001 guardrail).
 ##
+## Layer-2a option presentation (FEAT-010 / US-010): a descriptor whose
+## candidate_options is a non-empty Array (core/application/
+## selection_descriptor.gd's `candidate_options` field, FEAT-007) causes
+## activate() to enter an interstitial Layer-2a "awaiting option" state
+## INSTEAD of immediately highlighting Layer-2b targeting -- no hex/target
+## highlight is pushed to hex_grid_view until an option has been chosen.
+## choose_option(option) is the sole way out of that state: it stores the
+## chosen option and THEN highlights Layer-2b targeting via the SAME
+## _refresh_highlight()/hex_grid_view.set_selectable_hexes() path every
+## other verb already uses (no parallel/forked highlight mechanism is
+## introduced here -- ADR-002). A subsequent hex click resolves exactly as
+## before, except _resolve() now calls
+## registry.execute(verb_id, {"option": chosen_option, "target": value}) --
+## the SAME OPTION_TARGET Dictionary shape presentation/action_controller.gd
+## already dispatches on (FEAT-009) -- rather than the bare scalar `value`.
+## A descriptor with no candidate_options (null or empty, every verb
+## registered before this feature) is completely unaffected: activate()
+## highlights Layer-2b targeting immediately, exactly as it always has.
+##
 ## Post-resolution lock (FEAT-177 / US-013, extending the EXISTING
 ## presentation/result_screen_view.gd lock mechanism -- not a new one):
 ## lock() immediately discards any in-progress Layer 2 selection (clearing
@@ -119,6 +138,25 @@ var _target_hex_by_id: Dictionary = {}
 ## on.
 var _locked: bool = false
 
+## FEAT-010 (US-010): the active SelectionDescriptor's candidate_options,
+## verbatim -- empty Array when the descriptor named none (every verb
+## registered before this feature).
+var _candidate_options: Array = []
+
+## FEAT-010 (US-010): true while Layer-2a's option pick is pending (i.e.
+## _candidate_options was non-empty at activate() and choose_option() has
+## not yet been called) -- false for every SCALAR-shaped descriptor (the
+## legacy, unaffected default) and false again once an option has been
+## chosen and Layer-2b targeting has begun.
+var _awaiting_option: bool = false
+
+## FEAT-010 (US-010): the Layer-2a option chosen via choose_option(), or
+## null when no option has been (or ever needs to be) chosen. Carried
+## forward into _resolve() so a Layer-2b click resolves through
+## registry.execute(verb_id, {"option": ..., "target": ...}) instead of the
+## legacy bare-scalar call.
+var _chosen_option = null
+
 
 ## configure(registry, hex_grid_view) -> void — injects both collaborators
 ## and subscribes to hex_grid_view.hex_clicked exactly once (idempotent —
@@ -163,14 +201,23 @@ func get_active_verb_id() -> String:
 ## get_highlighted_target_ids() -> Array[String] — every candidate target
 ## id this overlay currently believes is in reach (test/inspection helper;
 ## mirrors the exact set handed to hex_grid_view.set_selectable_hexes()).
+## FEAT-010 (US-010): always empty while is_awaiting_option() is true --
+## candidate_targets are resolved and held internally ahead of time (so
+## choose_option() need not re-extract them), but nothing is actually
+## highlighted until Layer-2b targeting begins.
 func get_highlighted_target_ids() -> Array:
+	if _awaiting_option:
+		return []
 	return _target_hex_by_id.keys()
 
 
 ## get_highlighted_hexes() -> Array[HexCoord] — the exact union this
 ## overlay most recently pushed to hex_grid_view.set_selectable_hexes()
-## (test/inspection helper).
+## (test/inspection helper). FEAT-010 (US-010): always empty while
+## is_awaiting_option() is true, mirroring get_highlighted_target_ids().
 func get_highlighted_hexes() -> Array:
+	if _awaiting_option:
+		return []
 	var union_hexes: Array = _candidate_hexes.duplicate()
 	for hex_coord in _target_hex_by_id.values():
 		union_hexes.append(hex_coord)
@@ -179,14 +226,63 @@ func get_highlighted_hexes() -> Array:
 
 ## activate(verb_id, selection) -> void — enters Layer 2 for `verb_id` with
 ## the descriptor already returned by registry.enter_selection(verb_id).
-## Highlights the union of any direct candidate_hexes and every resolvable
-## candidate_target's current hex.
+##
+## FEAT-010 (US-010): when `selection` names a non-empty candidate_options
+## list, this additively inserts a Layer-2a "awaiting option" step ahead of
+## Layer-2b targeting — candidate_hexes/candidate_targets are resolved and
+## stored immediately (so choose_option() can hand them straight to
+## _refresh_highlight() with no re-extraction), but NO highlight reaches
+## hex_grid_view until choose_option() picks one. A descriptor with no
+## candidate_options (null or empty — every verb registered before this
+## feature) is unaffected: it highlights the union of any direct
+## candidate_hexes and every resolvable candidate_target's current hex
+## immediately, exactly as before.
 func activate(verb_id: String, selection) -> void:
 	if _locked:
 		return
 	_active_verb_id = verb_id
 	_candidate_hexes = _extract(selection, "candidate_hexes")
 	_target_hex_by_id = _resolve_target_hexes(_extract(selection, "candidate_targets"))
+	_candidate_options = _extract_options(selection)
+	_chosen_option = null
+
+	if _candidate_options.size() > 0:
+		_awaiting_option = true
+		if _hex_grid_view != null:
+			_hex_grid_view.set_selectable_hexes([])
+	else:
+		_awaiting_option = false
+		_refresh_highlight()
+
+
+## is_awaiting_option() -> bool — FEAT-010 (US-010): true while Layer-2a's
+## option pick is pending (candidate_options was non-empty at activate() and
+## choose_option() has not yet resolved it). Always false for a SCALAR-shaped
+## descriptor (every verb registered before this feature).
+func is_awaiting_option() -> bool:
+	return _awaiting_option
+
+
+## get_candidate_options() -> Array — the active descriptor's
+## candidate_options, verbatim (test/inspection helper; empty Array when the
+## descriptor named none).
+func get_candidate_options() -> Array:
+	return _candidate_options
+
+
+## choose_option(option) -> void — FEAT-010 (US-010): Layer-2a's sole exit
+## point. Stores `option` (carried forward into _resolve()'s
+## registry.execute(verb_id, {"option": ..., "target": ...}) call) and THEN
+## begins Layer-2b targeting via the SAME _refresh_highlight()/
+## hex_grid_view.set_selectable_hexes() path every other verb already uses —
+## no separate/parallel highlight rendering is introduced. A no-op when
+## Layer 2 is locked, inactive, or not currently awaiting an option (e.g. a
+## stray second call after an option was already chosen).
+func choose_option(option) -> void:
+	if _locked or not is_active() or not _awaiting_option:
+		return
+	_chosen_option = option
+	_awaiting_option = false
 	_refresh_highlight()
 
 
@@ -200,6 +296,9 @@ func clear() -> void:
 	_active_verb_id = ""
 	_candidate_hexes = []
 	_target_hex_by_id = {}
+	_candidate_options = []
+	_awaiting_option = false
+	_chosen_option = null
 	if _hex_grid_view != null:
 		_hex_grid_view.set_selectable_hexes([])
 
@@ -245,6 +344,22 @@ func _extract(selection, key: String) -> Array:
 	return value if value != null else []
 
 
+## _extract_options(selection) -> Array — FEAT-010 (US-010): duck-typed read
+## of `selection`'s candidate_options (mirrors _extract() above), returning
+## an empty Array whenever candidate_options is absent, null, or not itself
+## an Array — the same "opaque, stored verbatim" convention core/
+## application/selection_descriptor.gd's own field doc establishes.
+func _extract_options(selection) -> Array:
+	if selection == null:
+		return []
+	var value
+	if selection is Dictionary:
+		value = selection.get("candidate_options", null)
+	else:
+		value = selection.get("candidate_options")
+	return value if value is Array else []
+
+
 ## _resolve_target_hexes(target_ids) -> Dictionary — target_id (String) ->
 ## HexCoord, read from hex_grid_view's own already-tracked tokens. A
 ## target_id with no rendered token (unknown/stale) is simply omitted —
@@ -271,6 +386,14 @@ func _on_hex_clicked(hex_coord) -> void:
 		return
 	if not is_active():
 		return
+	if _awaiting_option:
+		# FEAT-010 (US-010): Layer-2a's option pick is still pending -- no
+		# highlight has been pushed to hex_grid_view yet (activate() pushed
+		# an empty selectable set), so a click here can never land on
+		# anything this overlay considers selectable. Ignored rather than
+		# rejected: this is not a wayward/out-of-reach click, it is simply
+		# too early in the Layer-2a/2b sequence to mean anything.
+		return
 
 	for target_id in _target_hex_by_id.keys():
 		if _target_hex_by_id[target_id].equals(hex_coord):
@@ -287,6 +410,16 @@ func _on_hex_clicked(hex_coord) -> void:
 
 func _resolve(selection_value) -> void:
 	var verb_id: String = _active_verb_id
-	var result = _registry.execute(verb_id, selection_value)
+	var chosen_option = _chosen_option
+	var result
+	if chosen_option != null:
+		# FEAT-010 (US-010): the Layer-2a pick is carried forward into the
+		# SAME OPTION_TARGET Dictionary shape presentation/
+		# action_controller.gd already dispatches on (FEAT-009) — execute()
+		# is invoked with the chosen option AND the Layer-2b target, never
+		# just the bare scalar.
+		result = _registry.execute(verb_id, {"option": chosen_option, "target": selection_value})
+	else:
+		result = _registry.execute(verb_id, selection_value)
 	clear()
 	selection_resolved.emit(verb_id, result)
