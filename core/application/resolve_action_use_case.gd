@@ -627,14 +627,20 @@ func _finalize_strike_result(
 		damage,
 		actor_updated_action_budget
 	)
-	_event_sink_port.emit(attack_event)
+	# FEAT-006 (US-006): routed through _emit_event() — the generalized
+	# emit-dispatch seam (see that method's own doc below) — rather than a
+	# direct `_event_sink_port.emit(...)` call. The AttackEvent construction
+	# above is UNCHANGED byte-for-byte; only the final hand-off call changed
+	# shape, and it is still, ultimately, the exact same
+	# `_event_sink_port.emit(attack_event)` invocation.
+	_emit_event(attack_event)
 
 	var target_defeated: bool = target.hp_current <= 0
 	if target_defeated:
 		var defeated_event = RoundEventsClass.CombatantDefeatedEvent.new(
 			round_number, target.name, combatant.name
 		)
-		_event_sink_port.emit(defeated_event)
+		_emit_event(defeated_event)
 
 	var history_entry = RoundEventsClass.RoundHistoryEntry.new(
 		round_number,
@@ -682,6 +688,43 @@ func _finalize_strike_result(
 		"reaction_choice":   strike_result.get("active_defense_applied", "none"),
 		"on_hit_suppressed": strike_result.get("on_hit_suppressed", false),
 	}
+
+
+## _emit_event(event) -> void — FEAT-006 (US-006, design notes'
+## architecture section: "The event-emission call is generalized internally
+## (a small emit-dispatch seam) so a future non-Strike effect (HEAL/
+## CONDITION) can register its own typed event without touching the
+## AttackEvent code path").
+##
+## This is the ONE place this file hands an event to the injected
+## EventSinkPort. It is a pure, undifferentiated forward — `event` is never
+## inspected/branched on by type (no `if event is RoundEvents.AttackBroadcast`,
+## no `match event`, no per-kind dispatch of any sort) — so ANY typed event
+## object (core/rules/round_events.gd's RoundEvents.* today; a future
+## HealEvent/ConditionEvent mirroring core/domain/effects/heal_effect.gd's
+## reserved-but-unused HEAL/CONDITION EffectKinds, tomorrow) reaches
+## EventSinkPort.emit() through this exact same call, unchanged. A future
+## caller wiring up a new event type therefore calls THIS helper — it never
+## needs to add a branch here, add a new EventSinkPort method, or touch a
+## single line of _finalize_strike_result()'s AttackEvent/
+## CombatantDefeatedEvent construction above.
+##
+## Scope constraint this sprint (api_contracts #6, resolves scope-creep
+## risk): the ONLY event types actually constructed and passed through this
+## seam remain RoundEvents.AttackBroadcast and RoundEvents.
+## CombatantDefeatedEvent — the pre-existing FEAT-099 set. Widening the
+## dispatch mechanism to ACCEPT arbitrary typed events (this feature) is
+## deliberately NOT the same thing as EMITTING a new event type LIVE (out of
+## scope, reserved for a later iteration) — see
+## tests/unit/test_event_emission_seam.gd's "zero new event types emitted
+## live this sprint" tripwire test, which fails the build the moment that
+## changes without a corresponding, deliberate spec update.
+##
+## See also core/application/event_sink_port.gd's own file-level doc, which
+## documents the identical "any typed event, no Dictionary" contract on the
+## PORT side of this same seam.
+func _emit_event(event) -> void:
+	_event_sink_port.emit(event)
 
 
 ## _is_melee_action(action_name) -> bool — true when action_name names a
