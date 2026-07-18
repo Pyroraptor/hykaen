@@ -58,6 +58,19 @@
 #      `##` doc-comment line is not a call site and must never be flagged
 #      — the scan below filters out comment-only lines before counting.
 #
+#   5. core/application/use_cases/effects_applier_use_case.gd's
+#      EffectsApplierUseCase (FEAT-002/US-002 application-layer wrapper
+#      around EffectsApplier, ADR-002/ADR-005) never itself calls a
+#      Combatant mutator directly — it validates each effect, then
+#      delegates the actual mutation to the SAME EffectsApplier instance
+#      checked by #4 above. This keeps check #4's "exactly one call site"
+#      guarantee true even though the application layer now has its own
+#      DTO-returning entry point: a regression that made
+#      EffectsApplierUseCase re-implement dispatch itself (instead of
+#      delegating) would silently create a second seam, since #4 only
+#      scans for the sole call site being EffectsApplier itself — this
+#      check fails the build the moment that happens.
+#
 # Usage:
 #   ci/check_no_duplicate_seams.sh [repo_root]
 #
@@ -222,6 +235,22 @@ fi
 if ! check_seam_sole_caller "move_to" \
     "core/rules/movement.gd"; then
     FAILURES=$((FAILURES + 1))
+fi
+
+# ── 5. EffectsApplierUseCase (application layer) must delegate, never
+#      re-dispatch a Combatant mutator itself ────────────────────────────────
+EFFECTS_APPLIER_USE_CASE_FILE="core/application/use_cases/effects_applier_use_case.gd"
+if [ -f "$EFFECTS_APPLIER_USE_CASE_FILE" ]; then
+    UC_DIRECT_CALLS="$(grep -nE '\.(take_damage|heal|add_condition|remove_condition|move_to)\(' "$EFFECTS_APPLIER_USE_CASE_FILE" 2>/dev/null \
+        | grep -vE ':[[:space:]]*##' || true)"
+
+    if [ -n "$UC_DIRECT_CALLS" ]; then
+        echo "ERROR: $EFFECTS_APPLIER_USE_CASE_FILE must delegate to EffectsApplier (core/domain/effects_applier.gd) rather than calling a Combatant mutator directly:" >&2
+        echo "$UC_DIRECT_CALLS" >&2
+        FAILURES=$((FAILURES + 1))
+    else
+        echo "OK: EffectsApplierUseCase contains no direct Combatant-mutator call sites -- delegates to the sole EffectsApplier seam (ADR-002/ADR-005, FEAT-002/US-002)"
+    fi
 fi
 
 if [ "$FAILURES" -gt 0 ]; then
