@@ -1,0 +1,25 @@
+{
+  "_doc": "FEAT-255 (US-005/US-006, resolves PR-004) pinned-seed baseline fixture. Captured by driving the REAL res://MainScene.tscn composition root at seed=42 through exactly one enemy-turn interaction: VerbBarView.press(\"END_TURN\") (Titus acts first at this seed, so END_TURN hands the turn to the Skeleton, which auto-Strikes Titus), with every opened reaction_prompt_ui pop-up resolved via its own \"none\" option when offered (a genuine Pass -- mirrors tests/integration/test_enemy_reaction_effects_applier_retrofit.gd's/tests/integration/test_mainscene_hit_reaction_apply.gd's established Pass convention) -- no scripted/stubbed RNG anywhere. tests/regression/test_baseline_diff_regression.gd re-drives this IDENTICAL interaction and asserts every field below stays byte-identical.",
+  "seed": 42,
+  "hp_before": 18,
+  "hp_after": 11,
+  "attack_event_count": 1,
+  "attack_event": {
+    "round": 1,
+    "attacker_name": "Skeleton",
+    "target_name": "Titus",
+    "roll": 22,
+    "defense_type": "ac",
+    "defense_value": 15,
+    "hit": true,
+    "crit": false,
+    "actor_updated_action_budget": {
+      "remaining": 6,
+      "spent": false
+    },
+    "damage_final": 7
+  },
+  "log_count_before": 0,
+  "log_count_after": 1,
+  "combat_log_line": "Round 1: enemy_0 attacks player_0 — Hit (roll 22) for 7 raw / 7 final damage. Defense: none."
+}

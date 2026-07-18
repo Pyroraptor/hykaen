@@ -112,6 +112,21 @@
 #      (mirroring stage 1/7/9's convention of invoking gut_cmdln.gd
 #      directly rather than the -- --gut-run-all/HeadlessRunner path).
 #
+#   11. FEAT-255 (US-004/US-005/US-006/US-012/US-013, resolves PR-004,
+#      RISK-006) pinned-seed baseline-diff regression gate
+#      (tests/regression/test_baseline_diff_regression.gd) — already
+#      covered by stage 8's full-project run, but called out here as its
+#      own explicit, clearly-labeled gate: re-drives the Effects Applier
+#      retrofit's player-Strike, enemy-on-hit-reaction, and END_TURN
+#      boot-real scenarios at the pinned seed=42 fixture and asserts
+#      hp outcome / AttackEvent fields / rendered combat-log line / the
+#      full round-event sequence all diff to ZERO against the checked-in
+#      tests/regression/fixtures/baseline_*_seed42.json snapshots —
+#      turning RISK-006's previously-manual "no behavior change" diff
+#      step into a durable, automated, gating artifact. Run via GUT's
+#      real CLI entry point scoped to just this one script (mirrors
+#      stage 1/7/9/10's convention).
+#
 # FEAT-246 (US-015): tests/e2e/test_steel_thread_strike_full_flow.gd — the
 # steel thread's final end-to-end smoke test, consolidating this
 # iteration's additive selection/execute generalization work
@@ -122,12 +137,15 @@
 # SAME selection/execute pipeline additively resolves an option-list pick
 # and a fully-resolved AREA target set into execute() without regressing
 # Strike or END_TURN, and a pinned-seed rerun reproduces an identical
-# hp/AttackEvent/log outcome (determinism). This stage list stays at 10
-# stages — the new file lives under res://tests/e2e, so it is already
-# picked up automatically by stage 8's full-project run (the root
-# .gutconfig.json's ("res://tests", include_subdirs=true) scope), exactly
-# like tests/e2e/test_steel_thread_post_remediation_smoke.gd before it; it
-# gains no dedicated numbered stage of its own.
+# hp/AttackEvent/log outcome (determinism). This file lives under
+# res://tests/e2e, so it is already picked up automatically by stage 8's
+# full-project run (the root .gutconfig.json's ("res://tests",
+# include_subdirs=true) scope), exactly like
+# tests/e2e/test_steel_thread_post_remediation_smoke.gd before it; it
+# gains no dedicated numbered stage of its own (unlike FEAT-255's stage 11
+# above, which pins the SAME retrofit's outcome against checked-in fixture
+# snapshots rather than merely reproducing it once, so it stays a distinct,
+# explicit, gating stage).
 #
 # Exit code: 0 only if every stage above exits 0. `set -euo pipefail`
 # ensures a single failing assertion anywhere aborts the script
@@ -137,10 +155,10 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-echo "=== [1/10] FEAT-001 / NFR-004 headless launchability smoke test (tests/gut/test_smoke_boot.gd) ==="
+echo "=== [1/11] FEAT-001 / NFR-004 headless launchability smoke test (tests/gut/test_smoke_boot.gd) ==="
 godot --headless -s addons/gut/gut_cmdln.gd -gdir=res://tests/gut -gselect=test_smoke_boot.gd -gexit
 
-echo "=== [2/10] pytest suite ==="
+echo "=== [2/11] pytest suite ==="
 # HYKAEN_TEST_COMMAND_E2E_GUARD=1: the recursive end-to-end meta-tests
 # (tests/unit/test_ci_quality_gate_wiring_feat133.py,
 # tests/unit/test_ci_gut_domain_consolidation_feat004.py) shell out THIS very
@@ -156,28 +174,31 @@ echo "=== [2/10] pytest suite ==="
 # exercise the script end-to-end exactly once.
 HYKAEN_TEST_COMMAND_E2E_GUARD=1 python -m pytest -q --tb=short
 
-echo "=== [3/10] FEAT-158 CI pipeline stage-list consistency check (FIND-151) ==="
+echo "=== [3/11] FEAT-158 CI pipeline stage-list consistency check (FIND-151) ==="
 python scripts/check_ci_pipeline_sync.py
 
-echo "=== [4/10] FEAT-239 sim_results.json provenance guard (PR-004 / ADR-006) ==="
+echo "=== [4/11] FEAT-239 sim_results.json provenance guard (PR-004 / ADR-006) ==="
 python scripts/ci/check_sim_results_provenance.py
 
-echo "=== [5/10] FEAT-009 domain purity static check (ADR-001) ==="
+echo "=== [5/11] FEAT-009 domain purity static check (ADR-001) ==="
 ci/check_domain_purity.sh core
 
-echo "=== [6/10] FEAT-009 no-duplicate-ports/use-cases/seams check (ADR-002/ADR-006) ==="
+echo "=== [6/11] FEAT-009 no-duplicate-ports/use-cases/seams check (ADR-002/ADR-006) ==="
 ci/check_no_duplicate_seams.sh
 
-echo "=== [7/10] GUT consolidated domain suite (tests/.gutconfig.json) ==="
+echo "=== [7/11] GUT consolidated domain suite (tests/.gutconfig.json) ==="
 godot --headless -s addons/gut/gut_cmdln.gd -gconfig=res://tests/.gutconfig.json -gexit
 
-echo "=== [8/10] GUT full project suite (root .gutconfig.json, --gut-run-all regression gate) ==="
+echo "=== [8/11] GUT full project suite (root .gutconfig.json, --gut-run-all regression gate) ==="
 godot --headless -- --gut-run-all
 
-echo "=== [9/10] core/sim/simulator.gd N=1000 balance regression (NFR-006 / NFR-008 / NFR-009, tests/sim/test_balance_sim.gd) ==="
+echo "=== [9/11] core/sim/simulator.gd N=1000 balance regression (NFR-006 / NFR-008 / NFR-009, tests/sim/test_balance_sim.gd) ==="
 godot --headless -s addons/gut/gut_cmdln.gd -gdir=res://tests/sim -gselect=test_balance_sim.gd -gexit
 
-echo "=== [10/10] Steel thread prologue-encounter E2E test (tests/e2e/test_full_steel_thread_e2e.gd) ==="
+echo "=== [10/11] Steel thread prologue-encounter E2E test (tests/e2e/test_full_steel_thread_e2e.gd) ==="
 godot --headless -s addons/gut/gut_cmdln.gd -gselect=test_full_steel_thread_e2e.gd -gdir=res://tests/e2e -gexit
+
+echo "=== [11/11] FEAT-255 pinned-seed baseline-diff regression gate (resolves PR-004 / RISK-006, tests/regression/test_baseline_diff_regression.gd) ==="
+godot --headless -s addons/gut/gut_cmdln.gd -gselect=test_baseline_diff_regression.gd -gdir=res://tests/regression -gexit
 
 echo "=== scripts/test_command.sh: all stages passed ==="

@@ -199,6 +199,27 @@ stages:
     optional: false
     allow_failure: false
 
+  - id: baseline_diff_regression
+    name: Pinned-seed baseline-diff regression gate (FEAT-255, resolves PR-004 / RISK-006)
+    description: >
+      Re-drives the Effects Applier retrofit's player-Strike (US-004),
+      enemy-on-hit-reaction (US-005), and END_TURN (US-012) boot-real
+      scenarios at the pinned seed=42 fixture and asserts hp outcome,
+      AttackEvent fields, the rendered combat-log line, and the full
+      round-event sequence all diff to ZERO against the checked-in
+      tests/regression/fixtures/baseline_*_seed42.json snapshots —
+      turning RISK-006's previously-manual "no behavior change" diff step
+      into a durable, automated, gating artifact so a future change can
+      never silently reintroduce drift. See
+      tests/regression/test_baseline_diff_regression.gd.
+    command: >-
+      godot --headless -s addons/gut/gut_cmdln.gd
+      -gselect=test_baseline_diff_regression.gd
+      -gdir=res://tests/regression -gexit
+    required: true
+    optional: false
+    allow_failure: false
+
 gate:
   # A single failing stage aborts the pipeline; scripts/test_command.sh
   # enforces this at the shell level via `set -euo pipefail`.

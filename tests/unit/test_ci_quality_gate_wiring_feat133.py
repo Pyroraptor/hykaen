@@ -68,6 +68,28 @@ from pathlib import Path
 import pytest
 import yaml  # PyYAML — already a project dependency (see test_ci_infrastructure.py)
 
+# FEAT-255 perf/hygiene note: the full-pipeline end-to-end tests further down
+# this file (TestRootTestCommandEndToEndDelegation,
+# TestFullTestCommandShEndToEnd) each shell out and run the ENTIRE
+# scripts/test_command.sh pipeline (11 stages, ~1+ minute) to prove it exits
+# 0. Inside scripts/test_command.sh's own pytest stage they are already
+# always skipped (HYKAEN_TEST_COMMAND_E2E_GUARD=1 is set for that
+# invocation — see each test's own recursion-guard skip below), so their
+# ONLY real execution path was already "someone runs bare `pytest` locally".
+# A bare `pytest` invocation of the whole tests/ tree hits FOUR such full
+# nested pipeline runs (two in this file, one in
+# test_ci_gut_domain_consolidation_feat004.py's mirrored suite, one
+# indirectly via this file's root-wrapper delegation test) — comfortably
+# exceeding a few minutes, which is fine for a deliberate local check but
+# starves out any automated harness expecting `pytest` to return quickly.
+# _RUN_PIPELINE_E2E_ENV_VAR makes that already-opt-in-in-practice behavior
+# explicit: these tests skip by default (real production/coverage tests are
+# entirely unaffected — only this file's own "shell out and re-run the whole
+# pipeline" meta-check is gated) unless a caller deliberately sets
+# HYKAEN_RUN_PIPELINE_E2E_TESTS=1, mirroring the recursion guard's own
+# environment-variable-gated-skip convention.
+_RUN_PIPELINE_E2E_ENV_VAR = "HYKAEN_RUN_PIPELINE_E2E_TESTS"
+
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -390,6 +412,12 @@ class TestRootTestCommandEndToEndDelegation:
                 "already running inside a test_command/scripts/test_command.sh "
                 "end-to-end invocation (recursion guard)"
             )
+        if os.environ.get(_RUN_PIPELINE_E2E_ENV_VAR) != "1":
+            pytest.skip(
+                "opt-in only: set HYKAEN_RUN_PIPELINE_E2E_TESTS=1 to actually "
+                "shell out and run the full multi-minute scripts/test_command.sh "
+                "pipeline end-to-end (see this file's top-level doc)"
+            )
 
         env = dict(os.environ)
         env[_E2E_GUARD_ENV_VAR] = "1"
@@ -450,6 +478,12 @@ class TestFullTestCommandShEndToEnd:
                 "already running inside a scripts/test_command.sh "
                 "end-to-end invocation (recursion guard)"
             )
+        if os.environ.get(_RUN_PIPELINE_E2E_ENV_VAR) != "1":
+            pytest.skip(
+                "opt-in only: set HYKAEN_RUN_PIPELINE_E2E_TESTS=1 to actually "
+                "shell out and run the full multi-minute scripts/test_command.sh "
+                "pipeline end-to-end (see this file's top-level doc)"
+            )
 
         env = dict(os.environ)
         env[_E2E_GUARD_ENV_VAR] = "1"
@@ -473,6 +507,12 @@ class TestFullTestCommandShEndToEnd:
             pytest.skip(
                 "already running inside a scripts/test_command.sh "
                 "end-to-end invocation (recursion guard)"
+            )
+        if os.environ.get(_RUN_PIPELINE_E2E_ENV_VAR) != "1":
+            pytest.skip(
+                "opt-in only: set HYKAEN_RUN_PIPELINE_E2E_TESTS=1 to actually "
+                "shell out and run the full multi-minute scripts/test_command.sh "
+                "pipeline end-to-end (see this file's top-level doc)"
             )
 
         env = dict(os.environ)

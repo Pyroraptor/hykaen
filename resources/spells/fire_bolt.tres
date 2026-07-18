@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="SpellDefinition" load_steps=2 format=3 uid="uid://dfrbolt1a2b3c4"]
+
+[ext_resource type="Script" uid="uid://cspldef1a2b3c4" path="res://core/rules/spell_definition.gd" id="1_firebolt"]
+
+[resource]
+script = ExtResource("1_firebolt")
+spell_id = "fire_bolt"
+name = "Fire Bolt"
+actions = 2
+energy_cost = 0
+range_ft = 50
+defense_type = "reflex"
+damage_formula = "2d8"
+damage_type = "fire"
+spell_trait = "Concentrate"
+effect_type = 0

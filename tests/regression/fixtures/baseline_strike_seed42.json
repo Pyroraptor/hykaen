@@ -1,0 +1,24 @@
+{
+  "_doc": "FEAT-255 (US-004/US-013, resolves PR-004) pinned-seed baseline fixture. Captured by driving the REAL res://MainScene.tscn composition root at seed=42 (this project's established PROLOGUE_SEED, see tests/integration/test_strike_effects_applier_retrofit.gd) through exactly one player-Strike interaction: VerbBarView.press(\"STRIKE\") followed by a HexGridView.hex_clicked emission on the sole enemy's (Skeleton) own hex -- mirrors test_strike_effects_applier_retrofit.gd's Section D boot-real convention exactly, with no scripted/stubbed RNG anywhere. tests/regression/test_baseline_diff_regression.gd re-drives this IDENTICAL interaction and asserts every field below stays byte-identical -- a durable, automated substitute for the manual diff step RISK-006 previously relied on.",
+  "seed": 42,
+  "hp_before": 8,
+  "hp_after": -12,
+  "attack_event": {
+    "round": 1,
+    "attacker_name": "Titus",
+    "target_name": "Skeleton",
+    "roll": 25,
+    "defense_type": "ac",
+    "defense_value": 14,
+    "hit": true,
+    "crit": true,
+    "actor_updated_action_budget": {
+      "remaining": 6,
+      "spent": false
+    },
+    "damage_final": 20
+  },
+  "history_entry_damage_final": 20,
+  "history_entry_target_hp_current": -12,
+  "combat_log_line": "Round 1: player_0 attacks enemy_0 — Critical Hit (roll 25) for 24 raw / 20 final damage. Defense: block reduced-by-4."
+}

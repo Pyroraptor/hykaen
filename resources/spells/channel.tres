@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="SpellDefinition" load_steps=2 format=3 uid="uid://dchnnl1a2b3c4d"]
+
+[ext_resource type="Script" uid="uid://cspldef1a2b3c4" path="res://core/rules/spell_definition.gd" id="1_channel"]
+
+[resource]
+script = ExtResource("1_channel")
+spell_id = "channel"
+name = "Channel"
+actions = 1
+energy_cost = 0
+range_ft = 0
+defense_type = ""
+damage_formula = ""
+damage_type = ""
+spell_trait = "Concentrate"
+effect_type = 4

@@ -554,6 +554,20 @@ class TestConsolidatedDomainSuiteReallyPasses:
 
 _E2E_GUARD_ENV_VAR = "HYKAEN_TEST_COMMAND_E2E_GUARD"
 
+# FEAT-255 perf/hygiene note (mirrors tests/unit/test_ci_quality_gate_wiring_
+# feat133.py's identically-named/valued constant and rationale): inside
+# test_command's own pytest stage this test is ALWAYS skipped already (the
+# guard above is set for that invocation), so its only real execution path
+# was already "someone runs bare `pytest` locally" — a deliberate, already
+# opt-in-in-practice, multi-minute local check (it shells out the ENTIRE
+# ~1-minute-plus test_command pipeline). Requiring an explicit
+# HYKAEN_RUN_PIPELINE_E2E_TESTS=1 opt-in changes no real coverage; it only
+# stops a bare `pytest` invocation of the whole tests/ tree from silently
+# ballooning past a fast-return budget (this test is one of several such
+# full-pipeline re-runs across this file and test_ci_quality_gate_wiring_
+# feat133.py that would otherwise all fire back-to-back).
+_RUN_PIPELINE_E2E_ENV_VAR = "HYKAEN_RUN_PIPELINE_E2E_TESTS"
+
 
 @pytest.mark.skipif(not GODOT_AVAILABLE, reason="godot binary not on PATH")
 class TestFullTestCommandEndToEnd:
@@ -563,6 +577,12 @@ class TestFullTestCommandEndToEnd:
                 "already running inside a test_command end-to-end invocation "
                 "(recursion guard) — avoids test_command's pytest stage "
                 "re-invoking test_command forever"
+            )
+        if os.environ.get(_RUN_PIPELINE_E2E_ENV_VAR) != "1":
+            pytest.skip(
+                "opt-in only: set HYKAEN_RUN_PIPELINE_E2E_TESTS=1 to actually "
+                "shell out and run the full multi-minute test_command pipeline "
+                "end-to-end (see this file's doc above)"
             )
 
         env = dict(os.environ)
