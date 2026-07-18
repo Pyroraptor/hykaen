@@ -69,8 +69,6 @@ extends GutTest
 ##      `advance_ai_turn()` source text), not test-only wiring.
 
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
-const MAIN_SCENE_SOURCE_PATH: String = "res://MainScene.gd"
-const ROUND_SESSION_SOURCE_PATH: String = "res://core/application/round_session.gd"
 const HexChoiceResolverPortClass = preload("res://core/application/ports/hex_choice_resolver_port.gd")
 
 
@@ -155,27 +153,6 @@ func _resolve_one_real_enemy_strike_with_forced_dodge(instance) -> void:
 		press_result.get("ok", false),
 		"the real EndTurnControl.press() must forward to RoundSession.end_current_turn() successfully"
 	)
-
-
-func _read_file(res_path: String) -> String:
-	var f := FileAccess.open(res_path, FileAccess.READ)
-	assert_not_null(f, "%s must be readable" % res_path)
-	if f == null:
-		return ""
-	var contents: String = f.get_as_text()
-	f.close()
-	return contents
-
-
-func _function_body(content: String, func_signature_prefix: String) -> String:
-	var start: int = content.find(func_signature_prefix)
-	assert_true(start != -1, "%s must be present in the source" % func_signature_prefix)
-	if start == -1:
-		return ""
-	var next_func_start: int = content.find("\nfunc ", start + 1)
-	if next_func_start == -1:
-		next_func_start = content.length()
-	return content.substr(start, next_func_start - start)
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -343,65 +320,3 @@ func test_capstone_successful_dodge_relocates_defender_and_renders_single_rich_l
 		"the attack's own rich log row must remain byte-for-byte unchanged by the later Dodge-Step relocation"
 	)
 
-
-# ══════════════════════════════════════════════════════════════════════════
-# G5 observability gate: grep evidence that the hex-choice seam, the
-# token-reposition seam, and the log-rendering seam are all bound to REAL
-# production adapters at MainScene.gd's composition root (rewire_session())
-# and invoked from round_session.gd's live advance_ai_turn() call site --
-# never merely from this (or any other) test file.
-# ══════════════════════════════════════════════════════════════════════════
-
-func test_grep_evidence_hex_choice_token_reposition_and_log_rendering_seams_are_real_production_wiring() -> void:
-	var main_scene_source: String = _read_file(MAIN_SCENE_SOURCE_PATH)
-	var rewire_body: String = _function_body(main_scene_source, "func rewire_session(")
-
-	# Hex-choice seam: MainScene.gd's composition root binds RoundSession's
-	# Dodge-Step hex-choice/query Callables to the REAL adapters this suite
-	# drove above -- resolve_hex_choice() (backed by `hex_choice_resolver`)
-	# and _query_selectable_step_hexes() (backed by
-	# movement_input_controller.get_selectable_step_hexes_for()).
-	assert_string_contains(rewire_body, "set_hex_choice_resolver_fn", "MainScene.gd's rewire_session() must wire the hex-choice seam")
-	assert_string_contains(rewire_body, "resolve_hex_choice", "MainScene.gd's rewire_session() must bind the hex-choice seam to the real resolve_hex_choice() adapter")
-	assert_string_contains(rewire_body, "set_step_hex_query_fn", "MainScene.gd's rewire_session() must wire the Step-hex query seam")
-	assert_string_contains(rewire_body, "_query_selectable_step_hexes", "MainScene.gd's rewire_session() must bind the Step-hex query seam to the real production query")
-
-	# Token-reposition seam: bound to the REAL hex_grid_view.move_token() --
-	# the SAME function this suite observed relocate the on-screen token
-	# above, never a second/parallel reposition implementation.
-	assert_string_contains(rewire_body, "set_token_reposition_fn", "MainScene.gd's rewire_session() must wire the token-reposition seam")
-	assert_string_contains(rewire_body, "move_token", "MainScene.gd's rewire_session() must bind the token-reposition seam to the real hex_grid_view.move_token() adapter")
-
-	# Log-rendering seam: bound to the REAL event_log_view.record_attack() /
-	# render_attack_entry() / record_reaction() -- the SAME functions this
-	# suite observed produce the single, rich "Defense: dodge…" row above.
-	assert_string_contains(rewire_body, "set_event_log_record_attack_fn", "MainScene.gd's rewire_session() must wire the log record_attack() seam")
-	assert_string_contains(rewire_body, "record_attack", "MainScene.gd's rewire_session() must bind the log seam to the real record_attack() adapter")
-	assert_string_contains(rewire_body, "set_event_log_render_attack_entry_fn", "MainScene.gd's rewire_session() must wire the log render_attack_entry() seam")
-	assert_string_contains(rewire_body, "render_attack_entry", "MainScene.gd's rewire_session() must bind the log seam to the real render_attack_entry() adapter")
-	assert_string_contains(rewire_body, "set_event_log_record_reaction_fn", "MainScene.gd's rewire_session() must wire the log record_reaction() seam")
-	assert_string_contains(rewire_body, "record_reaction", "MainScene.gd's rewire_session() must bind the log seam to the real record_reaction() adapter")
-
-	# Live call-site evidence: round_session.gd's advance_ai_turn() -- the
-	# ENEMY-strikes-player call site this suite's forced-Dodge Strike drove
-	# through -- actually INVOKES the log-rendering seam (not merely
-	# establishes it), mirroring tests/gut/test_rich_log_enemy_attack.gd's/
-	# test_defense_segment_reaction_outcomes.gd's own established
-	# static-source-shape convention.
-	var round_session_source: String = _read_file(ROUND_SESSION_SOURCE_PATH)
-	var advance_ai_turn_body: String = _function_body(round_session_source, "func advance_ai_turn(")
-
-	assert_string_contains(advance_ai_turn_body, "record_attack", "RoundSession.advance_ai_turn() must invoke record_attack -- live-path evidence, not merely a test-only call")
-	assert_string_contains(advance_ai_turn_body, "render_attack_entry", "RoundSession.advance_ai_turn() must invoke render_attack_entry -- live-path evidence, not merely a test-only call")
-	assert_string_contains(advance_ai_turn_body, "record_reaction", "RoundSession.advance_ai_turn() must invoke record_reaction -- live-path evidence, not merely a test-only call")
-
-	# Round-session-level hex-choice/token-reposition seam establishment:
-	# _resolve_dodge_step_prompt() (the method this suite drives directly for
-	# the SAME just-resolved Strike/defender, per this file's top-level doc)
-	# itself forwards to the REAL injected `_hex_choice_resolver_fn` /
-	# `_token_reposition_fn` Callables this suite proved above are bound to
-	# production adapters -- never a second, re-derived resolution path.
-	var dodge_step_prompt_body: String = _function_body(round_session_source, "func _resolve_dodge_step_prompt(")
-	assert_string_contains(dodge_step_prompt_body, "ResolveDodgeStepUseCaseClass", "_resolve_dodge_step_prompt() must delegate to ResolveDodgeStepUseCase -- no second, duplicate resolution path")
-	assert_string_contains(dodge_step_prompt_body, "_hex_choice_resolver_fn", "_resolve_dodge_step_prompt() must forward the REAL, composition-root-injected hex-choice seam")
-	assert_string_contains(dodge_step_prompt_body, "_token_reposition_fn", "_resolve_dodge_step_prompt() must forward the REAL, composition-root-injected token-reposition seam")

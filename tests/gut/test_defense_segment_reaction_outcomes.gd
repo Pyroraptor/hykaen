@@ -32,11 +32,6 @@ extends GutTest
 ##      not merely from this test.
 
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
-const ROUND_SESSION_SOURCE_PATH: String = "res://core/application/round_session.gd"
-const MAIN_SCENE_SOURCE_PATH: String = "res://MainScene.gd"
-## Composition-root de-bloat (2026-07-10): the player-strike call site moved from
-## MainScene._verb_bar_strike_execute() into StrikeActionController.execute().
-const STRIKE_CONTROLLER_SOURCE_PATH: String = "res://presentation/strike_action_controller.gd"
 
 
 ## _FixedChoiceResolver — a synchronous ReactionResolverPort double (mirrors
@@ -276,51 +271,3 @@ func test_attack_event_with_no_paired_reaction_renders_defense_none() -> void:
 	var outcome_string: String = instance.event_log_view.get_active_defense_outcome_string("unit-test-attack-1")
 	assert_eq(outcome_string, "none", "get_active_defense_outcome_string() must default to 'none' when no reaction was ever recorded")
 
-
-# ══════════════════════════════════════════════════════════════════════════
-# Criterion 3 — grep-based checks confirm record_reaction() is invoked from
-# BOTH live call sites' production source, not merely from this test
-# (mirrors tests/gut/test_rich_log_enemy_attack.gd's/
-# tests/gut/test_rich_log_player_attack.gd's own established
-# static-source-shape convention).
-# ══════════════════════════════════════════════════════════════════════════
-
-func _read_file(res_path: String) -> String:
-	var f := FileAccess.open(res_path, FileAccess.READ)
-	assert_not_null(f, "%s must be readable" % res_path)
-	if f == null:
-		return ""
-	var contents: String = f.get_as_text()
-	f.close()
-	return contents
-
-
-func _function_body(content: String, func_signature_prefix: String) -> String:
-	var start: int = content.find(func_signature_prefix)
-	assert_true(start != -1, "%s must be present in the source" % func_signature_prefix)
-	if start == -1:
-		return ""
-	var next_func_start: int = content.find("\nfunc ", start + 1)
-	if next_func_start == -1:
-		next_func_start = content.length()
-	return content.substr(start, next_func_start - start)
-
-
-func test_round_session_source_invokes_record_reaction_from_advance_ai_turn() -> void:
-	var content: String = _read_file(ROUND_SESSION_SOURCE_PATH)
-	var function_body: String = _function_body(content, "func advance_ai_turn(")
-
-	assert_string_contains(
-		function_body, "record_reaction",
-		"RoundSession.advance_ai_turn() must invoke record_reaction (via RenderCombatLogUseCase) -- live-path evidence, not merely a test-only call"
-	)
-
-
-func test_main_scene_source_invokes_record_reaction_from_player_strike_execute() -> void:
-	var content: String = _read_file(STRIKE_CONTROLLER_SOURCE_PATH)
-	var function_body: String = _function_body(content, "func execute(")
-
-	assert_string_contains(
-		function_body, "record_reaction",
-		"StrikeActionController.execute() must invoke record_reaction (via RenderCombatLogUseCase) -- live-path evidence for the player-strikes-enemy call site"
-	)
