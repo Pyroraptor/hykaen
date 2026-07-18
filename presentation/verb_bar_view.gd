@@ -48,6 +48,25 @@
 ## state") so a stale-availability button is never left clickable after the
 ## game state that determined it has changed.
 ##
+## FEAT-243 (US-012) regression note: presentation/selection_overlay.gd was
+## additively extended (FEAT-010's Layer-2a option-list step, FEAT-242's
+## Layer-2b area-of-effect origin-pick/preview/confirm step) well after this file
+## was written. Neither extension touches this file — END_TURN's
+## direct-execute special case below (calling registry.execute(END_TURN)
+## DIRECTLY, never registry.enter_selection(), and therefore never emitting
+## verb_selection_entered) is unchanged and remains the ONLY way any verb in
+## this codebase can reach registry.execute() from Layer 1 without first
+## passing through SelectionOverlay's Layer-2a/2b flow. Guarded by
+## tests/regression/test_end_turn_direct_execute.gd, which drives the REAL
+## VerbBarView wired to the REAL SelectionOverlay (mirroring MainScene.gd's
+## own composition-root wiring) and proves structurally that END_TURN never
+## activates SelectionOverlay, never enters its Layer-2a "awaiting option"
+## state, never enters its Layer-2b area-of-effect preview/confirm state, and
+## that registry.execute(END_TURN) is still invoked with a bare null
+## selection — never the {"option":...,"target":...} Dictionary shape or
+## resolved target-set/tuple shape those two Layer 2 extensions introduced
+## for every other verb.
+##
 ## Post-resolution lock (FEAT-177 / US-013, extending the EXISTING
 ## presentation/result_screen_view.gd lock mechanism -- not a new one):
 ## lock() permanently disables every rendered verb button and permanently
