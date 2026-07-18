@@ -32,6 +32,7 @@ const EndTurnControlScene: PackedScene      = preload("res://presentation/end_tu
 
 const DetermineOutcomeUseCaseClass = preload("res://core/application/determine_outcome_use_case.gd")
 const RoundEventsClass             = preload("res://core/rules/round_events.gd")
+const CombatantClass               = preload("res://core/domain/combatant.gd")
 
 const RESULT_SCREEN_VIEW_PATH: String = "res://presentation/result_screen_view.gd"
 
@@ -81,14 +82,14 @@ class FakeRoundHistoryPort:
 ## to spin up a full RunRoundUseCase rig just to prove EndTurnControl starts
 ## enabled and ends up disabled.
 class FakeRoundSession:
-	var _actor: Dictionary
+	var _actor
 	var _round_over: bool = false
 
-	func _init(actor: Dictionary) -> void:
+	func _init(actor) -> void:
 		_actor = actor
 
-	func current_actor() -> Dictionary:
-		return {} if _round_over else _actor
+	func current_actor():
+		return null if _round_over else _actor
 
 	func is_round_over() -> bool:
 		return _round_over
@@ -167,7 +168,7 @@ func test_end_turn_control_disabled_after_encounter_result_event() -> void:
 	var end_turn_control = EndTurnControlScene.instantiate()
 	add_child_autofree(end_turn_control)
 
-	var session = FakeRoundSession.new({"name": "Titus", "_is_enemy": false})
+	var session = FakeRoundSession.new(CombatantClass.from_dict({"name": "Titus", "_is_enemy": false}))
 	end_turn_control.configure(session)
 	assert_true(end_turn_control.is_enabled(), "sanity check: EndTurnControl starts enabled for the active player combatant")
 
@@ -182,7 +183,7 @@ func test_both_controls_disabled_together_after_encounter_result_event() -> void
 	var end_turn_control = EndTurnControlScene.instantiate()
 	add_child_autofree(end_turn_control)
 
-	var session = FakeRoundSession.new({"name": "Titus", "_is_enemy": false})
+	var session = FakeRoundSession.new(CombatantClass.from_dict({"name": "Titus", "_is_enemy": false}))
 	end_turn_control.configure(session)
 
 	_view.configure(strike_control, end_turn_control)

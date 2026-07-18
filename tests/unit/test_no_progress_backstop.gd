@@ -191,7 +191,7 @@ func test_interactive_all_player_stall_terminates_via_backstop_not_1000_turn_gua
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 1)
 	var session = rig["use_case"].begin_round(1, [alpha], [bravo])
 
-	assert_eq(session.current_actor().get("name", ""), "Alpha")
+	assert_eq(session.current_actor().name, "Alpha")
 	assert_false(session.is_round_over())
 
 	var iterations: int = 0

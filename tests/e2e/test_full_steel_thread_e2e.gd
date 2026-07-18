@@ -207,12 +207,12 @@ func test_full_steel_thread_from_turn_start_to_post_resolution_lock() -> void:
 
 	# ── Fixture assumptions (seed=42, prologue_encounter.tres) ─────────────
 	assert_false(
-		instance.round_session.current_actor().get("_is_enemy", true),
+		instance.round_session.current_actor().is_enemy,
 		"fixture assumption: the first actor must be the living player combatant (Titus) per prologue_encounter.tres' hex layout at seed=42"
 	)
 	assert_eq(instance._enemies.size(), 1, "fixture assumption: the prologue encounter has exactly one enemy")
 
-	var actor_id: String = instance.round_session.current_actor().get("combatant_id", "")
+	var actor_id: String = instance.round_session.current_actor().display_id()
 	assert_ne(actor_id, "", "fixture assumption: the active actor carries a non-empty combatant_id")
 
 
@@ -298,7 +298,7 @@ func test_full_steel_thread_from_turn_start_to_post_resolution_lock() -> void:
 	# ══════════════════════════════════════════════════════════════════════
 
 	assert_false(
-		instance.round_session.current_actor().get("_is_enemy", true),
+		instance.round_session.current_actor().is_enemy,
 		"fixture assumption: the actor is still the living player combatant after their own Step/Stride"
 	)
 
@@ -342,7 +342,7 @@ func test_full_steel_thread_from_turn_start_to_post_resolution_lock() -> void:
 
 	var guard: int = 0
 	while not instance.round_session.is_round_over() and guard < _MAX_DRIVE_ITERATIONS:
-		if not instance.round_session.current_actor().get("_is_enemy", true) and instance._verb_registry.is_available("STRIKE"):
+		if not instance.round_session.current_actor().is_enemy and instance._verb_registry.is_available("STRIKE"):
 			var live_selection: Dictionary = instance.verb_bar_view.press("STRIKE")
 			var live_target_ids: Array = live_selection.get("candidate_targets", [])
 			if live_target_ids.size() > 0:
@@ -462,7 +462,7 @@ func test_enemy_ai_leg_strides_toward_nearest_target_but_does_not_strike_same_tu
 	assert_not_null(player_hex, "fixture assumption: the player combatant carries positional hex_coord data")
 
 	assert_false(
-		instance.round_session.current_actor().get("_is_enemy", true),
+		instance.round_session.current_actor().is_enemy,
 		"fixture assumption: the player still acts first, before the enemy's own turn"
 	)
 
@@ -607,7 +607,7 @@ func test_enemy_ai_leg_strides_but_does_not_strike_when_no_action_remains_after_
 		func(e): return e is RoundEventsClass.AttackBroadcast and e.attacker_name == enemy.name
 	).size()
 
-	assert_false(instance.round_session.current_actor().get("_is_enemy", true), "fixture assumption: the player still acts first")
+	assert_false(instance.round_session.current_actor().is_enemy, "fixture assumption: the player still acts first")
 	var end_turn_result: Dictionary = instance.end_turn_control.press()
 	assert_true(end_turn_result.get("ok", false), "ending the player's turn (no action taken) must succeed")
 

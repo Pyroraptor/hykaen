@@ -187,7 +187,7 @@ func test_player_strike_still_emits_exactly_one_attack_event_and_costs_one_actio
 	var instance = _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
-	var actor_id: String = instance.round_session.current_actor().get("combatant_id", "")
+	var actor_id: String = instance.round_session.current_actor().display_id()
 	var before_remaining: int = instance.status_panel_view.get_status(actor_id).get("action_budget_remaining", -1)
 
 	_resolve_one_real_player_strike(instance)

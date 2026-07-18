@@ -309,7 +309,7 @@ func open_and_resolve(trigger: Dictionary, chooser, resolved_by: String = "auto"
 func open_and_resolve_attack(
 	trigger: Dictionary,
 	resolution,
-	attacker: Dictionary,
+	attacker,
 	weapon: Dictionary,
 	chooser,
 	resolved_by: String = "auto"
@@ -435,7 +435,7 @@ func open_and_resolve_attack(
 func open_and_resolve_prehit_avoidance(
 	trigger: Dictionary,
 	resolution,
-	attacker: Dictionary,
+	attacker,
 	weapon: Dictionary,
 	chooser,
 	resolved_by: String = "auto"

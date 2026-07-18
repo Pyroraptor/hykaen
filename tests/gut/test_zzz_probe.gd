@@ -27,7 +27,7 @@ func test_probe_real_depletion(seed_value = use_parameters([959, 13269])) -> voi
 	var instance = _boot_main_scene_with_seed(seed_value)
 	await get_tree().process_frame
 
-	var actor_id: String = instance.round_session.current_actor().get("combatant_id", "")
+	var actor_id: String = instance.round_session.current_actor().display_id()
 	var enemy_id: String = ""
 	for e in instance._enemies:
 		enemy_id = e.combatant_id

@@ -821,7 +821,7 @@ func _ready() -> void:
 
 	print(
 		"INFO: Hykaen MainScene booted into the prologue encounter (interactive) -- "
-		+ "current_actor=" + str(round_session.current_actor().get("name", ""))
+		+ "current_actor=" + (round_session.current_actor().name if round_session.current_actor() != null else "")
 		+ " round_over=" + str(round_session.is_round_over())
 	)
 
@@ -1616,7 +1616,7 @@ func _on_active_actor_changed(combatant) -> void:
 ##
 ## FEAT-006: no longer also clears a strike_action_control (that node was
 ## removed) -- once round_session.is_round_over() is true,
-## round_session.current_actor() returns {} (see core/application/
+## round_session.current_actor() returns null (see core/application/
 ## round_session.gd), so _strike_reachable_targets() (and therefore STRIKE's
 ## availability/enter_selection/execute closures) already naturally report
 ## no actor/no targets with zero extra bookkeeping here.

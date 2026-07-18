@@ -127,7 +127,7 @@ func test_clicking_a_highlighted_target_resolves_through_select_target_and_updat
 	var instance = _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
-	var actor_id: String = instance.round_session.current_actor().get("combatant_id", "")
+	var actor_id: String = instance.round_session.current_actor().display_id()
 	assert_ne(actor_id, "", "fixture assumption: the active actor carries a non-empty combatant_id")
 
 	var before_remaining: int = instance.status_panel_view.get_status(actor_id).get("action_budget_remaining", -1)
@@ -186,7 +186,7 @@ func test_clicking_a_non_highlighted_out_of_reach_location_produces_no_resolutio
 	var instance = _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
-	var actor_id: String = instance.round_session.current_actor().get("combatant_id", "")
+	var actor_id: String = instance.round_session.current_actor().display_id()
 
 	var selection: Dictionary = instance.verb_bar_view.press("STRIKE")
 	var target_ids: Array = selection.get("candidate_targets", [])

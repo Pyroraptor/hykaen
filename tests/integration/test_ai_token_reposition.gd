@@ -155,7 +155,7 @@ func test_enemy_token_repositions_on_screen_after_ai_driven_stride() -> void:
 	var rig: Dictionary = _make_use_case(entries, AIClass.new(), random_number_port, event_sink_port)
 	var session = rig["use_case"].begin_round(1, [titus], [goblin])
 
-	assert_eq(session.current_actor().get("name", ""), "Goblin", "fixture assumption: the out-of-reach Enemy must act first")
+	assert_eq(session.current_actor().name, "Goblin", "fixture assumption: the out-of-reach Enemy must act first")
 
 	# The ONLY new wiring this feature introduces: point RoundSession's
 	# AI-Stride reposition hook at the SAME hex_grid_view.move_token()

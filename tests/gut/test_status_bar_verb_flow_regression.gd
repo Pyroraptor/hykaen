@@ -73,7 +73,7 @@ func test_iteration_d_strike_status_bar_decrement_behavior_remains_green() -> vo
 	var instance = _boot_main_scene_with_seed(SEED)
 	await get_tree().process_frame
 
-	var actor_id: String = instance.round_session.current_actor().get("combatant_id", "")
+	var actor_id: String = instance.round_session.current_actor().display_id()
 	assert_ne(actor_id, "", "fixture assumption: the active actor carries a non-empty combatant_id")
 
 	var action_economy = instance.round_session.current_action_economy()
@@ -116,7 +116,7 @@ func test_stride_resolution_decrements_action_budget_and_updates_spent_on_status
 	var instance = _boot_main_scene_with_seed(SEED)
 	await get_tree().process_frame
 
-	var actor_id: String = instance.round_session.current_actor().get("combatant_id", "")
+	var actor_id: String = instance.round_session.current_actor().display_id()
 	assert_ne(actor_id, "", "fixture assumption: the active actor carries a non-empty combatant_id")
 
 	var action_economy = instance.round_session.current_action_economy()
@@ -161,7 +161,7 @@ func test_step_resolution_leaves_action_budget_and_spent_unchanged_on_status_bar
 	var instance = _boot_main_scene_with_seed(SEED)
 	await get_tree().process_frame
 
-	var actor_id: String = instance.round_session.current_actor().get("combatant_id", "")
+	var actor_id: String = instance.round_session.current_actor().display_id()
 	assert_ne(actor_id, "", "fixture assumption: the active actor carries a non-empty combatant_id")
 
 	var before_status: Dictionary = instance.status_panel_view.get_status(actor_id)

@@ -263,7 +263,7 @@ func test_round_session_advance_ai_turn_executes_stride_but_defers_strike_to_nex
 	var rig: Dictionary = _make_use_case(entries, random_number_port)
 	var session = rig["use_case"].begin_round(1, [titus], [goblin])
 
-	assert_eq(session.current_actor().get("name", ""), "Skeleton", "the enemy must be the current actor")
+	assert_eq(session.current_actor().name, "Skeleton", "the enemy must be the current actor")
 	var goblin_action_economy = entries[0]["action_economy"]
 	var budget_before: int = goblin_action_economy.get_remaining()
 
@@ -289,7 +289,7 @@ func test_round_session_advance_ai_turn_executes_stride_but_defers_strike_to_nex
 		"exactly one action must be spent this turn -- the Stride (core/rules/movement.gd); the Strike attempt must not decrement the budget further"
 	)
 	assert_eq(titus.hp_current, 200, "the target must be undamaged -- the Strike attempt must not resolve in the same turn as the Stride")
-	assert_eq(session.current_actor().get("name", ""), "Titus", "advance_ai_turn() must still advance the cursor after the composite decision")
+	assert_eq(session.current_actor().name, "Titus", "advance_ai_turn() must still advance the cursor after the composite decision")
 
 
 func test_application_layer_contains_no_new_port_or_use_case_class() -> void:

@@ -97,8 +97,8 @@ func test_step_enter_selection_highlights_only_legal_adjacent_unoccupied_hexes()
 		"fixture assumption: the prologue's first actor has at least one legal Step destination at seed=42"
 	)
 
-	var actor: Dictionary = instance.round_session.current_actor()
-	var actor_hex = actor.get("hex_coord", null)
+	var actor = instance.round_session.current_actor()
+	var actor_hex = actor.hex_coord
 	assert_not_null(actor_hex, "fixture assumption: the active actor carries a hex_coord")
 
 	var expected_hexes: Array = instance.movement_input_controller.get_selectable_step_hexes()
@@ -155,7 +155,7 @@ func test_clicking_a_highlighted_hex_moves_the_token_to_that_exact_axial_coordin
 	var instance = _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
-	var actor_id: String = instance.round_session.current_actor().get("combatant_id", "")
+	var actor_id: String = instance.round_session.current_actor().display_id()
 	assert_ne(actor_id, "", "fixture assumption: the active actor carries a non-empty combatant_id")
 
 	var before_remaining: int = instance.status_panel_view.get_status(actor_id).get("action_budget_remaining", -1)

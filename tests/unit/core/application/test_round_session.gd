@@ -177,7 +177,7 @@ func test_begin_round_grants_budget_and_positions_at_first_living_unspent() -> v
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 1)
 	var session = rig["use_case"].begin_round(1, [alpha], [bravo])
 
-	assert_eq(session.current_actor().get("name", ""), "Alpha", "current_actor() must be the first entry")
+	assert_eq(session.current_actor().name, "Alpha", "current_actor() must be the first entry")
 	assert_eq(
 		entries[0]["action_economy"].get_remaining(), ActionEconomyClass.MAX_BUDGET,
 		"begin_round() must grant the fresh start-of-round budget"
@@ -194,7 +194,7 @@ func test_begin_round_skips_a_dead_combatant_when_positioning_cursor() -> void:
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 1)
 	var session = rig["use_case"].begin_round(1, [dead, alpha], [bravo])
 
-	assert_eq(session.current_actor().get("name", ""), "Alpha", "current_actor() must skip the dead first entry")
+	assert_eq(session.current_actor().name, "Alpha", "current_actor() must skip the dead first entry")
 
 
 func test_current_action_economy_matches_current_actor() -> void:
@@ -222,13 +222,13 @@ func test_end_current_turn_advances_cursor_and_emits_turn_advanced_event() -> vo
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 1)
 	var session = rig["use_case"].begin_round(1, [alpha], [bravo])
 
-	assert_eq(session.current_actor().get("name", ""), "Alpha")
+	assert_eq(session.current_actor().name, "Alpha")
 
 	var result: Dictionary = session.end_current_turn()
 
 	assert_true(result.get("ok", false))
 	assert_eq(
-		session.current_actor().get("name", ""), "Bravo",
+		session.current_actor().name, "Bravo",
 		"end_current_turn() must advance to the next living, un-Spent combatant"
 	)
 
@@ -251,7 +251,7 @@ func test_end_current_turn_is_always_available_even_when_no_action_was_spent() -
 	assert_eq(entries[0]["action_economy"].get_remaining(), ActionEconomyClass.MAX_BUDGET)
 	var result: Dictionary = session.end_current_turn()
 	assert_true(result.get("ok", false), "end_current_turn() must succeed whether or not an action was spent")
-	assert_eq(session.current_actor().get("name", ""), "Bravo")
+	assert_eq(session.current_actor().name, "Bravo")
 
 
 func test_end_current_turn_is_also_available_when_an_action_was_spent() -> void:
@@ -272,7 +272,7 @@ func test_end_current_turn_is_also_available_when_an_action_was_spent() -> void:
 
 	var result: Dictionary = session.end_current_turn()
 	assert_true(result.get("ok", false), "end_current_turn() must succeed after an action was spent too")
-	assert_eq(session.current_actor().get("name", ""), "Bravo")
+	assert_eq(session.current_actor().name, "Bravo")
 
 
 func test_is_round_over_becomes_true_once_every_living_combatant_is_spent() -> void:
@@ -295,7 +295,7 @@ func test_is_round_over_becomes_true_once_every_living_combatant_is_spent() -> v
 	var result_1: Dictionary = session.end_current_turn()  # Alpha -> Bravo
 	assert_true(result_1.get("ok", false))
 	assert_false(session.is_round_over(), "Bravo is still living and un-Spent")
-	assert_eq(session.current_actor().get("name", ""), "Bravo")
+	assert_eq(session.current_actor().name, "Bravo")
 
 	for i in range(ActionEconomyClass.MAX_BUDGET):
 		entries[1]["action_economy"].start_of_turn()
@@ -305,7 +305,7 @@ func test_is_round_over_becomes_true_once_every_living_combatant_is_spent() -> v
 	var result_2: Dictionary = session.end_current_turn()  # Bravo -> round over
 	assert_true(result_2.get("ok", false))
 	assert_true(session.is_round_over(), "is_round_over() must become true once every living combatant is Spent")
-	assert_eq(session.current_actor(), {}, "current_actor() must be {} once the round is over")
+	assert_null(session.current_actor(), "current_actor() must be null once the round is over")
 
 
 func test_end_current_turn_is_a_no_op_after_round_over() -> void:
@@ -338,7 +338,7 @@ func test_advance_ai_turn_resolves_via_the_real_pipeline_and_advances_cursor() -
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 42)
 	var session = rig["use_case"].begin_round(1, [alpha], [bravo])
 
-	assert_eq(session.current_actor().get("name", ""), "Bravo")
+	assert_eq(session.current_actor().name, "Bravo")
 	var hp_before: int = alpha.hp_current
 
 	var result: Dictionary = session.advance_ai_turn()
@@ -346,7 +346,7 @@ func test_advance_ai_turn_resolves_via_the_real_pipeline_and_advances_cursor() -
 	assert_true(result.get("ok", false))
 	assert_eq(rig["history"].entries.size(), 1, "advance_ai_turn() must resolve exactly one action via resolve_action_use_case")
 	assert_true(alpha.hp_current <= hp_before, "the AI's resolved Strike must be able to damage its target")
-	assert_eq(session.current_actor().get("name", ""), "Alpha", "advance_ai_turn() must advance the cursor")
+	assert_eq(session.current_actor().name, "Alpha", "advance_ai_turn() must advance the cursor")
 
 
 func test_advance_ai_turn_rejects_when_current_actor_is_not_enemy() -> void:
@@ -361,7 +361,7 @@ func test_advance_ai_turn_rejects_when_current_actor_is_not_enemy() -> void:
 
 	assert_false(result.get("ok", true), "advance_ai_turn() must reject a Player current actor")
 	assert_eq(rig["history"].entries.size(), 0)
-	assert_eq(session.current_actor().get("name", ""), "Alpha", "a rejected call must not advance the cursor")
+	assert_eq(session.current_actor().name, "Alpha", "a rejected call must not advance the cursor")
 
 
 func test_advance_ai_turn_defensive_fallback_still_advances_on_broken_ai() -> void:
@@ -375,7 +375,7 @@ func test_advance_ai_turn_defensive_fallback_still_advances_on_broken_ai() -> vo
 	var result: Dictionary = session.advance_ai_turn()
 
 	assert_true(result.get("ok", false), "a rejected AI decision must not stall the session (CWE-835 guard)")
-	assert_eq(session.current_actor().get("name", ""), "Alpha", "the cursor must still advance past a broken AI turn")
+	assert_eq(session.current_actor().name, "Alpha", "the cursor must still advance past a broken AI turn")
 
 
 # ══════════════════════════════════════════════════════════════════════════

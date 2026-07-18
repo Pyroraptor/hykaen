@@ -288,7 +288,7 @@ func test_pass_scenario_completes_without_stalling_and_never_asks_onhit_on_a_mis
 
 	assert_eq(resolver.call_order, ["PreHitAvoidance"], "a miss must never open the OnHitMitigation window")
 	_assert_valid_firing_order(resolver.call_order, "Pass/miss")
-	assert_eq(session.current_actor().get("name", ""), "Alpha", "the cursor must still advance -- no stall")
+	assert_eq(session.current_actor().name, "Alpha", "the cursor must still advance -- no stall")
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -321,7 +321,7 @@ func test_dodge_fail_scenario_completes_without_stalling_and_never_asks_onhit() 
 
 	assert_eq(resolver.call_order, ["PreHitAvoidance"], "a failed-but-triggered Dodge must never let OnHitMitigation open (<=1 reaction per Strike)")
 	_assert_valid_firing_order(resolver.call_order, "dodge-fail")
-	assert_eq(session.current_actor().get("name", ""), "Alpha", "the cursor must still advance -- no stall")
+	assert_eq(session.current_actor().name, "Alpha", "the cursor must still advance -- no stall")
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -353,7 +353,7 @@ func test_dodge_success_scenario_completes_without_stalling_and_never_asks_onhit
 
 	assert_eq(resolver.call_order, ["PreHitAvoidance"], "a successful Dodge must never let OnHitMitigation open")
 	_assert_valid_firing_order(resolver.call_order, "dodge-success")
-	assert_eq(session.current_actor().get("name", ""), "Alpha", "the cursor must still advance -- no stall")
+	assert_eq(session.current_actor().name, "Alpha", "the cursor must still advance -- no stall")
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -406,7 +406,7 @@ func test_hit_then_parry_scenario_fires_prehit_then_onhit_in_order_without_stall
 	assert_eq(rig["event_sink"].events[0].damage_final, 0, "a successful Parry must reduce the committed final damage to 0 (FR-001 mitigation formula)")
 	assert_eq(alpha.get("hp_current", 0), hp_before, "Alpha must take ZERO damage once Parry genuinely mitigates the hit")
 
-	assert_eq(session.current_actor().get("name", ""), "Alpha", "the cursor must still advance -- no stall")
+	assert_eq(session.current_actor().name, "Alpha", "the cursor must still advance -- no stall")
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -450,7 +450,7 @@ func test_hit_then_block_scenario_fires_prehit_then_onhit_in_order_without_stall
 	assert_eq(rig["event_sink"].events[0].damage_final, 2, "Block must reduce the committed final damage per FR-001's mitigation formula: raw(7) - reduction(5) = 2")
 	assert_eq(hp_before - alpha.get("hp_current", 0), 2, "Alpha must take exactly the mitigated (not raw) damage once Block genuinely applies")
 
-	assert_eq(session.current_actor().get("name", ""), "Alpha", "the cursor must still advance -- no stall")
+	assert_eq(session.current_actor().name, "Alpha", "the cursor must still advance -- no stall")
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -485,7 +485,7 @@ func test_advance_ai_turn_awaits_a_genuinely_delayed_resolver_for_both_windows_w
 	assert_eq(resolver.resolved_count, 2, "BOTH windows' delayed awaits must have actually completed before advance_ai_turn() resumed")
 	assert_eq(resolver.call_order, ["PreHitAvoidance", "OnHitMitigation"], "the delayed resolver must still observe the correct firing order")
 	assert_eq(rig["history"].entries.size(), 1, "a suspending await must never cause a double-resolve")
-	assert_eq(session.current_actor().get("name", ""), "Alpha", "the cursor must advance exactly once, only after both delayed awaits fully resolved")
+	assert_eq(session.current_actor().name, "Alpha", "the cursor must advance exactly once, only after both delayed awaits fully resolved")
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -514,7 +514,7 @@ func test_malformed_onhit_resolver_answer_falls_back_to_pass_without_stalling() 
 
 	assert_true(result.get("ok", false), "a malformed OnHitMitigation answer must not stall/crash the coroutine")
 	assert_eq(onhit_resolver.calls.size(), 1, "the OnHitMitigation resolver must still be invoked exactly once")
-	assert_eq(session.current_actor().get("name", ""), "Alpha", "the cursor must still advance -- no stall")
+	assert_eq(session.current_actor().name, "Alpha", "the cursor must still advance -- no stall")
 
 
 ## An UNSET OnHitMitigation resolver (the pre-FEAT-005 default state for every
@@ -538,7 +538,7 @@ func test_unset_onhit_resolver_still_completes_the_hit_scenario_without_stalling
 	var result: Dictionary = session.advance_ai_turn()
 
 	assert_true(result.get("ok", false), "the fully-un-injected default path must still resolve synchronously without stalling")
-	assert_eq(session.current_actor().get("name", ""), "Alpha", "the cursor must still advance")
+	assert_eq(session.current_actor().name, "Alpha", "the cursor must still advance")
 
 
 # ══════════════════════════════════════════════════════════════════════════

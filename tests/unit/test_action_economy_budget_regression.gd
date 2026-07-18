@@ -425,7 +425,7 @@ func test_round_session_reaction_between_two_other_actors_turns_is_unaffected_by
 	# actor; start_of_turn() has been called exactly once for Alpha only
 	# (ADR-101/ADR-102 — the single authoritative seam), Charlie's turn has
 	# NOT started yet.
-	assert_eq(session.current_actor().get("name", ""), "Alpha", "fixture assumption: Alpha is the initial current actor")
+	assert_eq(session.current_actor().name, "Alpha", "fixture assumption: Alpha is the initial current actor")
 
 	# While it is Alpha's turn, Charlie reacts out-of-turn (e.g. an
 	# opportunity attack against Alpha's action). This must succeed and
@@ -439,10 +439,10 @@ func test_round_session_reaction_between_two_other_actors_turns_is_unaffected_by
 	# Advance the cursor: Alpha ends turn -> Bravo (Enemy, auto-PASSes via
 	# FakeAIDecisionPort) -> Charlie.
 	session.end_current_turn()
-	assert_eq(session.current_actor().get("name", ""), "Bravo", "cursor must advance from Alpha to Bravo")
+	assert_eq(session.current_actor().name, "Bravo", "cursor must advance from Alpha to Bravo")
 
 	session.advance_ai_turn()
-	assert_eq(session.current_actor().get("name", ""), "Charlie", "cursor must advance from Bravo to Charlie")
+	assert_eq(session.current_actor().name, "Charlie", "cursor must advance from Bravo to Charlie")
 
 	# Charlie's own turn has now started (RoundSession._advance_cursor()
 	# called start_of_turn() on Charlie exactly once, per-turn flags only) —

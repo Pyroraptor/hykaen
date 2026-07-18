@@ -1081,18 +1081,13 @@ func _build_defense_context(target, target_action_economy) -> Dictionary:
 ## current_actor() -> Dictionary — the combatant whose turn it is, or {}
 ## when the round is over.
 ##
-## Phase C.3 bridge: `_entries` now holds Combatant INSTANCES, but this is a
-## READ-ONLY accessor Presentation (turn_controller / verb-bar controllers) and
-## the encounter test-suite consume as a Dictionary (name/_is_enemy/combatant_id
-## reads). Emitting a to_dict() SNAPSHOT keeps that contract intact without a
-## dict-or-instance duck-type at every caller — the live-instance mutation path
-## (advance_ai_turn()/resolve()) never routes through this accessor, so a
-## snapshot copy here loses nothing. Flip these consumers onto the instance
-## directly in Phase C.4 and drop this bridge.
-func current_actor() -> Dictionary:
+## Phase C.4: returns the live Combatant entity (or null when the round is over
+## or no actor is seated). Callers use entity property access (.name, .is_enemy,
+## .display_id(), .hex_coord) and check `actor == null` instead of .is_empty().
+func current_actor():
 	if _round_over or _cursor == -1:
-		return {}
-	return _entries[_cursor]["combatant"].to_dict()
+		return null
+	return _entries[_cursor]["combatant"]
 
 
 ## current_actor_entity() -> Combatant or null — the LIVE current-actor

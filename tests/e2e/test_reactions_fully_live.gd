@@ -210,7 +210,7 @@ func _drive_full_steel_thread(instance) -> Dictionary:
 	await get_tree().process_frame
 
 	assert_false(
-		instance.round_session.current_actor().get("_is_enemy", true),
+		instance.round_session.current_actor().is_enemy,
 		"fixture assumption: Titus (the player) acts first at seed=%d" % PROLOGUE_SEED
 	)
 

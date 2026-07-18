@@ -105,7 +105,7 @@ func test_ending_turn_with_all_actors_spent_begins_the_next_round() -> void:
 	await get_tree().process_frame
 
 	assert_eq(instance.ROUND_NUMBER, 1, "fixture assumption: the encounter opens in round 1")
-	assert_false(instance.round_session.current_actor().get("_is_enemy", true), "fixture assumption: the player (Titus) is the current actor before End Turn")
+	assert_false(instance.round_session.current_actor().is_enemy, "fixture assumption: the player (Titus) is the current actor before End Turn")
 
 	# Precondition: every living combatant is Spent, so the player's End Turn
 	# below advances the cursor to nobody and drives the round over.
@@ -124,7 +124,7 @@ func test_ending_turn_with_all_actors_spent_begins_the_next_round() -> void:
 		"the freshly begun round 2 must be a LIVE session, not left reporting round-over"
 	)
 	assert_false(
-		instance.round_session.current_actor().is_empty(),
+		instance.round_session.current_actor() == null,
 		"round 2 must sit on a live current actor ready to act"
 	)
 

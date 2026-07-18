@@ -96,7 +96,7 @@ class SpyResolution:
 	var apply_on_hit_defense_call_count: int = 0
 	var resolve_to_hit_call_count: int = 0
 
-	func resolve_to_hit(attacker: Dictionary, target, weapon: Dictionary, defense_type: String, pre_hit_defense: String = "none", ctx: Dictionary = {}) -> Dictionary:
+	func resolve_to_hit(attacker, target, weapon: Dictionary, defense_type: String, pre_hit_defense: String = "none", ctx: Dictionary = {}) -> Dictionary:
 		resolve_to_hit_call_count += 1
 		return super.resolve_to_hit(attacker, target, weapon, defense_type, pre_hit_defense, ctx)
 
@@ -651,7 +651,7 @@ func test_advance_ai_turn_awaits_prehit_avoidance_before_any_rng_draw() -> void:
 	var rng := ScriptedRandomNumberPort.new([15, 1])
 	var rig: Dictionary = _make_session(entries, [alpha], [bravo], rng)
 	var session = rig["session"]
-	assert_eq(session.current_actor().get("name", ""), "Bravo")
+	assert_eq(session.current_actor().name, "Bravo")
 
 	var prehit_resolver := ScriptedPrehitAvoidanceResolver.new({"choice": "dodge"}, rng)
 	session.set_prehit_avoidance_resolver_fn(Callable(prehit_resolver, "resolve"))

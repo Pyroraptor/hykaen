@@ -421,7 +421,7 @@ func test_advance_ai_turn_spends_exactly_one_action_when_target_already_in_reach
 	var rig: Dictionary = _make_use_case(entries, random_number_port)
 	var session = rig["use_case"].begin_round(1, [titus], [goblin])
 
-	assert_eq(session.current_actor().get("name", ""), "Skeleton")
+	assert_eq(session.current_actor().name, "Skeleton")
 	var result: Dictionary = session.advance_ai_turn()
 
 	assert_true(result.get("ok", false))
@@ -447,7 +447,7 @@ func test_advance_ai_turn_spends_exactly_one_action_when_target_out_of_reach() -
 	var rig: Dictionary = _make_use_case(entries, random_number_port)
 	var session = rig["use_case"].begin_round(1, [titus], [goblin])
 
-	assert_eq(session.current_actor().get("name", ""), "Skeleton")
+	assert_eq(session.current_actor().name, "Skeleton")
 	var result: Dictionary = session.advance_ai_turn()
 
 	assert_true(result.get("ok", false))

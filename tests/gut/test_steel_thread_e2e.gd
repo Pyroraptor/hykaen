@@ -122,7 +122,7 @@ func test_entry_point_verb_bar_renders_correctly_gated_at_turn_start() -> void:
 	await get_tree().process_frame
 
 	assert_false(
-		instance.round_session.current_actor().get("_is_enemy", true),
+		instance.round_session.current_actor().is_enemy,
 		"fixture assumption: the first actor must be the living player combatant (Titus) at seed=42"
 	)
 
@@ -165,7 +165,7 @@ func test_strike_flow_resolves_via_select_target_with_board_status_lock_updating
 
 	assert_true(instance._verb_registry.is_available(STRIKE), "fixture assumption: STRIKE is available at seed=42")
 
-	var actor_id: String = instance.round_session.current_actor().get("combatant_id", "")
+	var actor_id: String = instance.round_session.current_actor().display_id()
 	var before_remaining: int = instance.status_panel_view.get_status(actor_id).get("action_budget_remaining", -1)
 	assert_true(before_remaining > 0, "sanity check: the acting combatant starts with a positive action budget")
 	var events_before: int = instance.event_log_view.get_entry_count()
@@ -220,7 +220,7 @@ func test_step_flow_moves_token_via_move_token_with_no_action_spent() -> void:
 
 	assert_true(instance._verb_registry.is_available(STEP), "fixture assumption: STEP is available at seed=42")
 
-	var actor_id: String = instance.round_session.current_actor().get("combatant_id", "")
+	var actor_id: String = instance.round_session.current_actor().display_id()
 	var before_remaining: int = instance.status_panel_view.get_status(actor_id).get("action_budget_remaining", -1)
 	assert_true(before_remaining > 0, "sanity check: the acting combatant starts with a positive action budget")
 
@@ -264,7 +264,7 @@ func test_stride_flow_moves_token_via_move_token_with_one_action_spent() -> void
 
 	assert_true(instance._verb_registry.is_available(STRIDE), "fixture assumption: STRIDE is available at seed=42")
 
-	var actor_id: String = instance.round_session.current_actor().get("combatant_id", "")
+	var actor_id: String = instance.round_session.current_actor().display_id()
 	var action_economy = instance.round_session.current_action_economy()
 	assert_not_null(action_economy, "fixture assumption: the acting combatant carries a live ActionEconomy")
 	var before_remaining: int = action_economy.get_remaining()
@@ -350,7 +350,7 @@ func test_cancel_from_strike_layer2_produces_zero_side_effects_and_returns_to_la
 
 	assert_true(instance._verb_registry.is_available(STRIKE), "fixture assumption: STRIKE is available at seed=42")
 
-	var actor_id: String = instance.round_session.current_actor().get("combatant_id", "")
+	var actor_id: String = instance.round_session.current_actor().display_id()
 	var before_remaining: int = instance.status_panel_view.get_status(actor_id).get("action_budget_remaining", -1)
 	var events_before: int = instance.event_log_view.get_entry_count()
 	var positions_before: Dictionary = _snapshot_positions(instance)
@@ -383,7 +383,7 @@ func test_cancel_from_step_layer2_produces_zero_side_effects_and_returns_to_laye
 
 	assert_true(instance._verb_registry.is_available(STEP), "fixture assumption: STEP is available at seed=42")
 
-	var actor_id: String = instance.round_session.current_actor().get("combatant_id", "")
+	var actor_id: String = instance.round_session.current_actor().display_id()
 	var before_remaining: int = instance.status_panel_view.get_status(actor_id).get("action_budget_remaining", -1)
 	var events_before: int = instance.event_log_view.get_entry_count()
 	var positions_before: Dictionary = _snapshot_positions(instance)
@@ -413,7 +413,7 @@ func test_cancel_from_stride_layer2_produces_zero_side_effects_and_returns_to_la
 
 	assert_true(instance._verb_registry.is_available(STRIDE), "fixture assumption: STRIDE is available at seed=42")
 
-	var actor_id: String = instance.round_session.current_actor().get("combatant_id", "")
+	var actor_id: String = instance.round_session.current_actor().display_id()
 	var action_economy = instance.round_session.current_action_economy()
 	var before_remaining: int = action_economy.get_remaining()
 	var events_before: int = instance.event_log_view.get_entry_count()

@@ -225,7 +225,7 @@ func _boot_main_scene():
 func test_main_scene_pushes_updated_action_budget_into_status_panel_view_after_strike() -> void:
 	var instance = _boot_main_scene()
 
-	var actor_id: String = instance.round_session.current_actor().get("combatant_id", "")
+	var actor_id: String = instance.round_session.current_actor().display_id()
 	assert_ne(actor_id, "", "fixture assumption: the first active actor has a stable combatant_id")
 
 	var before_status: Dictionary = instance.status_panel_view.get_status(actor_id)

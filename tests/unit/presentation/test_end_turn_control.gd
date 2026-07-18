@@ -217,7 +217,7 @@ func test_press_forwards_to_end_current_turn_and_emits_turn_ended() -> void:
 	var result: Dictionary = _control.press()
 
 	assert_true(result.get("ok", false))
-	assert_eq(rig["session"].current_actor().get("name", ""), "Bravo")
+	assert_eq(rig["session"].current_actor().name, "Bravo")
 	assert_signal_emitted(_control, "turn_ended")
 
 
@@ -237,14 +237,14 @@ func test_turn_controller_auto_drives_leading_enemy_turn_via_advance_ai_turn() -
 	var entries: Array = [_entry(goblin), _entry(titus)]
 
 	var rig: Dictionary = _make_session(entries, [titus], [goblin], 3)
-	assert_eq(rig["session"].current_actor().get("name", ""), "Goblin")
+	assert_eq(rig["session"].current_actor().name, "Goblin")
 
 	var turn_controller = TurnControllerClass.new()
 	add_child_autofree(turn_controller)
 	turn_controller.set_session(rig["session"], _control)
 
 	assert_eq(
-		rig["session"].current_actor().get("name", ""), "Titus",
+		rig["session"].current_actor().name, "Titus",
 		"TurnController must auto-drive the leading Enemy turn via advance_ai_turn(), leaving Titus as the active actor"
 	)
 	assert_true(_control.is_enabled(), "EndTurnControl must be enabled once TurnController settles on the player's turn")
@@ -283,7 +283,7 @@ func test_pressing_end_turn_drives_real_session_and_advances_initiative_view_hig
 	var press_result: Dictionary = _control.press()
 
 	assert_true(press_result.get("ok", false))
-	assert_eq(rig["session"].current_actor().get("name", ""), "Marigold", "RoundSession.end_current_turn() must advance to Marigold")
+	assert_eq(rig["session"].current_actor().name, "Marigold", "RoundSession.end_current_turn() must advance to Marigold")
 	assert_eq(
 		initiative_view.get_active_combatant_id(), "marigold",
 		"pressing end-turn must drive RoundSession.end_current_turn(), whose TurnAdvancedEvent must advance InitiativeView's highlight to Marigold"

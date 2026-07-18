@@ -208,11 +208,11 @@ func test_out_of_reach_enemy_becomes_spent_within_seven_of_its_own_turns() -> vo
 	var rig: Dictionary = _make_use_case(entries, random_number_port)
 	var session = rig["use_case"].begin_round(1, [titus], [goblin])
 
-	assert_eq(session.current_actor().get("name", ""), "Skeleton", "fixture assumption: the enemy must start as current actor")
+	assert_eq(session.current_actor().name, "Skeleton", "fixture assumption: the enemy must start as current actor")
 
 	var enemy_turns_taken: int = 0
 	while not goblin_action_economy.is_spent() and enemy_turns_taken < ActionEconomyClass.MAX_BUDGET:
-		assert_eq(session.current_actor().get("name", ""), "Skeleton", "iteration %d: the enemy must be current actor" % enemy_turns_taken)
+		assert_eq(session.current_actor().name, "Skeleton", "iteration %d: the enemy must be current actor" % enemy_turns_taken)
 		var result: Dictionary = session.advance_ai_turn()
 		assert_true(result.get("ok", false), "iteration %d: advance_ai_turn() must never fail/stall" % enemy_turns_taken)
 		enemy_turns_taken += 1
@@ -270,8 +270,8 @@ func test_kiting_1v1_scenario_terminates_the_round() -> void:
 	var steps_taken: int = 0
 
 	while not session.is_round_over() and steps_taken < max_steps:
-		var actor: Dictionary = session.current_actor()
-		if actor.get("_is_enemy", false):
+		var actor = session.current_actor()
+		if actor.is_enemy:
 			session.advance_ai_turn()
 		else:
 			var actor_economy = session.current_action_economy()

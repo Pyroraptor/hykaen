@@ -80,7 +80,7 @@ class FakeRoundHistoryPort:
 class BrokenAIDecisionPort:
 	extends "res://core/application/ai_decision_port.gd"
 
-	func decide_action(_combatant: Dictionary, _targets: Array) -> Dictionary:
+	func decide_action(_combatant, _targets: Array) -> Dictionary:
 		return {}
 
 
@@ -236,7 +236,7 @@ func test_advance_ai_turn_behavior_is_unchanged_when_no_resolver_is_injected() -
 	var rig: Dictionary = _make_use_case(entries, AIClass.new(), random_number_port, event_sink_port)
 	var session = rig["use_case"].begin_round(1, [alpha], [bravo])
 
-	assert_eq(session.current_actor().get("name", ""), "Bravo", "the Enemy must be the current actor")
+	assert_eq(session.current_actor().name, "Bravo", "the Enemy must be the current actor")
 	var hp_before: int = alpha.hp_current
 
 	var result: Dictionary = session.advance_ai_turn()
@@ -247,7 +247,7 @@ func test_advance_ai_turn_behavior_is_unchanged_when_no_resolver_is_injected() -
 		"advance_ai_turn() must resolve exactly one action via resolve_action_use_case, unchanged by this feature"
 	)
 	assert_true(alpha.hp_current <= hp_before, "the AI's resolved Strike must still be able to damage its target")
-	assert_eq(session.current_actor().get("name", ""), "Alpha", "advance_ai_turn() must still advance the cursor to the next living, un-Spent actor")
+	assert_eq(session.current_actor().name, "Alpha", "advance_ai_turn() must still advance the cursor to the next living, un-Spent actor")
 
 
 func test_advance_ai_turn_defensive_fallback_unchanged_when_no_resolver_is_injected() -> void:

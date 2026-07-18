@@ -44,6 +44,6 @@ extends RefCounted
 ## the contract and to fail loudly (rather than silently returning a
 ## usable-looking decision) if a caller is ever handed a bare
 ## AIDecisionPort instead of a concrete adapter.
-func decide_action(_combatant: Dictionary, _targets: Array) -> Dictionary:
+func decide_action(_combatant, _targets: Array) -> Dictionary:
 	push_error("AIDecisionPort.decide_action() is abstract — override in a concrete adapter")
 	return {"action_type": "", "target": {}}

@@ -256,7 +256,7 @@ func test_dodge_reaction_negates_the_strike_and_spends_defenders_reaction() -> v
 	var rng := ScriptedRandomNumberPort.new([15, 1])
 	var rig: Dictionary = _make_session(entries, [alpha], [bravo], rng)
 	var session = rig["session"]
-	assert_eq(session.current_actor().get("name", ""), "Bravo", "fixture assumption: the Enemy leads the turn order")
+	assert_eq(session.current_actor().name, "Bravo", "fixture assumption: the Enemy leads the turn order")
 
 	var resolver := ScriptedReactionResolver.new("dodge")
 	session.set_reaction_resolver_fn(Callable(resolver, "resolve"))

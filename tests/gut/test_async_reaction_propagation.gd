@@ -229,7 +229,7 @@ func test_advance_ai_turn_awaits_a_genuinely_delayed_resolver_without_double_adv
 	var rig: Dictionary = _make_session(entries, [alpha], [bravo], 42)
 	var session = rig["session"]
 
-	assert_eq(session.current_actor().get("name", ""), "Bravo", "fixture assumption: the Enemy is the current actor")
+	assert_eq(session.current_actor().name, "Bravo", "fixture assumption: the Enemy is the current actor")
 
 	var resolver := DelayedReactionResolver.new(get_tree(), 0.03, "none")
 	session.set_reaction_resolver_fn(Callable(resolver, "resolve"))
@@ -246,7 +246,7 @@ func test_advance_ai_turn_awaits_a_genuinely_delayed_resolver_without_double_adv
 	)
 	assert_true(alpha.hp_current <= hp_before, "the awaited Strike must still be able to resolve damage once it completes")
 	assert_eq(
-		session.current_actor().get("name", ""), "Alpha",
+		session.current_actor().name, "Alpha",
 		"the cursor must have advanced to the next actor EXACTLY once, only after the delayed await fully resolved"
 	)
 
@@ -289,7 +289,7 @@ func test_turn_controller_drive_awaits_a_genuinely_delayed_resolver_without_dead
 
 	var rig: Dictionary = _make_session(entries, [titus], [goblin], 3)
 	var session = rig["session"]
-	assert_eq(session.current_actor().get("name", ""), "Goblin", "fixture assumption: the Enemy leads the turn order")
+	assert_eq(session.current_actor().name, "Goblin", "fixture assumption: the Enemy leads the turn order")
 
 	var resolver := DelayedReactionResolver.new(get_tree(), 0.03, "none")
 	session.set_reaction_resolver_fn(Callable(resolver, "resolve"))
@@ -312,7 +312,7 @@ func test_turn_controller_drive_awaits_a_genuinely_delayed_resolver_without_dead
 		"the auto-driven Enemy turn must resolve exactly ONE action -- _drive()'s await must never double-advance/double-resolve the turn"
 	)
 	assert_eq(
-		session.current_actor().get("name", ""), "Titus",
+		session.current_actor().name, "Titus",
 		"_drive() must have fully settled on the Player's turn once the delayed await resolves"
 	)
 	assert_true(
@@ -350,7 +350,7 @@ func test_advance_ai_turn_without_an_injected_resolver_is_still_synchronous_and_
 	assert_true(result.get("ok", false), "the un-injected-resolver path must still resolve synchronously to a real, immediate result")
 	assert_eq(rig["history"].entries.size(), 1, "advance_ai_turn() must still resolve exactly one action, unchanged by this feature")
 	assert_eq(
-		session.current_actor().get("name", ""), "Alpha",
+		session.current_actor().name, "Alpha",
 		"advance_ai_turn() must still advance the cursor synchronously, unchanged by this feature"
 	)
 
@@ -376,7 +376,7 @@ func test_turn_controller_set_session_without_an_injected_resolver_is_still_sync
 	turn_controller.set_session(session, end_turn_control)
 
 	assert_eq(
-		session.current_actor().get("name", ""), "Titus",
+		session.current_actor().name, "Titus",
 		"TurnController must still auto-drive the leading Enemy turn synchronously to completion when no resolver is injected"
 	)
 	assert_true(end_turn_control.is_enabled(), "end_turn_control must still be configured synchronously once _drive() settles")

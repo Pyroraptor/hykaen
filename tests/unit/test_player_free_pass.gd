@@ -154,7 +154,7 @@ func test_free_pass_leaves_budget_remaining_unchanged() -> void:
 	var entries: Array = [_entry(titus, titus_ae), _entry(goblin)]
 
 	var session = _begin_session(entries, [titus], [goblin])
-	assert_eq(session.current_actor().get("name", ""), "Titus", "fixture assumption: the player must be current actor")
+	assert_eq(session.current_actor().name, "Titus", "fixture assumption: the player must be current actor")
 
 	var budget_before: int = titus_ae.get_remaining()
 	assert_eq(budget_before, ActionEconomyClass.MAX_BUDGET, "fixture assumption: a fresh combatant starts with the full budget")
@@ -180,7 +180,7 @@ func test_free_pass_never_calls_spend_action() -> void:
 	var entries: Array = [_entry(titus, titus_ae), _entry(goblin)]
 
 	var session = _begin_session(entries, [titus], [goblin])
-	assert_eq(session.current_actor().get("name", ""), "Titus", "fixture assumption: the player must be current actor")
+	assert_eq(session.current_actor().name, "Titus", "fixture assumption: the player must be current actor")
 
 	session.end_current_turn()
 
@@ -205,7 +205,7 @@ func test_free_pass_never_calls_spend_action_across_repeated_turns() -> void:
 	var session = _begin_session(entries, [titus], [goblin])
 
 	for _i in range(3):
-		if session.current_actor().get("_is_enemy", false):
+		if session.current_actor().is_enemy:
 			session.advance_ai_turn()
 		else:
 			session.end_current_turn()

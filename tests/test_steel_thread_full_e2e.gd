@@ -145,13 +145,13 @@ func _wire_event_log_seam(instance) -> Array:
 ## advance_ai_turn() directly as the sole entry point for the Strike itself.
 func _advance_to_enemy_turn(instance) -> void:
 	assert_false(
-		instance.round_session.current_actor().get("_is_enemy", true),
+		instance.round_session.current_actor().is_enemy,
 		"fixture assumption: Titus (the player) must act first at seed=42"
 	)
 	var end_result: Dictionary = instance.round_session.end_current_turn()
 	assert_true(end_result.get("ok", false), "ending Titus's own turn (no action taken) must succeed")
 	assert_true(
-		instance.round_session.current_actor().get("_is_enemy", false),
+		instance.round_session.current_actor().is_enemy,
 		"the round cursor must now sit on the Skeleton enemy"
 	)
 

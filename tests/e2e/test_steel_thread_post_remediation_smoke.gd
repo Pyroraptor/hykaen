@@ -183,7 +183,7 @@ func test_full_journey_strike_pass_ai_turn_and_result_screen_stays_locked_throug
 	instance._enemies[0]["hp_max"] = _ENEMY_HP_HANDICAP
 
 	assert_false(
-		instance.round_session.current_actor().get("_is_enemy", true),
+		instance.round_session.current_actor().is_enemy,
 		"fixture assumption (seed 42): the first actor is the living player combatant Titus"
 	)
 
@@ -216,10 +216,10 @@ func test_full_journey_strike_pass_ai_turn_and_result_screen_stays_locked_throug
 	while not instance.round_session.is_round_over() and exchanges < _MAX_TURN_EXCHANGES:
 		exchanges += 1
 
-		var actor: Dictionary = instance.round_session.current_actor()
-		assert_false(actor.is_empty(), "a living actor must be active while the round is not yet over")
+		var actor = instance.round_session.current_actor()
+		assert_false(actor == null, "a living actor must be active while the round is not yet over")
 		assert_false(
-			actor.get("_is_enemy", false),
+			actor.is_enemy,
 			"the real TurnController must always auto-drive Enemy turns before yielding control back -- this loop must only ever observe a player actor here"
 		)
 
@@ -318,7 +318,7 @@ func test_hex_grid_view_resyncs_token_position_after_step_and_stride() -> void:
 	await get_tree().process_frame
 
 	assert_false(
-		instance.round_session.current_actor().get("_is_enemy", true),
+		instance.round_session.current_actor().is_enemy,
 		"fixture assumption (seed 42): the first actor is the living player combatant Titus"
 	)
 

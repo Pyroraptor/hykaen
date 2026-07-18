@@ -89,9 +89,9 @@ func test_boot_real_mainscene_scripted_enemy_strike_and_reaction_produces_rich_l
 	assert_not_null(instance.turn_controller, "MainScene.turn_controller must be wired after boot")
 	assert_not_null(instance.end_turn_control, "MainScene.end_turn_control must be wired after boot")
 
-	var player: Dictionary = instance.round_session.current_actor()
-	assert_eq(player.get("name", ""), "Titus", "fixture: Titus (the real player combatant) must be the current actor at boot")
-	assert_false(player.get("_is_enemy", true), "fixture: Titus is the player, not an enemy")
+	var player = instance.round_session.current_actor()
+	assert_eq(player.name, "Titus", "fixture: Titus (the real player combatant) must be the current actor at boot")
+	assert_false(player.is_enemy, "fixture: Titus is the player, not an enemy")
 
 	assert_eq(instance._enemies.size(), 1, "fixture: the prologue encounter's real enemy roster must carry exactly the Skeleton")
 	var skeleton = instance._enemies[0]
@@ -144,7 +144,7 @@ func test_boot_real_mainscene_scripted_enemy_strike_and_reaction_produces_rich_l
 
 	var attack_event = recorded_attacks[0]
 	assert_eq(attack_event.attacker_id, skeleton.combatant_id, "the resolved Strike must be attributed to the real Skeleton enemy")
-	assert_eq(attack_event.target_id, player.get("combatant_id", ""), "the resolved Strike must target the real Titus player combatant")
+	assert_eq(attack_event.target_id, player.display_id(), "the resolved Strike must target the real Titus player combatant")
 	assert_true(attack_event.roll_total > 0, "the real resolution.gd math must produce a non-zero roll_total for the resolved Strike")
 
 	# ── FEAT-008 (US-008 / FR-007, Iteration J-R2 Part D): MainScene's

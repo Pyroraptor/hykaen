@@ -158,7 +158,7 @@ func test_init_calls_start_of_turn_exactly_once_for_the_initial_actor() -> void:
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 1)
 	var session = rig["use_case"].begin_round(1, [alpha], [bravo])
 
-	assert_eq(session.current_actor().get("name", ""), "Alpha", "fixture assumption: Alpha is the initial current actor")
+	assert_eq(session.current_actor().name, "Alpha", "fixture assumption: Alpha is the initial current actor")
 	assert_eq(
 		entries[0]["action_economy"].start_of_turn_call_count, 1,
 		"the initial cursor assignment in _init must call start_of_turn() exactly once for the initial actor"
@@ -179,7 +179,7 @@ func test_init_calls_start_of_turn_exactly_once_for_an_initial_ai_actor() -> voi
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 1)
 	var session = rig["use_case"].begin_round(1, [alpha], [bravo])
 
-	assert_eq(session.current_actor().get("name", ""), "Bravo", "fixture assumption: Bravo (Enemy) is the initial current actor")
+	assert_eq(session.current_actor().name, "Bravo", "fixture assumption: Bravo (Enemy) is the initial current actor")
 	assert_eq(
 		entries[0]["action_economy"].start_of_turn_call_count, 1,
 		"the initial cursor assignment in _init must call start_of_turn() exactly once for an initial AI actor too"
@@ -200,10 +200,10 @@ func test_advance_cursor_calls_start_of_turn_exactly_once_for_the_next_player_ac
 	var session = rig["use_case"].begin_round(1, [alpha], [bravo])
 
 	# Cursor: Alpha (Player) -> Bravo (Enemy)
-	assert_eq(session.current_actor().get("name", ""), "Alpha")
+	assert_eq(session.current_actor().name, "Alpha")
 	session.end_current_turn()
 
-	assert_eq(session.current_actor().get("name", ""), "Bravo")
+	assert_eq(session.current_actor().name, "Bravo")
 	assert_eq(
 		entries[1]["action_economy"].start_of_turn_call_count, 1,
 		"_advance_cursor() must call start_of_turn() exactly once for the new current (Enemy) actor"
@@ -223,11 +223,11 @@ func test_advance_cursor_calls_start_of_turn_exactly_once_for_the_next_ai_actor_
 	var session = rig["use_case"].begin_round(1, [alpha], [bravo])
 
 	# Cursor: Bravo (Enemy) -> Alpha (Player), driven by advance_ai_turn().
-	assert_eq(session.current_actor().get("name", ""), "Bravo")
+	assert_eq(session.current_actor().name, "Bravo")
 	var result: Dictionary = session.advance_ai_turn()
 	assert_true(result.get("ok", false))
 
-	assert_eq(session.current_actor().get("name", ""), "Alpha")
+	assert_eq(session.current_actor().name, "Alpha")
 	assert_eq(
 		entries[1]["action_economy"].start_of_turn_call_count, 1,
 		"_advance_cursor() must call start_of_turn() exactly once for the new current (Player) actor, even when the advance is driven by advance_ai_turn()"
@@ -251,7 +251,7 @@ func test_advance_ai_turn_does_not_independently_call_start_of_turn_on_the_curre
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 1)
 	var session = rig["use_case"].begin_round(1, [alpha], [bravo])
 
-	assert_eq(session.current_actor().get("name", ""), "Bravo")
+	assert_eq(session.current_actor().name, "Bravo")
 	# start_of_turn() for Bravo was already invoked exactly once by _init's
 	# cursor-positioning call site (criterion 2) -- reset the spy so this
 	# assertion isolates ONLY what advance_ai_turn() itself does.
@@ -281,7 +281,7 @@ func test_movement_lockout_resets_on_the_actors_following_turn() -> void:
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 1)
 	var session = rig["use_case"].begin_round(1, [alpha], [bravo])
 
-	assert_eq(session.current_actor().get("name", ""), "Alpha")
+	assert_eq(session.current_actor().name, "Alpha")
 	var alpha_action_economy = entries[0]["action_economy"]
 
 	# Simulate a Stride having been taken this turn (the same gate
@@ -292,12 +292,12 @@ func test_movement_lockout_resets_on_the_actors_following_turn() -> void:
 	# Alpha's turn ends -> Bravo's (AI) turn is fully driven and resolved ->
 	# the cursor cycles back around to Alpha (the only two combatants).
 	session.end_current_turn()
-	assert_eq(session.current_actor().get("name", ""), "Bravo")
+	assert_eq(session.current_actor().name, "Bravo")
 
 	var ai_result: Dictionary = session.advance_ai_turn()
 	assert_true(ai_result.get("ok", false))
 
-	assert_eq(session.current_actor().get("name", ""), "Alpha", "the cursor must have cycled back around to Alpha")
+	assert_eq(session.current_actor().name, "Alpha", "the cursor must have cycled back around to Alpha")
 	assert_true(
 		alpha_action_economy.can_take_movement_action(),
 		"movement_used_this_turn must reset to false on Alpha's following turn, via the single _advance_cursor() start_of_turn() call site"
@@ -340,9 +340,9 @@ func test_advance_cursor_start_of_turn_call_site_does_not_refill_budget_or_clear
 	assert_false(alpha_action_economy.is_spent())
 
 	session.end_current_turn()                # Alpha -> Bravo
-	assert_eq(session.current_actor().get("name", ""), "Bravo")
+	assert_eq(session.current_actor().name, "Bravo")
 	session.advance_ai_turn()                  # Bravo -> Alpha (cycles back)
-	assert_eq(session.current_actor().get("name", ""), "Alpha")
+	assert_eq(session.current_actor().name, "Alpha")
 
 	assert_eq(
 		alpha_action_economy.get_remaining(), remaining_before,

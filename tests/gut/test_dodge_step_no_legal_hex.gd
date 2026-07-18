@@ -98,8 +98,8 @@ func test_successful_dodge_with_zero_legal_hexes_negates_damage_never_prompts_an
 	assert_true(instance._party.size() > 0, "fixture assumption: MainScene must boot with at least one party combatant")
 	assert_true(instance._enemies.size() > 0, "fixture assumption: MainScene must boot with at least one enemy combatant")
 
-	var defender: Dictionary = instance.round_session.current_actor()
-	assert_eq(defender.get("name", ""), "Titus", "fixture: Titus (the real player combatant) must be the current actor at boot")
+	var defender = instance.round_session.current_actor()
+	assert_eq(defender.name, "Titus", "fixture: Titus (the real player combatant) must be the current actor at boot")
 
 	var attacker = instance._enemies[0]
 	var attacker_weapon = attacker.weapon

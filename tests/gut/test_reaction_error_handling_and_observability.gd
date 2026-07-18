@@ -261,7 +261,7 @@ func test_advance_ai_turn_with_resolver_missing_choice_key_falls_back_without_cr
 
 	var rig: Dictionary = _make_session(entries, [alpha], [bravo], 42)
 	var session = rig["session"]
-	assert_eq(session.current_actor().get("name", ""), "Bravo", "fixture assumption: the Enemy is the current actor")
+	assert_eq(session.current_actor().name, "Bravo", "fixture assumption: the Enemy is the current actor")
 
 	var resolver := MalformedReactionResolver.new()
 	session.set_reaction_resolver_fn(Callable(resolver, "resolve"))
@@ -277,7 +277,7 @@ func test_advance_ai_turn_with_resolver_missing_choice_key_falls_back_without_cr
 		"the Strike must still resolve exactly once despite the malformed resolver response"
 	)
 	assert_eq(
-		session.current_actor().get("name", ""), "Alpha",
+		session.current_actor().name, "Alpha",
 		"the cursor must still advance normally -- the round loop is never stalled by a malformed resolver"
 	)
 

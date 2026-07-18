@@ -179,7 +179,7 @@ func test_verb_bar_availability_does_not_throw_while_the_player_is_the_current_a
 	var instance = _boot_main_scene_with_seed(SEED)
 	await get_tree().process_frame
 
-	assert_false(instance.round_session.current_actor().get("_is_enemy", false), "fixture assumption: the player acts first at seed=42")
+	assert_false(instance.round_session.current_actor().is_enemy, "fixture assumption: the player acts first at seed=42")
 
 	var strike_available = instance._verb_registry.is_available("STRIKE")
 	var stride_available = instance._verb_registry.is_available("STRIDE")
@@ -194,14 +194,14 @@ func test_verb_bar_availability_does_not_throw_while_the_enemy_is_the_current_ac
 	var instance = _boot_main_scene_with_seed(SEED)
 	await get_tree().process_frame
 
-	assert_false(instance.round_session.current_actor().get("_is_enemy", false), "fixture assumption: the player acts first at seed=42")
+	assert_false(instance.round_session.current_actor().is_enemy, "fixture assumption: the player acts first at seed=42")
 
 	# Advance the cursor directly (bypassing EndTurnControl's own auto-drive
 	# wiring) so the Enemy becomes current_actor() while the availability
 	# closures are queried, without immediately auto-resolving its turn.
 	var end_turn_result: Dictionary = instance.round_session.end_current_turn()
 	assert_true(end_turn_result.get("ok", false), "fixture assumption: end_current_turn() must succeed")
-	assert_true(instance.round_session.current_actor().get("_is_enemy", false), "fixture assumption: the cursor now sits on the Enemy")
+	assert_true(instance.round_session.current_actor().is_enemy, "fixture assumption: the cursor now sits on the Enemy")
 
 	var strike_available = instance._verb_registry.is_available("STRIKE")
 	var stride_available = instance._verb_registry.is_available("STRIDE")

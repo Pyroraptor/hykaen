@@ -165,7 +165,7 @@ func test_enemy_mover_lethal_opportunistic_strike_cancels_stride_via_real_ai_dec
 	await get_tree().process_frame
 
 	assert_false(
-		instance.round_session.current_actor().get("_is_enemy", true),
+		instance.round_session.current_actor().is_enemy,
 		"fixture assumption: Titus (the player) acts first at seed=%d" % PROLOGUE_SEED
 	)
 
@@ -190,9 +190,9 @@ func test_enemy_mover_lethal_opportunistic_strike_cancels_stride_via_real_ai_dec
 	# forced on Titus's own attack -- only his target's AC is forced low
 	# (mirrors every other boot-real suite's AC_GUARANTEED_HIT usage) so the
 	# hit itself is deterministic without touching RNG/seed math.
-	skeleton["ac"] = AC_GUARANTEED_HIT
-	skeleton["hp_current"] = LETHAL_HP
-	skeleton["hp_max"] = LETHAL_HP
+	skeleton.ac = AC_GUARANTEED_HIT
+	skeleton.hp_current = LETHAL_HP
+	skeleton.hp_max = LETHAL_HP
 
 	var titus_ae = instance._action_economy_for(titus)
 	assert_not_null(titus_ae, "fixture assumption: Titus must have a live ActionEconomy wired at boot")
@@ -335,7 +335,7 @@ func test_player_mover_lethal_opportunistic_strike_cancels_stride_via_real_mains
 	await get_tree().process_frame
 
 	assert_false(
-		instance.round_session.current_actor().get("_is_enemy", true),
+		instance.round_session.current_actor().is_enemy,
 		"fixture assumption: Titus (the player) acts first at seed=%d" % PROLOGUE_SEED
 	)
 
@@ -357,7 +357,7 @@ func test_player_mover_lethal_opportunistic_strike_cancels_stride_via_real_mains
 	assert_true(is_adjacent_at_boot, "fixture assumption: the Skeleton starts adjacent to Titus's own hex at the PROLOGUE_SEED fixture's boot position -- no repositioning is needed for eligibility")
 
 	assert_true(
-		skeleton.has("weapon") and not skeleton["weapon"].has("range_hexes"),
+		not skeleton.weapon.is_empty() and not skeleton.weapon.has("range_hexes"),
 		"fixture assumption: the Skeleton's real weapon carries melee reach (no 'range_hexes' key)"
 	)
 
@@ -367,9 +367,9 @@ func test_player_mover_lethal_opportunistic_strike_cancels_stride_via_real_mains
 	# field on the Skeleton's own weapon/attack is forced -- the lethal
 	# outcome is produced entirely by the Skeleton's real, seeded roll
 	# against Titus's forced-low AC and forced-low hp floor.
-	titus["ac"] = AC_GUARANTEED_HIT
-	titus["hp_current"] = LETHAL_HP
-	titus["hp_max"] = LETHAL_HP
+	titus.ac = AC_GUARANTEED_HIT
+	titus.hp_current = LETHAL_HP
+	titus.hp_max = LETHAL_HP
 
 	var skeleton_ae = instance._action_economy_for(skeleton)
 	assert_not_null(skeleton_ae, "fixture assumption: the Skeleton must have a live ActionEconomy wired at boot")

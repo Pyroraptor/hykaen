@@ -128,8 +128,8 @@ func test_stride_enter_selection_highlights_only_legal_speed_bounded_unoccupied_
 		"fixture assumption: the prologue's first actor has at least one legal Stride destination and a positive action budget at seed=42"
 	)
 
-	var actor: Dictionary = instance.round_session.current_actor()
-	var actor_hex = actor.get("hex_coord", null)
+	var actor = instance.round_session.current_actor()
+	var actor_hex = actor.hex_coord
 	assert_not_null(actor_hex, "fixture assumption: the active actor carries a hex_coord")
 
 	var expected_hexes: Array = instance.movement_input_controller.get_selectable_stride_hexes()
@@ -184,7 +184,7 @@ func test_clicking_a_highlighted_destination_moves_the_token_and_spends_one_acti
 	var instance = _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
-	var actor_id: String = instance.round_session.current_actor().get("combatant_id", "")
+	var actor_id: String = instance.round_session.current_actor().display_id()
 	assert_ne(actor_id, "", "fixture assumption: the active actor carries a non-empty combatant_id")
 
 	var action_economy = instance.round_session.current_action_economy()
@@ -255,9 +255,9 @@ func test_a_hex_beyond_speed_is_never_offered_as_a_candidate_and_a_click_there_p
 	var instance = _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
-	var actor: Dictionary = instance.round_session.current_actor()
-	var actor_id: String = actor.get("combatant_id", "")
-	var actor_hex = actor.get("hex_coord", null)
+	var actor = instance.round_session.current_actor()
+	var actor_id: String = actor.display_id()
+	var actor_hex = actor.hex_coord
 	assert_not_null(actor_hex, "fixture assumption: the active actor carries a hex_coord")
 
 	var action_economy = instance.round_session.current_action_economy()

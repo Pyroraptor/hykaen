@@ -430,8 +430,8 @@ func _drive() -> void:
 
 	var guard: int = 0
 	while not _round_session.is_round_over() and guard < _MAX_AI_TURNS_PER_DRIVE:
-		var actor: Dictionary = _round_session.current_actor()
-		if actor.is_empty() or not actor.get("_is_enemy", false):
+		var actor = _round_session.current_actor()
+		if actor == null or not actor.is_enemy:
 			break
 		await _round_session.advance_ai_turn()
 		guard += 1

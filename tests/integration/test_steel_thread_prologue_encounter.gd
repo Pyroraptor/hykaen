@@ -228,7 +228,7 @@ func test_determinism_two_independent_mainscene_boots_produce_identical_event_se
 	assert_eq(instance_1.outcome, "", "MainScene must NOT auto-resolve the prologue encounter to a terminal outcome on boot")
 	assert_eq(instance_2.outcome, instance_1.outcome, "two independent boots of the same seeded encounter must reach the identical (undecided) outcome")
 	assert_eq(
-		instance_2.round_session.current_actor().get("name", ""), instance_1.round_session.current_actor().get("name", ""),
+		instance_2.round_session.current_actor().name, instance_1.round_session.current_actor().name,
 		"two independent boots of the same seeded encounter must position the RoundSession cursor on the identical first actor"
 	)
 
@@ -264,7 +264,7 @@ func test_player_strike_through_real_pipeline_observable_in_event_log_and_status
 	await get_tree().process_frame
 
 	assert_false(
-		instance.round_session.current_actor().get("_is_enemy", true),
+		instance.round_session.current_actor().is_enemy,
 		"the first actor must be a living player combatant (Titus) per prologue_encounter.tres' hex layout"
 	)
 
@@ -346,7 +346,7 @@ func test_enemy_ai_turn_auto_drives_through_identical_pipeline_after_end_turn() 
 
 	assert_is(instance.turn_controller, TurnControllerClass, "MainScene must wire the real $TurnController (presentation/turn_controller.gd)")
 	assert_false(
-		instance.round_session.current_actor().get("_is_enemy", true),
+		instance.round_session.current_actor().is_enemy,
 		"fixture assumption: the first actor must be the living player combatant (Titus)"
 	)
 	assert_eq(
@@ -381,7 +381,7 @@ func test_enemy_ai_turn_auto_drives_through_identical_pipeline_after_end_turn() 
 
 	# TurnController settles back on the player, ready for the next turn.
 	assert_false(
-		instance.round_session.current_actor().get("_is_enemy", true),
+		instance.round_session.current_actor().is_enemy,
 		"the real $TurnController must auto-drive the Enemy's full turn so the session settles back on a living player combatant"
 	)
 	var selection2: Dictionary = instance._verb_registry.enter_selection("STRIKE")
@@ -438,7 +438,7 @@ func test_encounter_concludes_with_result_screen_matching_determine_outcome_use_
 	# (see presentation/turn_controller.gd / MainScene.gd). ─────────────────
 	var guard: int = 0
 	while not instance.round_session.is_round_over() and guard < _MAX_DRIVE_ITERATIONS:
-		if not instance.round_session.current_actor().get("_is_enemy", true):
+		if not instance.round_session.current_actor().is_enemy:
 			var sel: Dictionary = instance._verb_registry.enter_selection("STRIKE")
 			var target_ids: Array = sel.get("candidate_targets", [])
 			if target_ids.size() > 0:

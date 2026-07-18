@@ -106,7 +106,7 @@ func _titus_id(instance) -> String:
 
 func _press_end_turn_and_drive_enemy_strike(instance) -> void:
 	assert_false(
-		instance.round_session.current_actor().get("_is_enemy", true),
+		instance.round_session.current_actor().is_enemy,
 		"fixture assumption: Titus (the player) acts first at seed=%d" % PROLOGUE_SEED
 	)
 	instance.verb_bar_view.press(END_TURN)

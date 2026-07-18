@@ -104,7 +104,7 @@ func _hp_of(instance, titus_id: String) -> int:
 
 func _drive_incoming_strike_and_choose(instance, on_hit_choice: String) -> Array:
 	assert_false(
-		instance.round_session.current_actor().get("_is_enemy", true),
+		instance.round_session.current_actor().is_enemy,
 		"fixture assumption: Titus (the player) acts first at seed=%d" % PROLOGUE_SEED
 	)
 	instance.verb_bar_view.press("END_TURN")

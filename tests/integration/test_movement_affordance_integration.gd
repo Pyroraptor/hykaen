@@ -146,7 +146,7 @@ func test_highlighted_hexes_on_turn_started_match_the_controllers_legal_step_str
 	await get_tree().process_frame
 
 	assert_false(
-		instance.round_session.current_actor().get("_is_enemy", true),
+		instance.round_session.current_actor().is_enemy,
 		"fixture assumption: the first actor must be the living player combatant (Titus) per prologue_encounter.tres' hex layout at seed=42"
 	)
 

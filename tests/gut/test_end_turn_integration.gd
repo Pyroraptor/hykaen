@@ -129,9 +129,9 @@ func test_clicking_end_turn_advances_the_turn_cursor_through_the_real_turn_port(
 	var instance = _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
-	var first_actor_name: String = instance.round_session.current_actor().get("name", "")
+	var first_actor_name: String = instance.round_session.current_actor().name
 	assert_ne(first_actor_name, "", "fixture assumption: a living actor is active before End Turn is pressed")
-	assert_false(instance.round_session.current_actor().get("_is_enemy", true), "fixture assumption: Titus (the player) acts first at seed=42")
+	assert_false(instance.round_session.current_actor().is_enemy, "fixture assumption: Titus (the player) acts first at seed=42")
 
 	var events_before: int = instance.event_sink.log.size()
 
@@ -158,7 +158,7 @@ func test_clicking_end_turn_advances_the_turn_cursor_through_the_real_turn_port(
 		# cursor back on a LIVING PLAYER combatant -- never left sitting on
 		# the Enemy.
 		assert_false(
-			instance.round_session.current_actor().get("_is_enemy", false),
+			instance.round_session.current_actor().is_enemy,
 			"TurnController must auto-drive any Enemy turn so RoundSession settles back on a player combatant"
 		)
 		assert_true(
@@ -183,7 +183,7 @@ func test_clicking_end_turn_settles_the_ui_back_at_layer1_verb_select() -> void:
 	if not instance.round_session.is_round_over():
 		assert_true(instance._verb_registry.is_available(END_TURN), "End Turn must remain available for the next active combatant's Layer 1 verb bar")
 		assert_false(
-			instance.round_session.current_actor().get("_is_enemy", false),
+			instance.round_session.current_actor().is_enemy,
 			"the settled active combatant must be a living player, ready for Layer 1 verb selection"
 		)
 		# The re-gated verb bar reflects LIVE state for the newly active

@@ -275,7 +275,7 @@ func test_step_and_stride_verbs_are_wired_to_the_presentation_stack_and_move_the
 	var destination_hexes: Array = selection.get("candidate_hexes", [])
 	assert_true(destination_hexes.size() > 0, "entering STEP's Layer 2 selection must surface at least one legal destination hex")
 
-	var actor_id: String = instance.round_session.current_actor().get("combatant_id", "")
+	var actor_id: String = instance.round_session.current_actor().display_id()
 	var token_before = instance.hex_grid_view.get_token(actor_id)
 	assert_not_null(token_before, "fixture assumption: the active actor already has a rendered token")
 	var destination = destination_hexes[0]
