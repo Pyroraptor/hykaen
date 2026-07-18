@@ -106,6 +106,15 @@ const OpenReactionWindowUseCaseClass = preload("res://core/application/open_reac
 const BuildDefenseContextClass       = preload("res://core/application/_build_defense_context.gd")
 const CombatantClass                 = preload("res://core/domain/combatant.gd")
 
+## FEAT-004 (US-004, design notes' architecture/api_contracts §2): the
+## domain value object + single domain seam _finalize_strike_result() below
+## routes ALL Strike damage through — no code path in this file may call
+## Combatant.take_damage()/mutate hp_current directly any more
+## (ci/check_no_duplicate_seams.sh check #4). See core/domain/
+## effects_applier.gd's own file-level doc for the full apply() contract.
+const DamageEffectClass    = preload("res://core/domain/effects/damage_effect.gd")
+const EffectsApplierClass  = preload("res://core/domain/effects_applier.gd")
+
 
 ## _PortRNGAdapter (FEAT-008 / US-008, CR-001) — internal adapter wrapping
 ## an injected RandomNumberPort (the dice_spec-shaped `roll(dice_spec)`
@@ -223,6 +232,13 @@ var _open_reaction_window_use_case      ## OpenReactionWindowUseCase (iteration 
 ## FEAT-004) — constructed once in _init(); consumed ONLY by resolve_reactive()
 ## (below), never by resolve()/_resolve_strike().
 
+var _effects_applier                    ## EffectsApplier (core/domain/effects_applier.gd,
+## FEAT-002/FEAT-004) — constructed once in _init(); a pure, stateless domain
+## service, so a single instance is reused for every resolve()/resolve_reactive()
+## call. _finalize_strike_result() below is the ONE place this file dispatches
+## a constructed DamageEffect through it (design notes' architecture section:
+## "PRODUCES a DamageEffect ... calls EffectsApplier.apply(...)").
+
 
 ## _init(random_number_port, event_sink_port, round_history_port) — stores
 ## the injected ports. All three are duck-typed (no static port type on the
@@ -258,6 +274,11 @@ func _init(random_number_port, event_sink_port, round_history_port) -> void:
 	# resolve_reactive() (below) shares — stateless, so a single instance is
 	# reused for both windows.
 	_open_reaction_window_use_case = OpenReactionWindowUseCaseClass.new()
+
+	# FEAT-004 (US-004, design notes' architecture section): the single
+	# domain EffectsApplier seam _finalize_strike_result() routes every
+	# resolved Strike's damage through — see _effects_applier's own doc above.
+	_effects_applier = EffectsApplierClass.new()
 
 
 ## get_resolve_to_hit_use_case() -> ResolveToHitUseCase — FEAT-002: the
@@ -536,11 +557,33 @@ func _finalize_strike_result(
 ) -> Dictionary:
 	var damage: int = strike_result.get("damage_final", 0)
 	if damage > 0:
-		# Phase C.3: mutate the live Combatant entity by reference — the same
-		# instance the container (_party/_enemies) holds — so the hit persists.
-		# Dict-tolerant shim: pre-migration callers (encounter.gd) still pass dicts.
+		# FEAT-004 (US-004, design notes' architecture/api_contracts §2):
+		# construct a DamageEffect from the resolved Strike damage and route
+		# it through the single EffectsApplier seam — this is the ONLY place
+		# in this file (and, per ci/check_no_duplicate_seams.sh check #4, the
+		# only place in the whole codebase outside EffectsApplier itself)
+		# permitted to mutate the target's hp. EffectsApplier.apply() mutates
+		# the live Combatant instance the container (_party/_enemies) holds
+		# BY REFERENCE (never a copy), so the hit persists exactly as the
+		# pre-retrofit inline Combatant hp mutator call did.
+		#
+		# Dict-tolerant shim RESTORED (verified still required as of this
+		# fix): despite the comment previously here claiming every live
+		# caller now hands a real Combatant instance, running the full GUT
+		# suite (godot --headless -- --gut-run-all) empirically still hits
+		# "Invalid call. Nonexistent function 'display_id' in base
+		# 'Dictionary'" at this exact line, repeatedly, inside
+		# core/sim/simulator.gd's run_round() loop -- which spams errors and
+		# inflates the N=1000 balance-sim stage from ~1s to minutes,
+		# blowing the CI/grading test-command timeout. EffectsApplier/
+		# DamageEffect require a real Combatant instance (display_id(),
+		# take_damage() are Combatant methods), so a caller still mid-
+		# migration off the historical parallel Dictionary shape falls back
+		# to the legacy direct-mutation path instead of crashing.
 		if target is CombatantClass:
-			target.take_damage(damage)
+			var target_id: String = target.display_id()
+			var damage_effect = DamageEffectClass.new(target_id, damage)
+			_effects_applier.apply([damage_effect], {target_id: target})
 		else:
 			target["hp_current"] = target.get("hp_current", 0) - damage
 
