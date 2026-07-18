@@ -258,27 +258,35 @@ func _init(random_number_port, event_sink_port, round_history_port) -> void:
 	_round_history_port  = round_history_port
 	_resolution          = ResolutionClass.new(_PortRNGAdapter.new(random_number_port))
 
+	# FEAT-004 (US-004, design notes' architecture section): constructed
+	# BEFORE _apply_on_hit_defense_use_case below (FEAT-005/US-005) so the
+	# literal SAME EffectsApplier instance can be injected into it — the
+	# single domain EffectsApplier seam _finalize_strike_result() routes
+	# every resolved Strike's damage through — see _effects_applier's own doc
+	# above.
+	_effects_applier = EffectsApplierClass.new()
+
 	# FEAT-002 (US-001, ADR-001): construct the two-phase use cases sharing
 	# this SAME injected RandomNumberPort/EventSinkPort — see the file-level
 	# FEAT-002 doc above. _apply_on_hit_defense_use_case is deliberately
 	# wired to _resolve_to_hit_use_case.get_resolution() (never a fresh
 	# Resolution instance) so the two use cases continue the SAME RNG
 	# sequence when a future caller drives them across an awaited reaction
-	# window.
+	# window. FEAT-005 (US-005): also shares this SAME _effects_applier
+	# instance — round_session.gd's advance_ai_turn() enemy-reaction two-phase
+	# commit path (get_apply_on_hit_defense_use_case().apply()) therefore
+	# routes its damage through the IDENTICAL EffectsApplier instance
+	# Strike's own _finalize_strike_result() below uses — never a second,
+	# independently-constructed EffectsApplier.
 	_resolve_to_hit_use_case       = ResolveToHitUseCaseClass.new(random_number_port)
 	_apply_on_hit_defense_use_case = ApplyOnHitDefenseUseCaseClass.new(
-		_resolve_to_hit_use_case.get_resolution(), event_sink_port
+		_resolve_to_hit_use_case.get_resolution(), event_sink_port, _effects_applier
 	)
 
 	# iteration K FEAT-004 (US-004, ADR-004): the reaction-window opener
 	# resolve_reactive() (below) shares — stateless, so a single instance is
 	# reused for both windows.
 	_open_reaction_window_use_case = OpenReactionWindowUseCaseClass.new()
-
-	# FEAT-004 (US-004, design notes' architecture section): the single
-	# domain EffectsApplier seam _finalize_strike_result() routes every
-	# resolved Strike's damage through — see _effects_applier's own doc above.
-	_effects_applier = EffectsApplierClass.new()
 
 
 ## get_resolve_to_hit_use_case() -> ResolveToHitUseCase — FEAT-002: the
@@ -295,6 +303,17 @@ func get_resolve_to_hit_use_case():
 ## core/application/apply_on_hit_defense_uc.gd.
 func get_apply_on_hit_defense_use_case():
 	return _apply_on_hit_defense_use_case
+
+
+## get_effects_applier() -> EffectsApplier — FEAT-005 (US-005): exposes the
+## single EffectsApplier instance this use case shares between Strike's own
+## _finalize_strike_result() and get_apply_on_hit_defense_use_case()'s
+## ApplyOnHitDefenseUseCase — consumed by tests verifying both the Strike and
+## enemy-reaction damage paths route through the identical EffectsApplier
+## instance (design notes' architecture section: "the SAME EffectsApplier
+## instance/module as Strike").
+func get_effects_applier():
+	return _effects_applier
 
 
 ## resolve(combatant, action_economy, target, action_name, round_number,

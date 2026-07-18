@@ -33,31 +33,76 @@
 ## (core/application/event_sink_port.gd). Domain purity boundary (ADR-001):
 ## extends RefCounted only — no Node/Control/SceneTree inheritance.
 ##
+## FEAT-005 (US-005): the ONLY hp mutation in this file — historically an
+## inline `target.take_damage(damage_final)` / `target["hp_current"] -= ...`
+## call at step 2 above — is now routed through the SAME domain EffectsApplier
+## seam (core/domain/effects_applier.gd) core/application/
+## resolve_action_use_case.gd's Strike path (_finalize_strike_result())
+## already routes its own damage through (FEAT-004): a DamageEffect is
+## constructed from the resolved `damage_final` and handed to
+## EffectsApplier.apply(). This is the "enemy on-hit reaction flows through
+## the same Effects Applier" requirement the steel thread's design notes
+## document — no parallel/duplicate mutation path exists any more (see
+## ci/check_no_duplicate_seams.sh check #4, which historically excluded this
+## file as a documented legacy take_damage() caller pending exactly this
+## retrofit).
+##
 ## Usage example — see core/application/resolve_to_hit_uc.gd's file-level doc
 ## for the full two-phase call sequence this class is the second half of.
 
 class_name ApplyOnHitDefenseUseCase
 extends RefCounted
 
-const RoundEventsClass = preload("res://core/rules/round_events.gd")
-const ResolutionClass  = preload("res://core/rules/resolution.gd")
+const RoundEventsClass     = preload("res://core/rules/round_events.gd")
+const ResolutionClass      = preload("res://core/rules/resolution.gd")
+const CombatantClass       = preload("res://core/domain/combatant.gd")
+const DamageEffectClass    = preload("res://core/domain/effects/damage_effect.gd")
+const EffectsApplierClass  = preload("res://core/domain/effects_applier.gd")
 
 
 var _resolution       ## Resolution — the SAME instance the to-hit phase
 ## used (injected; see resolve_to_hit_uc.gd's ResolveToHitUseCase.get_resolution()).
 var _event_sink_port   ## EventSinkPort — injected; every AttackEvent/
 ## CombatantDefeatedEvent this use case emits goes through this SAME sink.
+var _effects_applier   ## EffectsApplier (core/domain/effects_applier.gd,
+## FEAT-005/US-005) — the SAME domain seam core/application/
+## resolve_action_use_case.gd's Strike path (_finalize_strike_result())
+## routes every resolved Strike's damage through — see
+## ResolveActionUseCase.get_effects_applier(), which hands its own single
+## instance in via this class's _init() below. Defaults to a fresh
+## EffectsApplier() instance when no instance is injected (e.g. this file's
+## own GUT suite, tests/application/test_apply_on_hit_defense_uc.gd's 2-arg
+## _rig()) — EffectsApplier is a pure, stateless domain service
+## (core/domain/effects_applier.gd's own file-level doc), so a standalone
+## instance behaves byte-for-byte identically to a shared one; the
+## constructor injection point exists so production wiring
+## (ResolveActionUseCase._init()) can hand in the literal SAME instance
+## Strike's own damage routes through — never a second, independently
+## constructed EffectsApplier.
 
 
-## _init(resolution, event_sink_port) — stores the injected collaborators.
-## `resolution` MUST be the SAME Resolution instance
+## _init(resolution, event_sink_port, effects_applier) — stores the injected
+## collaborators. `resolution` MUST be the SAME Resolution instance
 ## ResolveToHitUseCase.get_resolution() returned for THIS Strike (ADR-002 RNG
 ## sequencing — the Block/Parry roll(s) below must continue the identical
 ## seeded RNG sequence the to-hit phase already started) — never a fresh
-## Resolution constructed here.
-func _init(resolution, event_sink_port) -> void:
+## Resolution constructed here. `effects_applier` is OPTIONAL (FEAT-005/
+## US-005) — when omitted (or explicitly null), a fresh EffectsApplier()
+## instance is constructed; a caller holding Strike's own EffectsApplier
+## instance (ResolveActionUseCase.get_effects_applier()) should pass it in
+## directly so both damage paths route through the identical instance.
+func _init(resolution, event_sink_port, effects_applier = null) -> void:
 	_resolution      = resolution
 	_event_sink_port = event_sink_port
+	_effects_applier = effects_applier if effects_applier != null else EffectsApplierClass.new()
+
+
+## get_effects_applier() -> EffectsApplier — FEAT-005 (US-005): exposes the
+## EffectsApplier instance this use case routes damage through, so a test (or
+## a caller wiring another use case to share it) can confirm/obtain the
+## identical instance/module Strike's own damage path uses.
+func get_effects_applier():
+	return _effects_applier
 
 
 ## legal_onhit_reactions(weapon) -> Array — iteration K FEAT-004 (US-004,
@@ -154,13 +199,28 @@ func apply(
 		active_defense_applied = post.get("active_defense_applied", active_defense_applied)
 		on_hit_suppressed      = post.get("on_hit_suppressed", false)
 
-	# ── The ONLY hp_current mutation in this entire two-phase split ─────────
-	# Phase C.3: mutate the live Combatant entity by reference (take_damage),
-	# so the hit persists on the same instance the container holds.
+	# ── The ONLY hp mutation in this entire two-phase split — routed
+	# through the SAME EffectsApplier seam Strike's ResolveActionUseCase
+	# uses (FEAT-005/US-005), never an inline hp_current mutation. A
+	# DamageEffect is constructed from the resolved damage_final and
+	# dispatched via _effects_applier.apply(), which mutates the live
+	# Combatant entity BY REFERENCE (Combatant.take_damage()), so the hit
+	# persists on the same instance the container holds — identical
+	# end-observable behavior to the historical inline call, but now
+	# funneled through the single domain mutation seam
+	# ci/check_no_duplicate_seams.sh's EffectsApplier check (#4) requires.
 	if damage_final > 0:
-		if target.has_method("take_damage"):
-			target.take_damage(damage_final)
+		if target is CombatantClass:
+			var target_id: String = target.display_id()
+			var damage_effect = DamageEffectClass.new(target_id, damage_final)
+			_effects_applier.apply([damage_effect], {target_id: target})
 		else:
+			# Dict-tolerant shim (mirrors resolve_action_use_case.gd's
+			# _finalize_strike_result() identically-purposed fallback):
+			# EffectsApplier/DamageEffect require a real Combatant instance
+			# (display_id(), take_damage() are Combatant methods) — a
+			# caller still handing a plain Dictionary falls back to the
+			# legacy direct-mutation path instead of crashing.
 			target["hp_current"] = target.get("hp_current", 0) - damage_final
 
 	var attack_event = RoundEventsClass.AttackBroadcast.new(
