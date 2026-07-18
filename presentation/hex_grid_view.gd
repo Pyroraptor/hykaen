@@ -211,6 +211,16 @@ func pixel_to_axial_with_offset(pixel: Vector2):
 ## destinations) on the next _draw(). A purely visual affordance — this view
 ## never decides which hexes ARE legal Step destinations, it only renders
 ## whichever set it is told about (ADR-001).
+##
+## FEAT-242 / US-011: this SAME entry point is also the sole highlight path
+## presentation/selection_overlay.gd reuses for an AREA_SET verb's
+## origin-hex candidates AND its computed affected-hex-set preview (via
+## core/application/selection_resolution_use_case.gd's affected_set(),
+## itself a pure consumer of core/geometry) — no separate/forked
+## AREA-highlight rendering exists here or anywhere else. Whether `hexes`
+## is a handful of Step destinations or a whole AREA_SET-computed blast
+## radius, this view treats it identically: it only renders whichever set
+## it is told about.
 func set_selectable_hexes(hexes: Array) -> void:
 	_selectable_hexes = hexes
 	queue_redraw()
