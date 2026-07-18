@@ -129,7 +129,7 @@ func test_seed_override_produces_identical_event_sequence_across_two_boots() -> 
 	)
 
 	assert_eq(
-		instance_2.round_session.current_actor().get("name", ""), instance_1.round_session.current_actor().get("name", ""),
+		instance_2.round_session.current_actor().name, instance_1.round_session.current_actor().name,
 		"two independent boots of the same seed_override must position the RoundSession cursor on the identical first actor"
 	)
 
@@ -154,7 +154,7 @@ func test_hykaen_seed_env_var_produces_identical_event_sequence_across_two_boots
 	assert_eq(instance_2.resolved_seed, ENV_SEED, "HYKAEN_SEED must be resolved identically for a second independent boot")
 
 	assert_eq(
-		instance_2.round_session.current_actor().get("name", ""), instance_1.round_session.current_actor().get("name", ""),
+		instance_2.round_session.current_actor().name, instance_1.round_session.current_actor().name,
 		"two independent boots reading the same HYKAEN_SEED must position the RoundSession cursor on the identical first actor"
 	)
 

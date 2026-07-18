@@ -237,12 +237,16 @@ func set_stride_reaction_resolver_fn(fn: Callable) -> void:
 ## v0 behaviour (unchanged): the target pool is searched in order and the
 ## first living target found is chosen when no positional (hex_coord) data
 ## is available. Future iterations may weight by hp or conditions.
-func decide_action(combatant: Dictionary, targets: Array, action_economy = null, other_combatants: Array = []) -> Dictionary:
-	var chosen_target: Dictionary = _select_target(combatant, targets)
+func decide_action(combatant, targets: Array, action_economy = null, other_combatants: Array = []) -> Dictionary:
+	# Phase C.3: `combatant`/`targets` are now Combatant instances; the chosen
+	# target is a live instance (or null when none), so round_session's Strike
+	# lands on the same reference the container holds. The "no target" sentinel
+	# is null (was an empty Dictionary).
+	var chosen_target = _select_target(combatant, targets)
 
 	# No living target — return a null-action sentinel
-	if chosen_target.is_empty():
-		return {"action_type": "", "target": {}, "destination": null, "will_strike": false}
+	if chosen_target == null:
+		return {"action_type": "", "target": null, "destination": null, "will_strike": false}
 
 	var in_reach: bool = _is_in_reach(combatant, chosen_target)
 	if in_reach:
@@ -253,7 +257,7 @@ func decide_action(combatant: Dictionary, targets: Array, action_economy = null,
 	# Stride-closing logic cannot run — preserve the exact FEAT-003 no-op
 	# contract for every legacy (2-argument) caller.
 	if action_economy == null:
-		return {"action_type": "", "target": {}, "destination": null, "will_strike": false}
+		return {"action_type": "", "target": null, "destination": null, "will_strike": false}
 
 	# iteration K FEAT-006 (US-006): `await`ed so a genuinely suspending
 	# _stride_reaction_resolver_fn (the real player-facing pop-up, routed via
@@ -289,8 +293,8 @@ func decide_action(combatant: Dictionary, targets: Array, action_economy = null,
 ## pre-existing call site/return path below is otherwise byte-for-byte
 ## unchanged.
 func _stride_toward_target(
-	combatant: Dictionary,
-	chosen_target: Dictionary,
+	combatant,
+	chosen_target,
 	targets: Array,
 	action_economy,
 	other_combatants: Array
@@ -303,15 +307,15 @@ func _stride_toward_target(
 	# (no move-then-move) and never attempts to spend an action it does not
 	# have, across any number of decide_action() calls in a turn/round.
 	if action_economy.get_remaining() <= 0 or not action_economy.can_take_movement_action():
-		return {"action_type": "", "target": {}, "destination": null, "will_strike": false}
+		return {"action_type": "", "target": null, "destination": null, "will_strike": false}
 
-	var origin = combatant.get("hex_coord", null)
-	var target_hex = chosen_target.get("hex_coord", null)
+	var origin = combatant.hex_coord if not (combatant is Dictionary) else combatant.get("hex_coord", null)
+	var target_hex = chosen_target.hex_coord if not (chosen_target is Dictionary) else chosen_target.get("hex_coord", null)
 	var occupancy: Array = targets + other_combatants
 
 	var destinations: Array = MovementClass.get_stride_destinations(combatant, occupancy)
 	if destinations.is_empty():
-		return {"action_type": "", "target": {}, "destination": null, "will_strike": false}
+		return {"action_type": "", "target": null, "destination": null, "will_strike": false}
 
 	var current_distance: int = HexMathClass.hex_distance(origin, target_hex)
 	var best_destination = null
@@ -325,7 +329,7 @@ func _stride_toward_target(
 	if best_distance >= current_distance:
 		# No legal Stride destination gets any closer — do not move
 		# pointlessly (and never spend the action for a no-op move).
-		return {"action_type": "", "target": {}, "destination": null, "will_strike": false}
+		return {"action_type": "", "target": null, "destination": null, "will_strike": false}
 
 	# iteration K FEAT-006 (US-006): open an OpportunisticStrike reaction
 	# window for every eligible hostile reactor in `occupancy` BEFORE this
@@ -353,11 +357,11 @@ func _stride_toward_target(
 		# is never mutated; `combatant` remains at `origin`, exactly like
 		# the "no legal Stride destination" no-op decide_action() already
 		# returns above.
-		return {"action_type": "", "target": {}, "destination": null, "will_strike": false}
+		return {"action_type": "", "target": null, "destination": null, "will_strike": false}
 
 	var stride_result: Dictionary = MovementClass.stride(combatant, best_destination, action_economy, occupancy)
 	if not stride_result.get("ok", false):
-		return {"action_type": "", "target": {}, "destination": null, "will_strike": false}
+		return {"action_type": "", "target": null, "destination": null, "will_strike": false}
 
 	# FEAT-007 (US-007 / FR-005, ADR-105): decide_action() issues exactly ONE
 	# action per call — a Stride NEVER also reports will_strike: true, even
@@ -374,31 +378,31 @@ func _stride_toward_target(
 ## the pre-existing "first living target in array order" behavior when the
 ## acting combatant has no "hex_coord" (legacy callers) or none of the
 ## living targets carry positional data.
-func _select_target(combatant: Dictionary, targets: Array) -> Dictionary:
+func _select_target(combatant, targets: Array):
 	var living: Array = []
 	for t in targets:
-		if t.get("hp_current", 0) > 0:
+		if t.hp_current > 0:
 			living.append(t)
 
 	if living.is_empty():
-		return {}
+		return null
 
-	var combatant_hex = combatant.get("hex_coord", null)
+	var combatant_hex = combatant.hex_coord if not (combatant is Dictionary) else combatant.get("hex_coord", null)
 	if combatant_hex == null:
 		return living[0]
 
-	var nearest: Dictionary = {}
+	var nearest = null
 	var nearest_distance: int = -1
 	for t in living:
-		var t_hex = t.get("hex_coord", null)
+		var t_hex = t.hex_coord if not (t is Dictionary) else t.get("hex_coord", null)
 		if t_hex == null:
 			continue
 		var distance: int = HexMathClass.hex_distance(combatant_hex, t_hex)
-		if nearest.is_empty() or distance < nearest_distance or (distance == nearest_distance and _is_lower_coord(t_hex, nearest.get("hex_coord"))):
+		if nearest == null or distance < nearest_distance or (distance == nearest_distance and _is_lower_coord(t_hex, nearest.hex_coord)):
 			nearest = t
 			nearest_distance = distance
 
-	return nearest if not nearest.is_empty() else living[0]
+	return nearest if nearest != null else living[0]
 
 
 ## _is_lower_coord(a, b) -> bool — stable tie-break rule (US-007 determinism):
@@ -413,7 +417,7 @@ func _is_lower_coord(a, b) -> bool:
 ## core/application/resolve_action_use_case.gd's melee-adjacency/ranged-range
 ## precondition exactly. A no-op (always true) when either side lacks
 ## "hex_coord" data — see _requires_reach_check().
-func _is_in_reach(combatant: Dictionary, target: Dictionary) -> bool:
+func _is_in_reach(combatant, target) -> bool:
 	if not _requires_reach_check(combatant, target):
 		return true
 	if _is_ranged_weapon(combatant):
@@ -426,17 +430,19 @@ func _is_in_reach(combatant: Dictionary, target: Dictionary) -> bool:
 ## mirroring core/application/resolve_action_use_case.gd's identically-named
 ## helper so the AI's notion of "in reach" and the use case that later
 ## executes a Strike never disagree.
-func _requires_reach_check(combatant: Dictionary, target: Dictionary) -> bool:
-	return combatant.get("hex_coord", null) != null and target.get("hex_coord", null) != null
+func _requires_reach_check(combatant, target) -> bool:
+	var c_hex = combatant.hex_coord if not (combatant is Dictionary) else combatant.get("hex_coord", null)
+	var t_hex = target.hex_coord if not (target is Dictionary) else target.get("hex_coord", null)
+	return c_hex != null and t_hex != null
 
 
 ## _is_adjacent(combatant, target) -> bool — true iff target.hex_coord is one
 ## of the 6 flat-top axial neighbors of combatant.hex_coord
 ## (core/geometry/hex_math.gd HexMath.hex_neighbors()).
-func _is_adjacent(combatant: Dictionary, target: Dictionary) -> bool:
-	var neighbors: Array = HexMathClass.hex_neighbors(combatant["hex_coord"])
+func _is_adjacent(combatant, target) -> bool:
+	var neighbors: Array = HexMathClass.hex_neighbors(combatant.hex_coord)
 	for neighbor in neighbors:
-		if neighbor.equals(target["hex_coord"]):
+		if neighbor.equals(target.hex_coord):
 			return true
 	return false
 
@@ -444,8 +450,8 @@ func _is_adjacent(combatant: Dictionary, target: Dictionary) -> bool:
 ## _is_ranged_weapon(combatant) -> bool — true iff the acting combatant's
 ## "weapon" Dictionary carries a "range_hexes" key (mirrors
 ## core/application/resolve_action_use_case.gd's identically-named helper).
-func _is_ranged_weapon(combatant: Dictionary) -> bool:
-	var weapon: Dictionary = combatant.get("weapon", {})
+func _is_ranged_weapon(combatant) -> bool:
+	var weapon: Dictionary = combatant.weapon
 	return weapon.has("range_hexes")
 
 
@@ -453,8 +459,8 @@ func _is_ranged_weapon(combatant: Dictionary) -> bool:
 ## HexMath.hex_distance() from the combatant is within the acting weapon's
 ## range_hexes (inclusive) — mirrors
 ## core/application/resolve_action_use_case.gd's identically-named helper.
-func _is_in_range(combatant: Dictionary, target: Dictionary) -> bool:
-	var weapon: Dictionary = combatant.get("weapon", {})
+func _is_in_range(combatant, target) -> bool:
+	var weapon: Dictionary = combatant.weapon
 	var range_hexes: int = weapon.get("range_hexes", 1)
-	var distance: int = HexMathClass.hex_distance(combatant["hex_coord"], target["hex_coord"])
+	var distance: int = HexMathClass.hex_distance(combatant.hex_coord, target.hex_coord)
 	return distance <= range_hexes

@@ -38,6 +38,7 @@ const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 
 const EndTurnControlScene: PackedScene   = preload("res://presentation/end_turn_control.tscn")
 const ResultScreenViewScene: PackedScene = preload("res://presentation/result_screen_view.tscn")
+const CombatantClass                     = preload("res://core/domain/combatant.gd")
 
 const ERR_ENCOUNTER_ALREADY_RESOLVED: String = "ENCOUNTER_ALREADY_RESOLVED"
 
@@ -48,15 +49,15 @@ const ERR_ENCOUNTER_ALREADY_RESOLVED: String = "ENCOUNTER_ALREADY_RESOLVED"
 ## identically-named fixture) — used ONLY by the standalone EndTurnControl
 ## fixture below, which needs no real MainScene at all.
 class FakeRoundSession:
-	var _actor: Dictionary
+	var _actor
 	var _round_over: bool = false
 	var end_current_turn_call_count: int = 0
 
-	func _init(actor: Dictionary) -> void:
+	func _init(actor) -> void:
 		_actor = actor
 
-	func current_actor() -> Dictionary:
-		return {} if _round_over else _actor
+	func current_actor():
+		return null if _round_over else _actor
 
 	func is_round_over() -> bool:
 		return _round_over
@@ -98,7 +99,7 @@ func test_verb_bar_strike_stays_locked_even_after_a_stray_reconfigure_via_real_m
 		"fixture assumption: the prologue's first actor has at least one in-reach target at seed=42"
 	)
 
-	var actor_id: String = instance.round_session.current_actor().get("combatant_id", "")
+	var actor_id: String = instance.round_session.current_actor().display_id()
 	var budget_before: int = instance.status_panel_view.get_status(actor_id).get("action_budget_remaining", -1)
 
 	var selection: Dictionary = instance.verb_bar_view.press("STRIKE")
@@ -145,7 +146,7 @@ func test_end_turn_control_stays_locked_even_after_a_stray_reconfigure() -> void
 	var control = EndTurnControlScene.instantiate()
 	add_child_autofree(control)
 
-	var session := FakeRoundSession.new({"name": "Titus", "_is_enemy": false})
+	var session := FakeRoundSession.new(CombatantClass.from_dict({"name": "Titus"}))
 	control.configure(session)
 	assert_true(control.is_enabled(), "sanity check: control is enabled before lock()")
 

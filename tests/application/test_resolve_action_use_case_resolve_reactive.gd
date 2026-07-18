@@ -30,6 +30,7 @@ extends GutTest
 
 const ResolveActionUseCaseClass = preload("res://core/application/resolve_action_use_case.gd")
 const ActionEconomyClass        = preload("res://core/rules/action_economy.gd")
+const CombatantClass            = preload("res://core/domain/combatant.gd")
 
 
 class FakeEventSinkPort:
@@ -96,15 +97,15 @@ class ScriptedChooser:
 
 # ── Shared fixtures ──────────────────────────────────────────────────────────
 
-func _attacker() -> Dictionary:
-	return {
+func _attacker():
+	return CombatantClass.from_dict({
 		"name":     "Attacker",
 		"strength": 0,
 		"weapon": {"damage_modifier_attribute": "strength", "proficiency_bonus": 0, "damage_die": 6},
-	}
+	})
 
 
-func _target(overrides: Dictionary = {}) -> Dictionary:
+func _target(overrides: Dictionary = {}):
 	var target: Dictionary = {
 		"name":       "Skeleton",
 		"hp_current": 20,
@@ -121,7 +122,7 @@ func _target(overrides: Dictionary = {}) -> Dictionary:
 	}
 	for key in overrides:
 		target[key] = overrides[key]
-	return target
+	return CombatantClass.from_dict(target)
 
 
 func _fresh_action_economy():
@@ -167,7 +168,7 @@ func test_null_chooser_produces_the_same_outcome_as_resolve_with_default_none() 
 func test_prehit_dodge_success_negates_the_hit_and_spends_one_reaction() -> void:
 	# mob_roll(15)+mobility(5)=20; attack raw(5)+0+0=5 < 20 -> miss.
 	var rig: Dictionary = _rig([15, 5])
-	var target: Dictionary = _target()
+	var target = _target()
 	var target_ae = _fresh_action_economy()
 	var chooser := ScriptedChooser.new("dodge", "none")
 
@@ -193,7 +194,7 @@ func test_prehit_dodge_success_negates_the_hit_and_spends_one_reaction() -> void
 func test_prehit_dodge_failure_still_hits_and_suppresses_onhit_mitigation() -> void:
 	# mob_roll(1)+mobility(5)=6; attack raw(15)+0+0=15 >= 6 -> hit; damage roll(4)+0=4.
 	var rig: Dictionary = _rig([1, 15, 4])
-	var target: Dictionary = _target()
+	var target = _target()
 	var target_ae = _fresh_action_economy()
 	var chooser := ScriptedChooser.new("dodge", "block")
 
@@ -222,7 +223,7 @@ func test_onhit_parry_success_negates_damage_and_spends_one_reaction() -> void:
 	# attack raw(10)+0+0=10 >= ac(10) -> hit; damage roll(5)+0=5;
 	# parry roll(15)+parry_attack_bonus(0)+parry_bonus(4)=19 > roll_total(10) -> succeeds.
 	var rig: Dictionary = _rig([10, 5, 15])
-	var target: Dictionary = _target()
+	var target = _target()
 	var target_ae = _fresh_action_economy()
 	var chooser := ScriptedChooser.new("none", "parry")
 
@@ -245,7 +246,7 @@ func test_onhit_parry_success_negates_damage_and_spends_one_reaction() -> void:
 
 func test_pass_at_both_windows_reproduces_the_fully_unmitigated_outcome_and_spends_no_reaction() -> void:
 	var rig: Dictionary = _rig([10, 5])
-	var target: Dictionary = _target()
+	var target = _target()
 	var target_ae = _fresh_action_economy()
 	var chooser := ScriptedChooser.new("none", "none")
 
@@ -264,7 +265,7 @@ func test_pass_at_both_windows_reproduces_the_fully_unmitigated_outcome_and_spen
 
 func test_reserve_gate_prevents_any_reaction_when_only_one_action_remains() -> void:
 	var rig: Dictionary = _rig([10, 5])
-	var target: Dictionary = _target()
+	var target = _target()
 	var target_ae = _fresh_action_economy()
 	for _i in range(6):
 		target_ae.spend_reaction()
@@ -308,7 +309,7 @@ func test_resolve_reactive_is_deterministic_across_two_runs_with_identical_input
 
 func test_only_strike_action_name_engages_the_reaction_machinery() -> void:
 	var rig: Dictionary = _rig([10, 5])
-	var target: Dictionary = _target()
+	var target = _target()
 	var target_ae = _fresh_action_economy()
 	var chooser := ScriptedChooser.new("dodge", "block")
 

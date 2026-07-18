@@ -37,6 +37,7 @@ const RNGClass          = preload("res://core/rules/rng.gd")
 ## type-check with `is RoundEventsClass.<Type>` and read fields directly
 ## instead of the stale Dictionary-style `ev.get('type', '')`.
 const RoundEventsClass  = preload("res://core/rules/round_events.gd")
+const CombatantClass    = preload("res://core/domain/combatant.gd")
 
 
 # ── Shared fixture helpers ─────────────────────────────────────────────────────
@@ -44,8 +45,8 @@ const RoundEventsClass  = preload("res://core/rules/round_events.gd")
 ## Returns a fresh Titus combatant dict (stats from titus.tres, FEAT-006;
 ## weapon stats mirror longsword.tres after FEAT-086 DEF-003 fix:
 ## damage_die=12 and proficiency_bonus=2 per v0 spec weapons table).
-func _titus_dict() -> Dictionary:
-	return {
+func _titus_dict():
+	return CombatantClass.from_dict({
 		"name": "Titus",
 		"hp_current": 18,
 		"ac": 14,
@@ -57,12 +58,12 @@ func _titus_dict() -> Dictionary:
 			"proficiency_bonus": 2,
 			"damage_die": 12
 		}
-	}
+	})
 
 
 ## Returns a fresh Skeleton stub dict.
-func _skeleton_dict() -> Dictionary:
-	return {
+func _skeleton_dict():
+	return CombatantClass.from_dict({
 		"name": "Skeleton",
 		"hp_current": 8,
 		"ac": 12,
@@ -74,7 +75,7 @@ func _skeleton_dict() -> Dictionary:
 			"proficiency_bonus": 1,
 			"damage_die": 6
 		}
-	}
+	})
 
 
 ## Helper: build an Encounter from fresh combatant dicts and the given seed.
@@ -134,8 +135,8 @@ func test_turn_order_sorted_descending_after_initialize() -> void:
 	if order.size() < 2:
 		fail_test("Cannot check descending order — fewer than 2 combatants in turn order")
 		return
-	var first_roll: int  = order[0].get("_initiative_roll", -1)
-	var second_roll: int = order[1].get("_initiative_roll", -1)
+	var first_roll: int  = order[0].initiative_roll
+	var second_roll: int = order[1].initiative_roll
 	assert_true(
 		first_roll >= second_roll,
 		"Turn order must be descending: order[0]._initiative_roll (%d) >= order[1]._initiative_roll (%d)"
@@ -149,9 +150,9 @@ func test_turn_order_contains_both_combatants_after_initialize() -> void:
 	var order: Array = enc.get_turn_order()
 	assert_eq(order.size(), 2, "Turn order must contain both combatants")
 	# Both combatants must have _initiative_roll set (not -1)
-	assert_true(order[0].get("_initiative_roll", -1) >= 0,
+	assert_true(order[0].initiative_roll >= 0,
 		"First combatant must have a valid _initiative_roll")
-	assert_true(order[1].get("_initiative_roll", -1) >= 0,
+	assert_true(order[1].initiative_roll >= 0,
 		"Second combatant must have a valid _initiative_roll")
 
 
@@ -163,8 +164,8 @@ func test_outcome_won_when_skeleton_hp_reaches_zero() -> void:
 	## Skeleton has hp=1 and ac=1 (always hit, always die on first attack).
 	## Titus has hp=18 so he survives even if skeleton strikes first
 	## (skeleton max damage = d6+2 = 8 < 18).
-	var titus: Dictionary = _titus_dict()
-	var skeleton_fragile: Dictionary = {
+	var titus = _titus_dict()
+	var skeleton_fragile = CombatantClass.from_dict({
 		"name": "Skeleton",
 		"hp_current": 1,
 		"ac": 1,
@@ -176,11 +177,11 @@ func test_outcome_won_when_skeleton_hp_reaches_zero() -> void:
 			"proficiency_bonus": 1,
 			"damage_die": 6
 		}
-	}
+	})
 	var enc = EncounterClass.new([titus], [skeleton_fragile], RNGClass.new(42))
 	enc.run()
 	assert_true(
-		skeleton_fragile.get("hp_current", 1) <= 0,
+		skeleton_fragile.hp_current <= 0,
 		"Skeleton must be dead (hp <= 0) after this setup"
 	)
 	assert_eq(enc.get_outcome(), "won",
@@ -197,7 +198,7 @@ func test_outcome_lost_when_titus_hp_reaches_zero() -> void:
 	## so Titus can rarely hit) cannot kill the skeleton before being killed.
 	## Regardless of initiative order: once skeleton attacks titus (ac=1, always
 	## hit, damage >= 6), titus dies.
-	var titus_fragile: Dictionary = {
+	var titus_fragile = CombatantClass.from_dict({
 		"name": "Titus",
 		"hp_current": 1,
 		"ac": 1,
@@ -209,8 +210,8 @@ func test_outcome_lost_when_titus_hp_reaches_zero() -> void:
 			"proficiency_bonus": 1,
 			"damage_die": 6
 		}
-	}
-	var skeleton_strong: Dictionary = {
+	})
+	var skeleton_strong = CombatantClass.from_dict({
 		"name": "Skeleton",
 		"hp_current": 100,
 		"ac": 20,
@@ -222,11 +223,11 @@ func test_outcome_lost_when_titus_hp_reaches_zero() -> void:
 			"proficiency_bonus": 1,
 			"damage_die": 6
 		}
-	}
+	})
 	var enc = EncounterClass.new([titus_fragile], [skeleton_strong], RNGClass.new(42))
 	enc.run()
 	assert_true(
-		titus_fragile.get("hp_current", 1) <= 0,
+		titus_fragile.hp_current <= 0,
 		"Titus must be dead (hp <= 0) after this setup"
 	)
 	assert_eq(enc.get_outcome(), "lost",
@@ -425,15 +426,15 @@ func test_same_seed_produces_same_round_count() -> void:
 
 ## Helper: build combatants with very high HP so neither dies during the test round.
 ## budget=MAX budget=2000 hp ensures 7 Strikes (max 7 * ~22 damage) cannot kill them.
-func _titus_durable() -> Dictionary:
-	var d: Dictionary = _titus_dict()
-	d["hp_current"] = 2000
+func _titus_durable():
+	var d = _titus_dict()
+	d.hp_current = 2000
 	return d
 
 
-func _skeleton_durable() -> Dictionary:
-	var d: Dictionary = _skeleton_dict()
-	d["hp_current"] = 2000
+func _skeleton_durable():
+	var d = _skeleton_dict()
+	d.hp_current = 2000
 	return d
 
 
@@ -543,8 +544,8 @@ func test_action_budget_resets_to_7_next_round() -> void:
 ##   - The skeleton's hp_current == 2000 - sum(all Titus damages recorded in history),
 ##     proving no phantom 8th attack was applied.
 func test_spend_action_return_checked_in_encounter() -> void:
-	var titus_c: Dictionary    = _titus_durable()
-	var skeleton_c: Dictionary = _skeleton_durable()
+	var titus_c = _titus_durable()
+	var skeleton_c = _skeleton_durable()
 
 	var enc = EncounterClass.new([titus_c], [skeleton_c], RNGClass.new(42))
 	enc.initialize()
@@ -580,7 +581,7 @@ func test_spend_action_return_checked_in_encounter() -> void:
 	for entry in titus_r1:
 		recorded_damage += entry.get("damage_final", 0)
 	assert_eq(
-		skeleton_c.get("hp_current", -1),
+		skeleton_c.hp_current,
 		2000 - recorded_damage,
 		"Skeleton hp must reflect exactly the 7 recorded Strike damages (no unrecorded 8th attack)"
 	)
@@ -604,13 +605,13 @@ func test_round_events_not_empty_after_run_round() -> void:
 
 
 ## Criterion FEAT-025-2: At least one event in get_round_events() is a typed
-## RoundEvents.AttackEvent instance.
+## RoundEvents.AttackBroadcast instance.
 ##
 ## CR-001/FEAT-099 (peer-review BLOCKER fix): get_round_events() elements are
 ## TYPED RoundEvents.* value objects, not Dictionaries — the pre-FEAT-099
 ## Dictionary discriminator `ev.get('type', '') == 'attack'` no longer applies
 ## (RefCounted has no Dictionary-style get(key, default)); the event's class
-## itself (`is RoundEventsClass.AttackEvent`) now carries the 'type' meaning.
+## itself (`is RoundEventsClass.AttackBroadcast`) now carries the 'type' meaning.
 func test_attack_event_present_after_run_round() -> void:
 	var enc = EncounterClass.new(
 		[_titus_durable()], [_skeleton_durable()], RNGClass.new(42)
@@ -620,12 +621,12 @@ func test_attack_event_present_after_run_round() -> void:
 	var events: Array = enc.get_round_events()
 	var has_attack: bool = false
 	for ev in events:
-		if ev is RoundEventsClass.AttackEvent:
+		if ev is RoundEventsClass.AttackBroadcast:
 			has_attack = true
 			break
 	assert_true(
 		has_attack,
-		"get_round_events() must contain at least one RoundEvents.AttackEvent instance"
+		"get_round_events() must contain at least one RoundEvents.AttackBroadcast instance"
 	)
 
 
@@ -638,7 +639,7 @@ func test_attack_event_present_after_run_round() -> void:
 ##   actor_updated_action_budget
 ##
 ## CR-001/FEAT-099 (peer-review BLOCKER fix): get_round_events() elements are
-## TYPED RoundEvents.AttackEvent value objects, not Dictionaries. Field
+## TYPED RoundEvents.AttackBroadcast value objects, not Dictionaries. Field
 ## presence is checked with the `in` operator (object property check) and
 ## direct attribute access, and the "exactly these keys, no extras" guarantee
 ## is verified via AttackEvent.to_dict() (a value object method declared
@@ -660,12 +661,12 @@ func test_attack_event_has_all_required_fields() -> void:
 	# Find first attack event — type-check via `is`, not a Dictionary 'type' key.
 	var attack_ev = null
 	for ev in enc.get_round_events():
-		if ev is RoundEventsClass.AttackEvent:
+		if ev is RoundEventsClass.AttackBroadcast:
 			attack_ev = ev
 			break
 
 	if attack_ev == null:
-		fail_test("No RoundEvents.AttackEvent found in get_round_events() — cannot check fields")
+		fail_test("No RoundEvents.AttackBroadcast found in get_round_events() — cannot check fields")
 		return
 
 	var required_fields: Array = [
@@ -730,8 +731,8 @@ func test_outcome_event_present_when_encounter_ends() -> void:
 ## .name as a direct field rather than via .get('name', '').
 func test_defeated_event_emitted_when_combatant_reaches_zero_hp() -> void:
 	# Skeleton has hp=1 and ac=1 → Titus always hits and always kills in one blow.
-	var titus: Dictionary = _titus_dict()
-	var skeleton_fragile: Dictionary = {
+	var titus = _titus_dict()
+	var skeleton_fragile = CombatantClass.from_dict({
 		"name": "Skeleton",
 		"hp_current": 1,
 		"ac": 1,
@@ -743,7 +744,7 @@ func test_defeated_event_emitted_when_combatant_reaches_zero_hp() -> void:
 			"proficiency_bonus": 1,
 			"damage_die": 6
 		}
-	}
+	})
 	# Use seed 42; initiative roll ensures Titus acts first (dex+intuition=4 vs 2)
 	# Even if skeleton goes first, it can't kill Titus (hp=18, max skeleton damage=8)
 	# so Titus always gets to strike and one-shot the skeleton.
@@ -972,8 +973,8 @@ func test_encounter_run_from_prologue_encounter_tres() -> void:
 	# Use inline combatant dicts (same stats as canonical integration tests)
 	# The resource paths confirm which characters participate; the dicts stub
 	# the derived stats until full resource-loading adapters are available.
-	var titus: Dictionary = _titus_dict()
-	var skeleton: Dictionary = _skeleton_dict()
+	var titus = _titus_dict()
+	var skeleton = _skeleton_dict()
 
 	# Construct Encounter using the seed from the resource (data-driven)
 	var enc = EncounterClass.new(

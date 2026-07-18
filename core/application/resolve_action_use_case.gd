@@ -27,7 +27,7 @@
 ##   4. Emit 'attack' (always) and 'combatant_defeated' (if the target's HP
 ##      transitions to <= 0) events via EventSinkPort, in that order — as
 ##      TYPED value objects (FEAT-099/FIND-096): core/rules/round_events.gd's
-##      RoundEvents.AttackEvent / RoundEvents.CombatantDefeatedEvent, never a
+##      RoundEvents.AttackBroadcast / RoundEvents.CombatantDefeatedEvent, never a
 ##      raw Dictionary. EventSinkPort.emit() therefore now accepts any
 ##      Variant (see core/application/event_sink_port.gd). The emitted
 ##      AttackEvent also carries actor_updated_action_budget (FEAT-009 /
@@ -104,6 +104,7 @@ const ApplyOnHitDefenseUseCaseClass = preload("res://core/application/apply_on_h
 ## resolve_reactive() (below) is built from — see that method's own doc.
 const OpenReactionWindowUseCaseClass = preload("res://core/application/open_reaction_window_use_case.gd")
 const BuildDefenseContextClass       = preload("res://core/application/_build_defense_context.gd")
+const CombatantClass                 = preload("res://core/domain/combatant.gd")
 
 
 ## _PortRNGAdapter (FEAT-008 / US-008, CR-001) — internal adapter wrapping
@@ -352,7 +353,7 @@ func get_apply_on_hit_defense_use_case():
 ##     — ActionEconomy.spend_action() failed (ALREADY_SPENT contract
 ##       violation); no damage applied, no events emitted, no history
 ##       recorded. The caller must skip this combatant for the cycle.
-##   {resolved: true, ok: true, event: RoundEvents.AttackEvent,
+##   {resolved: true, ok: true, event: RoundEvents.AttackBroadcast,
 ##    target_defeated: bool, damage_final: int}
 ##     — the action was spent and the Strike resolved (hit or miss);
 ##       target_defeated is true iff target.hp_current transitioned to <= 0
@@ -372,9 +373,9 @@ func get_apply_on_hit_defense_use_case():
 ## opt into reactive mode by passing an explicit active_defense/
 ## defense_context.
 func resolve(
-	combatant: Dictionary,
+	combatant,
 	action_economy,
-	target: Dictionary,
+	target,
 	action_name: String,
 	round_number: int,
 	cycle_index: int,
@@ -386,7 +387,7 @@ func resolve(
 	if not precheck.get("ok", false):
 		return precheck["error_result"]
 
-	var weapon: Dictionary = combatant.get("weapon", {})
+	var weapon: Dictionary = combatant.weapon
 	# FEAT-007 (US-003/US-007, ADR-007, api_contracts #4): sanitize BEFORE
 	# delegating to _resolve_strike()/resolution.gd — an unrecognized
 	# active_defense is coerced to "none" here (fail-safe: resolution.gd's
@@ -447,9 +448,9 @@ func resolve(
 ## action_name falls back to the identical unmitigated _resolve_strike() path
 ## resolve() itself would take for that action.
 func resolve_reactive(
-	combatant: Dictionary,
+	combatant,
 	action_economy,
-	target: Dictionary,
+	target,
 	action_name: String,
 	round_number: int,
 	cycle_index: int,
@@ -461,7 +462,7 @@ func resolve_reactive(
 	if not precheck.get("ok", false):
 		return precheck["error_result"]
 
-	var weapon: Dictionary = combatant.get("weapon", {})
+	var weapon: Dictionary = combatant.weapon
 	var strike_result: Dictionary
 	if reaction_chooser_port != null and action_name == "Strike":
 		strike_result = _resolve_strike_with_reactions(combatant, target, weapon, target_action_economy, reaction_chooser_port)
@@ -485,9 +486,9 @@ func resolve_reactive(
 ## verbatim), or {"ok": true, "spend_result": Dictionary} once the action has
 ## been successfully spent.
 func _check_preconditions_and_spend(
-	combatant: Dictionary,
+	combatant,
 	action_economy,
-	target: Dictionary,
+	target,
 	action_name: String,
 	active_combatant_id: String
 ) -> Dictionary:
@@ -524,9 +525,9 @@ func _check_preconditions_and_spend(
 ## and _resolve_strike_with_reactions() (below) produce exactly this shape,
 ## so this method never branches on which path produced it.
 func _finalize_strike_result(
-	combatant: Dictionary,
+	combatant,
 	action_economy,
-	target: Dictionary,
+	target,
 	action_name: String,
 	round_number: int,
 	cycle_index: int,
@@ -535,7 +536,13 @@ func _finalize_strike_result(
 ) -> Dictionary:
 	var damage: int = strike_result.get("damage_final", 0)
 	if damage > 0:
-		target["hp_current"] = target.get("hp_current", 0) - damage
+		# Phase C.3: mutate the live Combatant entity by reference — the same
+		# instance the container (_party/_enemies) holds — so the hit persists.
+		# Dict-tolerant shim: pre-migration callers (encounter.gd) still pass dicts.
+		if target is CombatantClass:
+			target.take_damage(damage)
+		else:
+			target["hp_current"] = target.get("hp_current", 0) - damage
 
 	# ── FEAT-009 / US-009 / FR-014 (ADR-003): snapshot the acting combatant's
 	# ActionBudget immediately after the spend_action() call above, so
@@ -546,10 +553,10 @@ func _finalize_strike_result(
 		"spent":     action_economy.is_spent(),
 	}
 
-	var attack_event = RoundEventsClass.AttackEvent.new(
+	var attack_event = RoundEventsClass.AttackBroadcast.new(
 		round_number,
-		combatant.get("name", ""),
-		target.get("name", ""),
+		combatant.name,
+		target.name,
 		strike_result.get("roll_total", 0),
 		"ac",
 		strike_result.get("defense_value", 0),
@@ -560,25 +567,30 @@ func _finalize_strike_result(
 	)
 	_event_sink_port.emit(attack_event)
 
-	var target_defeated: bool = target.get("hp_current", 0) <= 0
+	var target_defeated: bool = target.hp_current <= 0
 	if target_defeated:
 		var defeated_event = RoundEventsClass.CombatantDefeatedEvent.new(
-			round_number, target.get("name", ""), combatant.get("name", "")
+			round_number, target.name, combatant.name
 		)
 		_event_sink_port.emit(defeated_event)
 
 	var history_entry = RoundEventsClass.RoundHistoryEntry.new(
 		round_number,
 		cycle_index,
-		combatant.get("name", ""),
+		combatant.name,
 		action_name,
 		spend_result.get("remaining", -1)
 	)
 
 	_round_history_port.append({
-		"attacker":         combatant,
+		# Phase C.3 bridge: the round history is a READ-ONLY record consumed as
+		# Dictionaries (combat-log rendering, tests reading ["attacker"]/["target"]
+		# via .get()). Snapshot the live entities to_dict() at append time (post-
+		# damage, matching the pre-migration live-dict-reference semantics) so those
+		# consumers keep their dict contract. Flip them onto the entity in C.4.
+		"attacker":         combatant.to_dict() if combatant is CombatantClass else combatant,
 		"action":           action_name,
-		"target":           target,
+		"target":           target.to_dict() if target is CombatantClass else target,
 		"roll":             strike_result.get("roll_total", 0),
 		"damage_final":     damage,
 		"budget_remaining": spend_result.get("remaining", -1),
@@ -617,13 +629,13 @@ func _is_melee_action(action_name: String) -> bool:
 
 
 ## _is_target_invalid(target) -> bool — true when `target` does not exist
-## (an empty Dictionary — the same "not found" sentinel RoundSession already
-## checks via `target.is_empty()`) or is already defeated
-## (hp_current <= 0). FEAT-125/FIND-121.
-func _is_target_invalid(target: Dictionary) -> bool:
-	if target.is_empty():
+## (null — the "no target" sentinel RoundSession/AI now use since the Phase C.3
+## flip to Combatant instances, replacing the old empty-Dictionary sentinel) or
+## is already defeated (hp_current <= 0). FEAT-125/FIND-121.
+func _is_target_invalid(target) -> bool:
+	if target == null:
 		return true
-	return target.get("hp_current", 0) <= 0
+	return target.hp_current <= 0
 
 
 ## _combatant_identifier(combatant) -> String — the same "combatant_id",
@@ -631,8 +643,8 @@ func _is_target_invalid(target: Dictionary) -> bool:
 ## presentation/strike_action_control.gd's _target_id(), so
 ## active_combatant_id comparisons (FEAT-125/FIND-121) use one consistent
 ## identity rule across Presentation and Application.
-func _combatant_identifier(combatant: Dictionary) -> String:
-	return combatant.get("combatant_id", combatant.get("name", ""))
+func _combatant_identifier(combatant) -> String:
+	return combatant.display_id()
 
 
 ## _requires_reach_check(combatant, target) -> bool — the reach precondition
@@ -641,8 +653,10 @@ func _combatant_identifier(combatant: Dictionary) -> String:
 ## (e.g. core/combat/encounter.gd) do not yet populate hex_coord on their
 ## combatant Dictionaries; for those, this use case remains a no-op on reach
 ## — preserving the pre-FEAT-003 contract exactly (backward compatibility).
-func _requires_reach_check(combatant: Dictionary, target: Dictionary) -> bool:
-	return combatant.get("hex_coord", null) != null and target.get("hex_coord", null) != null
+func _requires_reach_check(combatant, target) -> bool:
+	var c_hex = combatant.hex_coord if combatant is CombatantClass else combatant.get("hex_coord", null)
+	var t_hex = target.hex_coord if target is CombatantClass else target.get("hex_coord", null)
+	return c_hex != null and t_hex != null
 
 
 ## _is_adjacent(combatant, target) -> bool — true iff target.hex_coord is one
@@ -650,10 +664,10 @@ func _requires_reach_check(combatant: Dictionary, target: Dictionary) -> bool:
 ## (core/geometry/hex_math.gd HexMath.hex_neighbors(), US-002/US-003). No
 ## diagonal-cost concept exists on a hex grid — all 6 neighbors are equally
 ## valid melee-reach hexes.
-func _is_adjacent(combatant: Dictionary, target: Dictionary) -> bool:
-	var neighbors: Array = HexMathClass.hex_neighbors(combatant["hex_coord"])
+func _is_adjacent(combatant, target) -> bool:
+	var neighbors: Array = HexMathClass.hex_neighbors(combatant.hex_coord)
 	for neighbor in neighbors:
-		if neighbor.equals(target["hex_coord"]):
+		if neighbor.equals(target.hex_coord):
 			return true
 	return false
 
@@ -669,8 +683,8 @@ func _is_adjacent(combatant: Dictionary, target: Dictionary) -> bool:
 ## A ranged weapon's Dictionary is expected to include "range_hexes" (the
 ## WeaponResource field of the same name) so this use case can select the
 ## distance-based reach check below instead of the 6-neighbor melee check.
-func _is_ranged_weapon(combatant: Dictionary) -> bool:
-	var weapon: Dictionary = combatant.get("weapon", {})
+func _is_ranged_weapon(combatant) -> bool:
+	var weapon: Dictionary = combatant.weapon
 	return weapon.has("range_hexes")
 
 
@@ -680,10 +694,10 @@ func _is_ranged_weapon(combatant: Dictionary) -> bool:
 ## (core/geometry/hex_math.gd HexMath.hex_distance()) as melee's
 ## _is_adjacent() and core/rules/movement.gd — never a re-derived notion of
 ## range (FEAT-140 / DEF-007 / FR-014, US-007).
-func _is_in_range(combatant: Dictionary, target: Dictionary) -> bool:
-	var weapon: Dictionary = combatant.get("weapon", {})
+func _is_in_range(combatant, target) -> bool:
+	var weapon: Dictionary = combatant.weapon
 	var range_hexes: int = weapon.get("range_hexes", 1)
-	var distance: int = HexMathClass.hex_distance(combatant["hex_coord"], target["hex_coord"])
+	var distance: int = HexMathClass.hex_distance(combatant.hex_coord, target.hex_coord)
 	return distance <= range_hexes
 
 
@@ -734,8 +748,8 @@ func _sanitize_active_defense(active_defense: String) -> String:
 ## "roll_total", "hit", "crit", "damage_final", and "defense_value" out of
 ## it, but every key resolve_weapon_attack() documents is present.
 func _resolve_strike(
-	attacker: Dictionary,
-	target: Dictionary,
+	attacker,
+	target,
 	weapon: Dictionary,
 	active_defense: String = "none",
 	defense_context: Dictionary = {}
@@ -795,15 +809,20 @@ func _resolve_strike(
 ## "action_economy" is always populated in the context Dictionaries this
 ## method builds, regardless of whether a reaction is ultimately chosen.
 func _resolve_strike_with_reactions(
-	attacker: Dictionary,
-	target: Dictionary,
+	attacker,
+	target,
 	weapon: Dictionary,
 	target_action_economy,
 	reaction_chooser_port
 ) -> Dictionary:
 	# ── PHASE 1: PreHitAvoidance (Dodge/Steel) ──────────────────────────────
+	# Phase C.3: `target` is now the live Combatant INSTANCE the container
+	# holds, so BuildDefenseContext (read-only) consumes it directly — the C.1
+	# from_dict() bridge is removed (a snapshot copy is no longer needed; the hp
+	# mutation later in this Strike lands on this same instance by reference).
+	var target_entity = target
 	var legal_prehit: Array = _resolve_to_hit_use_case.legal_prehit_reactions(target, "ac")
-	var prehit_context: Dictionary = BuildDefenseContextClass.build_prehit_context(target, target_action_economy, "ac")
+	var prehit_context: Dictionary = BuildDefenseContextClass.build_prehit_context(target_entity, target_action_economy, "ac")
 	var prehit_choice: String = _open_reaction_window_use_case.open(
 		OpenReactionWindowUseCaseClass.WINDOW_PRE_HIT_AVOIDANCE, legal_prehit, prehit_context, reaction_chooser_port
 	)
@@ -821,8 +840,8 @@ func _resolve_strike_with_reactions(
 	var on_hit_defense: String = "none"
 	if partial.get("hit", false) and not reaction_already_spent:
 		# ── PHASE 2: OnHitMitigation (Parry/Block) ──────────────────────────
-		var legal_onhit: Array = _apply_on_hit_defense_use_case.legal_onhit_reactions(target.get("weapon", {}))
-		var onhit_context: Dictionary = BuildDefenseContextClass.build_onhit_context(target, target_action_economy, partial)
+		var legal_onhit: Array = _apply_on_hit_defense_use_case.legal_onhit_reactions(target.weapon)
+		var onhit_context: Dictionary = BuildDefenseContextClass.build_onhit_context(target_entity, target_action_economy, partial)
 		var onhit_choice: String = _open_reaction_window_use_case.open(
 			OpenReactionWindowUseCaseClass.WINDOW_ON_HIT_MITIGATION, legal_onhit, onhit_context, reaction_chooser_port
 		)
@@ -833,7 +852,7 @@ func _resolve_strike_with_reactions(
 	var on_hit_suppressed: bool = false
 
 	if partial.get("hit", false):
-		var apply_ctx: Dictionary = BuildDefenseContextClass.build_onhit_context(target, target_action_economy, partial)
+		var apply_ctx: Dictionary = BuildDefenseContextClass.build_onhit_context(target_entity, target_action_economy, partial)
 		var post: Dictionary = _resolution.apply_on_hit_defense(partial, on_hit_defense, apply_ctx)
 		damage_final           = post["damage_final"]
 		active_defense_applied = post["active_defense_applied"]

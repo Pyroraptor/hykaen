@@ -109,14 +109,14 @@ func _boot_main_scene():
 	return instance
 
 
-func _id(combatant: Dictionary) -> String:
-	return combatant.get("combatant_id", combatant.get("name", ""))
+func _id(combatant) -> String:
+	return combatant.combatant_id
 
 
-func _skeleton(instance) -> Dictionary:
+func _skeleton(instance):
 	assert_true(instance._enemies.size() > 0, "fixture assumption: the prologue encounter has at least one enemy")
-	var skeleton: Dictionary = instance._enemies[0]
-	assert_eq(skeleton.get("name", ""), "Skeleton", "fixture assumption: the sole enemy is the Skeleton")
+	var skeleton = instance._enemies[0]
+	assert_eq(skeleton.name, "Skeleton", "fixture assumption: the sole enemy is the Skeleton")
 	return skeleton
 
 
@@ -128,7 +128,7 @@ func _skeleton(instance) -> Dictionary:
 ## mobility > targeted_defense_value) unconditionally true, routing every
 ## Strike into the (already boot-real-tested) Dodge branch instead of the
 ## OnHitMitigation (Parry/Block) branch this suite targets.
-func _force_guaranteed_hit_no_dodge(combatant: Dictionary) -> void:
+func _force_guaranteed_hit_no_dodge(combatant) -> void:
 	combatant["ac"] = AC_GUARANTEED_HIT
 	combatant["conditions"] = ["Immobilized"]
 
@@ -150,7 +150,7 @@ func _resolve_one_real_player_strike_against(instance, target_id: String) -> voi
 
 
 func _sole_attack_event(instance):
-	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 	assert_eq(attack_events.size(), 1, "exactly one Strike must have resolved")
 	return attack_events[0]
 
@@ -166,7 +166,7 @@ func test_forced_parry_success_yields_higher_skeleton_hp_current_vs_unmitigated(
 	var mitigated_instance = _boot_main_scene()
 	await get_tree().process_frame
 
-	var mitigated_skeleton: Dictionary = _skeleton(mitigated_instance)
+	var mitigated_skeleton = _skeleton(mitigated_instance)
 	var mitigated_skeleton_id: String = _id(mitigated_skeleton)
 	_force_guaranteed_hit_no_dodge(mitigated_skeleton)
 	mitigated_skeleton["hp_current"] = SURVIVABLE_HP
@@ -181,7 +181,7 @@ func test_forced_parry_success_yields_higher_skeleton_hp_current_vs_unmitigated(
 	assert_true(mitigated_attack_event.hit, "fixture assumption: the guaranteed-hit AC must actually produce a hit")
 	assert_eq(mitigated_attack_event.damage_final, 0, "a genuinely-chosen, successful Parry must negate ALL raw damage")
 
-	var mitigated_hp_after: int = mitigated_skeleton.get("hp_current", -1)
+	var mitigated_hp_after: int = mitigated_skeleton.hp_current
 	assert_eq(mitigated_hp_after, SURVIVABLE_HP, "a successful Parry must leave the Skeleton's hp_current byte-for-byte unchanged")
 	assert_eq(
 		mitigated_ae.get_remaining(), mitigated_budget_before - 1,
@@ -194,7 +194,7 @@ func test_forced_parry_success_yields_higher_skeleton_hp_current_vs_unmitigated(
 	var baseline_instance = _boot_main_scene()
 	await get_tree().process_frame
 
-	var baseline_skeleton: Dictionary = _skeleton(baseline_instance)
+	var baseline_skeleton = _skeleton(baseline_instance)
 	var baseline_skeleton_id: String = _id(baseline_skeleton)
 	_force_guaranteed_hit_no_dodge(baseline_skeleton)
 	baseline_skeleton["hp_current"] = SURVIVABLE_HP
@@ -207,7 +207,7 @@ func test_forced_parry_success_yields_higher_skeleton_hp_current_vs_unmitigated(
 	assert_true(baseline_attack_event.hit, "fixture assumption: the guaranteed-hit AC must actually produce a hit")
 	assert_true(baseline_attack_event.damage_final > 0, "the unmitigated baseline must take real, unmitigated damage")
 
-	var baseline_hp_after: int = baseline_skeleton.get("hp_current", -1)
+	var baseline_hp_after: int = baseline_skeleton.hp_current
 	assert_lt(baseline_hp_after, SURVIVABLE_HP, "fixture assumption: the unmitigated baseline must actually lose hp")
 
 	# ── The criterion itself ────────────────────────────────────────────────
@@ -228,7 +228,7 @@ func test_forced_block_yields_higher_skeleton_hp_current_vs_unmitigated() -> voi
 	var mitigated_instance = _boot_main_scene()
 	await get_tree().process_frame
 
-	var mitigated_skeleton: Dictionary = _skeleton(mitigated_instance)
+	var mitigated_skeleton = _skeleton(mitigated_instance)
 	var mitigated_skeleton_id: String = _id(mitigated_skeleton)
 	_force_guaranteed_hit_no_dodge(mitigated_skeleton)
 	mitigated_skeleton["hp_current"] = SURVIVABLE_HP
@@ -244,7 +244,7 @@ func test_forced_block_yields_higher_skeleton_hp_current_vs_unmitigated() -> voi
 	assert_true(mitigated_attack_event.hit, "fixture assumption: the guaranteed-hit AC must actually produce a hit")
 	assert_eq(mitigated_attack_event.damage_final, 0, "a genuinely-chosen, successful Block must fully suppress damage (overwhelming block_value)")
 
-	var mitigated_hp_after: int = mitigated_skeleton.get("hp_current", -1)
+	var mitigated_hp_after: int = mitigated_skeleton.hp_current
 	assert_eq(mitigated_hp_after, SURVIVABLE_HP, "a successful Block must leave the Skeleton's hp_current byte-for-byte unchanged")
 	assert_eq(
 		mitigated_ae.get_remaining(), mitigated_budget_before - 1,
@@ -255,7 +255,7 @@ func test_forced_block_yields_higher_skeleton_hp_current_vs_unmitigated() -> voi
 	var baseline_instance = _boot_main_scene()
 	await get_tree().process_frame
 
-	var baseline_skeleton: Dictionary = _skeleton(baseline_instance)
+	var baseline_skeleton = _skeleton(baseline_instance)
 	var baseline_skeleton_id: String = _id(baseline_skeleton)
 	_force_guaranteed_hit_no_dodge(baseline_skeleton)
 	baseline_skeleton["hp_current"] = SURVIVABLE_HP
@@ -268,7 +268,7 @@ func test_forced_block_yields_higher_skeleton_hp_current_vs_unmitigated() -> voi
 	assert_true(baseline_attack_event.hit, "fixture assumption: the guaranteed-hit AC must actually produce a hit")
 	assert_true(baseline_attack_event.damage_final > 0, "the unmitigated baseline must take real, unmitigated damage")
 
-	var baseline_hp_after: int = baseline_skeleton.get("hp_current", -1)
+	var baseline_hp_after: int = baseline_skeleton.hp_current
 	assert_lt(baseline_hp_after, SURVIVABLE_HP, "fixture assumption: the unmitigated baseline must actually lose hp")
 
 	# ── The criterion itself ────────────────────────────────────────────────

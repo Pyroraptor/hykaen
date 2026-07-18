@@ -82,11 +82,11 @@ func _boot_main_scene_with_seed(seed_value: int):
 	return instance
 
 
-func _find_combatant_by_id(instance, combatant_id: String) -> Dictionary:
+func _find_combatant_by_id(instance, combatant_id: String):
 	for combatant in instance._party + instance._enemies:
-		if combatant.get("combatant_id", "") == combatant_id:
+		if combatant.combatant_id == combatant_id:
 			return combatant
-	return {}
+	return null
 
 
 ## _snapshot_positions(instance) -> Dictionary — combatant_id -> Vector2i(q,r)
@@ -96,8 +96,8 @@ func _find_combatant_by_id(instance, combatant_id: String) -> Dictionary:
 func _snapshot_positions(instance) -> Dictionary:
 	var snapshot: Dictionary = {}
 	for combatant in instance._party + instance._enemies:
-		var combatant_id: String = combatant.get("combatant_id", combatant.get("name", ""))
-		var hex_coord = combatant.get("hex_coord", null)
+		var combatant_id: String = combatant.combatant_id
+		var hex_coord = combatant.hex_coord
 		if hex_coord != null:
 			snapshot[combatant_id] = Vector2i(hex_coord.q, hex_coord.r)
 	return snapshot
@@ -106,8 +106,8 @@ func _snapshot_positions(instance) -> Dictionary:
 func _snapshot_hp(instance) -> Dictionary:
 	var snapshot: Dictionary = {}
 	for combatant in instance._party + instance._enemies:
-		var combatant_id: String = combatant.get("combatant_id", combatant.get("name", ""))
-		snapshot[combatant_id] = combatant.get("hp_current", -1)
+		var combatant_id: String = combatant.combatant_id
+		snapshot[combatant_id] = combatant.hp_current
 	return snapshot
 
 
@@ -122,7 +122,7 @@ func test_entry_point_verb_bar_renders_correctly_gated_at_turn_start() -> void:
 	await get_tree().process_frame
 
 	assert_false(
-		instance.round_session.current_actor().get("_is_enemy", true),
+		instance.round_session.current_actor().is_enemy,
 		"fixture assumption: the first actor must be the living player combatant (Titus) at seed=42"
 	)
 
@@ -165,7 +165,7 @@ func test_strike_flow_resolves_via_select_target_with_board_status_lock_updating
 
 	assert_true(instance._verb_registry.is_available(STRIKE), "fixture assumption: STRIKE is available at seed=42")
 
-	var actor_id: String = instance.round_session.current_actor().get("combatant_id", "")
+	var actor_id: String = instance.round_session.current_actor().display_id()
 	var before_remaining: int = instance.status_panel_view.get_status(actor_id).get("action_budget_remaining", -1)
 	assert_true(before_remaining > 0, "sanity check: the acting combatant starts with a positive action budget")
 	var events_before: int = instance.event_log_view.get_entry_count()
@@ -220,7 +220,7 @@ func test_step_flow_moves_token_via_move_token_with_no_action_spent() -> void:
 
 	assert_true(instance._verb_registry.is_available(STEP), "fixture assumption: STEP is available at seed=42")
 
-	var actor_id: String = instance.round_session.current_actor().get("combatant_id", "")
+	var actor_id: String = instance.round_session.current_actor().display_id()
 	var before_remaining: int = instance.status_panel_view.get_status(actor_id).get("action_budget_remaining", -1)
 	assert_true(before_remaining > 0, "sanity check: the acting combatant starts with a positive action budget")
 
@@ -242,8 +242,8 @@ func test_step_flow_moves_token_via_move_token_with_no_action_spent() -> void:
 	# the full Layer2->Layer1 UI transition is exercised too.
 	instance.hex_grid_view.hex_clicked.emit(destination)
 
-	var moved_combatant: Dictionary = _find_combatant_by_id(instance, actor_id)
-	assert_true(moved_combatant.get("hex_coord").equals(destination), "the live combatant Dictionary's hex_coord must move to the selected hex via move_token()")
+	var moved_combatant = _find_combatant_by_id(instance, actor_id)
+	assert_true(moved_combatant.hex_coord.equals(destination), "the live combatant Dictionary's hex_coord must move to the selected hex via move_token()")
 
 	var token_after = instance.hex_grid_view.get_token(actor_id)
 	assert_true(token_after.hex_coord.equals(destination), "the real HexGridView's token must resync to the new hex after the Step")
@@ -264,7 +264,7 @@ func test_stride_flow_moves_token_via_move_token_with_one_action_spent() -> void
 
 	assert_true(instance._verb_registry.is_available(STRIDE), "fixture assumption: STRIDE is available at seed=42")
 
-	var actor_id: String = instance.round_session.current_actor().get("combatant_id", "")
+	var actor_id: String = instance.round_session.current_actor().display_id()
 	var action_economy = instance.round_session.current_action_economy()
 	assert_not_null(action_economy, "fixture assumption: the acting combatant carries a live ActionEconomy")
 	var before_remaining: int = action_economy.get_remaining()
@@ -288,8 +288,8 @@ func test_stride_flow_moves_token_via_move_token_with_one_action_spent() -> void
 	# the full Layer2->Layer1 UI transition is exercised too.
 	instance.hex_grid_view.hex_clicked.emit(destination)
 
-	var moved_combatant: Dictionary = _find_combatant_by_id(instance, actor_id)
-	assert_true(moved_combatant.get("hex_coord").equals(destination), "the live combatant Dictionary's hex_coord must move to the selected hex via move_token()")
+	var moved_combatant = _find_combatant_by_id(instance, actor_id)
+	assert_true(moved_combatant.hex_coord.equals(destination), "the live combatant Dictionary's hex_coord must move to the selected hex via move_token()")
 
 	var token_after = instance.hex_grid_view.get_token(actor_id)
 	assert_true(token_after.hex_coord.equals(destination), "the real HexGridView's token must resync to the new hex after the Stride")
@@ -350,7 +350,7 @@ func test_cancel_from_strike_layer2_produces_zero_side_effects_and_returns_to_la
 
 	assert_true(instance._verb_registry.is_available(STRIKE), "fixture assumption: STRIKE is available at seed=42")
 
-	var actor_id: String = instance.round_session.current_actor().get("combatant_id", "")
+	var actor_id: String = instance.round_session.current_actor().display_id()
 	var before_remaining: int = instance.status_panel_view.get_status(actor_id).get("action_budget_remaining", -1)
 	var events_before: int = instance.event_log_view.get_entry_count()
 	var positions_before: Dictionary = _snapshot_positions(instance)
@@ -383,7 +383,7 @@ func test_cancel_from_step_layer2_produces_zero_side_effects_and_returns_to_laye
 
 	assert_true(instance._verb_registry.is_available(STEP), "fixture assumption: STEP is available at seed=42")
 
-	var actor_id: String = instance.round_session.current_actor().get("combatant_id", "")
+	var actor_id: String = instance.round_session.current_actor().display_id()
 	var before_remaining: int = instance.status_panel_view.get_status(actor_id).get("action_budget_remaining", -1)
 	var events_before: int = instance.event_log_view.get_entry_count()
 	var positions_before: Dictionary = _snapshot_positions(instance)
@@ -413,7 +413,7 @@ func test_cancel_from_stride_layer2_produces_zero_side_effects_and_returns_to_la
 
 	assert_true(instance._verb_registry.is_available(STRIDE), "fixture assumption: STRIDE is available at seed=42")
 
-	var actor_id: String = instance.round_session.current_actor().get("combatant_id", "")
+	var actor_id: String = instance.round_session.current_actor().display_id()
 	var action_economy = instance.round_session.current_action_economy()
 	var before_remaining: int = action_economy.get_remaining()
 	var events_before: int = instance.event_log_view.get_entry_count()

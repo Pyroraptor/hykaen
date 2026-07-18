@@ -54,11 +54,13 @@ func _init(
 ## Delegates the whole whether/how-to-relocate decision to the SAME
 ## ResolveDodgeStepUseCase round_session.gd's seam consumes, resolving the hex
 ## SYNCHRONOUSLY via AIHexChoiceResolver (no player pop-up).
-func resolve_enemy_dodge_step(target: Dictionary, resolve_result: Dictionary, attacker_hex, legal_hexes: Array) -> void:
+func resolve_enemy_dodge_step(target, resolve_result: Dictionary, attacker_hex, legal_hexes: Array) -> void:
 	if not resolve_result.get("defender_stepped", false):
 		return
 
-	var defender_id: String = target.get("combatant_id", target.get("name", ""))
+	# Phase C.3/C.4: `target` is the LIVE defender instance — ResolveDodgeStepUseCase
+	# repositions it via move_to() by reference, so the token/hex both persist.
+	var defender_id: String = target.display_id()
 	var ai_hex_resolver := AIHexChoiceResolverClass.new(attacker_hex)
 	var token_reposition_fn: Callable = Callable()
 	if _hex_grid_view != null:
@@ -75,7 +77,7 @@ func resolve_enemy_dodge_step(target: Dictionary, resolve_result: Dictionary, at
 ## reactor_spent_fn Callable ResolveStrideUseCase awaits per candidate reactor,
 ## backed by the SAME live ActionEconomy lookup every other reaction seam uses.
 ## Defaults to "not spent" when no tracked ActionEconomy exists.
-func is_reactor_reaction_spent(reactor: Dictionary) -> bool:
+func is_reactor_reaction_spent(reactor) -> bool:
 	var reactor_action_economy = _action_economy_fn.call(reactor)
 	return reactor_action_economy.is_spent() if reactor_action_economy != null else false
 
@@ -86,7 +88,7 @@ func is_reactor_reaction_spent(reactor: Dictionary) -> bool:
 ## path. Drives ResolveStrideUseCase.execute() with per-reactor spent/resolver
 ## Callables, routing the PLAYER reactor to resolve_player_opportunistic_strike_
 ## reaction() (the real, awaited pop-up).
-func resolve_enemy_stride_opportunistic_window(mover: Dictionary, mover_start_hex, candidate_reactors: Array) -> Dictionary:
+func resolve_enemy_stride_opportunistic_window(mover, mover_start_hex, candidate_reactors: Array) -> Dictionary:
 	var use_case := ResolveStrideUseCaseClass.new()
 	return await use_case.execute(
 		mover, mover_start_hex, candidate_reactors,
@@ -103,7 +105,7 @@ func resolve_enemy_stride_opportunistic_window(mover: Dictionary, mover_start_he
 ## FEAT-006 (US-006): the player-reactor half. Delegates to
 ## turn_controller.resolve_opportunistic_strike_reaction() (a genuinely blocking
 ## pop-up). Degrades to Pass ({"choice": "none"}) when turn_controller is unwired.
-func resolve_player_opportunistic_strike_reaction(reactor: Dictionary, context: Dictionary) -> Dictionary:
+func resolve_player_opportunistic_strike_reaction(reactor, context: Dictionary) -> Dictionary:
 	if _turn_controller == null:
 		return {"choice": "none"}
 
@@ -116,7 +118,7 @@ func resolve_player_opportunistic_strike_reaction(reactor: Dictionary, context: 
 ## FEAT-006 (US-006): the enemy-reactor half, consulted for the PLAYER-mover
 ## Stride path. Synchronous end to end (OpenReactionWindowUseCase.open() never
 ## awaits, and the AIReactionPolicy chooser never suspends), so NO pop-up opens.
-func resolve_enemy_opportunistic_strike_reaction(reactor: Dictionary, context: Dictionary) -> Dictionary:
+func resolve_enemy_opportunistic_strike_reaction(reactor, context: Dictionary) -> Dictionary:
 	var reaction_context: Dictionary = context.duplicate()
 	var reactor_action_economy = _action_economy_fn.call(reactor)
 	if reactor_action_economy != null:
@@ -141,8 +143,10 @@ func order_candidate_reactors_by_initiative(candidates: Array) -> Array:
 		indexed.append({"candidate": candidates[i], "spawn_index": i})
 
 	indexed.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		var roll_a: int = a["candidate"].get("_initiative_roll", 0)
-		var roll_b: int = b["candidate"].get("_initiative_roll", 0)
+		# Phase C.3/C.4: candidates are Combatant instances — read initiative_roll
+		# (the entity field) rather than the "_initiative_roll" dict key.
+		var roll_a: int = a["candidate"].initiative_roll
+		var roll_b: int = b["candidate"].initiative_roll
 		if roll_a == roll_b:
 			return a["spawn_index"] < b["spawn_index"]
 		return roll_a > roll_b
@@ -163,12 +167,12 @@ func order_candidate_reactors_by_initiative(candidates: Array) -> Array:
 func assert_candidate_reactors_ordering(ordered_candidates: Array, turn_order: Array) -> bool:
 	var turn_order_index: Dictionary = {}
 	for i in range(turn_order.size()):
-		var entry_id: String = turn_order[i].get("combatant_id", turn_order[i].get("name", ""))
+		var entry_id: String = turn_order[i].display_id()
 		turn_order_index[entry_id] = i
 
 	var last_index: int = -1
 	for candidate in ordered_candidates:
-		var candidate_id: String = candidate.get("combatant_id", candidate.get("name", ""))
+		var candidate_id: String = candidate.display_id()
 
 		if not turn_order_index.has(candidate_id):
 			var missing_message: String = (

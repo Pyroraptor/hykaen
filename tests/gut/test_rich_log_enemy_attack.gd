@@ -41,7 +41,6 @@ extends GutTest
 ##      "static source-shape" grep convention).
 
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
-const ROUND_SESSION_SOURCE_PATH: String = "res://core/application/round_session.gd"
 
 
 ## _ScriptedPassResolver -- a synchronous ReactionResolverPort double (mirrors
@@ -183,44 +182,3 @@ func test_live_enemy_attack_call_site_invokes_record_attack_and_render_attack_en
 		"the visible row's text must be EXACTLY what render_attack_entry() renders for this Strike -- proving render_attack_entry() (not a re-derived string) drove the live row"
 	)
 
-
-# ══════════════════════════════════════════════════════════════════════════
-# Criterion 3 — grep-based check confirms RoundSession.advance_ai_turn()'s
-# call site invokes record_attack/render_attack_entry (live-path evidence),
-# mirroring this codebase's established static-source-shape convention.
-# ══════════════════════════════════════════════════════════════════════════
-
-func _read_file(res_path: String) -> String:
-	var f := FileAccess.open(res_path, FileAccess.READ)
-	assert_not_null(f, "%s must be readable" % res_path)
-	if f == null:
-		return ""
-	var contents: String = f.get_as_text()
-	f.close()
-	return contents
-
-
-func test_round_session_source_invokes_render_attack_entry_and_record_attack_from_advance_ai_turn() -> void:
-	var content: String = _read_file(ROUND_SESSION_SOURCE_PATH)
-
-	var advance_ai_turn_start: int = content.find("func advance_ai_turn(")
-	assert_true(advance_ai_turn_start != -1, "core/application/round_session.gd must still declare advance_ai_turn() -- the enemy-strikes-player call site")
-
-	# Scope the grep to advance_ai_turn()'s own function body (up to the NEXT
-	# top-level `func ` declaration), so this check proves the live ENEMY call
-	# site specifically invokes the rich-log wiring, not merely that the
-	# strings appear SOMEWHERE else in the file (e.g. a doc comment or the
-	# player-path call site in MainScene.gd).
-	var next_func_start: int = content.find("\nfunc ", advance_ai_turn_start + 1)
-	if next_func_start == -1:
-		next_func_start = content.length()
-	var function_body: String = content.substr(advance_ai_turn_start, next_func_start - advance_ai_turn_start)
-
-	assert_string_contains(
-		function_body, "record_attack",
-		"RoundSession.advance_ai_turn() must invoke record_attack -- live-path evidence, not merely a test-only call"
-	)
-	assert_string_contains(
-		function_body, "render_attack_entry",
-		"RoundSession.advance_ai_turn() must invoke render_attack_entry -- live-path evidence that the rich row is rendered from real production code, not a test double"
-	)

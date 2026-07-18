@@ -190,8 +190,8 @@ func test_main_scene_loads_prologue_encounter_party_and_enemies_with_no_manual_s
 
 	var teams: Array = []
 	for combatant in turn_order:
-		var team = combatant.get("team", null)
-		if team != null and not teams.has(team):
+		var team = combatant.is_enemy
+		if not teams.has(team):
 			teams.append(team)
 	assert_true(
 		teams.size() >= 2 or turn_order.size() >= 2,

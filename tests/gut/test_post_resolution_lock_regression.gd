@@ -40,6 +40,7 @@ const EndTurnControlScene: PackedScene   = preload("res://presentation/end_turn_
 const SelectionOverlayClass         = preload("res://presentation/selection_overlay.gd")
 const MovementInputControllerClass  = preload("res://presentation/movement_input_controller.gd")
 const HexCoordClass                 = preload("res://core/geometry/hex_coord.gd")
+const CombatantClass                = preload("res://core/domain/combatant.gd")
 
 const STRIKE: String    = "STRIKE"
 const STEP: String      = "STEP"
@@ -101,12 +102,12 @@ class SpyHexGridView:
 ## on (mirrors tests/business_logic/test_result_screen_lock.gd's
 ## identically-named fixture).
 class FakeRoundSession:
-	var _actor: Dictionary
+	var _actor
 
-	func _init(actor: Dictionary) -> void:
+	func _init(actor) -> void:
 		_actor = actor
 
-	func current_actor() -> Dictionary:
+	func current_actor():
 		return _actor
 
 	func is_round_over() -> bool:
@@ -152,7 +153,7 @@ func _on_verb_selection_entered(verb_id: String, selection) -> void:
 func test_pre_existing_three_argument_configure_call_still_locks_end_turn_and_movement() -> void:
 	var end_turn_control = EndTurnControlScene.instantiate()
 	add_child_autofree(end_turn_control)
-	end_turn_control.configure(FakeRoundSession.new({"name": "Titus", "_is_enemy": false}))
+	end_turn_control.configure(FakeRoundSession.new(CombatantClass.from_dict({"name": "Titus"})))
 	assert_true(end_turn_control.is_enabled(), "sanity check: EndTurnControl starts enabled")
 
 	var movement_input_controller := MovementInputControllerClass.new()
@@ -172,7 +173,7 @@ func test_pre_existing_three_argument_configure_call_still_locks_end_turn_and_mo
 func test_lock_all_controls_remains_idempotent_with_the_two_new_collaborators_injected() -> void:
 	var end_turn_control = EndTurnControlScene.instantiate()
 	add_child_autofree(end_turn_control)
-	end_turn_control.configure(FakeRoundSession.new({"name": "Titus", "_is_enemy": false}))
+	end_turn_control.configure(FakeRoundSession.new(CombatantClass.from_dict({"name": "Titus"})))
 
 	_view.configure(null, end_turn_control, null, null, _verb_bar_view, _selection_overlay)
 

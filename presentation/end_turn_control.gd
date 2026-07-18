@@ -128,11 +128,11 @@ func _compute_enabled() -> bool:
 	if _round_session.is_round_over():
 		return false
 
-	var actor: Dictionary = _round_session.current_actor()
-	if actor.is_empty():
+	var actor = _round_session.current_actor()
+	if actor == null:
 		return false
 
-	return not actor.get("_is_enemy", false)
+	return not actor.is_enemy
 
 
 func _refresh_enabled_state() -> void:

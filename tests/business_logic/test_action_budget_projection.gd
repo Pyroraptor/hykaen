@@ -3,7 +3,7 @@ extends GutTest
 ## FR-014, ADR-003)
 ##
 ## GUT test suite for the post-Strike action-budget projection: core/rules/
-## round_events.gd's RoundEvents.AttackEvent now additionally carries
+## round_events.gd's RoundEvents.AttackBroadcast now additionally carries
 ## actor_updated_action_budget ({remaining: int, spent: bool}), populated by
 ## core/application/resolve_action_use_case.gd immediately after the acting
 ## combatant's ActionEconomy.spend_action() call, and pushed by MainScene.gd
@@ -37,6 +37,7 @@ const StatusPanelViewScene: PackedScene = preload("res://presentation/status_pan
 const ResolveActionUseCaseClass         = preload("res://core/application/resolve_action_use_case.gd")
 const ActionEconomyClass                = preload("res://core/rules/action_economy.gd")
 const RoundEventsClass                  = preload("res://core/rules/round_events.gd")
+const CombatantClass                    = preload("res://core/domain/combatant.gd")
 
 const STATUS_PANEL_VIEW_SOURCE_PATH: String = "res://presentation/status_panel_view.gd"
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
@@ -113,8 +114,8 @@ func _sample_view_models() -> Array:
 	]
 
 
-func _attacker() -> Dictionary:
-	return {
+func _attacker():
+	return CombatantClass.from_dict({
 		"name": "Titus",
 		"combatant_id": "player_0",
 		"strength": 3,
@@ -123,11 +124,11 @@ func _attacker() -> Dictionary:
 			"proficiency_bonus": 2,
 			"damage_die": 6,
 		},
-	}
+	})
 
 
-func _target() -> Dictionary:
-	return {"name": "Skeleton", "combatant_id": "enemy_0", "hp_current": 8, "ac": 10}
+func _target():
+	return CombatantClass.from_dict({"name": "Skeleton", "combatant_id": "enemy_0", "hp_current": 8, "ac": 10})
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -186,7 +187,7 @@ func test_action_budget_remaining_and_spent_true_after_seventh_strike() -> void:
 		var event_sink = FakeEventSinkPort.new()
 		var history    = FakeRoundHistoryPort.new()
 		var use_case   = ResolveActionUseCaseClass.new(rng_port, event_sink, history)
-		var target: Dictionary = _target()  # a fresh, undefeated target for each iteration
+		var target = _target()  # a fresh, undefeated target for each iteration
 		var result: Dictionary = use_case.resolve(_attacker(), action_economy, target, "Strike", 1, i)
 		assert_true(result.get("resolved", false), "fixture assumption: each of the 7 Strikes must resolve")
 		last_event = result["event"]
@@ -224,7 +225,7 @@ func _boot_main_scene():
 func test_main_scene_pushes_updated_action_budget_into_status_panel_view_after_strike() -> void:
 	var instance = _boot_main_scene()
 
-	var actor_id: String = instance.round_session.current_actor().get("combatant_id", "")
+	var actor_id: String = instance.round_session.current_actor().display_id()
 	assert_ne(actor_id, "", "fixture assumption: the first active actor has a stable combatant_id")
 
 	var before_status: Dictionary = instance.status_panel_view.get_status(actor_id)
@@ -317,11 +318,11 @@ func test_update_action_budget_noops_when_field_missing_from_dictionary_event() 
 func test_update_action_budget_noops_when_field_is_null_on_production_attack_event() -> void:
 	_panel.load_combatants(_sample_view_models())
 
-	# A production RoundEvents.AttackEvent constructed without the additive
+	# A production RoundEvents.AttackBroadcast constructed without the additive
 	# 10th constructor argument (every pre-FEAT-009 call site) defaults
 	# actor_updated_action_budget to null -- this must be treated identically
 	# to "missing from the event", never thrown.
-	var legacy_shaped_event = RoundEventsClass.AttackEvent.new(
+	var legacy_shaped_event = RoundEventsClass.AttackBroadcast.new(
 		1, "Titus", "Skeleton", 17, "ac", 14, true, false, 3
 	)
 	_panel.update_action_budget("player_0", legacy_shaped_event)

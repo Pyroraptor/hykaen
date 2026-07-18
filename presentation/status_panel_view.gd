@@ -43,7 +43,7 @@
 ## Event duck-typing (`_event_get`): events may arrive either as a typed
 ## core/rules/round_events.gd value object (a RefCounted with plain `var`
 ## fields) or as a plain Dictionary (as used by tests to "simulate" an event
-## without depending on the exact RoundEvents.AttackEvent field list).
+## without depending on the exact RoundEvents.AttackBroadcast field list).
 ## `_event_get()` reads a field from either shape uniformly. An AttackEvent
 ## carries `damage_final` (the production core/rules/round_events.gd shape);
 ## a `target_hp_after` field, when present, takes precedence — allowing a
@@ -246,7 +246,7 @@ func on_attack_event(event) -> void:
 ## "caller-supplied bool, presentation reflects, never derives" contract).
 ##
 ## `event` is duck-typed (a Dictionary or an Object/RefCounted value object,
-## e.g. core/rules/round_events.gd's RoundEvents.AttackEvent) exactly like
+## e.g. core/rules/round_events.gd's RoundEvents.AttackBroadcast) exactly like
 ## every other event entry point on this class (_event_get()). When `event`
 ## carries no actor_updated_action_budget (or a non-Dictionary value there --
 ## e.g. an older AttackEvent constructed before FEAT-009 added the field,

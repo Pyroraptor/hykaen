@@ -84,9 +84,9 @@ func _boot_main_scene():
 func test_successful_dodge_invokes_the_step_selection_prompt_exactly_once_with_the_matching_hex_set() -> void:
 	var instance = _boot_main_scene()
 
-	var defender: Dictionary = instance.round_session.current_actor()
-	assert_eq(defender.get("name", ""), "Titus", "fixture: Titus (the real player combatant) must be the current actor at boot")
-	var defender_id: String = defender.get("combatant_id", defender.get("name", ""))
+	var defender = instance.round_session.current_actor()
+	assert_eq(defender.name, "Titus", "fixture: Titus (the real player combatant) must be the current actor at boot")
+	var defender_id: String = defender.display_id()
 
 	# The REAL wiring this feature adds (MainScene.gd's rewire_session()):
 	# round_session.set_hex_choice_resolver_fn(Callable(self, "resolve_hex_choice"))
@@ -130,7 +130,7 @@ func test_successful_dodge_invokes_the_step_selection_prompt_exactly_once_with_t
 func test_no_prompt_when_dodge_is_not_successful() -> void:
 	var instance = _boot_main_scene()
 
-	var defender: Dictionary = instance.round_session.current_actor()
+	var defender = instance.round_session.current_actor()
 	var scripted := CountingScriptedHexChoiceResolver.new()
 	instance.hex_choice_resolver = scripted
 
@@ -145,7 +145,7 @@ func test_no_prompt_when_defender_stepped_key_is_absent() -> void:
 	# also never prompt -- get()'s documented false default.
 	var instance = _boot_main_scene()
 
-	var defender: Dictionary = instance.round_session.current_actor()
+	var defender = instance.round_session.current_actor()
 	var scripted := CountingScriptedHexChoiceResolver.new()
 	instance.hex_choice_resolver = scripted
 
@@ -162,7 +162,7 @@ func test_no_prompt_when_defender_stepped_key_is_absent() -> void:
 func test_no_prompt_when_defender_has_zero_legal_step_hexes() -> void:
 	var instance = _boot_main_scene()
 
-	var defender: Dictionary = instance.round_session.current_actor()
+	var defender = instance.round_session.current_actor()
 	var scripted := CountingScriptedHexChoiceResolver.new()
 	instance.hex_choice_resolver = scripted
 

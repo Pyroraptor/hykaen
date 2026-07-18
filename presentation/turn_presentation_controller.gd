@@ -54,12 +54,17 @@ func _init(
 ## movement_input_controller with the live actor/action-economy/live-target data
 ## TurnController itself does not own, so its Step/Stride affordance stays live
 ## for whichever combatant's turn it now is.
-func on_active_actor_changed(combatant: Dictionary) -> void:
+func on_active_actor_changed(combatant) -> void:
+	if combatant == null:
+		return
 	var session = _session_holder.get_current()
 	if session == null:
 		return
 	var action_economy = session.current_action_economy()
-	var active_combatant_id: String = combatant.get("combatant_id", combatant.get("name", ""))
+	# Phase C.3/C.4: `combatant` is the LIVE actor instance — it configures the
+	# movement controller, whose Step/Stride mutates position via move_to() on
+	# THIS instance (a to_dict() copy would lose the player's move).
+	var active_combatant_id: String = combatant.display_id()
 
 	_movement_input_controller.configure(
 		combatant,
@@ -105,8 +110,8 @@ func refresh_all_action_budgets() -> void:
 ## now-configured actor and pushes it to hex_grid_view.set_selectable_hexes().
 ## For a non-player (enemy) turn no highlight may be shown, so an empty set is
 ## pushed instead. Records a structured debug line either way.
-func highlight_legal_moves(combatant: Dictionary, active_combatant_id: String) -> void:
-	var is_enemy_turn: bool = combatant.get("_is_enemy", false)
+func highlight_legal_moves(combatant, active_combatant_id: String) -> void:
+	var is_enemy_turn: bool = combatant.is_enemy
 
 	if is_enemy_turn:
 		if _hex_grid_view != null:

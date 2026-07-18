@@ -18,6 +18,7 @@ const RNGClass            = preload("res://core/rules/rng.gd")
 const AttributesClass     = preload("res://core/rules/attributes.gd")
 const WeaponResourceClass = preload("res://core/model/weapon_resource.gd")
 const ArmorResourceClass  = preload("res://core/model/armor_resource.gd")
+const CombatantClass      = preload("res://core/domain/combatant.gd")
 
 ## FEAT-227 (US-001 / FR-001, resolves FIND-223): typed fail-fast error codes.
 ## Mirrors this project's established ERR_ constant idiom. A caller MUST check
@@ -100,7 +101,14 @@ func build_party_combatant(character_path: String, hex_coord, combatant_id: Stri
 		combatant["hex_coord"] = hex_coord
 	if combatant_id != "":
 		combatant["combatant_id"] = combatant_id
-	return combatant
+	# Combatant migration Phase B (docs/refactors/combatant-entity-migration.org):
+	# route the factory's success output THROUGH the Combatant entity so the
+	# entity is now the single construction source. Still returns a Dictionary
+	# (via to_dict()), so callers/pipeline are unchanged until Phase C flips the
+	# resolution signatures to consume the instance directly. The FEAT-227
+	# fail-fast error path above is deliberately NOT routed through the entity —
+	# it keeps returning the {"error": ...} Dictionary the call-site guard checks.
+	return CombatantClass.from_dict(combatant).to_dict()
 
 
 ## _fail_enemy_resource_load(error_code, message, enemy_path) -> Dictionary
@@ -270,4 +278,11 @@ func build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String =
 		combatant["hex_coord"] = hex_coord
 	if combatant_id != "":
 		combatant["combatant_id"] = combatant_id
-	return combatant
+	# Combatant migration Phase B (docs/refactors/combatant-entity-migration.org):
+	# route the factory's success output THROUGH the Combatant entity so the
+	# entity is now the single construction source. Still returns a Dictionary
+	# (via to_dict()), so callers/pipeline are unchanged until Phase C flips the
+	# resolution signatures to consume the instance directly. The FEAT-227
+	# fail-fast error path above is deliberately NOT routed through the entity —
+	# it keeps returning the {"error": ...} Dictionary the call-site guard checks.
+	return CombatantClass.from_dict(combatant).to_dict()

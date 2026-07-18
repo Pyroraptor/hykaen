@@ -103,6 +103,19 @@
 class_name Resolution
 
 const FlankingClass = preload("res://core/rules/flanking.gd")
+const CombatantClass = preload("res://core/domain/combatant.gd")
+
+
+## _as_combatant(c) → Combatant — dict-or-instance tolerance for the Combatant
+## migration (Phase C.2, docs/refactors/combatant-entity-migration.org).
+## resolution.gd is READ-ONLY on combatants (it computes + RETURNS results; the
+## hp mutation lives in the use-cases), so wrapping a still-Dictionary combatant
+## in a from_dict() VIEW here is safe — there is no mutation to lose. Once the
+## container flips to instances (Phase C.3) an instance is passed through as-is
+## with no copy. This tolerance is removed in Phase D. Mirrors the established
+## dict-or-instance handling in core/rules/movement.gd _set_hex().
+static func _as_combatant(c) -> CombatantClass:
+	return c if c is CombatantClass else CombatantClass.from_dict(c)
 
 ## Valid passive defense types (ADR-011).
 const VALID_DEFENSE_TYPES: Array = ["ac", "reflex", "fortitude", "will"]
@@ -172,7 +185,7 @@ func _init(rng) -> void:
 ##                                    consumed by core/application/
 ##                                    resolve_action_use_case.gd (FEAT-008/
 ##                                    US-008, CR-001) to populate
-##                                    RoundEvents.AttackEvent.defense_value
+##                                    RoundEvents.AttackBroadcast.defense_value
 ##                                    without recomputing it a second time.
 ##   "error"                  — String: present ONLY when defense_type is invalid
 ##
@@ -198,8 +211,8 @@ func _init(rng) -> void:
 ## tests/characterization/test_strike_characterization.gd, the pinned
 ## regression oracle for this contract.
 func resolve_weapon_attack(
-	attacker: Dictionary,
-	target: Dictionary,
+	attacker,
+	target,
 	weapon: Dictionary,
 	defense_type: String,
 	active_defense: String = "none",
@@ -295,13 +308,18 @@ func resolve_weapon_attack(
 ##   "defense_type"           — String: echoed back for apply_on_hit_defense()
 ##   "weapon"                 — Dictionary: echoed back (block_die fallback needs it)
 func resolve_to_hit(
-	attacker: Dictionary,
-	target: Dictionary,
+	attacker,
+	target,
 	weapon: Dictionary,
 	defense_type: String,
 	pre_hit_defense: String = "none",
 	ctx: Dictionary = {}
 ) -> Dictionary:
+	# Combatant migration Phase C.2: read the combatants as Combatant instances
+	# via a dict-tolerant view (resolution is read-only, so a from_dict view of a
+	# still-Dictionary combatant is safe; instances pass through untouched).
+	var atk := _as_combatant(attacker)
+	var tgt := _as_combatant(target)
 
 	# ── Pre-attack phase: Dodge and Steel roll BEFORE the attack roll ──────────
 	# Both are reactions triggered when TARGETED, so their checks precede the
@@ -313,7 +331,7 @@ func resolve_to_hit(
 	# DODGE — trigger: defense_type in ["ac","reflex"] AND NOT Immobilized AND open space
 	if pre_hit_defense == "dodge":
 		var is_dodge_trigger: bool = (defense_type == "ac" or defense_type == "reflex")
-		var is_immobilized: bool = ("Immobilized" in target.get("conditions", []))
+		var is_immobilized: bool = tgt.has_condition("Immobilized")
 		var open_space: bool = ctx.get("open_space_available", true)
 
 		if is_dodge_trigger and not is_immobilized and open_space:
@@ -324,12 +342,12 @@ func resolve_to_hit(
 				# FR-008 / ADR-015 — real skills['mobility'], not the former
 				# target.dexterity attribute proxy).
 				var mob_roll: int = _rng.d20()
-				mobility_check = mob_roll + target.get("skills", {}).get("mobility", 0)
+				mobility_check = mob_roll + tgt.skill("mobility")
 
 	# STEEL — trigger: defense_type in ["fortitude","will"] AND conscious
 	if pre_hit_defense == "steel":
 		var is_steel_trigger: bool = (defense_type == "fortitude" or defense_type == "will")
-		var is_conscious: bool = target.get("conscious", true)
+		var is_conscious: bool = tgt.conscious
 
 		if is_steel_trigger and is_conscious:
 			var reaction_ok: bool = _try_spend_reaction(ctx)
@@ -338,11 +356,11 @@ func resolve_to_hit(
 				# US-007 / FR-008 / ADR-015 — real skills['determination'], not
 				# the former target.willpower attribute proxy).
 				var det_roll: int = _rng.d20()
-				determination_check = det_roll + target.get("skills", {}).get("determination", 0)
+				determination_check = det_roll + tgt.skill("determination")
 
 	# ── Attack roll (ADR-002 RNG position 2) ─────────────────────────────────
 	var raw: int = _rng.d20()
-	var attribute_mod: int = attacker.get(weapon["damage_modifier_attribute"], 0)
+	var attribute_mod: int = atk.attribute(weapon["damage_modifier_attribute"])
 	var roll_total: int = raw + attribute_mod + weapon["proficiency_bonus"]
 
 	# ── Effective defense value ───────────────────────────────────────────────
@@ -353,7 +371,7 @@ func resolve_to_hit(
 	elif determination_check >= 0:
 		defense_value = determination_check
 	else:
-		defense_value = target[defense_type]
+		defense_value = tgt.defense(defense_type)
 
 	# Off-Guard (FEAT-015 / US-015 / FR-016): blanket +2 to ALL attacks
 	# against this target, applied as an equivalent flat reduction of its
@@ -544,9 +562,10 @@ func _try_spend_reaction(defense_context: Dictionary) -> bool:
 ## computation reuses this SAME eligibility rule rather than re-deriving
 ## it — avoiding a second, drifting copy of the predicate (CR-001-style
 ## hygiene). Never rolls RNG, never mutates defense_context/target.
-static func is_dodge_eligible(defense_type: String, target: Dictionary, defense_context: Dictionary = {}) -> bool:
+static func is_dodge_eligible(defense_type: String, target, defense_context: Dictionary = {}) -> bool:
+	var tgt := _as_combatant(target)
 	var is_dodge_trigger: bool = (defense_type == "ac" or defense_type == "reflex")
-	var is_immobilized: bool = ("Immobilized" in target.get("conditions", []))
+	var is_immobilized: bool = tgt.has_condition("Immobilized")
 	var open_space: bool = defense_context.get("open_space_available", true)
 	return is_dodge_trigger and not is_immobilized and open_space
 
@@ -556,9 +575,10 @@ static func is_dodge_eligible(defense_type: String, target: Dictionary, defense_
 ## evaluates inline above (defense_type in ["fortitude","will"] AND the
 ## target is conscious), extracted as a pure function for
 ## reaction_window.gd's reuse — see is_dodge_eligible()'s doc above.
-static func is_steel_eligible(defense_type: String, target: Dictionary) -> bool:
+static func is_steel_eligible(defense_type: String, target) -> bool:
+	var tgt := _as_combatant(target)
 	var is_steel_trigger: bool = (defense_type == "fortitude" or defense_type == "will")
-	var is_conscious: bool = target.get("conscious", true)
+	var is_conscious: bool = tgt.conscious
 	return is_steel_trigger and is_conscious
 
 
@@ -585,8 +605,8 @@ static func is_block_eligible(weapon: Dictionary) -> bool:
 ## this file never sets/clears the condition itself (that is the flanking
 ## detector's caller's responsibility, e.g. the composition root recomputing
 ## positions after a Step/Stride); resolution.gd only ever consumes it.
-func _off_guard_defense_reduction(target: Dictionary) -> int:
-	if FlankingClass.OFF_GUARD_CONDITION in target.get("conditions", []):
+func _off_guard_defense_reduction(target) -> int:
+	if _as_combatant(target).has_condition(FlankingClass.OFF_GUARD_CONDITION):
 		return FlankingClass.OFF_GUARD_BONUS
 	return 0
 

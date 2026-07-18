@@ -210,7 +210,7 @@ func resolve(
 	legal_hexes: Array,
 	hex_choice_resolver_fn: Callable,
 	token_reposition_fn: Callable = Callable(),
-	target: Dictionary = {}
+	target = null
 ) -> Dictionary:
 	if not defender_stepped:
 		return {"prompted": false, "defender_id": defender_id, "chosen_hex": null, "error": null}
@@ -253,7 +253,7 @@ func resolve(
 		# both the ILLEGAL_HEX_CHOICE and TOKEN_NOT_FOUND guards above have
 		# passed, so Combatant.hex_coord can no longer desync from either an
 		# illegal resolver answer or a token that was never actually moved.
-		if not target.is_empty():
+		if target != null:
 			target["hex_coord"] = chosen_hex
 
 	return {"prompted": true, "defender_id": defender_id, "chosen_hex": chosen_hex, "error": null}

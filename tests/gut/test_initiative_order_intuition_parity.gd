@@ -32,6 +32,7 @@ extends GutTest
 const MainSceneClass = preload("res://MainScene.gd")
 const SimulatorClass = preload("res://core/sim/simulator.gd")
 const EncounterClass = preload("res://core/combat/encounter.gd")
+const CombatantClass = preload("res://core/domain/combatant.gd")
 
 const SKELETON_TRES_PATH := "res://data/enemies/skeleton.tres"
 
@@ -90,8 +91,8 @@ func test_initiative_score_matches_between_mainscene_and_simulator_skeleton_buil
 	var game_combatant: Dictionary = _main_scene._build_enemy_combatant(SKELETON_TRES_PATH, null, "skeleton_1")
 	var sim_combatant: Dictionary = sim._build_skeleton_combatant(skeleton_res, _skeleton_weapon_attribute(skeleton_res))
 
-	var game_encounter = EncounterClass.new([game_combatant], [], FixedRollRng.new(PINNED_D20_ROLL))
-	var sim_encounter = EncounterClass.new([sim_combatant], [], FixedRollRng.new(PINNED_D20_ROLL))
+	var game_encounter = EncounterClass.new([CombatantClass.from_dict(game_combatant)], [], FixedRollRng.new(PINNED_D20_ROLL))
+	var sim_encounter = EncounterClass.new([CombatantClass.from_dict(sim_combatant)], [], FixedRollRng.new(PINNED_D20_ROLL))
 
 	game_encounter.initialize()
 	sim_encounter.initialize()
@@ -104,8 +105,8 @@ func test_initiative_score_matches_between_mainscene_and_simulator_skeleton_buil
 	if game_turn_order.size() != 1 or sim_turn_order.size() != 1:
 		return
 
-	var game_initiative: int = game_turn_order[0].get("_initiative_roll", -1)
-	var sim_initiative: int = sim_turn_order[0].get("_initiative_roll", -2)
+	var game_initiative: int = game_turn_order[0].initiative_roll
+	var sim_initiative: int = sim_turn_order[0].initiative_roll
 
 	assert_eq(
 		game_initiative, sim_initiative,

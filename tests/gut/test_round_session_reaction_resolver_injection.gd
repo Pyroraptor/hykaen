@@ -35,6 +35,7 @@ const ActionEconomyClass           = preload("res://core/rules/action_economy.gd
 const SeededRandomAdapterClass     = preload("res://core/combat/seeded_random_adapter.gd")
 const RoundEventsClass             = preload("res://core/rules/round_events.gd")
 const AIClass                      = preload("res://core/combat/ai.gd")
+const CombatantClass               = preload("res://core/domain/combatant.gd")
 
 
 # ── Fake/double port implementations (mirrors tests/unit/core/application/test_round_session_ai_turn.gd) ──
@@ -79,7 +80,7 @@ class FakeRoundHistoryPort:
 class BrokenAIDecisionPort:
 	extends "res://core/application/ai_decision_port.gd"
 
-	func decide_action(_combatant: Dictionary, _targets: Array) -> Dictionary:
+	func decide_action(_combatant, _targets: Array) -> Dictionary:
 		return {}
 
 
@@ -98,12 +99,12 @@ class RecordingReactionResolver:
 		return {"choice": choice_to_return}
 
 
-func _entry(combatant: Dictionary) -> Dictionary:
+func _entry(combatant) -> Dictionary:
 	return {"combatant": combatant, "action_economy": ActionEconomyClass.new()}
 
 
-func _durable_combatant(p_name: String, p_is_enemy: bool, p_combatant_id: String = "") -> Dictionary:
-	return {
+func _durable_combatant(p_name: String, p_is_enemy: bool, p_combatant_id: String = ""):
+	return CombatantClass.from_dict({
 		"name":         p_name,
 		"combatant_id": p_combatant_id,
 		"hp_current":   2000,
@@ -117,7 +118,7 @@ func _durable_combatant(p_name: String, p_is_enemy: bool, p_combatant_id: String
 			"proficiency_bonus": 2,
 			"damage_die": 6
 		}
-	}
+	})
 
 
 ## Builds a fully-wired, REAL RunRoundUseCase plus its fake ports (mirrors
@@ -155,8 +156,8 @@ func _read_file(path: String) -> String:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_set_reaction_resolver_fn_stores_the_callable_and_is_retrievable() -> void:
-	var alpha: Dictionary = _durable_combatant("Alpha", false)
-	var bravo: Dictionary = _durable_combatant("Bravo", true)
+	var alpha = _durable_combatant("Alpha", false)
+	var bravo = _durable_combatant("Bravo", true)
 	var entries: Array = [_entry(alpha), _entry(bravo)]
 
 	var event_sink_port    = FakeEventSinkPort.new()
@@ -175,8 +176,8 @@ func test_set_reaction_resolver_fn_stores_the_callable_and_is_retrievable() -> v
 
 
 func test_set_reaction_resolver_fn_is_invokable_by_round_session_internals() -> void:
-	var alpha: Dictionary = _durable_combatant("Alpha", false)
-	var bravo: Dictionary = _durable_combatant("Bravo", true)
+	var alpha = _durable_combatant("Alpha", false)
+	var bravo = _durable_combatant("Bravo", true)
 	var entries: Array = [_entry(alpha), _entry(bravo)]
 
 	var event_sink_port    = FakeEventSinkPort.new()
@@ -205,8 +206,8 @@ func test_set_reaction_resolver_fn_is_invokable_by_round_session_internals() -> 
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_resolve_reaction_defaults_to_synchronous_none_pass_when_unset() -> void:
-	var alpha: Dictionary = _durable_combatant("Alpha", false)
-	var bravo: Dictionary = _durable_combatant("Bravo", true)
+	var alpha = _durable_combatant("Alpha", false)
+	var bravo = _durable_combatant("Bravo", true)
 	var entries: Array = [_entry(alpha), _entry(bravo)]
 
 	var event_sink_port    = FakeEventSinkPort.new()
@@ -226,8 +227,8 @@ func test_advance_ai_turn_behavior_is_unchanged_when_no_resolver_is_injected() -
 	# criterion-1 scenario exactly (same fixture, same seed) -- proving
 	# advance_ai_turn() resolves identically whether or not this feature
 	# exists, since it never calls the new seam.
-	var bravo: Dictionary = _durable_combatant("Bravo", true, "bravo")
-	var alpha: Dictionary = _durable_combatant("Alpha", false, "alpha")
+	var bravo = _durable_combatant("Bravo", true, "bravo")
+	var alpha = _durable_combatant("Alpha", false, "alpha")
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
 	var event_sink_port    = FakeEventSinkPort.new()
@@ -235,8 +236,8 @@ func test_advance_ai_turn_behavior_is_unchanged_when_no_resolver_is_injected() -
 	var rig: Dictionary = _make_use_case(entries, AIClass.new(), random_number_port, event_sink_port)
 	var session = rig["use_case"].begin_round(1, [alpha], [bravo])
 
-	assert_eq(session.current_actor().get("name", ""), "Bravo", "the Enemy must be the current actor")
-	var hp_before: int = alpha.get("hp_current", 0)
+	assert_eq(session.current_actor().name, "Bravo", "the Enemy must be the current actor")
+	var hp_before: int = alpha.hp_current
 
 	var result: Dictionary = session.advance_ai_turn()
 
@@ -245,15 +246,15 @@ func test_advance_ai_turn_behavior_is_unchanged_when_no_resolver_is_injected() -
 		rig["history"].entries.size(), 1,
 		"advance_ai_turn() must resolve exactly one action via resolve_action_use_case, unchanged by this feature"
 	)
-	assert_true(alpha.get("hp_current", 0) <= hp_before, "the AI's resolved Strike must still be able to damage its target")
-	assert_eq(session.current_actor().get("name", ""), "Alpha", "advance_ai_turn() must still advance the cursor to the next living, un-Spent actor")
+	assert_true(alpha.hp_current <= hp_before, "the AI's resolved Strike must still be able to damage its target")
+	assert_eq(session.current_actor().name, "Alpha", "advance_ai_turn() must still advance the cursor to the next living, un-Spent actor")
 
 
 func test_advance_ai_turn_defensive_fallback_unchanged_when_no_resolver_is_injected() -> void:
 	# Mirrors tests/unit/core/application/test_round_session_ai_turn.gd's
 	# criterion-2 CWE-835 fallback scenario exactly.
-	var bravo: Dictionary = _durable_combatant("Bravo", true)
-	var alpha: Dictionary = _durable_combatant("Alpha", false)
+	var bravo = _durable_combatant("Bravo", true)
+	var alpha = _durable_combatant("Alpha", false)
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 	var bravo_action_economy = entries[0]["action_economy"]
 
@@ -280,8 +281,8 @@ func test_run_autonomous_to_completion_unchanged_when_no_resolver_is_injected() 
 	# Mirrors the autonomous (sim) path's pre-existing behavior -- the
 	# balance-sim entry point never calls set_reaction_resolver_fn(), so
 	# this must complete the round exactly as before with a decided outcome.
-	var alpha: Dictionary = _durable_combatant("Alpha", false, "alpha")
-	var bravo: Dictionary = _durable_combatant("Bravo", true, "bravo")
+	var alpha = _durable_combatant("Alpha", false, "alpha")
+	var bravo = _durable_combatant("Bravo", true, "bravo")
 	var entries: Array = [_entry(alpha), _entry(bravo)]
 
 	var event_sink_port    = FakeEventSinkPort.new()

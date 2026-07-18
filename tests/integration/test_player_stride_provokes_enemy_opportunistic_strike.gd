@@ -77,8 +77,8 @@ func _boot_main_scene():
 	return instance
 
 
-func _id(combatant: Dictionary) -> String:
-	return combatant.get("combatant_id", combatant.get("name", ""))
+func _id(combatant) -> String:
+	return combatant.combatant_id
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -92,18 +92,18 @@ func test_player_stride_past_live_adjacent_skeleton_provokes_and_resolves_opport
 	await get_tree().process_frame
 
 	assert_false(
-		instance.round_session.current_actor().get("_is_enemy", true),
+		instance.round_session.current_actor().is_enemy,
 		"fixture assumption: Titus (the player) acts first at seed=%d" % PROLOGUE_SEED
 	)
 
 	assert_true(instance._enemies.size() > 0, "fixture assumption: the prologue encounter has at least one enemy")
-	var titus: Dictionary = instance._party[0]
-	var skeleton: Dictionary = instance._enemies[0]
+	var titus = instance._party[0]
+	var skeleton = instance._enemies[0]
 	var titus_id: String = _id(titus)
 	var skeleton_id: String = _id(skeleton)
 
-	var titus_start_hex = titus.get("hex_coord", null)
-	var skeleton_hex = skeleton.get("hex_coord", null)
+	var titus_start_hex = titus.hex_coord
+	var skeleton_hex = skeleton.hex_coord
 	assert_not_null(titus_start_hex, "fixture assumption: Titus carries a hex_coord before Striding")
 	assert_not_null(skeleton_hex, "fixture assumption: the Skeleton carries a hex_coord")
 
@@ -116,7 +116,7 @@ func test_player_stride_past_live_adjacent_skeleton_provokes_and_resolves_opport
 	assert_true(is_adjacent_at_boot, "fixture assumption: the Skeleton starts adjacent to Titus's own hex at the PROLOGUE_SEED fixture's boot position — no repositioning is needed for eligibility")
 
 	assert_true(
-		skeleton.has("weapon") and not skeleton["weapon"].has("range_hexes"),
+		not skeleton.weapon.has("range_hexes"),
 		"fixture assumption: the Skeleton's real weapon carries melee reach (no 'range_hexes' key)"
 	)
 
@@ -141,7 +141,7 @@ func test_player_stride_past_live_adjacent_skeleton_provokes_and_resolves_opport
 	var destination = candidate_hexes[0]
 
 	assert_false(instance.reaction_prompt_ui.is_open(), "fixture assumption: no pop-up is open before this Stride is driven")
-	var titus_hp_before: int = titus.get("hp_current", -1)
+	var titus_hp_before: int = titus.hp_current
 
 	# ── Drive the SAME real, composition-root-bound Stride entry point a
 	# live player click resolves through -- "the SOLE Stride entry point"
@@ -160,10 +160,10 @@ func test_player_stride_past_live_adjacent_skeleton_provokes_and_resolves_opport
 		"the Skeleton's own live ActionEconomy budget must drop by EXACTLY 1 -- paid via spend_reaction(), never spend_action()"
 	)
 
-	var titus_hp_after: int = titus.get("hp_current", -1)
+	var titus_hp_after: int = titus.hp_current
 	assert_true(titus_hp_after < titus_hp_before, "Titus (the mover) must show real, positive damage from the Skeleton's resolved Opportunistic Strike")
 
-	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 	assert_eq(attack_events.size(), 1, "exactly one Strike (the Skeleton's Opportunistic Strike) must have resolved")
 	var attack_event = attack_events[0]
 	assert_eq(attack_event.attacker_name, "Skeleton", "the resolved Strike must be attributed to the Skeleton (the reactor), not Titus (the mover)")
@@ -182,7 +182,7 @@ func test_player_stride_past_live_adjacent_skeleton_provokes_and_resolves_opport
 	assert_true(stride_result.get("ok", false), "Titus's own Stride must genuinely resolve once the Skeleton's non-lethal Opportunistic Strike leaves him alive")
 
 	assert_true(
-		titus.get("hex_coord").equals(destination),
+		titus.hex_coord.equals(destination),
 		"Titus's own live hex_coord must relocate to the chosen Stride destination once the Opportunistic Strike resolved without downing him"
 	)
 	var token_after = instance.hex_grid_view.get_token(titus_id)
@@ -191,4 +191,4 @@ func test_player_stride_past_live_adjacent_skeleton_provokes_and_resolves_opport
 
 	# Sanity check: the Skeleton (the reactor) never moved -- only Titus (the
 	# mover) Strides in this scenario.
-	assert_true(skeleton.get("hex_coord").equals(skeleton_hex), "the Skeleton (the reactor) must remain at its own hex -- only the mover (Titus) relocates on a Stride")
+	assert_true(skeleton.hex_coord.equals(skeleton_hex), "the Skeleton (the reactor) must remain at its own hex -- only the mover (Titus) relocates on a Stride")

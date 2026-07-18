@@ -124,7 +124,20 @@ echo "=== [1/10] FEAT-001 / NFR-004 headless launchability smoke test (tests/gut
 godot --headless -s addons/gut/gut_cmdln.gd -gdir=res://tests/gut -gselect=test_smoke_boot.gd -gexit
 
 echo "=== [2/10] pytest suite ==="
-python -m pytest -q --tb=short
+# HYKAEN_TEST_COMMAND_E2E_GUARD=1: the recursive end-to-end meta-tests
+# (tests/unit/test_ci_quality_gate_wiring_feat133.py,
+# tests/unit/test_ci_gut_domain_consolidation_feat004.py) shell out THIS very
+# script and assert it exits 0. Inside the gate's own pytest stage that is pure
+# recursion — each spawns a nested full pipeline (smoke+pytest+GUT+sim+e2e), so
+# ~4 nested gates hammer the machine at once and intermittently flake on GUT
+# 4.3 teardown noise ("Nonexistent function 'clear' in base 'Nil'"), and with
+# `set -euo pipefail` a single flake aborts the whole gate before the real
+# GUT/sim/e2e stages. The tests already honor this guard var (they skip when
+# it's "1", and set it in the child env when spawning). Activating it here makes
+# the gate deterministic + fast WITHOUT losing coverage: the meta-tests still
+# run when pytest is invoked standalone (no guard set), where they legitimately
+# exercise the script end-to-end exactly once.
+HYKAEN_TEST_COMMAND_E2E_GUARD=1 python -m pytest -q --tb=short
 
 echo "=== [3/10] FEAT-158 CI pipeline stage-list consistency check (FIND-151) ==="
 python scripts/check_ci_pipeline_sync.py

@@ -253,11 +253,11 @@ func test_strike_still_resolves_normally_while_movement_gate_is_locked() -> void
 	var history := FakeRoundHistoryPort.new()
 	var use_case := ResolveActionUseCaseClass.new(rng, event_sink, history)
 
-	var attacker: Dictionary = {
+	var attacker = CombatantClass.from_dict({
 		"name": "Attacker", "strength": 3, "hex_coord": HexCoordClass.new(0, 0),
 		"weapon": {"damage_modifier_attribute": "strength", "proficiency_bonus": 2, "damage_die": 6}
-	}
-	var target: Dictionary = {"name": "Target", "hp_current": 50, "ac": 10, "hex_coord": HexCoordClass.new(1, 0)}
+	})
+	var target = CombatantClass.from_dict({"name": "Target", "hp_current": 50, "ac": 10, "hex_coord": HexCoordClass.new(1, 0)})
 
 	# Trip the Movement gate first (a Step that carries the action_economy).
 	var step_result: Dictionary = MovementClass.step(attacker, HexCoordClass.new(0, 1), [target], ae)

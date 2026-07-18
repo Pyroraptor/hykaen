@@ -111,11 +111,11 @@ func _boot_main_scene_with_seed(seed_value: int):
 ## (falling back to name) — mirrors this codebase's established
 ## non-invasive observation convention (e.g. tests/integration/
 ## test_steel_thread_e2e.gd's `_action_economy_by_id()`), never a mock/stub.
-func _find_action_economy_for(instance, combatant: Dictionary):
-	var combatant_id: String = combatant.get("combatant_id", combatant.get("name", ""))
+func _find_action_economy_for(instance, combatant):
+	var combatant_id: String = combatant.combatant_id
 	for entry in instance.round_session._entries:
-		var candidate: Dictionary = entry["combatant"]
-		if candidate.get("combatant_id", candidate.get("name", "")) == combatant_id:
+		var candidate = entry["combatant"]
+		if candidate.combatant_id == combatant_id:
 			return entry["action_economy"]
 	return null
 
@@ -145,13 +145,13 @@ func _wire_event_log_seam(instance) -> Array:
 ## advance_ai_turn() directly as the sole entry point for the Strike itself.
 func _advance_to_enemy_turn(instance) -> void:
 	assert_false(
-		instance.round_session.current_actor().get("_is_enemy", true),
+		instance.round_session.current_actor().is_enemy,
 		"fixture assumption: Titus (the player) must act first at seed=42"
 	)
 	var end_result: Dictionary = instance.round_session.end_current_turn()
 	assert_true(end_result.get("ok", false), "ending Titus's own turn (no action taken) must succeed")
 	assert_true(
-		instance.round_session.current_actor().get("_is_enemy", false),
+		instance.round_session.current_actor().is_enemy,
 		"the round cursor must now sit on the Skeleton enemy"
 	)
 
@@ -213,16 +213,16 @@ func _record_correlated_reaction(instance, attack_event_id, window_id: String, c
 ## Titus (the reactor), in emission order.
 func _reaction_window_opened_events(instance) -> Array:
 	return instance.event_sink.log.filter(
-		func(e): return e is RoundEventsClass.ReactionWindowOpenedEvent and e.reactor_name == "Titus"
+		func(e): return e is RoundEventsClass.ReactionWindowOpenedEvent and e.reactor_name == "player_0"
 	)
 
 
 func _fixture_titus_and_skeleton(instance) -> Dictionary:
 	assert_eq(instance._enemies.size(), 1, "fixture assumption: the prologue encounter has exactly one enemy")
-	var titus: Dictionary = instance._party[0]
-	var skeleton: Dictionary = instance._enemies[0]
-	assert_eq(titus.get("name", ""), "Titus")
-	assert_eq(skeleton.get("name", ""), "Skeleton")
+	var titus = instance._party[0]
+	var skeleton = instance._enemies[0]
+	assert_eq(titus.name, "Titus")
+	assert_eq(skeleton.name, "Skeleton")
 	return {"titus": titus, "skeleton": skeleton}
 
 
@@ -238,8 +238,8 @@ func test_scenario_dodge_success_short_circuits_the_strike_with_no_onhit_window(
 	await get_tree().process_frame
 
 	var fixture: Dictionary = _fixture_titus_and_skeleton(instance)
-	var titus: Dictionary = fixture["titus"]
-	var skeleton: Dictionary = fixture["skeleton"]
+	var titus = fixture["titus"]
+	var skeleton = fixture["skeleton"]
 
 	# Deterministic Dodge success regardless of the real RNG's next draws:
 	# core/rules/resolution.gd's resolve_to_hit() dodge branch substitutes
@@ -273,7 +273,7 @@ func test_scenario_dodge_success_short_circuits_the_strike_with_no_onhit_window(
 	assert_false(instance.reaction_prompt_ui.is_open(), "the pop-up must close once every reaction for this Strike has resolved")
 
 	# ── Entry point + event counts (test_criteria #2/#4) ────────────────────
-	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 	assert_eq(attack_events.size(), 1, "advance_ai_turn() must resolve exactly one Strike")
 	assert_eq(recorded_attacks.size(), 1, "exactly one structured AttackEvent must be recorded for this Strike")
 
@@ -289,8 +289,8 @@ func test_scenario_dodge_success_short_circuits_the_strike_with_no_onhit_window(
 
 	# ── Resolution: a successful Dodge avoids the Strike entirely ───────────
 	var attack_event = recorded_attacks[0]
-	assert_eq(attack_event.attacker_id, skeleton.get("combatant_id", ""))
-	assert_eq(attack_event.target_id, titus.get("combatant_id", ""))
+	assert_eq(attack_event.attacker_id, skeleton.combatant_id)
+	assert_eq(attack_event.target_id, titus.combatant_id)
 	assert_false(attack_event.is_hit, "a successful Dodge must avoid the Strike -- a miss")
 	assert_eq(attack_event.damage_final, 0)
 
@@ -332,8 +332,8 @@ func test_scenario_miss_never_opens_the_onhit_mitigation_window() -> void:
 	await get_tree().process_frame
 
 	var fixture: Dictionary = _fixture_titus_and_skeleton(instance)
-	var titus: Dictionary = fixture["titus"]
-	var skeleton: Dictionary = fixture["skeleton"]
+	var titus = fixture["titus"]
+	var skeleton = fixture["skeleton"]
 
 	# Deterministic miss regardless of the real RNG's next draw: an
 	# overwhelmingly high passive ac guarantees roll_total never meets it.
@@ -359,7 +359,7 @@ func test_scenario_miss_never_opens_the_onhit_mitigation_window() -> void:
 	assert_true(result.get("ok", false))
 	assert_false(instance.reaction_prompt_ui.is_open())
 
-	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 	assert_eq(attack_events.size(), 1)
 	assert_eq(recorded_attacks.size(), 1)
 
@@ -373,8 +373,8 @@ func test_scenario_miss_never_opens_the_onhit_mitigation_window() -> void:
 	assert_eq(reactions_spent, 0, "declining Dodge must spend no reaction")
 
 	var attack_event = recorded_attacks[0]
-	assert_eq(attack_event.attacker_id, skeleton.get("combatant_id", ""))
-	assert_eq(attack_event.target_id, titus.get("combatant_id", ""))
+	assert_eq(attack_event.attacker_id, skeleton.combatant_id)
+	assert_eq(attack_event.target_id, titus.combatant_id)
 	assert_false(attack_event.is_hit)
 	assert_eq(attack_event.damage_final, 0)
 
@@ -405,8 +405,8 @@ func test_scenario_miss_never_opens_the_onhit_mitigation_window() -> void:
 ## scenario-specific final assertions.
 func _run_dodge_declined_hit_scenario(instance, onhit_choice: String) -> Dictionary:
 	var fixture: Dictionary = _fixture_titus_and_skeleton(instance)
-	var titus: Dictionary = fixture["titus"]
-	var skeleton: Dictionary = fixture["skeleton"]
+	var titus = fixture["titus"]
+	var skeleton = fixture["skeleton"]
 
 	# Deterministic hit regardless of the real RNG's next draw: an
 	# overwhelmingly low passive ac guarantees roll_total always meets it.
@@ -461,7 +461,7 @@ func _run_dodge_declined_hit_scenario(instance, onhit_choice: String) -> Diction
 	assert_true(result.get("ok", false))
 	assert_false(instance.reaction_prompt_ui.is_open())
 
-	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 	assert_eq(attack_events.size(), 1)
 	assert_eq(recorded_attacks.size(), 1)
 
@@ -483,8 +483,8 @@ func _run_dodge_declined_hit_scenario(instance, onhit_choice: String) -> Diction
 	assert_eq(reactions_spent, expected_reactions_spent, "a real Parry/Block choice must spend exactly one reaction; Pass must spend none")
 
 	var attack_event = recorded_attacks[0]
-	assert_eq(attack_event.attacker_id, skeleton.get("combatant_id", ""))
-	assert_eq(attack_event.target_id, titus.get("combatant_id", ""))
+	assert_eq(attack_event.attacker_id, skeleton.combatant_id)
+	assert_eq(attack_event.target_id, titus.combatant_id)
 	assert_true(attack_event.is_hit)
 	# FEAT-003 (G3 remediation): the OnHitMitigation choice is now GENUINELY
 	# applied to this Strike's committed damage (never merely traced). Titus's

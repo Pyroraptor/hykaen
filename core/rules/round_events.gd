@@ -10,7 +10,7 @@
 ## Declares five value objects, all nested under the RoundEvents
 ## namespace class so a single preload exposes the whole group:
 ##
-##   RoundEvents.AttackEvent
+##   RoundEvents.AttackBroadcast
 ##     round, attacker_name, target_name, roll, defense_type,
 ##     defense_value, hit, crit, damage_final, actor_updated_action_budget
 ##     — emitted once per resolved Strike (mirrors the 'attack' entries
@@ -55,7 +55,7 @@
 ##       reusing this SAME EventSinkPort/RoundEvents surface rather than a
 ##       new port (ADR-reuse).
 ##
-##   RoundEvents.ReactionResolvedEvent (FEAT-009 / US-009 / FR-005, ADR-014)
+##   RoundEvents.ReactionResolvedBroadcast (FEAT-009 / US-009 / FR-005, ADR-014)
 ##     round, window_id, choice, resolved_by
 ##     — emitted by ReactionWindow.resume() once a reaction window's choice
 ##       has been applied and the window closed. resolved_by is one of
@@ -68,15 +68,15 @@
 ##
 ## Usage example:
 ##   const RoundEventsClass = preload("res://core/rules/round_events.gd")
-##   var ev := RoundEventsClass.AttackEvent.new(1, "Titus", "Goblin", 17,
+##   var ev := RoundEventsClass.AttackBroadcast.new(1, "Titus", "Goblin", 17,
 ##       "ac", 14, true, false, 6)
 ##   ev.to_dict() # → {round: 1, attacker_name: "Titus", ...}
 
 class_name RoundEvents
 
 
-## AttackEvent — value object describing one resolved Strike.
-class AttackEvent:
+## AttackBroadcast — value object describing one resolved Strike.
+class AttackBroadcast:
 	extends RefCounted
 
 	var round: int
@@ -271,10 +271,10 @@ class ReactionWindowOpenedEvent:
 		}
 
 
-## ReactionResolvedEvent — FEAT-009 (US-009 / FR-005, ADR-014): value object
+## ReactionResolvedBroadcast — FEAT-009 (US-009 / FR-005, ADR-014): value object
 ## emitted by core/application/reaction_window.gd's ReactionWindow.resume()
 ## once a reaction window's choice has been applied and the window closed.
-class ReactionResolvedEvent:
+class ReactionResolvedBroadcast:
 	extends RefCounted
 
 	var round: int

@@ -631,14 +631,14 @@ func test_action_budget_consumed_after_strike() -> void:
 ## encounter's run_round() execution path (FIX-005).
 ##
 ## After a single run_round() call, get_round_events() must contain at least
-## one TYPED RoundEvents.AttackEvent instance (FEAT-099/FIND-096 — never a
+## one TYPED RoundEvents.AttackBroadcast instance (FEAT-099/FIND-096 — never a
 ## raw Dictionary with a 'type' key) with all four required fields populated:
 ##   roll          — int:  the attack roll total (d20 + modifier + proficiency)
 ##   hit           — bool: whether the attack hit the target
 ##   crit          — bool: whether the attack was a critical hit
 ##   damage_final  — int:  the final damage value after active defense resolution
 ##
-## FEAT-103: rewritten to use `is RoundEventsClass.AttackEvent` type-checks and
+## FEAT-103: rewritten to use `is RoundEventsClass.AttackBroadcast` type-checks and
 ## direct field access instead of Dictionary-style `.get("type", "")` /
 ## `.has(key)` calls. The previous Dictionary-style access crashed at runtime
 ## with "Invalid call to function 'get' in base 'RefCounted (AttackEvent)'.
@@ -664,13 +664,13 @@ func test_round_events_populated_with_attack_events() -> void:
 	# value object).
 	var attack_ev = null
 	for ev in events:
-		if ev is RoundEventsClass.AttackEvent:
+		if ev is RoundEventsClass.AttackBroadcast:
 			attack_ev = ev
 			break
 
 	assert_not_null(
 		attack_ev,
-		"get_round_events() must contain at least one typed RoundEvents.AttackEvent instance (FEAT-028 FIX-005, FEAT-103)"
+		"get_round_events() must contain at least one typed RoundEvents.AttackBroadcast instance (FEAT-028 FIX-005, FEAT-103)"
 	)
 
 	if attack_ev == null:
@@ -1561,7 +1561,7 @@ const FEAT103_MAX_ROUNDS_GUARD: int = 50
 ## Strikes in strict A,B,A,B,... order rather than one combatant exhausting
 ## its full action budget before the other ever acts (ADR-003).
 ##
-## Uses the typed `is RoundEventsClass.AttackEvent` pattern (FEAT-103 fix)
+## Uses the typed `is RoundEventsClass.AttackBroadcast` pattern (FEAT-103 fix)
 ## to introspect get_round_events().
 func test_feat103_strikes_interleave_a_b_a_b_between_two_combatants() -> void:
 	var enc = EncounterClass.new(
@@ -1571,7 +1571,7 @@ func test_feat103_strikes_interleave_a_b_a_b_between_two_combatants() -> void:
 	enc.run_round()
 
 	var events: Array = enc.get_round_events()
-	var attack_events: Array = events.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	var attack_events: Array = events.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 
 	# Both combatants share MAX_BUDGET=7 and neither dies (durable) — each
 	# takes exactly 7 actions this round, 14 total interleaved AttackEvents.
@@ -1584,8 +1584,8 @@ func test_feat103_strikes_interleave_a_b_a_b_between_two_combatants() -> void:
 
 	for ev in attack_events:
 		assert_true(
-			ev is RoundEventsClass.AttackEvent,
-			"Every 'attack' round event must be a typed RoundEvents.AttackEvent instance (FEAT-103)"
+			ev is RoundEventsClass.AttackBroadcast,
+			"Every 'attack' round event must be a typed RoundEvents.AttackBroadcast instance (FEAT-103)"
 		)
 
 	# Strict alternation: consecutive AttackEvents must never share an attacker.
@@ -1634,7 +1634,7 @@ func test_feat103_strikes_interleave_across_four_combatants_in_turn_order() -> v
 	assert_eq(expected_cycle.size(), 4, "2v2 turn order must contain all four combatants")
 
 	var events: Array = enc.get_round_events()
-	var attack_events: Array = events.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	var attack_events: Array = events.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 
 	# All four combatants are durable and share MAX_BUDGET=7 — 7 full cycles
 	# of 4 Strikes each = 28 interleaved AttackEvents.

@@ -43,6 +43,7 @@ class_name Simulator
 const EncounterClass  = preload("res://core/combat/encounter.gd")
 const RNGClass        = preload("res://core/rules/rng.gd")
 const AttributesClass = preload("res://core/rules/attributes.gd")
+const CombatantClass  = preload("res://core/domain/combatant.gd")
 
 
 ## _init() — no-parameter constructor; simulator holds no mutable state.
@@ -135,8 +136,13 @@ func run(battle_count: int = 1000, base_seed: int = 0) -> Dictionary:
 		# hp_current=50 remains a balance-tuned simulation parameter (FEAT-087).
 		var skeleton: Dictionary = _build_skeleton_combatant(skeleton_res, skel_weapon_attr)
 
-		# Run one encounter to completion.
-		var enc = EncounterClass.new([titus], [skeleton], battle_rng)
+		# Run one encounter to completion. Phase C.3: the balance sim threads
+		# Combatant INSTANCES (lockstep with MainScene / CombatantFactory) so the
+		# same damage-mutation path (take_damage on the live entity) the live
+		# game exercises drives the N=1000 parity gate.
+		var enc = EncounterClass.new(
+			[CombatantClass.from_dict(titus)], [CombatantClass.from_dict(skeleton)], battle_rng
+		)
 		enc.run()
 
 		# Accumulate results.

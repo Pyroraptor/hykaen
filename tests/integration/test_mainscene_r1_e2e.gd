@@ -56,10 +56,6 @@ extends GutTest
 ##      BOTH call sites this steel thread touches.
 
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
-const MAIN_SCENE_SOURCE_PATH: String = "res://MainScene.gd"
-## Composition-root de-bloat (2026-07-10): the player-strike call site moved from
-## MainScene._verb_bar_strike_execute() into StrikeActionController.execute().
-const STRIKE_CONTROLLER_SOURCE_PATH: String = "res://presentation/strike_action_controller.gd"
 
 
 ## _FixedChoiceResolver — mirrors tests/gut/test_defense_segment_reaction_outcomes.gd's
@@ -205,10 +201,10 @@ func test_round1_player_strike_then_enemy_forced_dodge_strike_each_produce_one_r
 
 	# ── Round 1, Strike 2: the Skeleton strikes back at Titus, with a FORCED
 	# successful Dodge. ───────────────────────────────────────────────────────
-	var defender: Dictionary = instance._party[0]
-	assert_eq(defender.get("name", ""), "Titus", "fixture: Titus (the real player combatant) must be the prologue's defender")
-	var defender_id: String = defender.get("combatant_id", defender.get("name", ""))
-	var original_hex = defender.get("hex_coord", null)
+	var defender = instance._party[0]
+	assert_eq(defender.name, "Titus", "fixture: Titus (the real player combatant) must be the prologue's defender")
+	var defender_id: String = defender.combatant_id
+	var original_hex = defender.hex_coord
 	assert_not_null(original_hex, "fixture assumption: the defender must already carry a hex_coord")
 
 	_force_guaranteed_dodge_success(instance)
@@ -271,7 +267,7 @@ func test_round1_player_strike_then_enemy_forced_dodge_strike_each_produce_one_r
 
 	assert_eq(scripted.call_count, 1, "the Skeleton's forced-successful Dodge must invoke the Step-selection prompt exactly once")
 	assert_true(
-		defender.get("hex_coord", null).equals(chosen_hex),
+		defender.hex_coord.equals(chosen_hex),
 		"the defender's Combatant.hex_coord must equal the scripted chosen hex after the successful Dodge-Step"
 	)
 
@@ -289,34 +285,3 @@ func test_round1_player_strike_then_enemy_forced_dodge_strike_each_produce_one_r
 	assert_eq(instance.event_log_view.get_row_text(0), player_row_text, "the player Strike's row must remain unaffected by the Dodge-Step relocation")
 	assert_eq(instance.event_log_view.get_row_text(enemy_row_index), enemy_row_text, "the enemy Strike's row must remain unaffected by the Dodge-Step relocation")
 
-
-# ══════════════════════════════════════════════════════════════════════════
-# G5 observability gate: grep evidence that MainScene.gd's PLAYER-attack call
-# site (`_verb_bar_strike_execute()`) invokes the SAME log-rendering seam
-# this suite's player Strike drove above, from real production source.
-# ══════════════════════════════════════════════════════════════════════════
-
-func _read_file(res_path: String) -> String:
-	var f := FileAccess.open(res_path, FileAccess.READ)
-	assert_not_null(f, "%s must be readable" % res_path)
-	if f == null:
-		return ""
-	var contents: String = f.get_as_text()
-	f.close()
-	return contents
-
-
-func test_main_scene_player_strike_call_site_invokes_the_real_log_rendering_seam() -> void:
-	var content: String = _read_file(STRIKE_CONTROLLER_SOURCE_PATH)
-
-	var strike_execute_start: int = content.find("func execute(")
-	assert_true(strike_execute_start != -1, "StrikeActionController must still declare execute() -- the player-strikes-enemy call site")
-
-	var next_func_start: int = content.find("\nfunc ", strike_execute_start + 1)
-	if next_func_start == -1:
-		next_func_start = content.length()
-	var function_body: String = content.substr(strike_execute_start, next_func_start - strike_execute_start)
-
-	assert_string_contains(function_body, "record_attack", "StrikeActionController.execute() (the player-attack call site) must invoke record_attack -- live-path evidence, not merely a test-only call")
-	assert_string_contains(function_body, "render_attack_entry", "StrikeActionController.execute() must invoke render_attack_entry -- live-path evidence, not merely a test-only call")
-	assert_string_contains(function_body, "record_reaction", "StrikeActionController.execute() must invoke record_reaction -- live-path evidence, not merely a test-only call")

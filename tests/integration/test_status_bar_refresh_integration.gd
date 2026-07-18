@@ -98,7 +98,7 @@ func test_status_panel_view_action_budget_remaining_decreases_by_exactly_one_for
 	var instance = _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
-	var actor_id: String = instance.round_session.current_actor().get("combatant_id", "")
+	var actor_id: String = instance.round_session.current_actor().display_id()
 	assert_ne(actor_id, "", "fixture assumption: the active actor carries a non-empty combatant_id")
 
 	var before_remaining: int = instance.status_panel_view.get_status(actor_id).get("action_budget_remaining", -1)
@@ -138,7 +138,7 @@ func test_status_panel_view_spent_value_matches_the_domain_action_economys_spent
 	var instance = _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
-	var actor_id: String = instance.round_session.current_actor().get("combatant_id", "")
+	var actor_id: String = instance.round_session.current_actor().display_id()
 	assert_ne(actor_id, "", "fixture assumption: the active actor carries a non-empty combatant_id")
 
 	# The SAME live ActionEconomy instance MainScene wires into

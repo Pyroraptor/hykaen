@@ -156,7 +156,7 @@ func test_strike_via_real_control_produces_attack_event_visible_in_event_log() -
 		"the real EventLogView's rendered entry must describe the real attacker's Strike"
 	)
 
-	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 	assert_eq(
 		attack_events.size(), 1,
 		"exactly one AttackEvent must have been observed through the real event-sink adapter"
@@ -218,7 +218,7 @@ func test_end_turn_drives_ai_turn_through_same_pipeline_and_concludes_encounter(
 	)
 
 	# ── The enemy AI turn genuinely resolved through the real pipeline ──────
-	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 	var attacker_names: Array = attack_events.map(func(e): return e.attacker_name)
 	assert_true(
 		attacker_names.has("Titus"),

@@ -1,0 +1,98 @@
+#+TITLE: Iteration N — Combinations (queueing composite action)
+#+DATE: 2026-07-12
+#+STATUS: DRAFT for review
+
+* Context (why this sprint exists)
+
+Add *Combine* per docs/hollow-world-v0-spec.org (§Combat, brief.org:309): spend 1
+Stamina to FUSE two actions into a single action slot — you still take only one
+action that turn, but it does more (e.g. Charge = Stride + Strike). Rules: the two
+actions must be DIFFERENT, or self-combine only with the *Repeat* trait; reactions
+may combine with actions; *Dazed* forbids combining. It must generalize to MORE
+than two fused actions for higher-level play.
+
+Combine is NOT a normal single-target verb — it's a META-verb that sequences other
+verbs' selection + resolution under one action slot. The 3-method verb contract
+can't express that directly, so it needs a QUEUEING composite controller. The
+data-driven verb registry (VERB_TABLE + _controller(verb_id)) is the enabler: the
+Combine controller resolves its sub-action controllers by TABLE LOOKUP
+(_controller("STRIDE"), _controller("STRIKE")) rather than hard-referencing them.
+
+core/rules/action_economy.gd `combine_actions(action_a, action_b, stamina_pool)`
+already exists as a VALIDATION-ONLY stub (checks Dazed / Repeat / Stamina, returns
+stamina_remaining, does NOT spend or execute). REUSE that validation; the new
+controller enforces it, then executes. Do NOT fork a second combine-rule check.
+
+DEPENDENCIES: the data-driven verb registry (done), Iteration L (each queued
+sub-action drives its OWN targeting pass — Stride-to-hex THEN Strike-a-target), and
+the Combatant migration (Stamina lives on Combatant.stamina).
+
+* THE ONLY SCOPE FOR THIS SPRINT — P0 / MUST
+
+** P0-1: A live Stamina resource, spent 1 per Combine
+- Use the combatant's Stamina pool (Combatant.stamina — already on the entity;
+  formula = class base + Willpower + Constitution per spec §Stamina). A Combine
+  spends 1 Stamina from the acting combatant; reject the Combine if Stamina is 0.
+- Reuse combine_actions()'s existing Stamina check; wire the actual DECREMENT into
+  the controller (the stub deliberately doesn't decrement).
+- TESTS: a Combine spends exactly 1 Stamina; a combatant with 0 Stamina cannot
+  Combine; Stamina is read/spent on the live Combatant instance.
+
+** P0-2: CombineActionController — the queueing composite verb
+- Register COMBINE as a data-driven VERB_TABLE entry + one controller file
+  (extends presentation/action_controller.gd by PATH). Do NOT hand-wire.
+- Contract:
+  1. availability(): available iff the actor has >= 1 Stamina, is NOT Dazed, and
+     has >= 2 combinable actions available this turn (per combine_actions rules).
+  2. enter_selection(): let the player choose the sub-actions to fuse (v0: exactly
+     two; the pair must be DIFFERENT verbs, or the same verb only if it has the
+     Repeat trait — enforce via combine_actions()).
+  3. execute(): VALIDATE via action_economy.combine_actions() (Dazed/Repeat/
+     Stamina); then QUEUE the chosen sub-actions and resolve them IN ORDER, each
+     through its own controller looked up from the verb table (_controller(sub_id)),
+     each driving its OWN targeting via Iteration L (Stride picks a hex, then
+     Strike picks a target). Charge = [STRIDE, STRIKE].
+- CRITICAL action-economy accounting: the WHOLE Combine costs ONE action + 1
+  Stamina — NOT one action per sub-action. The sub-action resolutions must apply
+  their EFFECTS (the Stride move, the Strike resolution) WITHOUT each also spending
+  their own action from the budget. Charge the single action + Stamina once at the
+  Combine level and ensure the sub-executions do not double-spend (e.g. a no-self-
+  spend execution mode on the sub-controllers, or the Combine orchestrates the
+  single spend and suppresses the sub-spends). Movement-trait lockout still applies
+  (a Combine containing a Stride marks Movement used).
+- Order matters: sub-actions resolve in the queued order (Stride resolves and moves
+  the token BEFORE the Strike checks reach), so e.g. Charge can move into reach then
+  Strike. If an earlier sub-action fails/aborts (e.g. Stride to an illegal hex, or
+  the target dies), handle gracefully — do not half-apply or crash.
+- Generalize the queue to N sub-actions (v0 authors 2; the structure must not
+  hard-code exactly two — higher levels fuse more).
+- TESTS (boot-real, real verb path): Charge (Stride+Strike) moves the actor's token
+  toward the target THEN resolves a Strike, spending exactly one action + 1 Stamina
+  (not two actions); a Combine of two identical non-Repeat verbs is rejected; a
+  Dazed combatant cannot Combine; the Movement lockout still holds for a Combine
+  containing a Stride; order is Stride-then-Strike (reach is evaluated AFTER the
+  move).
+
+* P1 / follow-on (note; not required this sprint)
+- Riposte (Block/Parry + Strike) — combines a REACTION with an action; lands once
+  the action+action Charge path is green (reactions may combine per spec).
+- >2-action fusions surfaced in the UI (v0 exposes the 2-action Charge; the engine
+  supports N).
+
+* Out of scope (do NOT touch / build)
+- NO new spells / casting — Iteration M.
+- NO new combine-rule mechanism — REUSE action_economy.combine_actions() validation
+  (add only the decrement + execution the stub omits).
+- NO new targeting infrastructure — REUSE Iteration L's per-sub-action targeting.
+- NO change to the individual verbs' own resolution math; Combine ORCHESTRATES the
+  existing Stride/Strike controllers, it does not reimplement them.
+
+* PRESERVE (must not regress)
+- Everything from Iterations L + M (effects, targeting, Cast a Spell), the Combatant
+  migration, the data-driven verb registry, enemy reaction AI + Opportunistic Strike,
+  Strike/Step/Stride, the Movement-trait lockout, flanking, the FEAT-227 guard.
+
+* Verification (gate must be green)
+- Full `bash scripts/test_command.sh` green (all 10 stages), incl. N=1000 sim +
+  boot-real e2e; determinism at a pinned seed; MainScene boots headless clean.
+- A Charge (Stride+Strike) drives the REAL verb path for one action + 1 Stamina.

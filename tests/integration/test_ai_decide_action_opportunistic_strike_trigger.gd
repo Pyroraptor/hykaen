@@ -68,6 +68,7 @@ extends GutTest
 ##   (adjacent/hostile/melee) candidate reactor — never for the far-away
 ##   chosen target itself, which is correctly filtered out.
 
+const CombatantClass               = preload("res://core/domain/combatant.gd")
 const AIClass                      = preload("res://core/combat/ai.gd")
 const ActionEconomyClass           = preload("res://core/rules/action_economy.gd")
 const HexCoordClass                = preload("res://core/geometry/hex_coord.gd")
@@ -117,19 +118,19 @@ var _resolve_stride_use_case
 var _strike_use_case
 
 
-func _skeleton(hex_coord) -> Dictionary:
-	return {
+func _skeleton(hex_coord):
+	return CombatantClass.from_dict({
 		"name": "Skeleton", "combatant_id": "skeleton", "hp_current": 500, "hp_max": 500,
 		"ac": -1000, "strength": 2, "hex_coord": hex_coord, "_is_enemy": true,
 		"weapon": {"damage_modifier_attribute": "strength", "proficiency_bonus": 2, "damage_die": 6},
-	}
+	})
 
 
-func _titus_far(hex_coord) -> Dictionary:
-	return {
+func _titus_far(hex_coord):
+	return CombatantClass.from_dict({
 		"name": "Titus", "combatant_id": "titus", "hp_current": 20, "ac": 14,
 		"strength": 5, "hex_coord": hex_coord, "_is_enemy": false,
-	}
+	})
 
 
 ## _reactor_adjacent(hex_coord) -> Dictionary -- a SEPARATE living, hostile,
@@ -137,21 +138,21 @@ func _titus_far(hex_coord) -> Dictionary:
 ## the mover's start hex -- see this file's header doc for why this is the
 ## only organically-reachable way to pair a Stride with a genuinely eligible
 ## OpportunisticStrike candidate.
-func _reactor_adjacent(hex_coord) -> Dictionary:
-	return {
+func _reactor_adjacent(hex_coord):
+	return CombatantClass.from_dict({
 		"name": "Aldric", "combatant_id": "aldric", "hp_current": 20, "ac": 14,
 		"strength": 3, "hex_coord": hex_coord, "_is_enemy": false,
 		"weapon": {"damage_modifier_attribute": "strength", "proficiency_bonus": 3, "damage_die": 6, "parry_bonus": 4, "block_value": 1},
-	}
+	})
 
 
-func _reactor_spent_fn(reactor: Dictionary) -> bool:
-	var ae = _reactor_economy_map.get(reactor.get("combatant_id", ""), null)
+func _reactor_spent_fn(reactor) -> bool:
+	var ae = _reactor_economy_map.get(reactor.display_id(), null)
 	return ae.is_spent() if ae != null else false
 
 
-func _reactor_action_economy_fn(reactor: Dictionary):
-	return _reactor_economy_map.get(reactor.get("combatant_id", ""), null)
+func _reactor_action_economy_fn(reactor):
+	return _reactor_economy_map.get(reactor.display_id(), null)
 
 
 ## _reactor_chooser_fn(reactor, context) -> Dictionary -- the ONLY spied
@@ -160,8 +161,8 @@ func _reactor_action_economy_fn(reactor: Dictionary):
 ## suite can assert exactly which candidate(s) were genuinely offered a
 ## window, then always answers "opportunistic_strike" (a real, resolved
 ## choice, never a no-op).
-func _reactor_chooser_fn(reactor: Dictionary, context: Dictionary) -> Dictionary:
-	_reactor_reaction_calls.append({"reactor_id": reactor.get("combatant_id", ""), "context": context})
+func _reactor_chooser_fn(reactor, context: Dictionary) -> Dictionary:
+	_reactor_reaction_calls.append({"reactor_id": reactor.display_id(), "context": context})
 	return {"choice": "opportunistic_strike"}
 
 
@@ -173,11 +174,11 @@ func _reactor_chooser_fn(reactor: Dictionary, context: Dictionary) -> Dictionary
 ## as its strike_use_case -- exactly mirroring MainScene.gd's own
 ## _resolve_enemy_stride_opportunistic_window()/reaction_controller.gd's
 ## resolve_enemy_stride_opportunistic_window() production shape.
-func _wrapped_stride_reaction_resolver(mover: Dictionary, mover_start_hex, candidate_reactors: Array) -> Dictionary:
+func _wrapped_stride_reaction_resolver(mover, mover_start_hex, candidate_reactors: Array) -> Dictionary:
 	_resolver_invocation_count += 1
 	for reactor in candidate_reactors:
-		_resolver_received_candidate_reactor_ids.append(reactor.get("combatant_id", ""))
-	var live_mover_hex = mover.get("hex_coord")
+		_resolver_received_candidate_reactor_ids.append(reactor.display_id())
+	var live_mover_hex = mover.hex_coord
 	_resolver_mover_hex_snapshot_at_invocation = [live_mover_hex.q, live_mover_hex.r]
 
 	_last_stride_reaction_result = await _resolve_stride_use_case.execute(
@@ -209,9 +210,9 @@ func test_enemy_mover_stride_via_ai_decide_action_organically_triggers_opportuni
 	var far_target_hex = HexCoordClass.new(9, 0)  # beyond a single Speed-4 Stride's reach -- mirrors this codebase's established convention (tests/integration/test_ai_token_reposition.gd)
 	var reactor_hex = HexMathClass.hex_neighbors(origin_hex)[0]  # adjacent to the mover's START hex
 
-	var skeleton: Dictionary = _skeleton(origin_hex)
-	var titus: Dictionary = _titus_far(far_target_hex)
-	var reactor: Dictionary = _reactor_adjacent(reactor_hex)
+	var skeleton = _skeleton(origin_hex)
+	var titus = _titus_far(far_target_hex)
+	var reactor = _reactor_adjacent(reactor_hex)
 
 	var skeleton_action_economy = ActionEconomyClass.new()
 	skeleton_action_economy.start_of_turn()
@@ -229,7 +230,7 @@ func test_enemy_mover_stride_via_ai_decide_action_organically_triggers_opportuni
 	var ai = AIClass.new()
 	ai.set_stride_reaction_resolver_fn(Callable(self, "_wrapped_stride_reaction_resolver"))
 
-	var skeleton_hp_before: int = skeleton.get("hp_current")
+	var skeleton_hp_before: int = skeleton.hp_current
 	var reactor_budget_before: int = reactor_action_economy.get_remaining()
 
 	var decision: Dictionary = await ai.decide_action(skeleton, [titus], skeleton_action_economy, [reactor])
@@ -272,7 +273,7 @@ func test_enemy_mover_stride_via_ai_decide_action_organically_triggers_opportuni
 	assert_false(strike_result.get("target_defeated", true), "fixture assumption: the mover's overwhelming hp must survive this single Strike")
 	assert_true(strike_result.get("damage_final", 0) > 0, "the guaranteed-hit Strike must apply real, positive damage")
 
-	assert_eq(skeleton.get("hp_current"), skeleton_hp_before - strike_result.get("damage_final"), "the mover's own hp_current must drop by EXACTLY the resolved Strike's damage")
+	assert_eq(skeleton.hp_current, skeleton_hp_before - strike_result.get("damage_final"), "the mover's own hp_current must drop by EXACTLY the resolved Strike's damage")
 
 	assert_eq(
 		reactor_action_economy.get_remaining(), reactor_budget_before - 1,

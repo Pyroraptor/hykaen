@@ -129,11 +129,11 @@ func _boot_main_scene_with_seed(seed_value: int):
 ## in place), mirroring the identically-named helper already established by
 ## tests/integration/test_steel_thread_prologue_encounter.gd /
 ## tests/integration/test_movement_affordance_integration.gd.
-func _find_combatant_by_id(instance, combatant_id: String) -> Dictionary:
+func _find_combatant_by_id(instance, combatant_id: String):
 	for combatant in instance._party + instance._enemies:
-		if combatant.get("combatant_id", "") == combatant_id:
+		if combatant.combatant_id == combatant_id:
 			return combatant
-	return {}
+	return null
 
 
 ## _find_action_economy_by_id(instance, combatant_id) -> ActionEconomy or
@@ -149,7 +149,8 @@ func _find_combatant_by_id(instance, combatant_id: String) -> Dictionary:
 ## reading state off the real, unmodified production RoundSession instance.
 func _find_action_economy_by_id(instance, combatant_id: String):
 	for entry in instance.round_session._entries:
-		if entry.get("combatant", {}).get("combatant_id", "") == combatant_id:
+		var c = entry.get("combatant")
+		if c != null and c.combatant_id == combatant_id:
 			return entry.get("action_economy")
 	return null
 
@@ -206,12 +207,12 @@ func test_full_steel_thread_from_turn_start_to_post_resolution_lock() -> void:
 
 	# ── Fixture assumptions (seed=42, prologue_encounter.tres) ─────────────
 	assert_false(
-		instance.round_session.current_actor().get("_is_enemy", true),
+		instance.round_session.current_actor().is_enemy,
 		"fixture assumption: the first actor must be the living player combatant (Titus) per prologue_encounter.tres' hex layout at seed=42"
 	)
 	assert_eq(instance._enemies.size(), 1, "fixture assumption: the prologue encounter has exactly one enemy")
 
-	var actor_id: String = instance.round_session.current_actor().get("combatant_id", "")
+	var actor_id: String = instance.round_session.current_actor().display_id()
 	assert_ne(actor_id, "", "fixture assumption: the active actor carries a non-empty combatant_id")
 
 
@@ -264,10 +265,10 @@ func test_full_steel_thread_from_turn_start_to_post_resolution_lock() -> void:
 	var step_result: Dictionary = instance._verb_registry.execute("STEP", destination)
 	assert_true(step_result.get("ok", false), "executing STEP against the selected destination must resolve a real Step")
 
-	var moved_combatant: Dictionary = _find_combatant_by_id(instance, actor_id)
-	assert_false(moved_combatant.is_empty(), "fixture assumption: the moved actor must be one of MainScene's live combatant Dictionaries")
+	var moved_combatant = _find_combatant_by_id(instance, actor_id)
+	assert_not_null(moved_combatant, "fixture assumption: the moved actor must be one of MainScene's live combatants")
 	assert_true(
-		moved_combatant.get("hex_coord").equals(destination),
+		moved_combatant.hex_coord.equals(destination),
 		"Combatant.position (the live combatant Dictionary's hex_coord) must change to the selected legal hex via step_to()"
 	)
 
@@ -297,7 +298,7 @@ func test_full_steel_thread_from_turn_start_to_post_resolution_lock() -> void:
 	# ══════════════════════════════════════════════════════════════════════
 
 	assert_false(
-		instance.round_session.current_actor().get("_is_enemy", true),
+		instance.round_session.current_actor().is_enemy,
 		"fixture assumption: the actor is still the living player combatant after their own Step/Stride"
 	)
 
@@ -341,7 +342,7 @@ func test_full_steel_thread_from_turn_start_to_post_resolution_lock() -> void:
 
 	var guard: int = 0
 	while not instance.round_session.is_round_over() and guard < _MAX_DRIVE_ITERATIONS:
-		if not instance.round_session.current_actor().get("_is_enemy", true) and instance._verb_registry.is_available("STRIKE"):
+		if not instance.round_session.current_actor().is_enemy and instance._verb_registry.is_available("STRIKE"):
 			var live_selection: Dictionary = instance.verb_bar_view.press("STRIKE")
 			var live_target_ids: Array = live_selection.get("candidate_targets", [])
 			if live_target_ids.size() > 0:
@@ -385,10 +386,10 @@ func test_full_steel_thread_from_turn_start_to_post_resolution_lock() -> void:
 	var positions_before: Dictionary = {}
 	var hp_before: Dictionary = {}
 	for combatant in instance._party + instance._enemies:
-		var id: String = combatant.get("combatant_id", "")
-		positions_before[id] = combatant.get("hex_coord")
-		hp_before[id] = combatant.get("hp_current", -1)
-	var attack_event_count_before: int = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent).size()
+		var id: String = combatant.combatant_id
+		positions_before[id] = combatant.hex_coord
+		hp_before[id] = combatant.hp_current
+	var attack_event_count_before: int = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast).size()
 
 	# A stray hex_clicked on an arbitrary hex (even one that WAS legal before
 	# resolution, e.g. the fixture's original starting hex) must be a no-op --
@@ -409,17 +410,17 @@ func test_full_steel_thread_from_turn_start_to_post_resolution_lock() -> void:
 
 	# No domain mutation whatsoever resulted from any of the above.
 	for combatant in instance._party + instance._enemies:
-		var id: String = combatant.get("combatant_id", "")
+		var id: String = combatant.combatant_id
 		assert_true(
-			combatant.get("hex_coord").equals(positions_before[id]),
+			combatant.hex_coord.equals(positions_before[id]),
 			"combatant %s's position must be unchanged by any post-resolution input" % id
 		)
 		assert_eq(
-			combatant.get("hp_current", -2), hp_before[id],
+			combatant.hp_current, hp_before[id],
 			"combatant %s's HP must be unchanged by any post-resolution input" % id
 		)
 	assert_eq(
-		instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent).size(), attack_event_count_before,
+		instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast).size(), attack_event_count_before,
 		"no additional AttackEvent may be emitted by any post-resolution input"
 	)
 
@@ -452,16 +453,16 @@ func test_enemy_ai_leg_strides_toward_nearest_target_but_does_not_strike_same_tu
 	await get_tree().process_frame
 
 	assert_eq(instance._enemies.size(), 1, "fixture assumption: the prologue encounter has exactly one enemy")
-	var enemy: Dictionary = instance._enemies[0]
-	var enemy_id: String = enemy.get("combatant_id", "")
+	var enemy = instance._enemies[0]
+	var enemy_id: String = enemy.combatant_id
 	assert_ne(enemy_id, "", "fixture assumption: the enemy combatant carries a non-empty combatant_id")
 
-	var player: Dictionary = instance._party[0]
-	var player_hex = player.get("hex_coord")
+	var player = instance._party[0]
+	var player_hex = player.hex_coord
 	assert_not_null(player_hex, "fixture assumption: the player combatant carries positional hex_coord data")
 
 	assert_false(
-		instance.round_session.current_actor().get("_is_enemy", true),
+		instance.round_session.current_actor().is_enemy,
 		"fixture assumption: the player still acts first, before the enemy's own turn"
 	)
 
@@ -493,7 +494,7 @@ func test_enemy_ai_leg_strides_toward_nearest_target_but_does_not_strike_same_tu
 	assert_true(enemy_action_economy.can_take_movement_action(), "sanity check: the enemy has not used its per-turn Movement action yet")
 
 	var attack_events_before: int = instance.event_sink.log.filter(
-		func(e): return e is RoundEventsClass.AttackEvent and e.attacker_name == enemy.get("name", "")
+		func(e): return e is RoundEventsClass.AttackBroadcast and e.attacker_name == enemy.name
 	).size()
 
 	# End the player's turn WITHOUT acting -- this suite isolates the enemy
@@ -506,7 +507,7 @@ func test_enemy_ai_leg_strides_toward_nearest_target_but_does_not_strike_same_tu
 	assert_true(end_turn_result.get("ok", false), "ending the player's turn (no action taken) must succeed")
 
 	# ── Stride toward the nearest living target (US-004) ────────────────────
-	var moved_hex = enemy.get("hex_coord")
+	var moved_hex = enemy.hex_coord
 	assert_false(
 		moved_hex.equals(far_hex),
 		"the enemy's hex position after its AI turn must differ from its pre-turn position when the nearest target started out of reach"
@@ -532,7 +533,7 @@ func test_enemy_ai_leg_strides_toward_nearest_target_but_does_not_strike_same_tu
 	# whether the now-adjacent target is in reach for a Strike (US-005)
 	# ────────────────────────────────────────────────────────────────────────
 	var attack_events_after: int = instance.event_sink.log.filter(
-		func(e): return e is RoundEventsClass.AttackEvent and e.attacker_name == enemy.get("name", "")
+		func(e): return e is RoundEventsClass.AttackBroadcast and e.attacker_name == enemy.name
 	).size()
 	assert_eq(
 		attack_events_after, attack_events_before,
@@ -563,12 +564,12 @@ func test_enemy_ai_leg_strides_but_does_not_strike_when_no_action_remains_after_
 	await get_tree().process_frame
 
 	assert_eq(instance._enemies.size(), 1, "fixture assumption: the prologue encounter has exactly one enemy")
-	var enemy: Dictionary = instance._enemies[0]
-	var enemy_id: String = enemy.get("combatant_id", "")
+	var enemy = instance._enemies[0]
+	var enemy_id: String = enemy.combatant_id
 	assert_ne(enemy_id, "", "fixture assumption: the enemy combatant carries a non-empty combatant_id")
 
-	var player: Dictionary = instance._party[0]
-	var player_hex = player.get("hex_coord")
+	var player = instance._party[0]
+	var player_hex = player.hex_coord
 
 	# Same out-of-reach-but-Stride-reachable relocation as the sibling suite
 	# above.
@@ -603,15 +604,15 @@ func test_enemy_ai_leg_strides_but_does_not_strike_when_no_action_remains_after_
 	assert_true(enemy_action_economy.can_take_movement_action(), "fixture setup: draining the budget must not itself trip the Movement gate")
 
 	var attack_events_before: int = instance.event_sink.log.filter(
-		func(e): return e is RoundEventsClass.AttackEvent and e.attacker_name == enemy.get("name", "")
+		func(e): return e is RoundEventsClass.AttackBroadcast and e.attacker_name == enemy.name
 	).size()
 
-	assert_false(instance.round_session.current_actor().get("_is_enemy", true), "fixture assumption: the player still acts first")
+	assert_false(instance.round_session.current_actor().is_enemy, "fixture assumption: the player still acts first")
 	var end_turn_result: Dictionary = instance.end_turn_control.press()
 	assert_true(end_turn_result.get("ok", false), "ending the player's turn (no action taken) must succeed")
 
 	# The AI must still issue its Stride with the one remaining action...
-	var moved_hex = enemy.get("hex_coord")
+	var moved_hex = enemy.hex_coord
 	assert_false(moved_hex.equals(far_hex), "the AI must still issue its Stride toward the nearest living target with its one remaining action")
 	assert_eq(HexMathClass.hex_distance(moved_hex, player_hex), 1, "sanity check: the Stride must have closed into melee reach")
 	assert_false(enemy_action_economy.can_take_movement_action(), "ActionEconomy.movement_used must be true after the AI's Stride")
@@ -621,7 +622,7 @@ func test_enemy_ai_leg_strides_but_does_not_strike_when_no_action_remains_after_
 	# ...but with NO action remaining, no Strike may be attempted/recorded,
 	# even though reach is now satisfied.
 	var attack_events_after: int = instance.event_sink.log.filter(
-		func(e): return e is RoundEventsClass.AttackEvent and e.attacker_name == enemy.get("name", "")
+		func(e): return e is RoundEventsClass.AttackBroadcast and e.attacker_name == enemy.name
 	).size()
 	assert_eq(
 		attack_events_after, attack_events_before,

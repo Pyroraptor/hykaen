@@ -14,10 +14,13 @@ var _movement_input_controller
 var _after_successful_move_fn: Callable
 
 
-func _init(session_holder, movement_input_controller, after_successful_move_fn: Callable) -> void:
-	super(session_holder)
-	_movement_input_controller = movement_input_controller
-	_after_successful_move_fn = after_successful_move_fn
+## Reads `deps["movement_input_controller"]` and the `deps["after_successful_move"]`
+## Callable (data-driven verb table, 2026-07-11 — see action_controller.gd's _init
+## doc). `session_holder` is consumed by super().
+func _init(deps: Dictionary) -> void:
+	super(deps)
+	_movement_input_controller = deps.get("movement_input_controller", null)
+	_after_successful_move_fn = deps.get("after_successful_move", Callable())
 
 
 func availability() -> bool:

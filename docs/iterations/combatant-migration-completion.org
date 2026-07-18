@@ -1,0 +1,202 @@
+#+TITLE: Combatant-Entity Migration — Completion (pre-work #2, finish C.3 + mutating-half of C.4)
+#+DATE: 2026-07-17
+#+STATUS: DRAFT for Guy review. This is a BEHAVIOR-PRESERVING REFACTOR, not a feature — acceptance is "gate green + zero gameplay change", NOT new observable behavior. Base HEAD = 101c8d2 on branch =prework/spell-combine-foundations= (the WIP checkpoint: C.3 mutation chain + the mutating half of C.4 already flipped). Authoritative remaining-work inventory: =docs/refactors/combatant-entity-migration.org= "RESUME POINT" section — read it FIRST.
+
+* Context (why this sprint exists)
+
+The Combatant-entity migration (pre-work #2, before Cast-a-Spell) threads typed
+=Combatant= instances through the combat pipeline in place of untyped stat
+dictionaries. Phases A/B/C.1/C.2 are committed-green. A prior C.3 attempt was
+implemented-in-tree but never run and did NOT hold together; a gate run this
+session fixed the hard parse blocker and flipped the mutating-path presentation
+controllers to live instances (committed at =101c8d2=).
+
+ONE consumer group remains on dictionaries: the *reaction / event / trigger
+subsystem*. That is this sprint's whole job — flip it to instances, update the
+affected test fixtures, and bring the full gate green with ZERO gameplay change.
+
+THE KEY STRUCTURAL FACT (do not re-derive): =resolve()= / =resolve_reactive()=
+call =_combatant_identifier(combatant)= → =combatant.display_id()=
+(=core/application/resolve_action_use_case.gd:495,643=), so ANY combatant handed
+to resolve — attacker OR reactor — MUST be a live =Combatant= instance; a dict
+copy crashes there. The reactor is *dual-use*: read-only inside =reaction_window=
+(reads name/conditions/conscious) BUT it is also the STRIKING combatant passed
+into =resolve()= for an Opportunistic Strike — so it must stay a live instance
+end-to-end, and =reaction_window= must be flipped to accept instances (a plain
+=to_dict()= bridge on the reactor is WRONG — see G2).
+
+* ⭐ PLANNING CONSTRAINT — implementation-planning MUST produce EXACTLY these 2 items
+
+This sprint is NOT decomposable into small independently-testable items, and a
+prior run FAILED by splitting it. The reaction consumers are INTERDEPENDENT: the
+composition root (MainScene) does NOT boot — so the pytest test gate CANNOT pass —
+until EVERY reaction consumer is flipped to instances TOGETHER. A partial flip
+(e.g. trigger-builders but not reaction_window) leaves the tree red and that item
+can never pass its own gate. Therefore:
+
+- *ITEM 1 (ATOMIC — do NOT split or subdivide):* flip the ENTIRE reaction/event/
+  trigger subsystem to instances in ONE work item (Part A below, ALL sites at
+  once). Acceptance = the tree goes RED→GREEN: the pytest gate passes because
+  MainScene now boots. This item is large by necessity; plan it as one.
+- *ITEM 2:* update the test fixtures (Part B) — GUT reaction-window + controller
+  fixtures. Depends on ITEM 1.
+
+Do NOT create a separate item per file or per reaction-window site. TWO items only.
+Efficiency (avoid the prior run's 50-turn cap): make the FULL set of Part-A edits
+from the inventory in ONE pass FIRST, THEN run the gate ONCE to verify — do NOT
+re-run the slow godot suite after each individual edit.
+
+* ⭐⭐ GUARDRAILS — READ FIRST. These override normal item flow. Violating one FAILS the item.
+
+- G1 — BEHAVIOR-PRESERVING, ZERO GAMEPLAY CHANGE. This is a pure refactor: the
+  same rolls, damage, mitigation, defeat, and turn/round flow before and after.
+  The proof is that the existing tests + the N=1000 balance sim + the boot-real
+  reaction/opportunistic-strike E2Es stay green with the SAME outcomes. No new
+  feature, no rules tweak.
+
+- G2 — THE REFERENCE-MUTATION INVARIANT (the #1 landmine, non-negotiable). Damage
+  (=take_damage=), position (=move_to=), and reaction/action-economy spends are
+  applied by MUTATING the live combatant IN PLACE. Any combatant on a mutating
+  path MUST travel as the SAME instance BY REFERENCE from the container
+  (_party/_enemies) to the mutation site. NEVER bridge a mutating boundary with a
+  =to_dict()= / =from_dict()= COPY — it silently drops the effect (a lethal
+  Opportunistic Strike that never lands; a Stride whose damage vanishes). The
+  reactor and mover in the reaction/stride path are on the mutating path — keep
+  them live instances. If you find yourself writing =.to_dict()= to satisfy a
+  reactor/target/mover read, STOP: flip the consumer to instance-native instead.
+
+- G3 — INSTANCES INTO resolve(); to_dict ONLY for pure-display leaves. Any
+  combatant passed to =resolve()=/=resolve_reactive()= is a live instance. The
+  ONLY sanctioned =to_dict()= bridges are the read-only DISPLAY consumers
+  explicitly out of scope below (status_panel_view, event_log_view,
+  initiative_view, verb_bar_view, ViewModelBuilder) — do NOT expand the flip to
+  them, and do NOT remove their bridges (that is a later C.4 remainder).
+
+- G4 — NO TOLERANCE SHIMS ON THE MUTATION CHAIN, NO NEW DEFERRALS. Complete the
+  flip to instances; do NOT re-introduce dict-or-instance duck-typing in the
+  reaction/resolve mutation path — deleting that ambiguity is the migration's
+  entire point. (movement.gd's existing =_hex_of/_set_hex= tolerance and
+  flanking's may remain — they predate this work and are read/position helpers.)
+  No "descoped the reaction fixtures" — the fixtures are IN scope. Genuinely
+  out-of-scope NEW discovery → STOP and flag Guy, never a quiet drop.
+
+- G5 — DETERMINISM PRESERVED, sim_results.json UNCHANGED. Unlike Iteration K there
+  is NO sanctioned re-baseline: this refactor changes no data and no rules, so
+  =sim_results.json= (win_rate/avg_rounds/total_battles/CI at seed 12345) MUST be
+  byte-unchanged. ANY movement means a mutation was dropped or altered by the flip
+  — that is a DEFECT: STOP and flag Guy, do not regen. The N=1000 sim and the
+  boot-real E2Es are the damage-persistence guard; a copied-instead-of-referenced
+  combatant diverges them loudly.
+
+- G6 — THE GATE IS THE ACCEPTANCE. "Done" = =scripts/test_command.sh= exits 0
+  (all 10 stages: smoke, pytest, CI checks, N=1000 sim provenance, domain purity,
+  GUT consolidated + full project, sim, steel-thread E2E) AND sim_results.json
+  unchanged. Per-item TDD may use the project =test_command= (pytest +
+  =--gut-run-all=), but the completion gate is the full script.
+
+────────────────────────────────────────────────────────────────────────────────
+
+* PART A (P1) — Flip the reaction/event/trigger subsystem to instances
+
+** Current gap
+The reaction path now receives live instances (the controllers were flipped in
+101c8d2), but these consumers still type/read the reactor (and target/mover) as a
+Dictionary, so an instance flowing in either crashes (=Trying to assign 'Object'
+to 'Dictionary'=, observed at =reaction_window.gd:140= under a real boot) or would
+hit a 2-arg =.get(key, default)= that Objects do not support.
+
+** Sites to flip (keep the reactor/target/mover as LIVE INSTANCES — G2/G3)
+- =core/application/reaction_window.gd= — 4× =var reactor: Dictionary =
+  trigger.get("reactor", {})= at :140/:317/:443/:663, plus the =reactor.get("name")
+  / .get("conditions") / .get("conscious")= reads. Flip to instance-native
+  (=reactor.display_id()/.name=, =reactor.has_condition(...)= or =.conditions=,
+  =reactor.is_conscious()= — MATCH the parity note in the refactor org doc:
+  =conscious= is a vestigial always-true read; preserve current behavior, do NOT
+  silently switch a Steel-trigger gate to hp>0). De-type the =trigger= reactor
+  reads; the rest of =trigger= stays a Dictionary (it carries ids/context, not a
+  combatant object — only "reactor" is the entity).
+- =core/application/use_cases/resolve_stride_use_case.gd= — the =reactor= param
+  (:319) and the =reaction_entry {"reactor": reactor}= (:270): the reactor is the
+  striking combatant into =strike_use_case.resolve()=, so it MUST be the live
+  instance (G2). De-type; do not copy.
+- The trigger BUILDERS that place a combatant under "reactor"/"target": audit
+  =core/application/round_session.gd= (=_build_reaction_trigger= /
+  =_build_prehit_avoidance_trigger= / =_build_onhit_mitigation_trigger=),
+  =core/rules/resolution.gd='s reaction path, and
+  =core/application/resolve_dodge_step_use_case.gd=. Ensure the object they store
+  as "reactor"/"target" is the live instance that flows onward to resolve(), never
+  a fresh dict.
+- Sweep for any remaining combatant =: Dictionary= params or 2-arg =.get(...)=
+  reads on a reactor/target/mover across =core/application/= and =core/rules/= that
+  the flip now feeds instances (grep =reactor: Dictionary=, =target: Dictionary=,
+  =.get("hp_current"/"conditions"/"conscious"/"combatant_id", =).
+
+** Acceptance (Part A)
+Boot-real reaction E2Es green with unchanged outcomes: a PLAYER Strike where the
+enemy AI-reacts and mitigates, and a Stride that provokes a resolved Opportunistic
+Strike landing BEFORE the mover's token moves (a lethal one still cancels the
+Stride). No =to_dict()= on the reactor/mover path. sim_results.json unchanged.
+
+* PART B (P2) — Update the test fixtures to build instances
+
+** Gap
+Test fixtures that feed the now-instance-native controllers + reaction_window
+still author dict combatants.
+
+** Work (mechanical, via the shared factory)
+- =core/application/tests/test_reaction_window_prehit.gd= +
+  =test_reaction_window_onhit.gd= — their =_reactor()= builders (~25 each) return
+  dicts; wrap them in =CombatantClass.from_dict(spec)= (or the shared test
+  =combatant(spec)= helper C.1 added) so they hand INSTANCES to reaction_window,
+  while still AUTHORING specs as dicts (localize churn to the helper, per the
+  refactor doc's test-fixture strategy).
+- The ~20 presentation controller test files that still build dict combatants for
+  the flipped strike/stride/movement/reaction/turn controllers — same treatment.
+- Anywhere a test asserts the =current_actor()= dict shape but now drives a
+  mutating path, switch it to =current_actor_entity()= / instance assertions.
+
+** Acceptance (Part B)
+Full GUT + pytest green; no fixture feeds a raw dict combatant into a flipped
+instance-native consumer.
+
+* PRESERVE (must not regress) — green semantics as of the DONE work in 101c8d2
+- The C.3 mutation chain + the flipped controllers (strike/stride/turn_presentation/
+  turn/reaction) + the =current_actor_entity()= accessors. Do not undo them.
+- The FEAT-227 fail-fast enemy-build guard at the MainScene composition root.
+- All existing reaction/opportunistic-strike/round-loop behavior and outcomes.
+
+* Out of scope (→ later C.4 remainder / spells)
+- Flipping the pure-DISPLAY consumers off their to_dict bridges: status_panel_view,
+  event_log_view, initiative_view, verb_bar_view, ViewModelBuilder — they stay
+  dict-bridged this sprint (G3). Phase D (delete to_dict/from_dict interop) waits
+  until they are flipped — do NOT delete the interop now.
+- =resolve_spell_attack= / Cast-a-Spell caster fields (land with the spell feature).
+- Any gameplay/rules/data change.
+
+* Verification (all required — none substitutes for another)
+1. =scripts/test_command.sh= exits 0 (all 10 stages), INCLUDING the boot-real
+   reaction + opportunistic-strike E2Es and the N=1000 sim.
+2. =sim_results.json= byte-UNCHANGED (G5). Confirm, do not regen.
+3. Grep proof: no =to_dict()= on the reactor/target/mover mutation path; no
+   remaining combatant =: Dictionary= param or 2-arg =.get= on a reactor/target/
+   mover in core/application + core/rules; the reactor travels as one instance
+   from trigger-build → reaction_window → resolve().
+
+* Build order — TWO items only (per the PLANNING CONSTRAINT above)
+
+ITEM 1 (ATOMIC — all of Part A in one item; the pytest gate only passes once ALL
+of these land together and MainScene boots):
+  a. reaction_window.gd (all 4 reactor sites + name/conditions/conscious reads).
+  b. resolve_stride_use_case + the trigger builders (round_session/resolution/
+     resolve_dodge_step) — reactor/mover stays a live instance end-to-end.
+  c. Sweep core/application + core/rules for any remaining combatant =: Dictionary=
+     param or 2-arg =.get= on a reactor/target/mover the flip now feeds instances.
+  d. Verify: pytest gate green (MainScene boots); sim_results.json unchanged.
+     Make edits (a)-(c) in one pass, THEN run the gate once — do not re-run the
+     godot suite after each edit (that caused the prior run's turn-cap).
+
+ITEM 2 (fixtures; depends on ITEM 1):
+  a. reaction_window prehit/onhit fixtures (wrap =_reactor()= in from_dict).
+  b. the ~20 controller test fixtures.
+  c. Verify: full =scripts/test_command.sh= exit 0 (GUT + pytest + N=1000 sim +
+     boot-real E2Es); confirm sim_results.json unchanged; run the grep proofs.

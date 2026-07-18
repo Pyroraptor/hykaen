@@ -1,0 +1,318 @@
+#+TITLE: Refactor Plan — Combatant Entity Migration (pre-work item #2)
+#+STATUS: DRAFT (hand-execution plan, gate-gated; precedes Cast-a-Spell / Combinations)
+
+* Why
+
+The combat-resolution pipeline passes plain *Dictionaries* carrying every stat,
+while =core/domain/combatant.gd= (the =Combatant= entity) holds only identity +
+position. We have the cost of two models and the safety of neither: each combat
+attribute is an untyped, undocumented dict key threaded through resolution with
+no compiler help and no single schema. This already caused a real defect class
+historically (silent missing/typo'd keys). Cast-a-Spell makes it worse — it adds
+HP manipulation, an energy resource, conditions, healing, and a persistent
+*Casting* state that must survive round boundaries — all new keys in the untyped
+bag unless we migrate first.
+
+Goal: thread =Combatant= instances through resolution so stats + behavior live
+on one typed entity with methods, and adding an attribute is a field on a class
+rather than a new dict key nobody validates.
+
+Naming decision (settled): keep =Combatant= (the encounter-time combat
+projection). A persistent =Actor=/=Character= entity is a *separate future*
+entity that owns durable data and builds a Combatant per encounter;
+=CombatantFactory= already sits on that seam. Do NOT merge persistent data here.
+
+* Current state (verified)
+
+- =core/domain/combatant.gd= — =class_name Combatant extends RefCounted=; fields
+  =combatant_id, name, team, hex_coord=; one method =move_to(hex)=. Used only in
+  the positional/identity layer (flanking, movement, opportunistic-strike
+  eligibility, hex-grid tokens) + instantiated by
+  =infrastructure/resource_encounter_repository.gd=. Most of those consumers
+  accept "a Combatant *or* a dict" via duck-typing on =hex_coord=.
+- The *resolution pipeline is Dictionary-typed at the signature level* —
+  e.g. =resolution.gd= =resolve_spell_attack(attacker: Dictionary, target:
+  Dictionary, ...)=, and likewise =resolve_action_use_case=, the two-phase
+  sub-UCs, =round_session=, =run_round_use_case=, =determine_outcome_use_case=.
+- The live combatant builder =infrastructure/combatant_factory.gd= (the FEAT-227
+  fail-fast path) produces *dicts*; =MainScene._party/_enemies= are arrays of
+  dicts. =encounter.gd= builds dicts too. =core/sim/simulator.gd= has its OWN
+  parallel combatant-construction path (ADR-106 sim↔live defense parity).
+- Dict schema (from CombatantFactory): =name, hp_current, hp_max, stamina, ac,
+  fortitude, reflex, will, strength, dexterity, intuition, skills{}, weapon{...},
+  conditions[], conscious, hex_coord, _is_enemy, _initiative_roll=. Note the dict
+  uses =name + _is_enemy=; the class uses =combatant_id + team= — reconcile.
+
+* Target Combatant entity
+
+Merge the stat bag onto the class and give it behavior:
+- Fields: existing =combatant_id, name, team, hex_coord= + =hp_current, hp_max,
+  stamina, ac, fortitude, reflex, will, strength, dexterity, intuition, skills,
+  weapon, conditions, _initiative_roll=; reconcile =team= vs =_is_enemy= (derive
+  =is_enemy()= from =team=), keep =conscious= as a method.
+- Methods: =defense(kind: String) -> int= (ac/reflex/fortitude/will, one lookup),
+  =take_damage(n)= / =heal(n)=, =is_conscious() -> bool=, =has_condition(c)= /
+  =add_condition= / =remove_condition=, plus the round-scoped resource +
+  *Casting* state hooks that land with spells (=is_casting()=, =advance_cast()=,
+  =cancel_cast()=, =spend_energy()=). Keep =move_to=.
+- Interop (transition only): =to_dict() -> Dictionary= and =static from_dict(spec)
+  -> Combatant= so the source and the pipeline can cross the boundary one seam at
+  a time. Delete both once nothing passes dicts.
+
+* Files that flip Dictionary → Combatant (blast radius)
+
+Resolution core: =core/rules/resolution.gd= (all =resolve_*= + =_build_defense_context.gd=),
+=core/application/resolve_action_use_case.gd= (+ =resolve_to_hit_uc.gd=,
+=apply_on_hit_defense_uc.gd=), =core/application/determine_outcome_use_case.gd=
+(=classify=), =core/application/round_session.gd=, =run_round_use_case.gd=,
+=core/combat/encounter.gd=, =core/combat/ai.gd= (=decide_action=).
+Positional/reaction/view: =core/rules/flanking.gd=, =core/rules/movement.gd=,
+=core/domain/opportunistic_strike_eligibility.gd=, the reaction path
+(=reaction_window.gd=, =DefenseMitigationCalculator=), =ViewModelBuilder=.
+Sources (lockstep): =infrastructure/combatant_factory.gd=, =core/sim/simulator.gd=,
+=MainScene._party/_enemies=.
+
+* Staged execution (each phase ends green on scripts/test_command.sh)
+
+- *Phase A — enrich, don't wire.* Add all fields + methods + =to_dict/from_dict=
+  to =Combatant=, with unit tests. Zero pipeline change → zero risk. Gate.
+- *Phase B — swap the source.* =CombatantFactory= (and =simulator.gd=, in
+  lockstep for ADR-106 parity) build =Combatant=; at the MainScene/encounter
+  boundary call =.to_dict()= so the pipeline still receives dicts. Preserve the
+  FEAT-227 fail-fast (factory returns a Combatant or a typed error; keep the
+  =has("error")= guard shape at the call site we hand-fixed). Gate.
+- *Phase C — flip inward, one boundary at a time.* Change =: Dictionary= →
+  =: Combatant= and replace =x["key"]= reads with =x.key=/accessors and
+  =x["hp_current"] -= n= mutations with =x.take_damage(n)=. Order: =resolution.gd=
+  → =resolve_action_use_case= (+sub-UCs) → =round_session=/=run_round= →
+  =encounter= → =determine_outcome= → =ai=/=flanking=/=movement=/reactions →
+  =ViewModelBuilder=. Drop the =to_dict()= interop at each boundary as it's
+  crossed. *Gate after every boundary* (small, revertible steps).
+- *Phase D — delete interop.* Remove =to_dict/from_dict= and the dict-schema
+  comments once nothing passes dicts. Gate.
+
+* Test-fixture strategy (the biggest single surface)
+
+Many tests build dict combatants via helpers (=_durable_combatant=,
+=_boundary_target=, per-suite spec builders). Provide =Combatant.from_dict(spec)=
+(or a shared test factory) so fixtures keep *authoring* combatant specs as dicts
+but hand *Combatant instances* to the pipeline — localizing churn to the helper
+instead of every test. Migrate helpers in Phase B; individual tests mostly don't
+change.
+
+* Risk points / gotchas
+
+- =core/sim/simulator.gd= must migrate in *lockstep* with =CombatantFactory= or
+  ADR-106 sim↔live defense parity breaks (there's a parity test).
+- The "Combatant OR dict" duck-typed spots (=flanking=, =movement=) standardize
+  on Combatant — audit each for =.get("hex_coord")= vs =.hex_coord=.
+- FEAT-227 fail-fast (the call-site guard we hand-fixed at =MainScene= boot) must
+  survive Phase B — the factory still validates; decide typed-error vs Result.
+- =conditions[]= reads (Off-Guard, etc.) become =has_condition()= — grep all
+  =["conditions"]= sites.
+- ADR-002 manifest guard is NOT triggered (changes are in =core/domain= +
+  =core/rules=, not =core/application=) — but any *new* use-case file would be;
+  none needed here.
+- =test_command.sh= is now trustworthy (pre-work #0 fixed the silently-skipped
+  =test_encounter_round_loop.gd=) — rely on it as the phase gate.
+
+* Phase C — hands-on findings & execution playbook (2026-07-12)
+
+Phases A + B are committed and green. A first hands-on pass at Phase C (plus a
+scoped subagent attempt that over-reached to 21 files and was reverted) surfaced
+that Phase C resists tiny independent commits and hides real parity traps.
+Capture before executing:
+
+- *THE reference-mutation invariant (non-negotiable).* Damage is applied by
+  MUTATING the combatant in place — =target["hp_current"] -= damage= at
+  =resolve_action_use_case.gd:538= and =apply_on_hit_defense_uc.gd:159= — and it
+  works only because the SAME object flows BY REFERENCE from the container
+  (_party/_enemies) through =round_session= to the mutation site. NEVER bridge a
+  MUTATING boundary with a from_dict()/to_dict() COPY (silently drops the hit).
+  The Combatant INSTANCE must travel by reference; the mutation becomes
+  =target.take_damage(damage)= on that same instance. This forces the container +
+  =round_session= + the resolve use-cases to flip together as one unit.
+- *resolution.gd is READ-ONLY on combatants* (it computes and RETURNS a result;
+  the hp mutation lives in the use-cases). So resolution.gd MAY be flipped with
+  from_dict() COPIES at its call sites safely (no mutation to lose) — but see the
+  test-churn cost below.
+- *TRAP: =conscious= is a vestigial always-true field.* resolution.gd reads
+  =target.get("conscious", true)= but NOTHING sets it false in prod. Do NOT swap
+  in =is_conscious()= (= hp>0) — that changes the Steel-trigger gate for downed
+  combatants. Preserve parity: either read a =conscious= field (add it, default
+  true) or hardcode =true= at that site with a comment. is_conscious() stays a
+  separate, more-correct method for future (effects) use.
+- *=resolve_spell_attack= reads caster fields not on the entity*
+  (=spellcasting_attribute=, =spell_attack_bonus=) and is NOT called in prod (no
+  live Cast-a-Spell verb yet). Leave it Dictionary-typed this migration; add
+  those fields to Combatant WITH the spell feature (#5), then flip it.
+- *Dynamic attribute read:* =attacker.get(weapon["damage_modifier_attribute"], 0)=
+  (2-arg .get) does not work on an instance (Object.get is 1-arg). Use
+  =int(attacker.get(attr_name))= (Object.get returns the property) or add a
+  =Combatant.attribute(name)-> int= helper.
+- *Test churn is the dominant cost:* ~33 test files call resolution functions
+  directly with hand-built dict combatants. Flipping resolution's signatures
+  means updating all of them — do it via a SHARED helper (=Combatant.from_dict(spec)=
+  or a test util =combatant(spec)=) so the churn is mechanical, not per-assertion.
+- *Read-only consumers* (determine_outcome.classify, ai.decide_action,
+  ViewModelBuilder, EventSink/RoundHistory recorders) — bridge with =.to_dict()=
+  at their call boundary and flip later; do NOT expand the slice to them at once
+  (that was the reverted agent's mistake). =movement.gd:_set_hex= and =flanking=
+  already handle instance-or-dict, so instances flow through those correctly.
+
+Recommended C ordering (each its own gated commit): C1 add the small missing
+pieces to the entity as pure additions (=conscious= field, an =attribute(name)=
+helper) + a shared test =combatant(spec)= helper; C2 flip =resolution.gd= +
+=_build_defense_context.gd= (read-only) with from_dict copies at callers + the
+33-file test churn via the helper; C3 the MUTATION CHAIN as one unit (container
+builds instances, =round_session= + =resolve_action_use_case= +
+=apply_on_hit_defense_uc= pass by reference, mutation via take_damage), removing
+C2's from_dict copies; C4 flip the read-only consumers off their to_dict bridges;
+Phase D deletes to_dict/from_dict interop.
+
+** C.1 + C.2 DONE. C.3 execution map (the big atomic one — mapped 2026-07-12)
+
+C.1 (BuildDefenseContext) and C.2 (resolution.gd, via the _as_combatant dict-or-
+instance tolerance — the tolerance trick made those SURGICAL, zero caller/test
+churn) are committed + green. C.3 is qualitatively different: the tolerance trick
+does NOT apply (mutations need real instances; 2-arg =.get(key, default)= breaks
+on an instance), so it is a ~60–70-site ATOMIC flip — the container + every
+consumer must be correct at once or the game won't even boot. Concrete map:
+
+- *Container build* (→ Combatant.from_dict the factory output to INSTANCES):
+  =MainScene.gd:642-667= (_party/_enemies), =core/combat/encounter.gd:184-185=,
+  =core/sim/simulator.gd:139= (sim, lockstep). round_session._party is set at :217.
+- *Mutation sites* (=target["hp_current"] -= dmg= → =target.take_damage(dmg)= on
+  the live instance, by reference): =resolve_action_use_case.gd:539=,
+  =apply_on_hit_defense_uc.gd:159=. Also REMOVE C.1's =CombatantClass.from_dict(target)=
+  bridge in resolve_action_use_case (target is now already an instance — pass it
+  straight to BuildDefenseContext).
+- *round_session reads* (~30): turn-order/spent/_is_enemy logic + the event/history
+  PAYLOAD builds (:888-982 etc. — =x.get("combatant_id", x.get("name",""))=,
+  =x.get("weapon")=). Add =Combatant.display_id()= (combatant_id-or-name) to
+  collapse the ~14 id reads. Also flip round_session's INLINE _build_defense_context
+  duplicate (:1057) to instance reads.
+- *WATCH: the AI is a MUTATING consumer.* =_ai_decision_port.decide_action(combatant,
+  target_pool)= (round_session:1905) executes the enemy Stride INSIDE decide_action
+  (round_session:1234 "the Stride itself already happened inside decide_action()"),
+  so it must receive the LIVE instance, NOT a to_dict copy — flip core/combat/ai.gd
+  (3 combatant reads) and pass instances; movement._set_hex is already tolerant so
+  move_to persists. Verify decide_action's returned target is an ID (round_session
+  resolves it to the live instance for the Strike), not an object ref to a copy.
+- *Bridge (read-only, to_dict copies)*: determine_outcome.classify (call-sites
+  run_round_use_case:131, round_session:1929/1957) and ViewModelBuilder.build_*
+  (MainScene:673/679) — pass =_party.map(func(c): return c.to_dict())= etc.; flip
+  these consumers OFF the bridges in C.4.
+- *flanking write-back* (MainScene:1914/1921 =combatant["conditions"] = ...=) is a
+  MUTATION — use =combatant.add_condition/…= or set =combatant.conditions= on the
+  live instance, not a copy.
+Do it as ONE gated commit; the N=1000 sim + boot-real e2e are the damage-
+persistence guard (a dropped mutation diverges them loudly). Best done fresh, not
+at the tail of a long session.
+
+* Sequencing
+
+Do this AFTER pre-work #1 (data-driven verb registry) and BEFORE authoring
+Cast-a-Spell / Combinations (#3–#6). The Casting-state hooks (=is_casting/
+advance_cast/cancel_cast=) are stubbed in Phase A and filled when the spell
+feature lands. Phase C is a focused multi-commit effort (see the playbook above),
+NOT a quick job — sequence it as its own work session.
+
+* RESUME POINT — C.3 done-in-tree + C.4-partial (uncommitted WIP, 2026-07-17)
+
+A resume session ran the ACTUAL gate (built godot, imported, executed
+scripts/test_command.sh) against the uncommitted C.3 working tree and found it
+does NOT hold together — C.3 was written but never run. Findings + progress:
+
+** What was already in the working tree (the prior C.3 attempt)
+- The full C.3 mutation-chain flip was IMPLEMENTED but UNCOMMITTED and had never
+  been run: containers build instances (=CombatantClass.from_dict= at MainScene/
+  encounter/simulator), mutation sites use =take_damage()=, read-only display
+  consumers bridged with =to_dict()=, and ~40 test files re-authored via
+  =CombatantClass.from_dict(spec)=. Coherent on paper; broken at runtime.
+
+** Confirmed bug fixed this session
+- =MainScene._action_economy_for(combatant: Dictionary)= was NEVER de-typed while
+  its body calls =combatant.display_id()= → HARD PARSE ERROR (MainScene.gd would
+  not compile at all; the agent de-typed the twin =round_session._find_action_
+  economy_for= but missed this one). FIXED (de-typed the param). This was the
+  stage-2 gate abort. NOTE: stage-1 GUT smoke "passed 4/4" while MainScene was a
+  dead Nil — its asserts are too weak to catch a non-loading composition root.
+
+** THE KEY DISCOVERY — the scope is bigger than the mutation-map (§ "C.3 — hands-on")
+The map covered the container→resolve mutation chain. But =resolve()= /
+=resolve_reactive()= call =_check_preconditions_and_spend()= →
+=_combatant_identifier(combatant)= → =combatant.display_id()= (resolve_action_
+use_case.gd:495/643), so ANY combatant handed to resolve — attacker OR reactor —
+MUST be a live instance; a dict copy crashes there. Because the PLAYER's own
+Strike/Stride/movement/reactions route their combatants THROUGH the presentation
+controllers into resolve()/take_damage()/move_to(), those controllers (which C.4
+was meant to defer) CANNOT stay on to_dict dicts. So finishing C.3 necessarily
+pulls the MUTATING half of C.4 forward. Split:
+- MUST be instance-native (on mutating paths): strike/stride/movement/reaction/
+  turn controllers + a live-actor accessor. DONE this session (see below).
+- May stay dict-bridged (pure display, defer): status_panel_view, event_log_view,
+  initiative_view, verb_bar_view, ViewModelBuilder.
+
+** DONE this session (uncommitted, on branch prework/spell-combine-foundations)
+- =round_session.current_actor_entity()= + =action_controller.current_actor_entity()=
+  — the LIVE-instance accessor (never a to_dict copy) for the mutating seams;
+  =current_actor()= stays the read-only Dictionary bridge. Returns null (not {}).
+- Flipped to instance-native: =strike_action_controller= (actor via
+  current_actor_entity, targets live, null sentinel), =stride_action_controller=
+  (mover = live instance — a to_dict copy would silently drop Opportunistic-Strike
+  damage against the mover), =turn_presentation_controller= (receives the live
+  instance via active_actor_changed; configures the MUTATING movement controller —
+  move_to persists on the instance), =turn_controller= (emits current_actor_entity()),
+  =reaction_controller= (target/reactor/candidate/turn_order reads → display_id()/
+  initiative_roll), =MainScene= glue (_on_selection_overlay_resolved / _after_
+  successful_move / _on_active_actor_changed pass instances; 4 reaction delegators
+  de-typed). movement_input_controller was already dict-or-instance tolerant
+  (_identifier_of, movement.gd _hex_of/_set_hex).
+
+** REMAINING — the reaction/event/trigger subsystem (NOT yet flipped)
+Runtime gate error (surfaced under godot 4.4): =reaction_window.gd:140 Trying to
+assign 'Object' to 'Dictionary'= — an instance now flows in as trigger["reactor"].
+The reactor is DUAL-USE: read-only in reaction_window (name/conditions/conscious)
+but the STRIKING combatant into resolve() (needs display_id) — so a plain to_dict
+bridge won't do; reaction_window must accept instances. Sites to flip (+ their
+fixtures):
+- =core/application/reaction_window.gd= — 4× =var reactor: Dictionary =
+  trigger.get("reactor", {})= (:140/:317/:443/:663) + reactor.get("name"/
+  "conditions"/"conscious") reads.
+- =core/application/use_cases/resolve_stride_use_case.gd= — reactor param (:319),
+  =reaction_entry {"reactor": reactor}= (:270).
+- The trigger BUILDERS that store a combatant as "reactor"/"target"
+  (round_session._build_*_trigger, resolution.gd's reaction path,
+  resolve_dodge_step_use_case).
+- Test fixtures: =core/application/tests/test_reaction_window_prehit.gd= +
+  =test_reaction_window_onhit.gd= (~25 =_reactor()= dict builders each), plus the
+  ~20 presentation controller test files that feed dict combatants into the now-
+  instance-native controllers (build via CombatantClass.from_dict).
+
+** ENVIRONMENT CAVEAT (why local gating is unreliable — NOT a migration bug)
+- =core/rules/round_events.gd= declares INNER classes =AttackEvent= /
+  =ReactionResolvedEvent= that SHADOW the GLOBAL =class_name= versions in
+  =core/log/attack_event.gd= / =reaction_resolved_event.gd= (coexisting since
+  FEAT-007 — both are actively used: RoundEventsClass.AttackEvent.new vs
+  AttackEventClass.new). A stock godot install downloaded fresh and run via
+  =--headless --import= then =-s <file> --check-only= treats the shadow as a
+  FATAL parse error on isolated compile, cascading to MainScene ("Compilation
+  failed"). PROVEN pre-existing: with ALL changes stashed to HEAD the bare
+  =MainScene.tscn= boot fails identically, so this is NOT a migration bug.
+  IMPORTANT: the project's real gate env IS godot 4.3 (confirmed by the team) and
+  the gate is GREEN there — so 4.3 does NOT fail this in the AEF setup; the local
+  failure is an import/parse-ORDER / global-class-cache difference from how a raw
+  =--headless --import= builds the cache vs the AEF/editor import, NOT a Godot
+  version issue. (A local 4.4 run was used only for CLEARER error messages — 4.3
+  emits empty "Compile Error:" lines — and it surfaced the reaction_window Object
+  ->Dictionary error; it is not the gate version.) Consequence: gate this WIP in
+  the AEF env, where MainScene boots.
+
+** Recommended finish (handed to AEF/CI)
+Flip the reaction/event/trigger subsystem to instances (reaction_window +
+resolve_stride + trigger builders) and update the reaction-window + controller
+test fixtures, then run scripts/test_command.sh in the real env. The mutation
+chain + controllers are already instance-native; the reaction layer is the last
+consumer group. Keep the mutating reactor as a live instance end-to-end (it feeds
+resolve()); only pure-display views stay to_dict-bridged.

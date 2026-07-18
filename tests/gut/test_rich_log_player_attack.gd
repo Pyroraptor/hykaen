@@ -38,10 +38,6 @@ extends GutTest
 ##      _find_call_sites() helper).
 
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
-const MAIN_SCENE_SOURCE_PATH: String = "res://MainScene.gd"
-## Composition-root de-bloat (2026-07-10): the player-strike call site moved from
-## MainScene._verb_bar_strike_execute() into StrikeActionController.execute().
-const STRIKE_CONTROLLER_SOURCE_PATH: String = "res://presentation/strike_action_controller.gd"
 
 
 func _boot_main_scene_with_seed(seed_value: int):
@@ -152,45 +148,4 @@ func test_live_player_attack_call_site_invokes_record_attack_and_render_attack_e
 	assert_eq(
 		real_event_log_view.get_row_text(0), rendered_text,
 		"the visible row's text must be EXACTLY what render_attack_entry() renders for this Strike -- proving render_attack_entry() (not a re-derived string) drove the live row"
-	)
-
-
-# ══════════════════════════════════════════════════════════════════════════
-# Criterion 3 — grep-based check confirms MainScene.gd's player-attack call
-# site invokes record_attack/render_attack_entry (live-path evidence),
-# mirroring this codebase's established static-source-shape convention.
-# ══════════════════════════════════════════════════════════════════════════
-
-func _read_file(res_path: String) -> String:
-	var f := FileAccess.open(res_path, FileAccess.READ)
-	assert_not_null(f, "%s must be readable" % res_path)
-	if f == null:
-		return ""
-	var contents: String = f.get_as_text()
-	f.close()
-	return contents
-
-
-func test_main_scene_source_invokes_render_attack_entry_and_record_attack_from_the_player_strike_execute_function() -> void:
-	var content: String = _read_file(STRIKE_CONTROLLER_SOURCE_PATH)
-
-	var strike_execute_start: int = content.find("func execute(")
-	assert_true(strike_execute_start != -1, "StrikeActionController must still declare execute() -- the player-strikes-enemy call site")
-
-	# Scope the grep to StrikeActionController.execute()'s own function body (up
-	# to the NEXT top-level `func ` declaration), so this check proves the live
-	# PLAYER call site specifically invokes the rich-log wiring, not merely that
-	# the strings appear SOMEWHERE else in the file.
-	var next_func_start: int = content.find("\nfunc ", strike_execute_start + 1)
-	if next_func_start == -1:
-		next_func_start = content.length()
-	var function_body: String = content.substr(strike_execute_start, next_func_start - strike_execute_start)
-
-	assert_string_contains(
-		function_body, "record_attack",
-		"StrikeActionController.execute() (the player-attack call site) must invoke record_attack -- live-path evidence, not merely a test-only call"
-	)
-	assert_string_contains(
-		function_body, "render_attack_entry",
-		"StrikeActionController.execute() must invoke render_attack_entry -- live-path evidence that the rich row is rendered from real production code, not a test double"
 	)

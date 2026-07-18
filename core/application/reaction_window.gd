@@ -137,7 +137,7 @@ func _init(event_sink_port) -> void:
 ## open_and_resolve() below, or a UI event handler holding onto
 ## window_id across frames).
 func open(trigger: Dictionary) -> Dictionary:
-	var reactor: Dictionary = trigger.get("reactor", {})
+	var reactor = trigger.get("reactor", null)
 	var reactor_action_economy = trigger.get("reactor_action_economy", null)
 
 	if reactor_action_economy != null and reactor_action_economy.is_spent():
@@ -158,7 +158,7 @@ func open(trigger: Dictionary) -> Dictionary:
 		trigger.get("round_number", 0),
 		window_id,
 		trigger.get("trigger_type", ""),
-		reactor.get("name", ""),
+		reactor.display_id() if reactor != null else "",
 		legal_reactions
 	))
 
@@ -213,7 +213,7 @@ func resume(window_id: String, choice: String, resolved_by: String = "unknown") 
 			# back to PASS rather than erroring — "never hang/crash".
 			applied_choice = ReactionChooserPortClass.PASS
 
-	_event_sink_port.emit(RoundEventsClass.ReactionResolvedEvent.new(
+	_event_sink_port.emit(RoundEventsClass.ReactionResolvedBroadcast.new(
 		trigger.get("round_number", 0),
 		window_id,
 		applied_choice,
@@ -309,12 +309,12 @@ func open_and_resolve(trigger: Dictionary, chooser, resolved_by: String = "auto"
 func open_and_resolve_attack(
 	trigger: Dictionary,
 	resolution,
-	attacker: Dictionary,
+	attacker,
 	weapon: Dictionary,
 	chooser,
 	resolved_by: String = "auto"
 ) -> Dictionary:
-	var reactor: Dictionary = trigger.get("reactor", {})
+	var reactor = trigger.get("reactor", null)
 	var defense_type: String = trigger.get("defense_type", "")
 	var attack_context: Dictionary = trigger.get("attack_context", {})
 	var reactor_action_economy = trigger.get("reactor_action_economy", null)
@@ -356,7 +356,7 @@ func open_and_resolve_attack(
 		_open_trigger         = {}
 		_open_legal_reactions = []
 
-		_event_sink_port.emit(RoundEventsClass.ReactionResolvedEvent.new(
+		_event_sink_port.emit(RoundEventsClass.ReactionResolvedBroadcast.new(
 			trigger.get("round_number", 0),
 			opened.get("window_id", ""),
 			applied_choice,
@@ -435,12 +435,12 @@ func open_and_resolve_attack(
 func open_and_resolve_prehit_avoidance(
 	trigger: Dictionary,
 	resolution,
-	attacker: Dictionary,
+	attacker,
 	weapon: Dictionary,
 	chooser,
 	resolved_by: String = "auto"
 ) -> Dictionary:
-	var reactor: Dictionary = trigger.get("reactor", {})
+	var reactor = trigger.get("reactor", null)
 	var defense_type: String = trigger.get("defense_type", "")
 	var attack_context: Dictionary = trigger.get("attack_context", {})
 	var reactor_action_economy = trigger.get("reactor_action_economy", null)
@@ -488,7 +488,7 @@ func open_and_resolve_prehit_avoidance(
 		_open_trigger         = {}
 		_open_legal_reactions = []
 
-		_event_sink_port.emit(RoundEventsClass.ReactionResolvedEvent.new(
+		_event_sink_port.emit(RoundEventsClass.ReactionResolvedBroadcast.new(
 			trigger.get("round_number", 0),
 			opened.get("window_id", ""),
 			applied_choice,
@@ -633,7 +633,7 @@ func open_and_resolve_onhit_mitigation(
 			_open_trigger         = {}
 			_open_legal_reactions = []
 
-			_event_sink_port.emit(RoundEventsClass.ReactionResolvedEvent.new(
+			_event_sink_port.emit(RoundEventsClass.ReactionResolvedBroadcast.new(
 				trigger.get("round_number", 0),
 				window_id,
 				applied_choice,
@@ -660,7 +660,7 @@ func open_and_resolve_onhit_mitigation(
 ## trigger_type (defensive — never raises).
 func _compute_legal_reactions(trigger: Dictionary) -> Array:
 	var trigger_type: String = trigger.get("trigger_type", "")
-	var reactor: Dictionary = trigger.get("reactor", {})
+	var reactor = trigger.get("reactor", null)
 	var weapon: Dictionary = trigger.get("weapon", {})
 	var defense_type: String = trigger.get("defense_type", "")
 	var attack_context: Dictionary = trigger.get("attack_context", {})

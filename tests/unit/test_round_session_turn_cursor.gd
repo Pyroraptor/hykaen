@@ -29,6 +29,7 @@ const ResolveActionUseCaseClass    = preload("res://core/application/resolve_act
 const DetermineOutcomeUseCaseClass = preload("res://core/application/determine_outcome_use_case.gd")
 const ActionEconomyClass           = preload("res://core/rules/action_economy.gd")
 const SeededRandomAdapterClass     = preload("res://core/combat/seeded_random_adapter.gd")
+const CombatantClass               = preload("res://core/domain/combatant.gd")
 
 
 # ── Spy ActionEconomy — counts start_of_turn() calls without changing any
@@ -88,17 +89,17 @@ class FakeRoundHistoryPort:
 class FakeAIDecisionPort:
 	extends "res://core/application/ai_decision_port.gd"
 
-	func decide_action(_combatant: Dictionary, targets: Array) -> Dictionary:
+	func decide_action(_combatant, targets: Array) -> Dictionary:
 		for t in targets:
-			if t.get("hp_current", 0) > 0:
+			if t.hp_current > 0:
 				return {"action_type": "Strike", "target": t}
-		return {"action_type": "", "target": {}}
+		return {"action_type": "", "target": null}
 
 
 # ── Shared fixture helpers ─────────────────────────────────────────────────
 
-func _durable_combatant(p_name: String, p_is_enemy: bool, p_combatant_id: String = "") -> Dictionary:
-	return {
+func _durable_combatant(p_name: String, p_is_enemy: bool, p_combatant_id: String = ""):
+	return CombatantClass.from_dict({
 		"name":         p_name,
 		"combatant_id": p_combatant_id,
 		"hp_current":   2000,
@@ -112,10 +113,10 @@ func _durable_combatant(p_name: String, p_is_enemy: bool, p_combatant_id: String
 			"proficiency_bonus": 2,
 			"damage_die": 6
 		}
-	}
+	})
 
 
-func _entry(combatant: Dictionary) -> Dictionary:
+func _entry(combatant) -> Dictionary:
 	return {"combatant": combatant, "action_economy": SpyActionEconomy.new()}
 
 
@@ -150,14 +151,14 @@ func _make_use_case(entries: Array, ai_port, seed: int) -> Dictionary:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_init_calls_start_of_turn_exactly_once_for_the_initial_actor() -> void:
-	var alpha: Dictionary = _durable_combatant("Alpha", false, "alpha")
-	var bravo: Dictionary = _durable_combatant("Bravo", true, "bravo")
+	var alpha = _durable_combatant("Alpha", false, "alpha")
+	var bravo = _durable_combatant("Bravo", true, "bravo")
 	var entries: Array = [_entry(alpha), _entry(bravo)]
 
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 1)
 	var session = rig["use_case"].begin_round(1, [alpha], [bravo])
 
-	assert_eq(session.current_actor().get("name", ""), "Alpha", "fixture assumption: Alpha is the initial current actor")
+	assert_eq(session.current_actor().name, "Alpha", "fixture assumption: Alpha is the initial current actor")
 	assert_eq(
 		entries[0]["action_economy"].start_of_turn_call_count, 1,
 		"the initial cursor assignment in _init must call start_of_turn() exactly once for the initial actor"
@@ -171,14 +172,14 @@ func test_init_calls_start_of_turn_exactly_once_for_the_initial_actor() -> void:
 func test_init_calls_start_of_turn_exactly_once_for_an_initial_ai_actor() -> void:
 	# The initial actor may just as well be an Enemy -- _init's call site
 	# must not distinguish between player and AI actors (ADR-101).
-	var bravo: Dictionary = _durable_combatant("Bravo", true, "bravo")
-	var alpha: Dictionary = _durable_combatant("Alpha", false, "alpha")
+	var bravo = _durable_combatant("Bravo", true, "bravo")
+	var alpha = _durable_combatant("Alpha", false, "alpha")
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 1)
 	var session = rig["use_case"].begin_round(1, [alpha], [bravo])
 
-	assert_eq(session.current_actor().get("name", ""), "Bravo", "fixture assumption: Bravo (Enemy) is the initial current actor")
+	assert_eq(session.current_actor().name, "Bravo", "fixture assumption: Bravo (Enemy) is the initial current actor")
 	assert_eq(
 		entries[0]["action_economy"].start_of_turn_call_count, 1,
 		"the initial cursor assignment in _init must call start_of_turn() exactly once for an initial AI actor too"
@@ -191,18 +192,18 @@ func test_init_calls_start_of_turn_exactly_once_for_an_initial_ai_actor() -> voi
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_advance_cursor_calls_start_of_turn_exactly_once_for_the_next_player_actor() -> void:
-	var alpha: Dictionary = _durable_combatant("Alpha", false, "alpha")
-	var bravo: Dictionary = _durable_combatant("Bravo", true, "bravo")
+	var alpha = _durable_combatant("Alpha", false, "alpha")
+	var bravo = _durable_combatant("Bravo", true, "bravo")
 	var entries: Array = [_entry(alpha), _entry(bravo)]
 
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 1)
 	var session = rig["use_case"].begin_round(1, [alpha], [bravo])
 
 	# Cursor: Alpha (Player) -> Bravo (Enemy)
-	assert_eq(session.current_actor().get("name", ""), "Alpha")
+	assert_eq(session.current_actor().name, "Alpha")
 	session.end_current_turn()
 
-	assert_eq(session.current_actor().get("name", ""), "Bravo")
+	assert_eq(session.current_actor().name, "Bravo")
 	assert_eq(
 		entries[1]["action_economy"].start_of_turn_call_count, 1,
 		"_advance_cursor() must call start_of_turn() exactly once for the new current (Enemy) actor"
@@ -214,19 +215,19 @@ func test_advance_cursor_calls_start_of_turn_exactly_once_for_the_next_player_ac
 
 
 func test_advance_cursor_calls_start_of_turn_exactly_once_for_the_next_ai_actor_via_advance_ai_turn() -> void:
-	var bravo: Dictionary = _durable_combatant("Bravo", true, "bravo")
-	var alpha: Dictionary = _durable_combatant("Alpha", false, "alpha")
+	var bravo = _durable_combatant("Bravo", true, "bravo")
+	var alpha = _durable_combatant("Alpha", false, "alpha")
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 1)
 	var session = rig["use_case"].begin_round(1, [alpha], [bravo])
 
 	# Cursor: Bravo (Enemy) -> Alpha (Player), driven by advance_ai_turn().
-	assert_eq(session.current_actor().get("name", ""), "Bravo")
+	assert_eq(session.current_actor().name, "Bravo")
 	var result: Dictionary = session.advance_ai_turn()
 	assert_true(result.get("ok", false))
 
-	assert_eq(session.current_actor().get("name", ""), "Alpha")
+	assert_eq(session.current_actor().name, "Alpha")
 	assert_eq(
 		entries[1]["action_economy"].start_of_turn_call_count, 1,
 		"_advance_cursor() must call start_of_turn() exactly once for the new current (Player) actor, even when the advance is driven by advance_ai_turn()"
@@ -243,14 +244,14 @@ func test_advance_cursor_calls_start_of_turn_exactly_once_for_the_next_ai_actor_
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_advance_ai_turn_does_not_independently_call_start_of_turn_on_the_current_actor() -> void:
-	var bravo: Dictionary = _durable_combatant("Bravo", true, "bravo")
-	var alpha: Dictionary = _durable_combatant("Alpha", false, "alpha")
+	var bravo = _durable_combatant("Bravo", true, "bravo")
+	var alpha = _durable_combatant("Alpha", false, "alpha")
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 1)
 	var session = rig["use_case"].begin_round(1, [alpha], [bravo])
 
-	assert_eq(session.current_actor().get("name", ""), "Bravo")
+	assert_eq(session.current_actor().name, "Bravo")
 	# start_of_turn() for Bravo was already invoked exactly once by _init's
 	# cursor-positioning call site (criterion 2) -- reset the spy so this
 	# assertion isolates ONLY what advance_ai_turn() itself does.
@@ -273,14 +274,14 @@ func test_advance_ai_turn_does_not_independently_call_start_of_turn_on_the_curre
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_movement_lockout_resets_on_the_actors_following_turn() -> void:
-	var alpha: Dictionary = _durable_combatant("Alpha", false, "alpha")
-	var bravo: Dictionary = _durable_combatant("Bravo", true, "bravo")
+	var alpha = _durable_combatant("Alpha", false, "alpha")
+	var bravo = _durable_combatant("Bravo", true, "bravo")
 	var entries: Array = [_entry(alpha), _entry(bravo)]
 
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 1)
 	var session = rig["use_case"].begin_round(1, [alpha], [bravo])
 
-	assert_eq(session.current_actor().get("name", ""), "Alpha")
+	assert_eq(session.current_actor().name, "Alpha")
 	var alpha_action_economy = entries[0]["action_economy"]
 
 	# Simulate a Stride having been taken this turn (the same gate
@@ -291,12 +292,12 @@ func test_movement_lockout_resets_on_the_actors_following_turn() -> void:
 	# Alpha's turn ends -> Bravo's (AI) turn is fully driven and resolved ->
 	# the cursor cycles back around to Alpha (the only two combatants).
 	session.end_current_turn()
-	assert_eq(session.current_actor().get("name", ""), "Bravo")
+	assert_eq(session.current_actor().name, "Bravo")
 
 	var ai_result: Dictionary = session.advance_ai_turn()
 	assert_true(ai_result.get("ok", false))
 
-	assert_eq(session.current_actor().get("name", ""), "Alpha", "the cursor must have cycled back around to Alpha")
+	assert_eq(session.current_actor().name, "Alpha", "the cursor must have cycled back around to Alpha")
 	assert_true(
 		alpha_action_economy.can_take_movement_action(),
 		"movement_used_this_turn must reset to false on Alpha's following turn, via the single _advance_cursor() start_of_turn() call site"
@@ -325,8 +326,8 @@ func test_advance_cursor_start_of_turn_call_site_does_not_refill_budget_or_clear
 	# Integration-level companion to the direct check above: drive the SAME
 	# call site _advance_cursor() uses and prove a partially-spent (but not
 	# yet Spent) actor's budget survives the cursor cycling back to it.
-	var alpha: Dictionary = _durable_combatant("Alpha", false, "alpha")
-	var bravo: Dictionary = _durable_combatant("Bravo", true, "bravo")
+	var alpha = _durable_combatant("Alpha", false, "alpha")
+	var bravo = _durable_combatant("Bravo", true, "bravo")
 	var entries: Array = [_entry(alpha), _entry(bravo)]
 
 	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 7)
@@ -339,9 +340,9 @@ func test_advance_cursor_start_of_turn_call_site_does_not_refill_budget_or_clear
 	assert_false(alpha_action_economy.is_spent())
 
 	session.end_current_turn()                # Alpha -> Bravo
-	assert_eq(session.current_actor().get("name", ""), "Bravo")
+	assert_eq(session.current_actor().name, "Bravo")
 	session.advance_ai_turn()                  # Bravo -> Alpha (cycles back)
-	assert_eq(session.current_actor().get("name", ""), "Alpha")
+	assert_eq(session.current_actor().name, "Alpha")
 
 	assert_eq(
 		alpha_action_economy.get_remaining(), remaining_before,

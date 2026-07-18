@@ -30,6 +30,7 @@ const AutoReactionChooserClass  = preload("res://infrastructure/auto_reaction_ch
 const StaticCheckClass          = preload("res://infrastructure/static_check.gd")
 const ActionEconomyClass        = preload("res://core/rules/action_economy.gd")
 const RoundEventsClass          = preload("res://core/rules/round_events.gd")
+const CombatantClass            = preload("res://core/domain/combatant.gd")
 
 
 # ── Fake/double EventSinkPort (mirrors this project's established
@@ -59,7 +60,7 @@ class FixedReactionChooser:
 
 # ── Shared fixture helpers ─────────────────────────────────────────────────
 
-func _reactor(overrides: Dictionary = {}) -> Dictionary:
+func _reactor(overrides: Dictionary = {}):
 	var base: Dictionary = {
 		"name": "Titus",
 		"conditions": [],
@@ -68,7 +69,7 @@ func _reactor(overrides: Dictionary = {}) -> Dictionary:
 	}
 	for key in overrides:
 		base[key] = overrides[key]
-	return base
+	return CombatantClass.from_dict(base)
 
 
 func _weapon(overrides: Dictionary = {}) -> Dictionary:
@@ -540,7 +541,7 @@ func test_resume_emits_reaction_resolved_event() -> void:
 
 	assert_eq(sink.events.size(), 2, "open() and resume() must each emit exactly one event")
 	var event = sink.events[1]
-	assert_true(event is RoundEventsClass.ReactionResolvedEvent)
+	assert_true(event is RoundEventsClass.ReactionResolvedBroadcast)
 	assert_eq(event.round, 5)
 	assert_eq(event.window_id, opened["window_id"])
 	assert_eq(event.choice, "block")

@@ -171,6 +171,7 @@ const GodotRandomAdapterClass          = preload("res://core/combat/godot_random
 const EncounterClass                   = preload("res://core/combat/encounter.gd")
 const RNGClass                         = preload("res://core/rules/rng.gd")
 const CombatantFactoryClass            = preload("res://infrastructure/combatant_factory.gd")
+const CombatantClass                   = preload("res://core/domain/combatant.gd")
 const ViewModelBuilderClass            = preload("res://presentation/view_model_builder.gd")
 const RoundSessionHolderClass          = preload("res://infrastructure/round_session_holder.gd")
 const TurnPresentationControllerClass  = preload("res://presentation/turn_presentation_controller.gd")
@@ -179,6 +180,21 @@ const EndTurnActionControllerClass     = preload("res://presentation/end_turn_ac
 const StepActionControllerClass        = preload("res://presentation/step_action_controller.gd")
 const StrideActionControllerClass      = preload("res://presentation/stride_action_controller.gd")
 const StrikeActionControllerClass      = preload("res://presentation/strike_action_controller.gd")
+
+## VERB_TABLE — the single data-driven verb registry (composition-root de-bloat,
+## 2026-07-11): verb_id → concrete ActionController subclass. This one table is
+## the sole place a verb is enumerated; _build_verb_registry() loops it to wire
+## the VerbBarRegistry, and _controller(verb_id) instantiates from it lazily. So
+## adding a verb is ~one entry here (+ its controller file + the three thin
+## _verb_bar_<verb>_* shims tests call on `self`), NOT scattered edits. A future
+## CombineActionController resolves its sub-action controllers via the same
+## _controller(verb_id) lookup this table backs.
+const VERB_TABLE := {
+	"STRIKE": StrikeActionControllerClass,
+	"STEP": StepActionControllerClass,
+	"STRIDE": StrideActionControllerClass,
+	"END_TURN": EndTurnActionControllerClass,
+}
 const ConsoleEventSinkAdapterClass     = preload("res://infrastructure/console_event_sink_adapter.gd")
 const EncounterTurnOrderAdapterClass   = preload("res://infrastructure/encounter_turn_order_adapter.gd")
 const InMemoryRoundHistoryAdapterClass = preload("res://infrastructure/in_memory_round_history_adapter.gd")
@@ -552,10 +568,14 @@ var reaction_window = null
 ## so building once is behavior-identical to the old inline live reads.
 var _turn_presentation_instance = null
 var _reaction_instance = null
-var _end_turn_action_instance = null
-var _step_action_instance = null
-var _stride_action_instance = null
-var _strike_action_instance = null
+
+## _controllers / _verb_deps_cache — the memoized ActionController pool and the
+## single shared deps dict backing the data-driven VERB_TABLE (2026-07-11).
+## _controller(verb_id) builds each verb's controller once from _verb_deps(); both
+## are lazy so they serve a booted MainScene AND a `.new()` test that drives a verb
+## without _ready(). Replaced the four per-verb _<verb>_action_instance fields.
+var _controllers: Dictionary = {}
+var _verb_deps_cache = null
 
 ## _party / _enemies — the live combatant Dictionaries built at boot,
 ## mutated in place by every resolved Strike throughout the interactive
@@ -624,7 +644,12 @@ func _ready() -> void:
 	for i in range(encounter_resource.party_resource_paths.size()):
 		var party_hex = hex_combatants[i].hex_coord if i < hex_combatants.size() else null
 		var party_id: String = hex_combatants[i].combatant_id if i < hex_combatants.size() else ""
-		_party.append(_build_party_combatant(encounter_resource.party_resource_paths[i], party_hex, party_id))
+		# Combatant migration Phase C.3: the container now holds Combatant
+		# INSTANCES, not dicts — the same reference threads through
+		# round_session/resolve so a Strike's take_damage() lands on the live
+		# entity. The factory still authors a canonical dict; from_dict() lifts
+		# it onto the entity at the composition-root boundary.
+		_party.append(CombatantClass.from_dict(_build_party_combatant(encounter_resource.party_resource_paths[i], party_hex, party_id)))
 
 	var party_count: int = encounter_resource.party_resource_paths.size()
 	_enemies = []
@@ -645,7 +670,10 @@ func _ready() -> void:
 		if enemy_combatant.has("error"):
 			push_error("MainScene: aborting encounter setup — enemy build failed for '%s' (%s)" % [encounter_resource.enemy_resource_paths[j], enemy_combatant["error"]])
 			return
-		_enemies.append(enemy_combatant)
+		# Phase C.3: lift the validated enemy dict onto a Combatant instance
+		# (the error-path dict above is checked FIRST, so from_dict() only ever
+		# sees a well-formed combatant here).
+		_enemies.append(CombatantClass.from_dict(enemy_combatant))
 
 	var rng := RNGClass.new(resolved_seed)
 	encounter = EncounterClass.new(_party, _enemies, rng)
@@ -793,7 +821,7 @@ func _ready() -> void:
 
 	print(
 		"INFO: Hykaen MainScene booted into the prologue encounter (interactive) -- "
-		+ "current_actor=" + str(round_session.current_actor().get("name", ""))
+		+ "current_actor=" + (round_session.current_actor().name if round_session.current_actor() != null else "")
 		+ " round_over=" + str(round_session.is_round_over())
 	)
 
@@ -1086,30 +1114,18 @@ func _presentation_event_subscribers() -> Array:
 func _build_verb_registry() -> VerbBarRegistryAdapterClass:
 	var registry := VerbBarRegistryAdapterClass.new()
 
-	registry.register(
-		"STRIKE",
-		Callable(self, "_verb_bar_strike_availability"),
-		Callable(self, "_verb_bar_strike_enter_selection"),
-		Callable(self, "_verb_bar_strike_execute"),
-	)
-	registry.register(
-		"STEP",
-		Callable(self, "_verb_bar_step_availability"),
-		Callable(self, "_verb_bar_step_enter_selection"),
-		Callable(self, "_verb_bar_step_execute"),
-	)
-	registry.register(
-		"STRIDE",
-		Callable(self, "_verb_bar_stride_availability"),
-		Callable(self, "_verb_bar_stride_enter_selection"),
-		Callable(self, "_verb_bar_stride_execute"),
-	)
-	registry.register(
-		"END_TURN",
-		Callable(self, "_verb_bar_end_turn_availability"),
-		Callable(self, "_verb_bar_end_turn_enter_selection"),
-		Callable(self, "_verb_bar_end_turn_execute"),
-	)
+	# Data-driven (2026-07-11): loop VERB_TABLE rather than four hand-written
+	# register() blocks. Each verb wires the three thin _verb_bar_<verb>_* shim
+	# Callables tests call on `self` — "END_TURN".to_lower() == "end_turn" matches
+	# the shim names. Adding a VERB_TABLE entry auto-registers its verb here.
+	for verb_id in VERB_TABLE:
+		var suffix: String = verb_id.to_lower()
+		registry.register(
+			verb_id,
+			Callable(self, "_verb_bar_%s_availability" % suffix),
+			Callable(self, "_verb_bar_%s_enter_selection" % suffix),
+			Callable(self, "_verb_bar_%s_execute" % suffix),
+		)
 
 	return registry
 
@@ -1141,11 +1157,11 @@ func _verb_bar_current_action_economy():
 ## function only READS can_take_action(); it never mutates the domain gate
 ## itself.
 func _verb_bar_strike_availability() -> bool:
-	return _strike_action().availability()
+	return _controller("STRIKE").availability()
 
 
 func _verb_bar_strike_enter_selection() -> Dictionary:
-	return _strike_action().enter_selection()
+	return _controller("STRIKE").enter_selection()
 
 
 ## _verb_bar_strike_execute(selection) -> Dictionary — FEAT-006: `selection`
@@ -1177,7 +1193,7 @@ func _verb_bar_strike_enter_selection() -> Dictionary:
 ## test_player_strikes_enemy_pass_through.gd) — that suite has been updated
 ## for Part B by this same feature.
 func _verb_bar_strike_execute(selection) -> Dictionary:
-	return await _strike_action().execute(selection)
+	return await _controller("STRIKE").execute(selection)
 
 
 ## _resolve_enemy_dodge_step(target, resolve_result, attacker_hex, legal_hexes)
@@ -1192,7 +1208,7 @@ func _verb_bar_strike_execute(selection) -> Dictionary:
 ## callers can drive the SAME seam via `instance._resolve_enemy_dodge_step()`
 ## on the composition root, exactly like `_resolve_enemy_stride_opportunistic_
 ## window()` below does for its own ReactionController method.
-func _resolve_enemy_dodge_step(target: Dictionary, resolve_result: Dictionary, attacker_hex, legal_hexes: Array) -> void:
+func _resolve_enemy_dodge_step(target, resolve_result: Dictionary, attacker_hex, legal_hexes: Array) -> void:
 	await _reaction().resolve_enemy_dodge_step(target, resolve_result, attacker_hex, legal_hexes)
 
 
@@ -1202,7 +1218,7 @@ func _resolve_enemy_dodge_step(target: Dictionary, resolve_result: Dictionary, a
 ## _find_strike_reachable_target) moved into
 ## presentation/strike_action_controller.gd.
 func _strike_reachable_target_ids() -> Array:
-	return _strike_action().reachable_target_ids()
+	return _controller("STRIKE").reachable_target_ids()
 
 
 ## _action_economy_for(combatant) -> ActionEconomy or null — iteration K
@@ -1222,7 +1238,7 @@ func _strike_reachable_target_ids() -> Array:
 ## Returns null when `encounter` is unwired or no matching entry exists —
 ## resolve_reactive()/resolution.gd both degrade safely to "reaction
 ## untracked" in that case (never a crash).
-func _action_economy_for(combatant: Dictionary):
+func _action_economy_for(combatant):
 	if encounter == null:
 		return null
 
@@ -1231,11 +1247,11 @@ func _action_economy_for(combatant: Dictionary):
 		if is_same(order[i], combatant):
 			return encounter.get_action_economy(i)
 
-	var combatant_id: String = combatant.get("combatant_id", combatant.get("name", ""))
+	var combatant_id: String = combatant.display_id()
 	if combatant_id != "":
 		for i in range(order.size()):
-			var candidate: Dictionary = order[i]
-			if candidate.get("combatant_id", candidate.get("name", "")) == combatant_id:
+			var candidate = order[i]
+			if candidate.display_id() == combatant_id:
 				return encounter.get_action_economy(i)
 
 	return null
@@ -1249,7 +1265,7 @@ func _action_economy_for(combatant: Dictionary):
 ## uses. Defaults to "not spent" when no tracked ActionEconomy exists (a
 ## fixture/test-double reactor), mirroring _action_economy_for()'s own
 ## documented "reaction untracked" degrade-safely contract.
-func _is_reactor_reaction_spent(reactor: Dictionary) -> bool:
+func _is_reactor_reaction_spent(reactor) -> bool:
 	return _reaction().is_reactor_reaction_spent(reactor)
 
 
@@ -1277,7 +1293,7 @@ func _is_reactor_reaction_spent(reactor: Dictionary) -> bool:
 ## result Dictionary (`-> void` previously) so core/combat/ai.gd's
 ## `_stride_toward_target()` can read `"mover_downed"` and cancel the Stride
 ## when a lethal opportunistic Strike defeats `mover`.
-func _resolve_enemy_stride_opportunistic_window(mover: Dictionary, mover_start_hex, candidate_reactors: Array) -> Dictionary:
+func _resolve_enemy_stride_opportunistic_window(mover, mover_start_hex, candidate_reactors: Array) -> Dictionary:
 	return await _reaction().resolve_enemy_stride_opportunistic_window(mover, mover_start_hex, candidate_reactors)
 
 
@@ -1295,7 +1311,7 @@ func _resolve_enemy_stride_opportunistic_window(mover: Dictionary, mover_start_h
 ## ever commits a position change. Degrades safely to Pass
 ## ({"choice": "none"}) when `turn_controller` is unwired (never
 ## crashes/hangs).
-func _resolve_player_opportunistic_strike_reaction(reactor: Dictionary, context: Dictionary) -> Dictionary:
+func _resolve_player_opportunistic_strike_reaction(reactor, context: Dictionary) -> Dictionary:
 	return await _reaction().resolve_player_opportunistic_strike_reaction(reactor, context)
 
 
@@ -1310,7 +1326,7 @@ func _resolve_player_opportunistic_strike_reaction(reactor: Dictionary, context:
 ## the enemy's own reaction decision here (mirrors
 ## _verb_bar_strike_execute()'s identical iteration-K "no pop-up UI opens
 ## during the enemy's reaction window" contract for Strikes).
-func _resolve_enemy_opportunistic_strike_reaction(reactor: Dictionary, context: Dictionary) -> Dictionary:
+func _resolve_enemy_opportunistic_strike_reaction(reactor, context: Dictionary) -> Dictionary:
 	return _reaction().resolve_enemy_opportunistic_strike_reaction(reactor, context)
 
 
@@ -1323,11 +1339,11 @@ func _resolve_enemy_opportunistic_strike_reaction(reactor: Dictionary, context: 
 ## one legal Step destination" check. This function only READS
 ## can_take_movement_action(); it never mutates the domain gate itself.
 func _verb_bar_step_availability() -> bool:
-	return _step_action().availability()
+	return _controller("STEP").availability()
 
 
 func _verb_bar_step_enter_selection() -> Dictionary:
-	return _step_action().enter_selection()
+	return _controller("STEP").enter_selection()
 
 
 ## _verb_bar_step_execute(selection) -> Dictionary — FEAT-007 (this
@@ -1339,7 +1355,7 @@ func _verb_bar_step_enter_selection() -> Dictionary:
 ## success, runs the SAME post-move refresh
 ## (_after_successful_move()) that handler used to run.
 func _verb_bar_step_execute(selection) -> Dictionary:
-	return _step_action().execute(selection)
+	return _controller("STEP").execute(selection)
 
 
 ## _verb_bar_stride_availability() -> bool -- FEAT-002 (US-002 / FR-003 /
@@ -1359,11 +1375,11 @@ func _verb_bar_step_execute(selection) -> Dictionary:
 ## only READS can_take_movement_action()/can_take_action(); it never mutates
 ## either domain gate itself.
 func _verb_bar_stride_availability() -> bool:
-	return _stride_action().availability()
+	return _controller("STRIDE").availability()
 
 
 func _verb_bar_stride_enter_selection() -> Dictionary:
-	return _stride_action().enter_selection()
+	return _controller("STRIDE").enter_selection()
 
 
 ## _verb_bar_stride_execute(selection) -> Dictionary — FEAT-007 (this
@@ -1429,7 +1445,7 @@ func _verb_bar_stride_enter_selection() -> Dictionary:
 ## `encounter.get_turn_order()` (the authoritative initiative table) rather
 ## than merely internally sorted.
 func _verb_bar_stride_execute(selection) -> Dictionary:
-	return await _stride_action().execute(selection)
+	return await _controller("STRIDE").execute(selection)
 
 
 ## The END_TURN verb's availability/enter_selection/execute are delegated to
@@ -1438,15 +1454,15 @@ func _verb_bar_stride_execute(selection) -> Dictionary:
 ## Callable(self, "_verb_bar_end_turn_*") registrations and the direct-call tests
 ## unchanged.
 func _verb_bar_end_turn_availability() -> bool:
-	return _end_turn_action().availability()
+	return _controller("END_TURN").availability()
 
 
 func _verb_bar_end_turn_enter_selection() -> Dictionary:
-	return _end_turn_action().enter_selection()
+	return _controller("END_TURN").enter_selection()
 
 
 func _verb_bar_end_turn_execute(_selection = null) -> Dictionary:
-	return _end_turn_action().execute(_selection)
+	return _controller("END_TURN").execute(_selection)
 
 
 ## _on_verb_bar_selection_entered(verb_id, selection) -> void — FEAT-008 /
@@ -1476,9 +1492,11 @@ func _on_selection_overlay_resolved(_verb_id: String, _result) -> void:
 	if verb_bar_view != null:
 		verb_bar_view.refresh_availability()
 	if round_session != null:
-		var actor: Dictionary = round_session.current_actor()
-		var actor_id: String = actor.get("combatant_id", actor.get("name", ""))
-		_turn_presentation().highlight_legal_moves(actor, actor_id)
+		# Phase C.3/C.4: highlight_legal_moves is instance-native (it configures the
+		# mutating movement controller), so pass the LIVE actor instance.
+		var actor = round_session.current_actor_entity()
+		if actor != null:
+			_turn_presentation().highlight_legal_moves(actor, actor.display_id())
 
 
 ## _turn_presentation() — lazily builds (once) and returns the extracted
@@ -1523,59 +1541,46 @@ func _reaction():
 	return _reaction_instance
 
 
-## _end_turn_action() — lazily builds (once) and returns the EndTurnActionController
-## (the first concrete ActionController subclass). Lazy like the other controllers
-## so it serves both a booted MainScene and a `.new()` test driving the verb.
-func _end_turn_action():
-	if _end_turn_action_instance == null:
-		_end_turn_action_instance = EndTurnActionControllerClass.new(_round_session_holder, end_turn_control)
-	return _end_turn_action_instance
+## _verb_deps() — the ONE memoized deps Dictionary every ActionController is built
+## from (data-driven verb table, 2026-07-11). Holds every collaborator + Callable
+## any verb needs, keyed by the documented names each controller reads (see
+## action_controller.gd's _init doc). `reaction` is the shared _reaction()
+## ReactionController used by both Strike and Stride. Built once — its members
+## (the stable RoundSessionHolder, view nodes, movement_input_controller,
+## resolve/reaction collaborators, and the live-accessor Callables) are none of
+## them reassigned after first access, so a single dict is behavior-identical to
+## the old per-verb positional constructors. Individual verbs read only their own
+## keys; extra keys are harmless, which is what keeps adding a verb to ~one table
+## entry.
+func _verb_deps() -> Dictionary:
+	if _verb_deps_cache == null:
+		_verb_deps_cache = {
+			"session_holder": _round_session_holder,
+			"end_turn_control": end_turn_control,
+			"movement_input_controller": movement_input_controller,
+			"status_panel_view": status_panel_view,
+			"event_log_view": event_log_view,
+			"resolve_action_use_case": resolve_action_use_case,
+			"enemy_reaction_chooser": enemy_reaction_chooser,
+			"reaction": _reaction(),
+			"action_economy_for": Callable(self, "_action_economy_for"),
+			"current_round_number": Callable(self, "_current_round_number"),
+			"after_successful_move": Callable(self, "_after_successful_move"),
+			"living_enemy_reactors": Callable(self, "_living_enemy_reactors"),
+			"current_turn_order": Callable(self, "_current_turn_order"),
+			"query_selectable_step_hexes": Callable(self, "_query_selectable_step_hexes"),
+		}
+	return _verb_deps_cache
 
 
-## _step_action() / _stride_action() - lazily build the STEP/STRIDE
-## ActionController subclasses (see _end_turn_action()).
-func _step_action():
-	if _step_action_instance == null:
-		_step_action_instance = StepActionControllerClass.new(
-			_round_session_holder,
-			movement_input_controller,
-			Callable(self, "_after_successful_move")
-		)
-	return _step_action_instance
-
-
-func _stride_action():
-	if _stride_action_instance == null:
-		_stride_action_instance = StrideActionControllerClass.new(
-			_round_session_holder,
-			movement_input_controller,
-			status_panel_view,
-			resolve_action_use_case,
-			_reaction(),
-			Callable(self, "_action_economy_for"),
-			Callable(self, "_current_round_number"),
-			Callable(self, "_after_successful_move"),
-			Callable(self, "_living_enemy_reactors"),
-			Callable(self, "_current_turn_order")
-		)
-	return _stride_action_instance
-
-
-func _strike_action():
-	if _strike_action_instance == null:
-		_strike_action_instance = StrikeActionControllerClass.new(
-			_round_session_holder,
-			resolve_action_use_case,
-			event_log_view,
-			status_panel_view,
-			enemy_reaction_chooser,
-			_reaction(),
-			Callable(self, "_action_economy_for"),
-			Callable(self, "_current_round_number"),
-			Callable(self, "_living_enemy_reactors"),
-			Callable(self, "_query_selectable_step_hexes")
-		)
-	return _strike_action_instance
+## _controller(verb_id) — the single data-driven controller resolver (2026-07-11):
+## memoizes VERB_TABLE[verb_id].new(_verb_deps()) into _controllers, so every verb
+## (and a future Combine's sub-actions) is reached the SAME way. Lazy so it serves
+## a booted MainScene and a `.new()` test driving a verb without _ready().
+func _controller(verb_id: String):
+	if not _controllers.has(verb_id):
+		_controllers[verb_id] = VERB_TABLE[verb_id].new(_verb_deps())
+	return _controllers[verb_id]
 
 
 ## _living_enemy_reactors() -> the living-enemy reactor pool (spawn order)
@@ -1597,7 +1602,7 @@ func _current_turn_order():
 ## MainScene's seam: TurnController's active_actor_changed signal and the booted
 ## integration tests drive it here. The controller is built lazily on first use
 ## and reaches the live session via the RoundSessionHolder.
-func _on_active_actor_changed(combatant: Dictionary) -> void:
+func _on_active_actor_changed(combatant) -> void:
 	_turn_presentation().on_active_actor_changed(combatant)
 
 
@@ -1611,7 +1616,7 @@ func _on_active_actor_changed(combatant: Dictionary) -> void:
 ##
 ## FEAT-006: no longer also clears a strike_action_control (that node was
 ## removed) -- once round_session.is_round_over() is true,
-## round_session.current_actor() returns {} (see core/application/
+## round_session.current_actor() returns null (see core/application/
 ## round_session.gd), so _strike_reachable_targets() (and therefore STRIKE's
 ## availability/enter_selection/execute closures) already naturally report
 ## no actor/no targets with zero extra bookkeeping here.
@@ -1748,7 +1753,9 @@ func _after_successful_move() -> void:
 		hex_grid_view.set_selectable_hexes([])
 	_refresh_off_guard_conditions()
 	if round_session != null:
-		_on_active_actor_changed(round_session.current_actor())
+		# Phase C.3/C.4: on_active_actor_changed is instance-native (configures the
+		# mutating movement controller) — pass the LIVE actor instance.
+		_on_active_actor_changed(round_session.current_actor_entity())
 
 
 ## _other_living_combatants(combatant) -> Array — every living (hp_current >
@@ -1757,11 +1764,11 @@ func _after_successful_move() -> void:
 ## this file -- the occupancy list movement_input_controller.configure()
 ## requires (core/rules/movement.gd Movement.step()'s `other_combatants`
 ## parameter must never include the mover itself).
-func _other_living_combatants(combatant: Dictionary) -> Array:
-	var self_id: String = combatant.get("combatant_id", combatant.get("name", ""))
+func _other_living_combatants(combatant) -> Array:
+	var self_id: String = combatant.display_id()
 	var others: Array = []
 	for c in _living_combatants(_party + _enemies):
-		if c.get("combatant_id", c.get("name", "")) != self_id:
+		if c.display_id() != self_id:
 			others.append(c)
 	return others
 
@@ -1774,11 +1781,11 @@ func _other_living_combatants(combatant: Dictionary) -> Array:
 ## _other_living_combatants()'s own identity matching. Returns an empty
 ## Dictionary (never null) when not found, matching this file's existing
 ## "empty Dictionary == not found" convention (e.g. _find_strike_reachable_target()).
-func _find_combatant_by_id(combatant_id: String) -> Dictionary:
+func _find_combatant_by_id(combatant_id: String):
 	for c in _party + _enemies:
-		if c.get("combatant_id", c.get("name", "")) == combatant_id:
+		if c.display_id() == combatant_id:
 			return c
-	return {}
+	return null
 
 
 ## _query_selectable_step_hexes(combatant_id) -> Array -- FEAT-002 (US-002,
@@ -1796,8 +1803,8 @@ func _find_combatant_by_id(combatant_id: String) -> Dictionary:
 ## was last configure()d for). Returns an empty Array (never fabricates a
 ## hex) when `combatant_id` cannot be found on the current roster.
 func _query_selectable_step_hexes(combatant_id: String) -> Array:
-	var combatant: Dictionary = _find_combatant_by_id(combatant_id)
-	if combatant.is_empty():
+	var combatant = _find_combatant_by_id(combatant_id)
+	if combatant == null:
 		return []
 	return movement_input_controller.get_selectable_step_hexes_for(combatant, _other_living_combatants(combatant))
 
@@ -1809,7 +1816,7 @@ func _query_selectable_step_hexes(combatant_id: String) -> Array:
 func _living_combatants(combatants: Array) -> Array:
 	var living: Array = []
 	for c in combatants:
-		if c.get("hp_current", 0) > 0:
+		if c.hp_current > 0:
 			living.append(c)
 	return living
 
@@ -1915,16 +1922,16 @@ func _refresh_off_guard_conditions() -> void:
 	var living_enemies: Array = _living_combatants(_enemies)
 
 	for combatant in _party:
-		var combatant_id: String = combatant.get("combatant_id", combatant.get("name", ""))
+		var combatant_id: String = combatant.display_id()
 		var off_guard: bool = FlankingClass.is_off_guard(combatant, living_enemies)
-		combatant["conditions"] = FlankingClass.off_guard_conditions(combatant, living_enemies)
+		combatant.conditions = FlankingClass.off_guard_conditions(combatant, living_enemies)
 		if status_panel_view != null:
 			status_panel_view.set_off_guard(combatant_id, off_guard)
 
 	for combatant in _enemies:
-		var combatant_id: String = combatant.get("combatant_id", combatant.get("name", ""))
+		var combatant_id: String = combatant.display_id()
 		var off_guard: bool = FlankingClass.is_off_guard(combatant, living_party)
-		combatant["conditions"] = FlankingClass.off_guard_conditions(combatant, living_party)
+		combatant.conditions = FlankingClass.off_guard_conditions(combatant, living_party)
 		if status_panel_view != null:
 			status_panel_view.set_off_guard(combatant_id, off_guard)
 

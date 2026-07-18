@@ -168,15 +168,15 @@ func _boot_main_scene():
 	return instance
 
 
-func _skeleton(instance) -> Dictionary:
+func _skeleton(instance):
 	assert_true(instance._enemies.size() > 0, "fixture assumption: the prologue encounter has at least one enemy")
-	var skeleton: Dictionary = instance._enemies[0]
-	assert_eq(skeleton.get("name", ""), "Skeleton", "fixture assumption: the sole enemy is the Skeleton")
+	var skeleton = instance._enemies[0]
+	assert_eq(skeleton.name, "Skeleton", "fixture assumption: the sole enemy is the Skeleton")
 	return skeleton
 
 
-func _combatant_id(combatant: Dictionary) -> String:
-	return combatant.get("combatant_id", combatant.get("name", ""))
+func _combatant_id(combatant) -> String:
+	return combatant.display_id()
 
 
 ## _resolve_one_real_player_strike_against(instance, target_id) -> void --
@@ -195,7 +195,7 @@ func _resolve_one_real_player_strike_against(instance, target_id: String) -> voi
 
 
 func _sole_attack_event(instance):
-	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 	assert_eq(attack_events.size(), 1, "exactly one Strike must have resolved")
 	return attack_events[0]
 
@@ -247,8 +247,8 @@ func test_real_skeleton_mobility_drives_live_dodge_decision_boot_real() -> void:
 	var pass_instance = _boot_main_scene()
 	await get_tree().process_frame
 
-	var pass_skeleton: Dictionary = _skeleton(pass_instance)
-	var pass_skills: Dictionary = pass_skeleton.get("skills", {})
+	var pass_skeleton = _skeleton(pass_instance)
+	var pass_skills: Dictionary = pass_skeleton.skills
 	assert_eq(
 		pass_skills.get("mobility", -1), LOW_MOBILITY,
 		"fixture assumption: the booted Skeleton combatant's skills.mobility must equal the low fixture value -- proves the value flowed from EnemyResource through CombatantFactory with NO manual override"
@@ -272,8 +272,8 @@ func test_real_skeleton_mobility_drives_live_dodge_decision_boot_real() -> void:
 	var dodge_instance = _boot_main_scene()
 	await get_tree().process_frame
 
-	var dodge_skeleton: Dictionary = _skeleton(dodge_instance)
-	var dodge_skills: Dictionary = dodge_skeleton.get("skills", {})
+	var dodge_skeleton = _skeleton(dodge_instance)
+	var dodge_skills: Dictionary = dodge_skeleton.skills
 	assert_eq(
 		dodge_skills.get("mobility", -1), HIGH_MOBILITY,
 		"fixture assumption: the booted Skeleton combatant's skills.mobility must equal the flipped high fixture value -- proves the SAME wiring re-reads the resource's CURRENT data on each boot, with NO manual override"

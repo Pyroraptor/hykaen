@@ -183,7 +183,7 @@ func test_full_journey_strike_pass_ai_turn_and_result_screen_stays_locked_throug
 	instance._enemies[0]["hp_max"] = _ENEMY_HP_HANDICAP
 
 	assert_false(
-		instance.round_session.current_actor().get("_is_enemy", true),
+		instance.round_session.current_actor().is_enemy,
 		"fixture assumption (seed 42): the first actor is the living player combatant Titus"
 	)
 
@@ -203,7 +203,7 @@ func test_full_journey_strike_pass_ai_turn_and_result_screen_stays_locked_throug
 		"the enemy hp handicap must prevent the round from concluding after only one exchange"
 	)
 
-	var attack_events_after_first_exchange: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	var attack_events_after_first_exchange: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 	var attacker_names_after_first_exchange: Array = attack_events_after_first_exchange.map(func(e): return e.attacker_name)
 	assert_true(attacker_names_after_first_exchange.has("Titus"), "the player's Strike must have been resolved through the real pipeline")
 	assert_true(
@@ -216,10 +216,10 @@ func test_full_journey_strike_pass_ai_turn_and_result_screen_stays_locked_throug
 	while not instance.round_session.is_round_over() and exchanges < _MAX_TURN_EXCHANGES:
 		exchanges += 1
 
-		var actor: Dictionary = instance.round_session.current_actor()
-		assert_false(actor.is_empty(), "a living actor must be active while the round is not yet over")
+		var actor = instance.round_session.current_actor()
+		assert_false(actor == null, "a living actor must be active while the round is not yet over")
 		assert_false(
-			actor.get("_is_enemy", false),
+			actor.is_enemy,
 			"the real TurnController must always auto-drive Enemy turns before yielding control back -- this loop must only ever observe a player actor here"
 		)
 
@@ -269,7 +269,7 @@ func test_full_journey_strike_pass_ai_turn_and_result_screen_stays_locked_throug
 	# call on strike_action_control/end_turn_control AFTER the result screen
 	# has shown must remain locked/rejected.
 	# ══════════════════════════════════════════════════════════════════════
-	var stray_actor: Dictionary = instance._party[0]
+	var stray_actor = instance._party[0]
 	instance.strike_action_control.configure(
 		stray_actor, ActionEconomyClass.new(), instance.resolve_action_use_case, instance._enemies
 	)
@@ -280,7 +280,7 @@ func test_full_journey_strike_pass_ai_turn_and_result_screen_stays_locked_throug
 	assert_true(instance.end_turn_control.is_locked(), "EndTurnControl must stay locked through a later, stray configure() call")
 	assert_false(instance.end_turn_control.is_enabled(), "a stray reconfigure() must not re-enable EndTurnControl")
 
-	var stray_target_id: String = instance._enemies[0].get("combatant_id", instance._enemies[0].get("name", ""))
+	var stray_target_id: String = instance._enemies[0].combatant_id
 	var stray_strike_result: Dictionary = instance.strike_action_control.select_target(stray_target_id)
 	assert_false(stray_strike_result.get("ok", true), "select_target() must be rejected after the result screen has shown, even after a stray reconfigure()")
 	assert_eq(stray_strike_result.get("error", ""), "ENCOUNTER_ALREADY_RESOLVED")
@@ -318,7 +318,7 @@ func test_hex_grid_view_resyncs_token_position_after_step_and_stride() -> void:
 	await get_tree().process_frame
 
 	assert_false(
-		instance.round_session.current_actor().get("_is_enemy", true),
+		instance.round_session.current_actor().is_enemy,
 		"fixture assumption (seed 42): the first actor is the living player combatant Titus"
 	)
 
@@ -331,7 +331,7 @@ func test_hex_grid_view_resyncs_token_position_after_step_and_stride() -> void:
 	var step_result: Dictionary = instance.movement_input_controller.step_to(step_destination)
 	assert_true(step_result.get("ok", false), "fixture assumption: Step to (-1,0) must succeed: %s" % step_result)
 
-	var domain_actor: Dictionary = instance._party[0]
+	var domain_actor = instance._party[0]
 	assert_true(
 		domain_actor["hex_coord"].equals(step_destination),
 		"the real Movement.step() must update the live combatant Dictionary's hex_coord in place"
@@ -416,7 +416,7 @@ func test_ranged_strike_within_reach_succeeds_and_beyond_reach_rejected_through_
 	assert_true(in_range_result.get("ok", false), "a ranged Strike within range_hexes must resolve successfully through MainScene's real resolve_action_use_case")
 	assert_true(in_range_result.get("resolved", false), "a ranged Strike within range_hexes must be marked resolved")
 	assert_true(
-		in_range_result.get("event", null) is RoundEventsClass.AttackEvent,
+		in_range_result.get("event", null) is RoundEventsClass.AttackBroadcast,
 		"a resolved ranged Strike must carry the emitted AttackEvent under the 'event' key"
 	)
 

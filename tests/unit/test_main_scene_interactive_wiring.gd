@@ -45,6 +45,7 @@ const RunRoundUseCaseClass = preload("res://core/application/run_round_use_case.
 const RoundEventsClass     = preload("res://core/rules/round_events.gd")
 const HexCoordClass        = preload("res://core/geometry/hex_coord.gd")
 const AutoReactionChooserClass = preload("res://infrastructure/auto_reaction_chooser.gd")
+const CombatantClass = preload("res://core/domain/combatant.gd")
 
 
 ## FEAT-002 / US-002: this whole file's scenarios assume the prologue
@@ -123,7 +124,7 @@ func test_ready_hands_the_round_session_to_turn_controller() -> void:
 		instance.end_turn_control.is_enabled(),
 		"TurnController must have configured EndTurnControl from the live RoundSession, enabled for the first (player) actor"
 	)
-	assert_false(instance.round_session.current_actor().get("_is_enemy", true))
+	assert_false(instance.round_session.current_actor().is_enemy)
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -210,22 +211,22 @@ func test_strike_via_verb_registry_emits_attack_event_through_real_event_sink() 
 		"the AttackEvent must flow through MainScene's real event sink to the real EventLogView"
 	)
 
-	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 	assert_eq(attack_events.size(), 1, "MainScene's real event-sink adapter must have observed exactly one AttackEvent")
 
-	var target_combatant: Dictionary = {}
+	var target_combatant = null
 	for enemy in instance._enemies:
-		if enemy.get("combatant_id", "") == target_id:
+		if enemy.display_id() == target_id:
 			target_combatant = enemy
 			break
-	assert_false(target_combatant.is_empty(), "fixture assumption: the selected target must be one of MainScene's live enemy combatants")
+	assert_false(target_combatant == null, "fixture assumption: the selected target must be one of MainScene's live enemy combatants")
 
 	# StatusPanelView clamps a displayed HP at 0 (it never shows an "overkill"
 	# negative value), while the live domain Dictionary MainScene mutates may
 	# go negative -- compare against the same floor StatusPanelView applies.
 	var status: Dictionary = instance.status_panel_view.get_status(target_id)
 	assert_eq(
-		status.get("hp_current", -1), maxi(target_combatant.get("hp_current", -2), 0),
+		status.get("hp_current", -1), maxi(target_combatant.hp_current, 0),
 		"StatusPanelView must reflect the Strike's outcome (the SAME live combatant Dictionary MainScene mutated) via the real event-sink pipeline"
 	)
 
@@ -239,7 +240,7 @@ func test_strike_via_verb_registry_emits_attack_event_through_real_event_sink() 
 func test_pressing_end_turn_control_advances_cursor_and_auto_drives_enemy_turn() -> void:
 	var instance = _boot_main_scene()
 
-	var first_actor_name: String = instance.round_session.current_actor().get("name", "")
+	var first_actor_name: String = instance.round_session.current_actor().name
 	assert_ne(first_actor_name, "", "fixture assumption: a living actor is active before End Turn is pressed")
 
 	var events_before: int = instance.event_sink.log.size()
@@ -270,7 +271,7 @@ func test_pressing_end_turn_control_advances_cursor_and_auto_drives_enemy_turn()
 		# enemy->player transition advance_ai_turn() emits when it advances the
 		# cursor again).
 		assert_false(
-			instance.round_session.current_actor().get("_is_enemy", false),
+			instance.round_session.current_actor().is_enemy,
 			"TurnController must auto-drive any Enemy turn so the session settles back on a player combatant"
 		)
 
@@ -347,7 +348,7 @@ func test_boot_does_not_auto_resolve_the_encounter_without_any_input() -> void:
 
 func test_boot_off_guard_is_false_when_only_a_single_combatant_is_adjacent() -> void:
 	var instance = _boot_main_scene()
-	var target_id: String = instance._enemies[0].get("combatant_id", "")
+	var target_id: String = instance._enemies[0].display_id()
 
 	assert_false(
 		instance.status_panel_view.is_off_guard(target_id),
@@ -357,17 +358,17 @@ func test_boot_off_guard_is_false_when_only_a_single_combatant_is_adjacent() -> 
 
 func test_off_guard_wiring_flags_target_once_two_opposing_combatants_flank_it() -> void:
 	var instance = _boot_main_scene()
-	var target_id: String = instance._enemies[0].get("combatant_id", "")
+	var target_id: String = instance._enemies[0].display_id()
 
 	# Skeleton sits at hex (1,0); Titus already occupies (0,0), the neighbor
 	# directly opposite hex (2,0) around Skeleton. Appending a second party
 	# combatant at (2,0) completes the opposite-adjacent flanking pair.
-	var ally: Dictionary = {
+	var ally = CombatantClass.from_dict({
 		"name": "Marigold",
 		"hp_current": 10,
 		"combatant_id": "synthetic_ally_off_guard_test",
 		"hex_coord": HexCoordClass.new(2, 0),
-	}
+	})
 	instance._party.append(ally)
 	instance._refresh_off_guard_conditions()
 
@@ -383,16 +384,16 @@ func test_off_guard_wiring_flags_target_once_two_opposing_combatants_flank_it() 
 
 func test_off_guard_wiring_does_not_flag_target_for_non_opposite_flankers() -> void:
 	var instance = _boot_main_scene()
-	var target_id: String = instance._enemies[0].get("combatant_id", "")
+	var target_id: String = instance._enemies[0].display_id()
 
 	# hex (1,-1) is adjacent to Skeleton (1,0) but NOT opposite Titus's
 	# (0,0) -- a non-opposite second flanker must not flag Off-Guard.
-	var ally: Dictionary = {
+	var ally = CombatantClass.from_dict({
 		"name": "Marigold",
 		"hp_current": 10,
 		"combatant_id": "synthetic_ally_non_opposite_test",
 		"hex_coord": HexCoordClass.new(1, -1),
-	}
+	})
 	instance._party.append(ally)
 	instance._refresh_off_guard_conditions()
 
@@ -404,19 +405,19 @@ func test_off_guard_wiring_does_not_flag_target_for_non_opposite_flankers() -> v
 
 func test_off_guard_wiring_clears_once_a_flanker_moves_away() -> void:
 	var instance = _boot_main_scene()
-	var target_id: String = instance._enemies[0].get("combatant_id", "")
+	var target_id: String = instance._enemies[0].display_id()
 
-	var ally: Dictionary = {
+	var ally = CombatantClass.from_dict({
 		"name": "Marigold",
 		"hp_current": 10,
 		"combatant_id": "synthetic_ally_unflank_test",
 		"hex_coord": HexCoordClass.new(2, 0),
-	}
+	})
 	instance._party.append(ally)
 	instance._refresh_off_guard_conditions()
 	assert_true(instance.status_panel_view.is_off_guard(target_id), "fixture setup: target must be Off-Guard before the ally moves away")
 
-	ally["hex_coord"] = HexCoordClass.new(9, 9)
+	ally.hex_coord = HexCoordClass.new(9, 9)
 	instance._refresh_off_guard_conditions()
 
 	assert_false(

@@ -46,7 +46,7 @@
 ## constructed internally.
 ##
 ## FEAT-099 (FIND-096): _round_events now carries the TYPED value objects
-## declared in core/rules/round_events.gd (RoundEvents.AttackEvent /
+## declared in core/rules/round_events.gd (RoundEvents.AttackBroadcast /
 ## CombatantDefeatedEvent / EncounterResultEvent) emitted by
 ## ResolveActionUseCase/RunRoundUseCase through EventSinkPort — never a raw
 ## Dictionary. _round_history's Dictionary shape is preserved UNCHANGED
@@ -112,7 +112,7 @@ class _TurnOrderAdapter:
 ## referenced Array (this Encounter's _round_events). FEAT-099/FIND-096: the
 ## `event` parameter is intentionally untyped (no `: Dictionary` hint) — it
 ## always receives one of the TYPED value objects declared in
-## core/rules/round_events.gd (RoundEvents.AttackEvent /
+## core/rules/round_events.gd (RoundEvents.AttackBroadcast /
 ## CombatantDefeatedEvent / EncounterResultEvent), never a raw Dictionary.
 class _EventSinkAdapter:
 	extends "res://core/application/event_sink_port.gd"
@@ -206,19 +206,21 @@ func _init(party: Array, enemies: Array, rng, ai_decision_port = null) -> void:
 ##
 ## Creates one ActionEconomy instance per combatant (parallel to _turn_order).
 func initialize() -> void:
-	# Tag each combatant with their faction (used in run_round targeting)
+	# Tag each combatant with their faction (used in run_round targeting).
+	# Phase C.3: _party/_enemies are Combatant instances — set the entity's
+	# is_enemy field directly (was the "_is_enemy" dict key).
 	for combatant in _party:
-		combatant["_is_enemy"] = false
+		combatant.is_enemy = false
 	for combatant in _enemies:
-		combatant["_is_enemy"] = true
+		combatant.is_enemy = true
 
 	# Roll initiative: d20 + intuition + dexterity (per ADR-006)
 	var entries: Array = []
 	for combatant in (_party + _enemies):
 		var roll: int = _rng.d20() \
-			+ combatant.get("intuition", 0) \
-			+ combatant.get("dexterity", 0)
-		combatant["_initiative_roll"] = roll
+			+ combatant.intuition \
+			+ combatant.dexterity
+		combatant.initiative_roll = roll
 		entries.append({"combatant": combatant, "roll": roll})
 
 	# Sort descending — highest initiative acts first
@@ -369,7 +371,7 @@ func get_action_economy(index: int):
 ##
 ## FEAT-099/FIND-096: every element is a TYPED value object from
 ## core/rules/round_events.gd — never a raw Dictionary:
-##   RoundEvents.AttackEvent           — round, attacker_name, target_name,
+##   RoundEvents.AttackBroadcast           — round, attacker_name, target_name,
 ##                                        roll, defense_type, defense_value,
 ##                                        hit, crit, damage_final
 ##   RoundEvents.CombatantDefeatedEvent — round, name, defeated_by

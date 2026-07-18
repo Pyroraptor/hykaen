@@ -63,7 +63,7 @@ func _force_all_spent(instance) -> void:
 func _enemy_index(instance) -> int:
 	var order: Array = instance.encounter.get_turn_order()
 	for i in range(order.size()):
-		if order[i].get("_is_enemy", false):
+		if order[i].is_enemy:
 			return i
 	return -1
 
@@ -76,8 +76,8 @@ func _enemy_combatant_id(instance) -> String:
 	var i: int = _enemy_index(instance)
 	if i == -1:
 		return ""
-	var combatant: Dictionary = instance.encounter.get_turn_order()[i]
-	return combatant.get("combatant_id", combatant.get("name", ""))
+	var combatant = instance.encounter.get_turn_order()[i]
+	return combatant.display_id()
 
 
 ## _displayed_budget(instance, combatant_id) -> int — the action budget currently
@@ -105,7 +105,7 @@ func test_ending_turn_with_all_actors_spent_begins_the_next_round() -> void:
 	await get_tree().process_frame
 
 	assert_eq(instance.ROUND_NUMBER, 1, "fixture assumption: the encounter opens in round 1")
-	assert_false(instance.round_session.current_actor().get("_is_enemy", true), "fixture assumption: the player (Titus) is the current actor before End Turn")
+	assert_false(instance.round_session.current_actor().is_enemy, "fixture assumption: the player (Titus) is the current actor before End Turn")
 
 	# Precondition: every living combatant is Spent, so the player's End Turn
 	# below advances the cursor to nobody and drives the round over.
@@ -124,7 +124,7 @@ func test_ending_turn_with_all_actors_spent_begins_the_next_round() -> void:
 		"the freshly begun round 2 must be a LIVE session, not left reporting round-over"
 	)
 	assert_false(
-		instance.round_session.current_actor().is_empty(),
+		instance.round_session.current_actor() == null,
 		"round 2 must sit on a live current actor ready to act"
 	)
 
@@ -172,7 +172,7 @@ func test_no_event_enemy_spend_is_synced_to_the_status_row_on_settle() -> void:
 
 	# Control settles back on the player after an AI turn — the moment MainScene
 	# must re-push every combatant's budget to the panel.
-	instance._on_active_actor_changed(instance.round_session.current_actor())
+	instance._on_active_actor_changed(instance.round_session.current_actor_entity())
 
 	assert_eq(
 		_displayed_budget(instance, enemy_id), 6,

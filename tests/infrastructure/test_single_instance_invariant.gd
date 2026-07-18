@@ -178,6 +178,6 @@ func _node_is_of_class(node: Node, class_name_string: String) -> bool:
 func _count_living(combatants: Array) -> int:
 	var count: int = 0
 	for c in combatants:
-		if c.get("hp_current", 0) > 0:
+		if c.hp_current > 0:
 			count += 1
 	return count

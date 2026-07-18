@@ -102,7 +102,7 @@ class FakeRoundHistoryPort:
 class BrokenAIDecisionPort:
 	extends "res://core/application/ai_decision_port.gd"
 
-	func decide_action(_combatant: Dictionary, _targets: Array) -> Dictionary:
+	func decide_action(_combatant, _targets: Array) -> Dictionary:
 		return {}
 
 
@@ -122,10 +122,10 @@ class FakeStrikeActionControl:
 
 	var _selectable_target_ids: Array = []
 
-	func configure(_actor: Dictionary, _action_economy, _resolve_action_use_case, candidate_targets: Array, _round_number: int = 1, _cycle_index: int = 0) -> void:
+	func configure(_actor, _action_economy, _resolve_action_use_case, candidate_targets: Array, _round_number: int = 1, _cycle_index: int = 0) -> void:
 		_selectable_target_ids = []
 		for target in candidate_targets:
-			_selectable_target_ids.append(target.get("combatant_id", target.get("name", "")))
+			_selectable_target_ids.append(target.display_id())
 
 	func get_button_count() -> int:
 		return _selectable_target_ids.size()
@@ -154,8 +154,9 @@ class ScriptedRandomNumberPort:
 
 # ── Shared fixture helpers ─────────────────────────────────────────────────
 
-func _durable_combatant(p_name: String, p_is_enemy: bool, p_combatant_id: String = "") -> Dictionary:
-	return {
+func _durable_combatant(p_name: String, p_is_enemy: bool, p_combatant_id: String = ""):
+	# Phase C.3: the round pipeline consumes Combatant INSTANCES.
+	return CombatantClass.from_dict({
 		"name":         p_name,
 		"combatant_id": p_combatant_id,
 		"hp_current":   2000,
@@ -169,10 +170,10 @@ func _durable_combatant(p_name: String, p_is_enemy: bool, p_combatant_id: String
 			"proficiency_bonus": 2,
 			"damage_die": 6
 		}
-	}
+	})
 
 
-func _entry(combatant: Dictionary) -> Dictionary:
+func _entry(combatant) -> Dictionary:
 	return {"combatant": combatant, "action_economy": ActionEconomyClass.new()}
 
 
@@ -207,8 +208,8 @@ func _make_use_case(entries: Array, ai_port, random_number_port, event_sink_port
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_advance_ai_turn_drives_the_real_ai_module_and_resolves_via_the_shared_pipeline() -> void:
-	var bravo: Dictionary = _durable_combatant("Bravo", true, "bravo")
-	var alpha: Dictionary = _durable_combatant("Alpha", false, "alpha")
+	var bravo = _durable_combatant("Bravo", true, "bravo")
+	var alpha = _durable_combatant("Alpha", false, "alpha")
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
 	var event_sink_port    = FakeEventSinkPort.new()
@@ -216,8 +217,8 @@ func test_advance_ai_turn_drives_the_real_ai_module_and_resolves_via_the_shared_
 	var rig: Dictionary = _make_use_case(entries, AIClass.new(), random_number_port, event_sink_port)
 	var session = rig["use_case"].begin_round(1, [alpha], [bravo])
 
-	assert_eq(session.current_actor().get("name", ""), "Bravo", "the Enemy must be the current actor")
-	var hp_before: int = alpha.get("hp_current", 0)
+	assert_eq(session.current_actor().name, "Bravo", "the Enemy must be the current actor")
+	var hp_before: int = alpha.hp_current
 
 	var result: Dictionary = session.advance_ai_turn()
 
@@ -230,8 +231,8 @@ func test_advance_ai_turn_drives_the_real_ai_module_and_resolves_via_the_shared_
 		rig["history"].entries[0]["attacker"].get("name", ""), "Bravo",
 		"the resolved action must belong to the AI-selected (real ai.gd) actor/target pair"
 	)
-	assert_true(alpha.get("hp_current", 0) <= hp_before, "the AI's resolved Strike must be able to damage its target")
-	assert_eq(session.current_actor().get("name", ""), "Alpha", "advance_ai_turn() must advance the cursor to the next living, un-Spent actor")
+	assert_true(alpha.hp_current <= hp_before, "the AI's resolved Strike must be able to damage its target")
+	assert_eq(session.current_actor().name, "Alpha", "advance_ai_turn() must advance the cursor to the next living, un-Spent actor")
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -241,8 +242,8 @@ func test_advance_ai_turn_drives_the_real_ai_module_and_resolves_via_the_shared_
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_advance_ai_turn_defensive_fallback_resolves_wait_logs_via_event_sink_port_and_still_advances() -> void:
-	var bravo: Dictionary = _durable_combatant("Bravo", true)
-	var alpha: Dictionary = _durable_combatant("Alpha", false)
+	var bravo = _durable_combatant("Bravo", true)
+	var alpha = _durable_combatant("Alpha", false)
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 	var bravo_action_economy = entries[0]["action_economy"]
 
@@ -262,7 +263,7 @@ func test_advance_ai_turn_defensive_fallback_resolves_wait_logs_via_event_sink_p
 	)
 	assert_false(bravo_action_economy.is_spent(), "one WAIT must not exhaust the full 7-action round budget")
 	assert_eq(
-		session.current_actor().get("name", ""), "Alpha",
+		session.current_actor().name, "Alpha",
 		"the cursor must still advance past the broken AI turn so the turn loop can never stall"
 	)
 
@@ -283,8 +284,8 @@ func test_advance_ai_turn_defensive_fallback_resolves_wait_logs_via_event_sink_p
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_ai_driven_attack_event_renders_through_hex_grid_status_panel_and_event_log_views() -> void:
-	var goblin: Dictionary = _durable_combatant("Goblin", true, "goblin")
-	var titus: Dictionary  = _durable_combatant("Titus", false, "titus")
+	var goblin = _durable_combatant("Goblin", true, "goblin")
+	var titus = _durable_combatant("Titus", false, "titus")
 	var entries: Array = [_entry(goblin), _entry(titus)]
 
 	var hex_grid_view = HexGridViewScene.instantiate()
@@ -321,7 +322,7 @@ func test_ai_driven_attack_event_renders_through_hex_grid_status_panel_and_event
 	var rig: Dictionary = _make_use_case(entries, AIClass.new(), random_number_port, event_sink_port)
 	var session = rig["use_case"].begin_round(1, [titus], [goblin])
 
-	assert_eq(session.current_actor().get("name", ""), "Goblin")
+	assert_eq(session.current_actor().name, "Goblin")
 	var result: Dictionary = session.advance_ai_turn()
 	assert_true(result.get("ok", false))
 
@@ -355,15 +356,15 @@ func test_ai_driven_attack_event_renders_through_hex_grid_status_panel_and_event
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_turn_controller_disables_strike_action_control_and_end_turn_control_while_driving_enemy_turn() -> void:
-	var goblin: Dictionary = _durable_combatant("Goblin", true, "goblin")
-	var titus: Dictionary  = _durable_combatant("Titus", false, "titus")
+	var goblin = _durable_combatant("Goblin", true, "goblin")
+	var titus = _durable_combatant("Titus", false, "titus")
 	var entries: Array = [_entry(goblin), _entry(titus)]
 
 	var event_sink_port    = FakeEventSinkPort.new()
 	var random_number_port = SeededRandomAdapterClass.new(7)
 	var rig: Dictionary = _make_use_case(entries, AIClass.new(), random_number_port, event_sink_port)
 	var session = rig["use_case"].begin_round(1, [titus], [goblin])
-	assert_eq(session.current_actor().get("name", ""), "Goblin", "Goblin (Enemy) must start as the current actor")
+	assert_eq(session.current_actor().name, "Goblin", "Goblin (Enemy) must start as the current actor")
 
 	var end_turn_control = EndTurnControlScene.instantiate()
 	add_child_autofree(end_turn_control)
@@ -374,11 +375,11 @@ func test_turn_controller_disables_strike_action_control_and_end_turn_control_wh
 	# it while it is driving an Enemy turn, not merely rely on it having
 	# never been configured.
 	var origin := HexCoordClass.new(0, 0)
-	var stale_actor: Dictionary = {
-		"name": "Titus", "strength": 3, "hex_coord": origin,
+	var stale_actor = CombatantClass.from_dict({
+		"name": "Titus", "_is_enemy": false, "strength": 3, "hex_coord": origin,
 		"weapon": {"damage_modifier_attribute": "strength", "proficiency_bonus": 2, "damage_die": 6},
-	}
-	var stale_enemy: Dictionary = {"combatant_id": "stale", "name": "Stale", "hp_current": 20, "ac": 10, "hex_coord": HexCoordClass.new(1, 0)}
+	})
+	var stale_enemy = CombatantClass.from_dict({"combatant_id": "stale", "name": "Stale", "_is_enemy": true, "hp_current": 20, "ac": 10, "hex_coord": HexCoordClass.new(1, 0)})
 	strike_action_control.configure(stale_actor, ActionEconomyClass.new(), rig["resolve_action_use_case"], [stale_enemy])
 	assert_eq(strike_action_control.get_button_count(), 1, "fixture assumption: the Strike control starts out enabled/configured")
 
@@ -401,6 +402,6 @@ func test_turn_controller_disables_strike_action_control_and_end_turn_control_wh
 	# whichever composition-root code owns the player's turn setup
 	# reconfigures it (out of this feature's scope, mirroring
 	# presentation/turn_controller.gd's documented division of responsibility).
-	assert_eq(session.current_actor().get("name", ""), "Titus")
+	assert_eq(session.current_actor().name, "Titus")
 	assert_true(end_turn_control.is_enabled(), "EndTurnControl must be enabled once the driver settles on the player's turn")
 	assert_eq(strike_action_control.get_button_count(), 0, "the Strike control must remain disabled (no leaked stale targets) after the driver settles")

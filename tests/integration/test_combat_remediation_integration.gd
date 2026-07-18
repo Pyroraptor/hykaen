@@ -92,6 +92,7 @@ const WeaponResource     = preload("res://core/model/weapon_resource.gd")
 const EncounterClass     = preload("res://core/combat/encounter.gd")
 const RNGClass            = preload("res://core/rules/rng.gd")
 const RoundEventsClass    = preload("res://core/rules/round_events.gd")
+const CombatantClass      = preload("res://core/domain/combatant.gd")
 
 
 ## ─────────────────────────────────────────────────────────────────────────────
@@ -697,7 +698,7 @@ func test_spec_content_ci_gates_present_in_test_yml() -> void:
 #
 #   test_round_events_are_typed_round_events_value_objects_not_raw_dictionaries()
 #     — integration-level: confirms get_round_events() yields TYPED
-#       RoundEvents.AttackEvent instances (FEAT-099/FIND-096), exercised via
+#       RoundEvents.AttackBroadcast instances (FEAT-099/FIND-096), exercised via
 #       `is` type-checks and `.to_dict()` snapshots.
 #
 # Satisfies: FR-001, FR-002, FR-003, ADR-001, ADR-002, CR-001 AC-1/AC-2/AC-3,
@@ -708,8 +709,8 @@ func test_spec_content_ci_gates_present_in_test_yml() -> void:
 ## the CR-001 budget-persistence/round-boundary-reset assertions below from
 ## win/loss early-termination (mirrors tests/test_encounter_round_loop.gd /
 ## tests/integration/test_encounter_integration.gd's identical pattern).
-func _cr001_durable_titus() -> Dictionary:
-	return {
+func _cr001_durable_titus():
+	return CombatantClass.from_dict({
 		"name": "Titus",
 		"hp_current": 2000,
 		"ac": 14,
@@ -721,12 +722,12 @@ func _cr001_durable_titus() -> Dictionary:
 			"proficiency_bonus": 2,
 			"damage_die": 12
 		}
-	}
+	})
 
 
 ## A durable enemy stub (hp=2000) — opposing side for _cr001_durable_titus().
-func _cr001_durable_skeleton() -> Dictionary:
-	return {
+func _cr001_durable_skeleton():
+	return CombatantClass.from_dict({
 		"name": "Skeleton",
 		"hp_current": 2000,
 		"ac": 12,
@@ -738,7 +739,7 @@ func _cr001_durable_skeleton() -> Dictionary:
 			"proficiency_bonus": 1,
 			"damage_die": 6
 		}
-	}
+	})
 
 
 ## CR-001 AC-1/AC-2 (domain-level): budget_remaining and is_spent must
@@ -925,8 +926,8 @@ func test_titus_round_history_typed_entries_persist_budget_across_turns_and_rese
 
 
 ## FEAT-099/FIND-096 (typed-access regression guard for THIS file): confirms
-## get_round_events() yields TYPED RoundEvents.AttackEvent value objects —
-## never raw Dictionaries — exercised via `is RoundEventsClass.AttackEvent`
+## get_round_events() yields TYPED RoundEvents.AttackBroadcast value objects —
+## never raw Dictionaries — exercised via `is RoundEventsClass.AttackBroadcast`
 ## and `.to_dict()`, the same idiom required throughout this CR-001 section
 ## (and already established in tests/integration/test_encounter_integration.gd
 ## / tests/test_encounter_round_loop.gd).
@@ -943,20 +944,20 @@ func test_round_events_are_typed_round_events_value_objects_not_raw_dictionaries
 
 	var attack_ev = null
 	for ev in events:
-		if ev is RoundEventsClass.AttackEvent:
+		if ev is RoundEventsClass.AttackBroadcast:
 			attack_ev = ev
 			break
 
 	assert_not_null(attack_ev,
-		"get_round_events() must contain at least one typed RoundEvents.AttackEvent instance")
+		"get_round_events() must contain at least one typed RoundEvents.AttackBroadcast instance")
 	if attack_ev == null:
 		return
 
 	assert_eq(attack_ev.round, 1,
-		"RoundEvents.AttackEvent.round must be read as a typed field (round 1)")
+		"RoundEvents.AttackBroadcast.round must be read as a typed field (round 1)")
 	assert_true(
 		attack_ev.attacker_name == "Titus" or attack_ev.attacker_name == "Skeleton",
-		"RoundEvents.AttackEvent.attacker_name must be read as a typed field naming a known combatant; got '%s'"
+		"RoundEvents.AttackBroadcast.attacker_name must be read as a typed field naming a known combatant; got '%s'"
 		% attack_ev.attacker_name
 	)
 

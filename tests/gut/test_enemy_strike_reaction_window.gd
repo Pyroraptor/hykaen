@@ -64,6 +64,7 @@ const DetermineOutcomeUseCaseClass = preload("res://core/application/determine_o
 const ActionEconomyClass           = preload("res://core/rules/action_economy.gd")
 const ReactionWindowClass          = preload("res://core/application/reaction_window.gd")
 const AIClass                      = preload("res://core/combat/ai.gd")
+const CombatantClass               = preload("res://core/domain/combatant.gd")
 
 
 # ── Fake/double port implementations (mirrors tests/gut/
@@ -143,14 +144,14 @@ class ScriptedReactionResolver:
 		return {"choice": choice_to_return}
 
 
-func _entry(combatant: Dictionary) -> Dictionary:
+func _entry(combatant) -> Dictionary:
 	return {"combatant": combatant, "action_economy": ActionEconomyClass.new()}
 
 
 ## _attacker() -- the enemy (Bravo). roll_total = raw_d20 + strength(3) +
 ## proficiency_bonus(2) = raw_d20 + 5.
-func _attacker() -> Dictionary:
-	return {
+func _attacker():
+	return CombatantClass.from_dict({
 		"name":         "Bravo",
 		"combatant_id": "bravo",
 		"hp_current":   2000,
@@ -162,7 +163,7 @@ func _attacker() -> Dictionary:
 			"proficiency_bonus": 2,
 			"damage_die": 6,
 		},
-	}
+	})
 
 
 ## _defender() -- the player (Alpha). Carries a single weapon eligible for
@@ -171,8 +172,8 @@ func _attacker() -> Dictionary:
 ## shape RoundSession._build_defense_context() resolves parrying_weapon/
 ## blocking_weapon from (this project's combatant model has one weapon
 ## slot, not a separate loadout).
-func _defender() -> Dictionary:
-	return {
+func _defender():
+	return CombatantClass.from_dict({
 		"name":         "Alpha",
 		"combatant_id": "alpha",
 		"hp_current":   2000,
@@ -188,7 +189,7 @@ func _defender() -> Dictionary:
 			"parry_bonus": 3,
 			"block_value": 2,
 		},
-	}
+	})
 
 
 ## _make_session(entries, party, enemies, random_number_port) -> Dictionary
@@ -221,7 +222,7 @@ func _make_session(entries: Array, party: Array, enemies: Array, random_number_p
 ## real resolver (presentation/turn_controller.gd's resolve_reaction())
 ## would when translating a RoundSession-issued trigger into a live
 ## reaction-window prompt.
-func _reaction_window_trigger(trigger_type: String, reactor: Dictionary, weapon: Dictionary) -> Dictionary:
+func _reaction_window_trigger(trigger_type: String, reactor, weapon: Dictionary) -> Dictionary:
 	return {
 		"trigger_type":   trigger_type,
 		"reactor":        reactor,
@@ -238,8 +239,8 @@ func _reaction_window_trigger(trigger_type: String, reactor: Dictionary, weapon:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_dodge_reaction_negates_the_strike_and_spends_defenders_reaction() -> void:
-	var bravo: Dictionary = _attacker()
-	var alpha: Dictionary = _defender()
+	var bravo = _attacker()
+	var alpha = _defender()
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
 	# test_criteria #7: legality established via reaction_window.gd's OWN,
@@ -255,13 +256,13 @@ func test_dodge_reaction_negates_the_strike_and_spends_defenders_reaction() -> v
 	var rng := ScriptedRandomNumberPort.new([15, 1])
 	var rig: Dictionary = _make_session(entries, [alpha], [bravo], rng)
 	var session = rig["session"]
-	assert_eq(session.current_actor().get("name", ""), "Bravo", "fixture assumption: the Enemy leads the turn order")
+	assert_eq(session.current_actor().name, "Bravo", "fixture assumption: the Enemy leads the turn order")
 
 	var resolver := ScriptedReactionResolver.new("dodge")
 	session.set_reaction_resolver_fn(Callable(resolver, "resolve"))
 
 	var alpha_budget_before: int = entries[1]["action_economy"].get_remaining()
-	var hp_before: int = alpha.get("hp_current", 0)
+	var hp_before: int = alpha.hp_current
 
 	await session.advance_ai_turn()
 
@@ -270,7 +271,7 @@ func test_dodge_reaction_negates_the_strike_and_spends_defenders_reaction() -> v
 
 	var attack_event = rig["event_sink"].events[0]
 	assert_false(attack_event.hit, "PINNED (resolution.gd Dodge math): the successful Mobility check must cause a miss")
-	assert_eq(alpha.get("hp_current", 0), hp_before, "a negated (missed) Strike must deal zero damage")
+	assert_eq(alpha.hp_current, hp_before, "a negated (missed) Strike must deal zero damage")
 
 	assert_eq(
 		entries[1]["action_economy"].get_remaining(), alpha_budget_before - 1,
@@ -284,8 +285,8 @@ func test_dodge_reaction_negates_the_strike_and_spends_defenders_reaction() -> v
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_block_reaction_reduces_damage_using_the_resolved_blocking_weapon() -> void:
-	var bravo: Dictionary = _attacker()
-	var alpha: Dictionary = _defender()
+	var bravo = _attacker()
+	var alpha = _defender()
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
 	var event_sink := FakeEventSinkPort.new()
@@ -305,7 +306,7 @@ func test_block_reaction_reduces_damage_using_the_resolved_blocking_weapon() -> 
 	session.set_reaction_resolver_fn(Callable(resolver, "resolve"))
 
 	var alpha_budget_before: int = entries[1]["action_economy"].get_remaining()
-	var hp_before: int = alpha.get("hp_current", 0)
+	var hp_before: int = alpha.hp_current
 
 	await session.advance_ai_turn()
 
@@ -313,7 +314,7 @@ func test_block_reaction_reduces_damage_using_the_resolved_blocking_weapon() -> 
 	var attack_event = rig["event_sink"].events[0]
 	assert_true(attack_event.hit, "fixture assumption: the attack roll must hit for Block's post-hit branch to trigger")
 	assert_eq(attack_event.damage_final, 2, "PINNED (resolution.gd Block math using Alpha's OWN weapon: block_die=6 fallback, tier 1, block_value 2): damage_raw(7) - block_reduction(5) = 2")
-	assert_eq(hp_before - alpha.get("hp_current", 0), 2, "the defender's HP must drop by exactly the Block-reduced damage")
+	assert_eq(hp_before - alpha.hp_current, 2, "the defender's HP must drop by exactly the Block-reduced damage")
 
 	assert_eq(
 		entries[1]["action_economy"].get_remaining(), alpha_budget_before - 1,
@@ -328,8 +329,8 @@ func test_block_reaction_reduces_damage_using_the_resolved_blocking_weapon() -> 
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_parry_beats_roll_zeroes_damage_using_the_resolved_parrying_weapon() -> void:
-	var bravo: Dictionary = _attacker()
-	var alpha: Dictionary = _defender()
+	var bravo = _attacker()
+	var alpha = _defender()
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
 	var event_sink := FakeEventSinkPort.new()
@@ -348,7 +349,7 @@ func test_parry_beats_roll_zeroes_damage_using_the_resolved_parrying_weapon() ->
 	session.set_reaction_resolver_fn(Callable(resolver, "resolve"))
 
 	var alpha_budget_before: int = entries[1]["action_economy"].get_remaining()
-	var hp_before: int = alpha.get("hp_current", 0)
+	var hp_before: int = alpha.hp_current
 
 	await session.advance_ai_turn()
 
@@ -356,7 +357,7 @@ func test_parry_beats_roll_zeroes_damage_using_the_resolved_parrying_weapon() ->
 	var attack_event = rig["event_sink"].events[0]
 	assert_true(attack_event.hit, "fixture assumption: the attack roll must hit for Parry's post-hit branch to trigger")
 	assert_eq(attack_event.damage_final, 0, "PINNED (resolution.gd Parry math): a strict-exceed parry roll must zero damage_final")
-	assert_eq(alpha.get("hp_current", 0), hp_before, "a successfully-parried Strike must deal zero damage")
+	assert_eq(alpha.hp_current, hp_before, "a successfully-parried Strike must deal zero damage")
 
 	assert_eq(
 		entries[1]["action_economy"].get_remaining(), alpha_budget_before - 1,
@@ -369,7 +370,7 @@ func test_parry_beats_roll_zeroes_damage_using_the_resolved_parrying_weapon() ->
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_steel_is_never_offered_as_legal_by_reaction_window_and_stays_dormant_if_chosen_anyway() -> void:
-	var alpha: Dictionary = _defender()
+	var alpha = _defender()
 
 	# reaction_window.gd's OWN, unmodified legality gate: Steel requires
 	# defense_type in [fortitude, will] -- a weapon Strike vs AC can NEVER
@@ -386,8 +387,8 @@ func test_steel_is_never_offered_as_legal_by_reaction_window_and_stays_dormant_i
 	# resolution.gd's own math must treat it as a complete no-op: byte-
 	# identical to Pass, given the identical RNG sequence, with no reaction
 	# spent.
-	var bravo_a: Dictionary = _attacker()
-	var alpha_a: Dictionary = _defender()
+	var bravo_a = _attacker()
+	var alpha_a = _defender()
 	var entries_a: Array = [_entry(bravo_a), _entry(alpha_a)]
 	var rng_a := ScriptedRandomNumberPort.new([10, 4])
 	var rig_a: Dictionary = _make_session(entries_a, [alpha_a], [bravo_a], rng_a)
@@ -397,8 +398,8 @@ func test_steel_is_never_offered_as_legal_by_reaction_window_and_stays_dormant_i
 	await rig_a["session"].advance_ai_turn()
 	var steel_event = rig_a["event_sink"].events[0]
 
-	var bravo_b: Dictionary = _attacker()
-	var alpha_b: Dictionary = _defender()
+	var bravo_b = _attacker()
+	var alpha_b = _defender()
 	var entries_b: Array = [_entry(bravo_b), _entry(alpha_b)]
 	var rng_b := ScriptedRandomNumberPort.new([10, 4])
 	var rig_b: Dictionary = _make_session(entries_b, [alpha_b], [bravo_b], rng_b)
@@ -422,8 +423,8 @@ func test_steel_is_never_offered_as_legal_by_reaction_window_and_stays_dormant_i
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_pass_reproduces_the_exact_pre_sprint_unreacted_outcome() -> void:
-	var bravo: Dictionary = _attacker()
-	var alpha: Dictionary = _defender()
+	var bravo = _attacker()
+	var alpha = _defender()
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
 	# RNG order for an unreacted Strike: [1] attack d20, [2] damage die.
@@ -435,7 +436,7 @@ func test_pass_reproduces_the_exact_pre_sprint_unreacted_outcome() -> void:
 	session.set_reaction_resolver_fn(Callable(resolver, "resolve"))
 
 	var alpha_budget_before: int = entries[1]["action_economy"].get_remaining()
-	var hp_before: int = alpha.get("hp_current", 0)
+	var hp_before: int = alpha.hp_current
 
 	await session.advance_ai_turn()
 
@@ -446,8 +447,8 @@ func test_pass_reproduces_the_exact_pre_sprint_unreacted_outcome() -> void:
 	# directly, with resolve()'s pre-FEAT-001 default-only arguments (no
 	# active_defense/defense_context) -- the characterization baseline this
 	# criterion pins against -- fed the SAME scripted RNG sequence.
-	var baseline_attacker: Dictionary = _attacker()
-	var baseline_target: Dictionary = _defender()
+	var baseline_attacker = _attacker()
+	var baseline_target = _defender()
 	var baseline_rng := ScriptedRandomNumberPort.new([15, 4])
 	var baseline_event_sink := FakeEventSinkPort.new()
 	var baseline_history := FakeRoundHistoryPort.new()
@@ -464,7 +465,7 @@ func test_pass_reproduces_the_exact_pre_sprint_unreacted_outcome() -> void:
 
 	assert_eq(reacted_event.hit, baseline_event.hit, "Pass through the round_session reaction window must match the pre-sprint (default-args) hit outcome exactly")
 	assert_eq(reacted_event.damage_final, baseline_event.damage_final, "Pass through the round_session reaction window must match the pre-sprint (default-args) damage exactly")
-	assert_eq(alpha.get("hp_current", 0), hp_before - baseline_event.damage_final, "the defender's HP must drop by exactly the baseline's damage")
+	assert_eq(alpha.hp_current, hp_before - baseline_event.damage_final, "the defender's HP must drop by exactly the baseline's damage")
 
 	assert_eq(
 		entries[1]["action_economy"].get_remaining(), alpha_budget_before,
@@ -481,8 +482,8 @@ func test_pass_reproduces_the_exact_pre_sprint_unreacted_outcome() -> void:
 
 func test_attackers_own_action_budget_is_unaffected_by_the_defenders_chosen_reaction() -> void:
 	for choice in ["none", "dodge", "block", "parry"]:
-		var bravo: Dictionary = _attacker()
-		var alpha: Dictionary = _defender()
+		var bravo = _attacker()
+		var alpha = _defender()
 		var entries: Array = [_entry(bravo), _entry(alpha)]
 		var rng := ScriptedRandomNumberPort.new([1, 1, 1, 1, 1, 1])
 		var rig: Dictionary = _make_session(entries, [alpha], [bravo], rng)

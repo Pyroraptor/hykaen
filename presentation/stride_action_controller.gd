@@ -31,28 +31,23 @@ var _living_enemy_reactors_fn: Callable
 var _turn_order_fn: Callable
 
 
-func _init(
-	session_holder,
-	movement_input_controller,
-	status_panel_view,
-	resolve_action_use_case,
-	reaction,
-	action_economy_fn: Callable,
-	round_number_fn: Callable,
-	after_successful_move_fn: Callable,
-	living_enemy_reactors_fn: Callable,
-	turn_order_fn: Callable
-) -> void:
-	super(session_holder)
-	_movement_input_controller = movement_input_controller
-	_status_panel_view = status_panel_view
-	_resolve_action_use_case = resolve_action_use_case
-	_reaction = reaction
-	_action_economy_fn = action_economy_fn
-	_round_number_fn = round_number_fn
-	_after_successful_move_fn = after_successful_move_fn
-	_living_enemy_reactors_fn = living_enemy_reactors_fn
-	_turn_order_fn = turn_order_fn
+## Reads (data-driven verb table, 2026-07-11 — see action_controller.gd's _init
+## doc): `movement_input_controller`, `status_panel_view`, `resolve_action_use_case`,
+## the shared `reaction` ReactionController (also used by Strike), and the Callables
+## `action_economy_for`, `current_round_number`, `after_successful_move`,
+## `living_enemy_reactors`, `current_turn_order`. `session_holder` is consumed by
+## super().
+func _init(deps: Dictionary) -> void:
+	super(deps)
+	_movement_input_controller = deps.get("movement_input_controller", null)
+	_status_panel_view = deps.get("status_panel_view", null)
+	_resolve_action_use_case = deps.get("resolve_action_use_case", null)
+	_reaction = deps.get("reaction", null)
+	_action_economy_fn = deps.get("action_economy_for", Callable())
+	_round_number_fn = deps.get("current_round_number", Callable())
+	_after_successful_move_fn = deps.get("after_successful_move", Callable())
+	_living_enemy_reactors_fn = deps.get("living_enemy_reactors", Callable())
+	_turn_order_fn = deps.get("current_turn_order", Callable())
 
 
 func availability() -> bool:
@@ -68,12 +63,16 @@ func enter_selection() -> Dictionary:
 
 
 func execute(selection = null) -> Dictionary:
-	var actor: Dictionary = current_actor()
-	var actor_id: String = actor.get("combatant_id", "")
+	# Phase C.3/C.4: the mover is the LIVE actor instance — it is passed straight
+	# into ResolveStrideUseCase.execute(), where an Opportunistic Strike against
+	# the mover applies take_damage() by reference; a to_dict() copy here would
+	# silently drop that damage (the mover-downed gate would never fire).
+	var actor = current_actor_entity()
+	var actor_id: String = actor.display_id() if actor != null else ""
 	var action_economy = current_action_economy()
 
-	var mover_start_hex = actor.get("hex_coord", null)
-	if not actor.is_empty() and mover_start_hex != null:
+	var mover_start_hex = actor.hex_coord if actor != null else null
+	if actor != null and mover_start_hex != null:
 		var candidate_reactors: Array = _reaction.order_candidate_reactors_by_initiative(_living_enemy_reactors_fn.call())
 		var turn_order = _turn_order_fn.call()
 		if turn_order != null:

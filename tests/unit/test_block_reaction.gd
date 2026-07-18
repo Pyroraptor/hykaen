@@ -37,6 +37,7 @@ const ResolutionClass          = preload("res://core/rules/resolution.gd")
 const ActionEconomyClass       = preload("res://core/rules/action_economy.gd")
 const AutoReactionChooserClass = preload("res://infrastructure/auto_reaction_chooser.gd")
 const RoundEventsClass         = preload("res://core/rules/round_events.gd")
+const CombatantClass           = preload("res://core/domain/combatant.gd")
 
 
 # ── Fake/double EventSinkPort (mirrors tests/unit/test_parry_reaction.gd's
@@ -108,7 +109,7 @@ var _weapon: Dictionary = {
 }
 
 
-func _reactor(overrides: Dictionary = {}) -> Dictionary:
+func _reactor(overrides: Dictionary = {}):
 	var base: Dictionary = {
 		"name": "Titus",
 		"ac": 13, "reflex": 12, "fortitude": 14, "will": 11,
@@ -118,7 +119,7 @@ func _reactor(overrides: Dictionary = {}) -> Dictionary:
 	}
 	for key in overrides:
 		base[key] = overrides[key]
-	return base
+	return CombatantClass.from_dict(base)
 
 
 ## The reactor's OWN blocking weapon — used both for eligibility
@@ -460,7 +461,7 @@ func test_block_reaction_resolved_event_emitted_with_block_choice() -> void:
 	assert_eq(sink.events.size(), 2, "open() and the attack resolution must each emit exactly one event")
 	assert_true(sink.events[0] is RoundEventsClass.ReactionWindowOpenedEvent)
 	var resolved_event = sink.events[1]
-	assert_true(resolved_event is RoundEventsClass.ReactionResolvedEvent)
+	assert_true(resolved_event is RoundEventsClass.ReactionResolvedBroadcast)
 	assert_eq(resolved_event.round, 4)
 	assert_eq(resolved_event.choice, "block")
 	assert_eq(resolved_event.resolved_by, "ai_policy")

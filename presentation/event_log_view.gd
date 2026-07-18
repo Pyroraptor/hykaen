@@ -421,7 +421,7 @@ func on_round_event(event) -> void:
 ## describing a resolved Strike. `event` must carry `attacker_name`,
 ## `target_name`, `hit` (bool), `crit` (bool), `damage_final` (int), and
 ## optionally `round` (int), matching core/rules/round_events.gd's
-## RoundEvents.AttackEvent shape.
+## RoundEvents.AttackBroadcast shape.
 func on_attack_event(event) -> void:
 	var round_number: int = _event_get(event, "round", 0)
 	var attacker_name: String = _event_get(event, "attacker_name", "")

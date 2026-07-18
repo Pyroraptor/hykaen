@@ -50,6 +50,7 @@ const ResolveActionUseCaseClass    = preload("res://core/application/resolve_act
 const ActionEconomyClass           = preload("res://core/rules/action_economy.gd")
 const HexCoordClass                = preload("res://core/geometry/hex_coord.gd")
 const MovementInputControllerClass = preload("res://presentation/movement_input_controller.gd")
+const CombatantClass               = preload("res://core/domain/combatant.gd")
 
 
 class FakeEventSinkPort:
@@ -137,14 +138,14 @@ class FakeLockableStrikeControl:
 ## on (mirrors tests/unit/presentation/test_result_screen_view.gd's
 ## identically-named fixture).
 class FakeRoundSession:
-	var _actor: Dictionary
+	var _actor
 	var _round_over: bool = false
 
-	func _init(actor: Dictionary) -> void:
+	func _init(actor) -> void:
 		_actor = actor
 
-	func current_actor() -> Dictionary:
-		return {} if _round_over else _actor
+	func current_actor():
+		return null if _round_over else _actor
 
 	func is_round_over() -> bool:
 		return _round_over
@@ -216,7 +217,7 @@ func test_strike_and_end_turn_controls_disabled_after_encounter_resolved() -> vo
 	strike_control.configure(_actor(origin), ActionEconomyClass.new(), rig["use_case"], [adjacent_enemy])
 	assert_eq(strike_control.get_button_count(), 1, "sanity check: the Strike control starts with one selectable target")
 
-	var session := FakeRoundSession.new({"name": "Titus", "_is_enemy": false})
+	var session := FakeRoundSession.new(CombatantClass.from_dict({"name": "Titus", "_is_enemy": false}))
 	end_turn_control.configure(session)
 	assert_true(end_turn_control.is_enabled(), "sanity check: EndTurnControl starts enabled")
 
@@ -303,7 +304,7 @@ func test_lock_all_controls_is_idempotent_across_all_three_controls() -> void:
 
 	var rig: Dictionary = _make_use_case([12, 4])
 	strike_control.configure(_actor(origin), ActionEconomyClass.new(), rig["use_case"], [adjacent_enemy])
-	end_turn_control.configure(FakeRoundSession.new({"name": "Titus", "_is_enemy": false}))
+	end_turn_control.configure(FakeRoundSession.new(CombatantClass.from_dict({"name": "Titus", "_is_enemy": false})))
 
 	var hex_grid_view := SpyHexGridView.new()
 	var movement_input_controller := MovementInputControllerClass.new()

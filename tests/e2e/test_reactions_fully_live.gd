@@ -126,6 +126,7 @@ const PlayerReactionChooserClass  = preload("res://presentation/player_reaction_
 const ReactionWindowClass         = preload("res://core/application/reaction_window.gd")
 const AIClass                      = preload("res://core/combat/ai.gd")
 const HexCoordClass                = preload("res://core/geometry/hex_coord.gd")
+const CombatantClass               = preload("res://core/domain/combatant.gd")
 
 ## PROLOGUE_SEED — this project's established known-good fixture seed:
 ## Titus acts first and the sole enemy (Skeleton) starts adjacent to him
@@ -173,8 +174,8 @@ func _boot_main_scene():
 	return instance
 
 
-func _id(combatant: Dictionary) -> String:
-	return combatant.get("combatant_id", combatant.get("name", ""))
+func _id(combatant) -> String:
+	return combatant.combatant_id
 
 
 func _hex_tuple(hex_coord) -> Array:
@@ -209,12 +210,12 @@ func _drive_full_steel_thread(instance) -> Dictionary:
 	await get_tree().process_frame
 
 	assert_false(
-		instance.round_session.current_actor().get("_is_enemy", true),
+		instance.round_session.current_actor().is_enemy,
 		"fixture assumption: Titus (the player) acts first at seed=%d" % PROLOGUE_SEED
 	)
 
-	var titus: Dictionary = instance._party[0]
-	var skeleton: Dictionary = instance._enemies[0]
+	var titus = instance._party[0]
+	var skeleton = instance._enemies[0]
 	var skeleton_id: String = _id(skeleton)
 	var titus_id: String = _id(titus)
 
@@ -225,7 +226,7 @@ func _drive_full_steel_thread(instance) -> Dictionary:
 	var skeleton_ae = instance._action_economy_for(skeleton)
 	var titus_ae = instance._action_economy_for(titus)
 	var skeleton_budget_before_leg_a: int = skeleton_ae.get_remaining()
-	var skeleton_hp_before_leg_a: int = skeleton.get("hp_current", -1)
+	var skeleton_hp_before_leg_a: int = skeleton.hp_current
 
 	var selection: Dictionary = instance.verb_bar_view.press("STRIKE")
 	var target_ids: Array = selection.get("candidate_targets", [])
@@ -250,7 +251,7 @@ func _drive_full_steel_thread(instance) -> Dictionary:
 	# snapshot-construction time would silently capture LEG B's (or the
 	# final Stride commit's) value instead of LEG A's own.
 	var skeleton_budget_after_leg_a: int = skeleton_ae.get_remaining()
-	var skeleton_hp_after_leg_a: int = skeleton.get("hp_current", -1)
+	var skeleton_hp_after_leg_a: int = skeleton.hp_current
 
 	# ── LEG B (exit_point): a real Stride — driven ORGANICALLY through
 	# core/combat/ai.gd's own decide_action() public entry point (FEAT-234;
@@ -263,7 +264,7 @@ func _drive_full_steel_thread(instance) -> Dictionary:
 
 	var titus_budget_before_leg_b: int = titus_ae.get_remaining()
 
-	var mover_start_hex = skeleton.get("hex_coord", null)
+	var mover_start_hex = skeleton.hex_coord
 	assert_not_null(mover_start_hex, "fixture assumption: the Skeleton carries a hex_coord before its Stride")
 	var mover_hex_before_leg_b: Array = _hex_tuple(mover_start_hex)
 
@@ -279,13 +280,13 @@ func _drive_full_steel_thread(instance) -> Dictionary:
 	# header doc. `decoy_target` never reacts (it fails
 	# OpportunisticStrikeEligibility's adjacency check against
 	# `mover_start_hex`), so only Titus's window is ever offered.
-	var decoy_target: Dictionary = {
+	var decoy_target = CombatantClass.from_dict({
 		"name": "Steel Thread Decoy Target",
 		"combatant_id": "steel_thread_decoy_target",
 		"hp_current": 20, "hp_max": 20, "ac": 14,
 		"hex_coord": HexCoordClass.new(mover_start_hex.q + DECOY_TARGET_DISTANCE, mover_start_hex.r),
 		"_is_enemy": false,
-	}
+	})
 
 	var displayed_options_when_opened: Array = []
 	var press_opportunistic_strike := func():
@@ -323,11 +324,11 @@ func _drive_full_steel_thread(instance) -> Dictionary:
 		"titus_budget_after_leg_b": -1,
 	}
 
-	var observed_stride_resolver := func(mover: Dictionary, mover_start, candidate_reactors: Array):
+	var observed_stride_resolver := func(mover, mover_start, candidate_reactors: Array):
 		var result: Dictionary = await real_stride_resolver.call(mover, mover_start, candidate_reactors)
 		_leg_b_capture["result"] = result
-		_leg_b_capture["mover_hex_immediately_after_reaction"] = _hex_tuple(mover.get("hex_coord", mover_start))
-		_leg_b_capture["skeleton_hp_immediately_after_reaction"] = mover.get("hp_current", -1)
+		_leg_b_capture["mover_hex_immediately_after_reaction"] = _hex_tuple(mover.hex_coord)
+		_leg_b_capture["skeleton_hp_immediately_after_reaction"] = mover.hp_current
 		_leg_b_capture["titus_budget_after_leg_b"] = titus_ae.get_remaining()
 		return result
 
@@ -393,7 +394,7 @@ func _drive_full_steel_thread(instance) -> Dictionary:
 		"titus_budget_before_leg_b":              titus_budget_before_leg_b,
 		"titus_budget_after_leg_b":               titus_budget_after_leg_b,
 		"chosen_destination":                     _hex_tuple(chosen_destination),
-		"skeleton_hex_after_stride_commit":       _hex_tuple(skeleton.get("hex_coord")),
+		"skeleton_hex_after_stride_commit":       _hex_tuple(skeleton.hex_coord),
 		"skeleton_budget_after_stride_commit":    skeleton_ae.get_remaining(),
 		"token_hex_after_move":                   _hex_tuple(instance.hex_grid_view.get_token(skeleton_id).hex_coord),
 		"decision_log_stream":                    _decision_log_stream(instance),

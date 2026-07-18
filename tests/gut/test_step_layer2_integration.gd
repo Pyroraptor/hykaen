@@ -57,11 +57,11 @@ func _boot_main_scene_with_seed(seed_value: int):
 ## Dictionaries core/rules/movement.gd Movement.step() mutates in place),
 ## mirroring tests/integration/test_movement_affordance_integration.gd's
 ## identically-named helper.
-func _find_combatant_by_id(instance, combatant_id: String) -> Dictionary:
+func _find_combatant_by_id(instance, combatant_id: String):
 	for combatant in instance._party + instance._enemies:
-		if combatant.get("combatant_id", "") == combatant_id:
+		if combatant.combatant_id == combatant_id:
 			return combatant
-	return {}
+	return null
 
 
 ## _occupied_hexes(instance) -> Dictionary -- "q,r" -> true set of every
@@ -70,9 +70,9 @@ func _find_combatant_by_id(instance, combatant_id: String) -> Dictionary:
 func _occupied_hexes(instance) -> Dictionary:
 	var occupied: Dictionary = {}
 	for combatant in instance._party + instance._enemies:
-		if combatant.get("hp_current", 1) <= 0:
+		if combatant.hp_current <= 0:
 			continue
-		var hex_coord = combatant.get("hex_coord", null)
+		var hex_coord = combatant.hex_coord
 		if hex_coord != null:
 			occupied["%d,%d" % [hex_coord.q, hex_coord.r]] = true
 	return occupied
@@ -97,8 +97,8 @@ func test_step_enter_selection_highlights_only_legal_adjacent_unoccupied_hexes()
 		"fixture assumption: the prologue's first actor has at least one legal Step destination at seed=42"
 	)
 
-	var actor: Dictionary = instance.round_session.current_actor()
-	var actor_hex = actor.get("hex_coord", null)
+	var actor = instance.round_session.current_actor()
+	var actor_hex = actor.hex_coord
 	assert_not_null(actor_hex, "fixture assumption: the active actor carries a hex_coord")
 
 	var expected_hexes: Array = instance.movement_input_controller.get_selectable_step_hexes()
@@ -155,7 +155,7 @@ func test_clicking_a_highlighted_hex_moves_the_token_to_that_exact_axial_coordin
 	var instance = _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
-	var actor_id: String = instance.round_session.current_actor().get("combatant_id", "")
+	var actor_id: String = instance.round_session.current_actor().display_id()
 	assert_ne(actor_id, "", "fixture assumption: the active actor carries a non-empty combatant_id")
 
 	var before_remaining: int = instance.status_panel_view.get_status(actor_id).get("action_budget_remaining", -1)
@@ -184,10 +184,10 @@ func test_clicking_a_highlighted_hex_moves_the_token_to_that_exact_axial_coordin
 
 	assert_false(instance.selection_overlay.is_active(), "SelectionOverlay must return to Layer 1 once the click resolves a real Step")
 
-	var moved_combatant: Dictionary = _find_combatant_by_id(instance, actor_id)
-	assert_false(moved_combatant.is_empty(), "fixture assumption: the moved actor must be one of MainScene's live combatant Dictionaries")
+	var moved_combatant = _find_combatant_by_id(instance, actor_id)
+	assert_false(moved_combatant == null, "fixture assumption: the moved actor must be one of MainScene's live combatant Dictionaries")
 	assert_true(
-		moved_combatant.get("hex_coord").equals(destination),
+		moved_combatant.hex_coord.equals(destination),
 		"Combatant.position (the live combatant Dictionary's hex_coord) must move to the EXACT clicked axial coordinate via move_token()/step_to()"
 	)
 

@@ -34,6 +34,7 @@ const ResolutionClass          = preload("res://core/rules/resolution.gd")
 const ActionEconomyClass       = preload("res://core/rules/action_economy.gd")
 const RoundEventsClass         = preload("res://core/rules/round_events.gd")
 const TurnControllerClass      = preload("res://presentation/turn_controller.gd")
+const CombatantClass           = preload("res://core/domain/combatant.gd")
 
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 const REACTION_PROMPT_UI_PATH: String = "res://scenes/ui/reaction_prompt_ui.gd"
@@ -94,7 +95,7 @@ var _attacker_weapon: Dictionary = {
 }
 
 
-func _reactor(overrides: Dictionary = {}) -> Dictionary:
+func _reactor(overrides: Dictionary = {}):
 	var base: Dictionary = {
 		"name": "Titus",
 		"ac": 13, "reflex": 12, "fortitude": 14, "will": 11,
@@ -104,7 +105,7 @@ func _reactor(overrides: Dictionary = {}) -> Dictionary:
 	}
 	for key in overrides:
 		base[key] = overrides[key]
-	return base
+	return CombatantClass.from_dict(base)
 
 
 func _parrying_weapon(parry_bonus: int = 3) -> Dictionary:

@@ -35,7 +35,7 @@
 ##     ReactionChooserPort.PASS) to the still-open window identified by
 ##     `window_id`, spends the reactor's reaction
 ##     (ActionEconomy.spend_reaction() — NEVER spend_action()) when
-##     choice != PASS, emits a RoundEvents.ReactionResolvedEvent, and closes
+##     choice != PASS, emits a RoundEvents.ReactionResolvedBroadcast, and closes
 ##     the window. Returns:
 ##       {ok: true, window_id: String, choice: String}
 ##         — choice may differ from the requested one ONLY when the

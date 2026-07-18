@@ -57,10 +57,10 @@ func test_skeleton_is_parry_eligible_on_real_boot() -> void:
 	if instance._enemies.size() == 0:
 		return
 
-	var skeleton: Dictionary = instance._enemies[0]
-	assert_eq(skeleton.get("name", ""), "Skeleton", "fixture assumption: the sole enemy is the Skeleton")
+	var skeleton = instance._enemies[0]
+	assert_eq(skeleton.name, "Skeleton", "fixture assumption: the sole enemy is the Skeleton")
 
-	var weapon: Dictionary = skeleton.get("weapon", {})
+	var weapon: Dictionary = skeleton.weapon
 	assert_true(
 		ResolutionClass.is_parry_eligible(weapon),
 		"the REAL, live Skeleton combatant's weapon dict must be Parry-eligible after boot (FEAT-001) -- got weapon: %s" % [weapon]
@@ -77,8 +77,8 @@ func test_skeleton_is_block_eligible_on_real_boot() -> void:
 		fail_test("fixture assumption failed: no enemies present")
 		return
 
-	var skeleton: Dictionary = instance._enemies[0]
-	var weapon: Dictionary = skeleton.get("weapon", {})
+	var skeleton = instance._enemies[0]
+	var weapon: Dictionary = skeleton.weapon
 	assert_true(
 		ResolutionClass.is_block_eligible(weapon),
 		"the REAL, live Skeleton combatant's weapon dict must be Block-eligible after boot (FEAT-001) -- got weapon: %s" % [weapon]
@@ -95,8 +95,8 @@ func test_skeleton_defense_values_match_arming_sword_table_on_real_boot() -> voi
 		fail_test("fixture assumption failed: no enemies present")
 		return
 
-	var skeleton: Dictionary = instance._enemies[0]
-	var weapon: Dictionary = skeleton.get("weapon", {})
+	var skeleton = instance._enemies[0]
+	var weapon: Dictionary = skeleton.weapon
 	assert_eq(weapon.get("parry_bonus", 0), 4, "the live Skeleton's parry_bonus must be 4 (Arming Sword table)")
 	assert_eq(weapon.get("block_value", 0), 2, "the live Skeleton's block_value must be 2 (Arming Sword table)")
 	assert_eq(weapon.get("block_die", -1), 0, "the live Skeleton's block_die must be 0 (unset, falls back to damage_die)")

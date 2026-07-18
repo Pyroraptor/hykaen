@@ -69,7 +69,7 @@ func test_updates_are_reflected_immediately_with_no_frame_wait() -> void:
 	# change from on_round_event() must be synchronous/immediate, proving
 	# there is no polling loop involved in propagating it.
 	_panel.load_combatants([_sample_view_model()])
-	_panel.on_round_event(RoundEventsClass.AttackEvent.new(1, "Skeleton", "Titus", 17, "ac", 14, true, false, 3))
+	_panel.on_round_event(RoundEventsClass.AttackBroadcast.new(1, "Skeleton", "Titus", 17, "ac", 14, true, false, 3))
 	assert_eq(_panel.get_status("player_0").get("hp_current"), 7)
 
 
@@ -102,7 +102,7 @@ func test_source_declares_no_polling_process_callbacks() -> void:
 func test_lethal_attack_event_drives_displayed_hp_to_zero() -> void:
 	_panel.load_combatants([_sample_view_model()])
 
-	var lethal_attack := RoundEventsClass.AttackEvent.new(1, "Skeleton", "Titus", 17, "ac", 14, true, false, 999)
+	var lethal_attack := RoundEventsClass.AttackBroadcast.new(1, "Skeleton", "Titus", 17, "ac", 14, true, false, 999)
 	_panel.on_round_event(lethal_attack)
 
 	assert_eq(

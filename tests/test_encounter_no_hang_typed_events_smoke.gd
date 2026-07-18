@@ -27,7 +27,7 @@ extends GutTest
 ##   resolve_action_use_case.gd / determine_outcome_use_case.gd (the
 ##   Application layer), and the observability surface
 ##   (_round_events / get_round_history()'s "entry" key) carries TYPED
-##   core/rules/round_events.gd value objects (RoundEvents.AttackEvent,
+##   core/rules/round_events.gd value objects (RoundEvents.AttackBroadcast,
 ##   RoundEvents.CombatantDefeatedEvent, RoundEvents.EncounterResultEvent,
 ##   RoundEvents.RoundHistoryEntry) rather than raw Dictionaries.
 ##
@@ -46,7 +46,7 @@ extends GutTest
 ##      return promptly (no hang) with correct outcomes.
 ##   2. A full multi-round 2v2 encounter runs to completion via run() (the
 ##      entry point) and produces an interleaved A,B,A,B,... attack order
-##      verifiable from typed RoundEvents.AttackEvent instances in
+##      verifiable from typed RoundEvents.AttackBroadcast instances in
 ##      _round_events.
 ##   3. get_round_history() contains RoundEvents.RoundHistoryEntry instances
 ##      (via each entry's "entry" key) with correct, monotonically-consistent
@@ -187,7 +187,7 @@ func test_run_round_with_already_dead_enemy_returns_promptly_with_won_outcome() 
 # Criterion 2 (FIND-096): a full multi-round 2v2 encounter, driven via run()
 # (the steel-thread entry point), terminates with a correct outcome and
 # produces an interleaved A,B,A,B,... attack order verifiable from TYPED
-# RoundEvents.AttackEvent instances.
+# RoundEvents.AttackBroadcast instances.
 # ══════════════════════════════════════════════════════════════════════════════
 
 func test_run_entry_point_drives_full_2v2_encounter_to_correct_outcome() -> void:
@@ -212,7 +212,7 @@ func test_run_entry_point_drives_full_2v2_encounter_to_correct_outcome() -> void
 ## Interleaving is observable per-round (get_round_events() is cleared at the
 ## START of each run_round() call) — a single round between two equal-budget
 ## durable combatants is sufficient to verify the A,B,A,B,... order using
-## TYPED RoundEvents.AttackEvent instances (never raw Dictionaries).
+## TYPED RoundEvents.AttackBroadcast instances (never raw Dictionaries).
 func test_round_events_attack_instances_interleave_in_strict_alternation() -> void:
 	var enc = EncounterClass.new(
 		[_durable_combatant("Alpha")], [_durable_combatant("Bravo")], RNGClass.new(42)
@@ -221,7 +221,7 @@ func test_round_events_attack_instances_interleave_in_strict_alternation() -> vo
 	enc.run_round()
 
 	var events: Array = enc.get_round_events()
-	var attack_events: Array = events.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	var attack_events: Array = events.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 
 	# Both combatants share MAX_BUDGET=7 and neither dies (durable) — each
 	# takes exactly 7 actions this round, 14 total interleaved AttackEvents.
@@ -230,7 +230,7 @@ func test_round_events_attack_instances_interleave_in_strict_alternation() -> vo
 		return
 
 	for ev in attack_events:
-		assert_true(ev is RoundEventsClass.AttackEvent, "Every 'attack' round event must be a typed RoundEvents.AttackEvent instance")
+		assert_true(ev is RoundEventsClass.AttackBroadcast, "Every 'attack' round event must be a typed RoundEvents.AttackBroadcast instance")
 
 	# Strict alternation: consecutive AttackEvents must never share an attacker.
 	for i in range(attack_events.size() - 1):
@@ -423,6 +423,6 @@ func test_no_hang_guard_path_and_typed_event_path_coexist_in_same_suite_run() ->
 	normal_enc.initialize()
 	normal_enc.run_round()
 	var normal_events: Array = normal_enc.get_round_events()
-	var normal_attack_events: Array = normal_events.filter(func(e): return e is RoundEventsClass.AttackEvent)
+	var normal_attack_events: Array = normal_events.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 	assert_eq(normal_attack_events.size(), 14, "An ordinary durable-vs-durable round must still emit 14 typed AttackEvent instances")
 	assert_eq(normal_enc.get_outcome(), "", "Neither combatant dies — outcome must remain undecided for the ordinary encounter")

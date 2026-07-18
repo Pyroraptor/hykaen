@@ -77,8 +77,10 @@ func _fresh_ae() -> ActionEconomy:
 	return ae
 
 
-func _reactor() -> Dictionary:
-	return {"name": "Titus", "combatant_id": "titus", "weapon": {"damage_die": 8}}
+const CombatantClass = preload("res://core/domain/combatant.gd")
+
+func _reactor():
+	return CombatantClass.from_dict({"name": "Titus", "combatant_id": "titus", "weapon": {"damage_die": 8}})
 
 
 # ══════════════════════════════════════════════════════════════════════════

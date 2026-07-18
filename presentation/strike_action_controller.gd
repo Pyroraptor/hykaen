@@ -41,28 +41,24 @@ var _query_step_hexes_fn: Callable
 var _player_attack_event_id_counter: int = 0
 
 
-func _init(
-	session_holder,
-	resolve_action_use_case,
-	event_log_view,
-	status_panel_view,
-	enemy_reaction_chooser,
-	reaction,
-	action_economy_fn: Callable,
-	round_number_fn: Callable,
-	living_enemies_fn: Callable,
-	query_step_hexes_fn: Callable
-) -> void:
-	super(session_holder)
-	_resolve_action_use_case = resolve_action_use_case
-	_event_log_view = event_log_view
-	_status_panel_view = status_panel_view
-	_enemy_reaction_chooser = enemy_reaction_chooser
-	_reaction = reaction
-	_action_economy_fn = action_economy_fn
-	_round_number_fn = round_number_fn
-	_living_enemies_fn = living_enemies_fn
-	_query_step_hexes_fn = query_step_hexes_fn
+## Reads (data-driven verb table, 2026-07-11 — see action_controller.gd's _init
+## doc): `resolve_action_use_case`, `event_log_view`, `status_panel_view`,
+## `enemy_reaction_chooser`, the shared `reaction` ReactionController (also used by
+## Stride), and the Callables `action_economy_for`, `current_round_number`,
+## `living_enemy_reactors` (the living-enemy pool this verb reads as its target
+## candidates), `query_selectable_step_hexes`. `session_holder` is consumed by
+## super().
+func _init(deps: Dictionary) -> void:
+	super(deps)
+	_resolve_action_use_case = deps.get("resolve_action_use_case", null)
+	_event_log_view = deps.get("event_log_view", null)
+	_status_panel_view = deps.get("status_panel_view", null)
+	_enemy_reaction_chooser = deps.get("enemy_reaction_chooser", null)
+	_reaction = deps.get("reaction", null)
+	_action_economy_fn = deps.get("action_economy_for", Callable())
+	_round_number_fn = deps.get("current_round_number", Callable())
+	_living_enemies_fn = deps.get("living_enemy_reactors", Callable())
+	_query_step_hexes_fn = deps.get("query_selectable_step_hexes", Callable())
 
 
 func availability() -> bool:
@@ -80,11 +76,14 @@ func execute(selection = null) -> Dictionary:
 	if session == null or _resolve_action_use_case == null:
 		return {"ok": false}
 
-	var target: Dictionary = _find_reachable_target(str(selection))
-	if target.is_empty():
+	# Phase C.3/C.4: target + actor are LIVE Combatant instances (the same the
+	# container holds), so resolve_reactive()'s take_damage()/spend land on them
+	# by reference. _find_reachable_target() returns null (not {}) when not found.
+	var target = _find_reachable_target(str(selection))
+	if target == null:
 		return {"ok": false, "resolved": false, "error": "ERR_TARGET_NOT_SELECTABLE"}
 
-	var actor: Dictionary = session.current_actor()
+	var actor = session.current_actor_entity()
 	var action_economy = session.current_action_economy()
 
 	# The enemy target's OWN live ActionEconomy — so a chosen reaction genuinely
@@ -109,7 +108,7 @@ func execute(selection = null) -> Dictionary:
 	if target_action_economy != null and _status_panel_view != null:
 		var target_budget_after: int = target_action_economy.get_remaining()
 		if target_budget_after != target_budget_before:
-			var target_id: String = target.get("combatant_id", target.get("name", ""))
+			var target_id: String = target.display_id()
 			_status_panel_view.on_verb_action_budget_changed(
 				target_id, target_budget_after, target_action_economy.is_spent()
 			)
@@ -123,12 +122,12 @@ func execute(selection = null) -> Dictionary:
 			_player_attack_event_id_counter += 1
 			var attack_event_id: String = "R%d-P%d" % [_round_number_fn.call(), _player_attack_event_id_counter]
 
-			var weapon: Dictionary = actor.get("weapon", {})
+			var weapon: Dictionary = actor.weapon
 			var structured_attack_event = AttackEventClass.new(
 				attack_event_id,
 				_round_number_fn.call(),
-				actor.get("combatant_id", actor.get("name", "")),
-				target.get("combatant_id", target.get("name", "")),
+				actor.display_id(),
+				target.display_id(),
 				weapon.get("weapon_id", weapon.get("name", "")),
 				resolved_attack_event.roll,
 				resolved_attack_event.hit,
@@ -163,7 +162,7 @@ func execute(selection = null) -> Dictionary:
 	# The enemy target's OWN Dodge-Step on a successful reactive Dodge — resolved
 	# synchronously (no player pop-up) by the ReactionController.
 	await _reaction.resolve_enemy_dodge_step(
-		target, result, actor.get("hex_coord", null), _query_step_hexes_fn.call(_target_id(target))
+		target, result, actor.hex_coord, _query_step_hexes_fn.call(_target_id(target))
 	)
 
 	return result
@@ -184,8 +183,13 @@ func _reachable_targets() -> Array:
 	if _session() == null:
 		return []
 
-	var actor: Dictionary = current_actor()
-	var actor_hex = actor.get("hex_coord", null)
+	# Phase C.3/C.4: actor + candidates are LIVE Combatant instances (candidates
+	# from _living_enemies_fn are the container's _enemies by reference, so the
+	# selected target take_damage()s correctly in execute()). null actor = no turn.
+	var actor = current_actor_entity()
+	if actor == null:
+		return []
+	var actor_hex = actor.hex_coord
 	if actor_hex == null:
 		return []
 
@@ -193,16 +197,16 @@ func _reachable_targets() -> Array:
 	var in_reach: Array = []
 
 	if _actor_is_ranged(actor):
-		var range_hexes: int = actor.get("weapon", {}).get("range_hexes", 1)
+		var range_hexes: int = actor.weapon.get("range_hexes", 1)
 		for target in candidates:
-			var target_hex = target.get("hex_coord", null)
+			var target_hex = target.hex_coord
 			if target_hex != null and HexMathClass.hex_distance(actor_hex, target_hex) <= range_hexes:
 				in_reach.append(target)
 		return in_reach
 
 	var neighbors: Array = HexMathClass.hex_neighbors(actor_hex)
 	for target in candidates:
-		var target_hex = target.get("hex_coord", null)
+		var target_hex = target.hex_coord
 		if target_hex == null:
 			continue
 		for neighbor in neighbors:
@@ -212,20 +216,21 @@ func _reachable_targets() -> Array:
 	return in_reach
 
 
-func _actor_is_ranged(actor: Dictionary) -> bool:
-	return actor.get("weapon", {}).has("range_hexes")
+func _actor_is_ranged(actor) -> bool:
+	return actor.weapon.has("range_hexes")
 
 
-func _target_id(target: Dictionary) -> String:
-	return target.get("combatant_id", target.get("name", ""))
+func _target_id(target) -> String:
+	return target.display_id()
 
 
-## _find_reachable_target(target_id) -> Dictionary — looks up target_id ONLY among
-## the currently in-reach targets (never the wider enemy list), the enforcement
-## point ensuring a non-reachable target can never be selected even by id. Returns
-## {} (never null) when not found.
-func _find_reachable_target(target_id: String) -> Dictionary:
+## _find_reachable_target(target_id) -> Combatant or null — looks up target_id
+## ONLY among the currently in-reach targets (never the wider enemy list), the
+## enforcement point ensuring a non-reachable target can never be selected even
+## by id. Returns null (never {}) when not found — the live-instance "no target"
+## sentinel execute() checks via `== null`.
+func _find_reachable_target(target_id: String):
 	for target in _reachable_targets():
 		if _target_id(target) == target_id:
 			return target
-	return {}
+	return null

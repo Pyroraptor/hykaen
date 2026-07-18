@@ -18,11 +18,22 @@ extends RefCounted
 ## keeping standalone --check-only parses working and honoring the "wired only by
 ## MainScene" discipline the inner adapters follow.
 
+## Constructed with a single `deps: Dictionary` (composition-root data-driven verb
+## table, 2026-07-11): MainScene owns ONE memoized `_verb_deps()` dict keyed by
+## documented collaborator names and instantiates every verb via
+## `VERB_TABLE[verb_id].new(_verb_deps())`, so a future Combine controller can
+## resolve any sub-action controller through the single `_controller(verb_id)`
+## lookup, and adding a verb is one VERB_TABLE entry (no per-verb positional
+## constructor). Each subclass reads only the keys it needs from `deps`; the base
+## needs `deps["session_holder"]` (the stable RoundSessionHolder). No test
+## constructs these positionally, so widening `_init` to a dict is safe.
 var _session_holder
 
 
-func _init(session_holder) -> void:
-	_session_holder = session_holder
+func _init(deps: Dictionary) -> void:
+	if not deps.has("session_holder"):
+		push_error("ActionController: deps missing required key \"session_holder\"")
+	_session_holder = deps.get("session_holder", null)
 
 
 ## _session() — the live RoundSession for the current round (null before the
@@ -37,6 +48,16 @@ func _session():
 func current_actor() -> Dictionary:
 	var session = _session()
 	return session.current_actor() if session != null else {}
+
+
+## current_actor_entity() -> Combatant or null — the LIVE current-actor instance
+## (never a to_dict() copy), for verbs whose execute() feeds the actor into a
+## MUTATING seam (resolve()/ResolveStrideUseCase), where the entity must travel
+## by reference so take_damage()/move_to() land on the container's instance.
+## Null when there is no live session (mirrors current_actor()'s empty sentinel).
+func current_actor_entity():
+	var session = _session()
+	return session.current_actor_entity() if session != null else null
 
 
 ## current_action_economy() — the current actor's live ActionEconomy (the SAME

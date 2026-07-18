@@ -57,8 +57,8 @@ func _boot_main_scene_with_seed(seed_value: int):
 func _snapshot_positions(instance) -> Dictionary:
 	var snapshot: Dictionary = {}
 	for combatant in instance._party + instance._enemies:
-		var combatant_id: String = combatant.get("combatant_id", combatant.get("name", ""))
-		var hex_coord = combatant.get("hex_coord", null)
+		var combatant_id: String = combatant.combatant_id
+		var hex_coord = combatant.hex_coord
 		if hex_coord != null:
 			snapshot[combatant_id] = Vector2i(hex_coord.q, hex_coord.r)
 	return snapshot
@@ -201,7 +201,7 @@ func test_cancel_button_returns_strike_selection_to_layer1_with_zero_mutation() 
 	)
 	assert_true(instance._verb_registry.is_available("STRIKE"), "fixture assumption: STRIKE is available at seed=42")
 
-	var actor_id: String = instance.round_session.current_actor().get("combatant_id", "")
+	var actor_id: String = instance.round_session.current_actor().display_id()
 	var before_remaining: int = instance.status_panel_view.get_status(actor_id).get("action_budget_remaining", -1)
 	var events_before: int = instance.event_log_view.get_entry_count()
 	var positions_before: Dictionary = _snapshot_positions(instance)
@@ -234,7 +234,7 @@ func test_esc_key_returns_step_selection_to_layer1_with_zero_mutation() -> void:
 
 	assert_true(instance._verb_registry.is_available("STEP"), "fixture assumption: STEP is available at seed=42")
 
-	var actor_id: String = instance.round_session.current_actor().get("combatant_id", "")
+	var actor_id: String = instance.round_session.current_actor().display_id()
 	var before_remaining: int = instance.status_panel_view.get_status(actor_id).get("action_budget_remaining", -1)
 	var events_before: int = instance.event_log_view.get_entry_count()
 	var positions_before: Dictionary = _snapshot_positions(instance)
@@ -268,7 +268,7 @@ func test_right_click_returns_stride_selection_to_layer1_with_zero_mutation() ->
 
 	assert_true(instance._verb_registry.is_available("STRIDE"), "fixture assumption: STRIDE is available at seed=42")
 
-	var actor_id: String = instance.round_session.current_actor().get("combatant_id", "")
+	var actor_id: String = instance.round_session.current_actor().display_id()
 	var before_remaining: int = instance.status_panel_view.get_status(actor_id).get("action_budget_remaining", -1)
 	var events_before: int = instance.event_log_view.get_entry_count()
 	var positions_before: Dictionary = _snapshot_positions(instance)

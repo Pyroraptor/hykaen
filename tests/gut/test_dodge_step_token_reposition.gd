@@ -77,11 +77,11 @@ func _boot_main_scene():
 func test_successful_dodge_and_legal_hex_pick_relocates_defender_hex_coord_and_on_screen_token() -> void:
 	var instance = _boot_main_scene()
 
-	var defender: Dictionary = instance.round_session.current_actor()
-	assert_eq(defender.get("name", ""), "Titus", "fixture: Titus (the real player combatant) must be the current actor at boot")
-	var defender_id: String = defender.get("combatant_id", defender.get("name", ""))
+	var defender = instance.round_session.current_actor()
+	assert_eq(defender.name, "Titus", "fixture: Titus (the real player combatant) must be the current actor at boot")
+	var defender_id: String = defender.display_id()
 
-	var original_hex = defender.get("hex_coord", null)
+	var original_hex = defender.hex_coord
 	assert_not_null(original_hex, "fixture assumption: the defender must already carry a hex_coord at boot")
 
 	var legal_hexes: Array = instance.movement_input_controller.get_selectable_step_hexes()
@@ -110,7 +110,7 @@ func test_successful_dodge_and_legal_hex_pick_relocates_defender_hex_coord_and_o
 
 	# Criterion 1: defender Combatant.hex_coord equals the chosen hex.
 	assert_true(
-		defender.get("hex_coord", null).equals(chosen_hex),
+		defender.hex_coord.equals(chosen_hex),
 		"the defender's Combatant.hex_coord must equal the player-chosen hex after a successful Dodge-Step"
 	)
 
@@ -164,9 +164,9 @@ func test_mainscene_wires_the_token_reposition_hook_to_hex_grid_view_move_token(
 func test_no_reposition_when_dodge_is_not_successful() -> void:
 	var instance = _boot_main_scene()
 
-	var defender: Dictionary = instance.round_session.current_actor()
-	var original_hex = defender.get("hex_coord", null)
-	var defender_id: String = defender.get("combatant_id", defender.get("name", ""))
+	var defender = instance.round_session.current_actor()
+	var original_hex = defender.hex_coord
+	var defender_id: String = defender.display_id()
 
 	var legal_hexes: Array = instance.movement_input_controller.get_selectable_step_hexes()
 	var scripted := ScriptedHexChoiceResolver.new(legal_hexes[0] if legal_hexes.size() > 0 else null)
@@ -175,7 +175,7 @@ func test_no_reposition_when_dodge_is_not_successful() -> void:
 	await instance.round_session._resolve_dodge_step_prompt(defender, {"defender_stepped": false})
 
 	assert_eq(scripted.call_count, 0, "no Step-selection prompt may appear when the Dodge did not succeed")
-	assert_true(defender.get("hex_coord", null).equals(original_hex), "defender hex_coord must be unchanged when the Dodge did not succeed")
+	assert_true(defender.hex_coord.equals(original_hex), "defender hex_coord must be unchanged when the Dodge did not succeed")
 
 	var token = instance.hex_grid_view.get_token(defender_id)
 	assert_true(token.hex_coord.equals(original_hex), "the on-screen token must be unchanged when the Dodge did not succeed")

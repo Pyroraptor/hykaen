@@ -79,8 +79,10 @@ class FakeRoundHistoryPort:
 		return entries
 
 
-func _durable_combatant(p_name: String, p_is_enemy: bool, p_combatant_id: String = "") -> Dictionary:
-	return {
+const CombatantClass = preload("res://core/domain/combatant.gd")
+
+func _durable_combatant(p_name: String, p_is_enemy: bool, p_combatant_id: String = ""):
+	return CombatantClass.from_dict({
 		"name":         p_name,
 		"combatant_id": p_combatant_id,
 		"hp_current":   2000,
@@ -95,10 +97,10 @@ func _durable_combatant(p_name: String, p_is_enemy: bool, p_combatant_id: String
 			"proficiency_bonus": 2,
 			"damage_die": 6,
 		},
-	}
+	})
 
 
-func _entry(combatant: Dictionary) -> Dictionary:
+func _entry(combatant) -> Dictionary:
 	return {"combatant": combatant, "action_economy": ActionEconomyClass.new()}
 
 
@@ -327,8 +329,8 @@ func test_preexisting_formatted_string_path_is_unaffected_by_structured_recordin
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_round_session_forwards_structured_attack_event_when_seam_is_injected() -> void:
-	var goblin: Dictionary = _durable_combatant("Goblin", true, "goblin")
-	var titus: Dictionary  = _durable_combatant("Titus", false, "titus")
+	var goblin = _durable_combatant("Goblin", true, "goblin")
+	var titus  = _durable_combatant("Titus", false, "titus")
 	var entries: Array = [_entry(goblin), _entry(titus)]
 
 	var event_sink_port    = FakeEventSinkPort.new()
@@ -350,8 +352,8 @@ func test_round_session_forwards_structured_attack_event_when_seam_is_injected()
 
 
 func test_round_session_never_forwards_when_seam_is_not_injected() -> void:
-	var goblin: Dictionary = _durable_combatant("Goblin", true, "goblin")
-	var titus: Dictionary  = _durable_combatant("Titus", false, "titus")
+	var goblin = _durable_combatant("Goblin", true, "goblin")
+	var titus  = _durable_combatant("Titus", false, "titus")
 	var entries: Array = [_entry(goblin), _entry(titus)]
 
 	var event_sink_port    = FakeEventSinkPort.new()

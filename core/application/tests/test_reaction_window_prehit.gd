@@ -34,6 +34,7 @@ const RunRoundUseCaseClass         = preload("res://core/application/run_round_u
 const ResolveActionUseCaseClass    = preload("res://core/application/resolve_action_use_case.gd")
 const DetermineOutcomeUseCaseClass = preload("res://core/application/determine_outcome_use_case.gd")
 const AIClass                      = preload("res://core/combat/ai.gd")
+const CombatantClass               = preload("res://core/domain/combatant.gd")
 
 
 # ── Fake/double EventSinkPort (mirrors tests/unit/test_dodge_reaction.gd's
@@ -95,7 +96,7 @@ class SpyResolution:
 	var apply_on_hit_defense_call_count: int = 0
 	var resolve_to_hit_call_count: int = 0
 
-	func resolve_to_hit(attacker: Dictionary, target: Dictionary, weapon: Dictionary, defense_type: String, pre_hit_defense: String = "none", ctx: Dictionary = {}) -> Dictionary:
+	func resolve_to_hit(attacker, target, weapon: Dictionary, defense_type: String, pre_hit_defense: String = "none", ctx: Dictionary = {}) -> Dictionary:
 		resolve_to_hit_call_count += 1
 		return super.resolve_to_hit(attacker, target, weapon, defense_type, pre_hit_defense, ctx)
 
@@ -118,7 +119,7 @@ var _weapon: Dictionary = {
 }
 
 
-func _reactor(overrides: Dictionary = {}) -> Dictionary:
+func _reactor(overrides: Dictionary = {}):
 	var base: Dictionary = {
 		"name": "Titus",
 		"ac": 13, "reflex": 12, "fortitude": 14, "will": 11,
@@ -128,7 +129,7 @@ func _reactor(overrides: Dictionary = {}) -> Dictionary:
 	}
 	for key in overrides:
 		base[key] = overrides[key]
-	return base
+	return CombatantClass.from_dict(base)
 
 
 func _window() -> Dictionary:
@@ -306,7 +307,7 @@ func test_successful_dodge_short_circuits_before_any_on_hit_processing() -> void
 	assert_eq(ae.get_remaining(), 6, "a triggered Dodge must spend exactly one reaction")
 
 	assert_eq(sink.events.size(), 2)
-	assert_true(sink.events[1] is RoundEventsClass.ReactionResolvedEvent)
+	assert_true(sink.events[1] is RoundEventsClass.ReactionResolvedBroadcast)
 	assert_eq(sink.events[1].choice, "dodge")
 	assert_eq(sink.events[1].round, 3)
 
@@ -582,7 +583,7 @@ class ScriptedReactionResolver:
 
 
 func _entry(combatant: Dictionary) -> Dictionary:
-	return {"combatant": combatant, "action_economy": ActionEconomyClass.new()}
+	return {"combatant": CombatantClass.from_dict(combatant), "action_economy": ActionEconomyClass.new()}
 
 
 func _rs_attacker() -> Dictionary:
@@ -635,7 +636,9 @@ func _make_session(entries: Array, party: Array, enemies: Array, random_number_p
 		resolve_action_use_case, determine_outcome_use_case
 	)
 
-	var session = run_round_use_case.begin_round(1, party, enemies)
+	var combatant_party: Array = entries.filter(func(e): return not e["combatant"].is_enemy).map(func(e): return e["combatant"])
+	var combatant_enemies: Array = entries.filter(func(e): return e["combatant"].is_enemy).map(func(e): return e["combatant"])
+	var session = run_round_use_case.begin_round(1, combatant_party, combatant_enemies)
 	return {"session": session, "history": round_history_port, "event_sink": event_sink_port}
 
 
@@ -648,7 +651,7 @@ func test_advance_ai_turn_awaits_prehit_avoidance_before_any_rng_draw() -> void:
 	var rng := ScriptedRandomNumberPort.new([15, 1])
 	var rig: Dictionary = _make_session(entries, [alpha], [bravo], rng)
 	var session = rig["session"]
-	assert_eq(session.current_actor().get("name", ""), "Bravo")
+	assert_eq(session.current_actor().name, "Bravo")
 
 	var prehit_resolver := ScriptedPrehitAvoidanceResolver.new({"choice": "dodge"}, rng)
 	session.set_prehit_avoidance_resolver_fn(Callable(prehit_resolver, "resolve"))
@@ -673,14 +676,14 @@ func test_successful_dodge_via_prehit_seam_negates_the_strike() -> void:
 	session.set_prehit_avoidance_resolver_fn(Callable(prehit_resolver, "resolve"))
 
 	var alpha_budget_before: int = entries[1]["action_economy"].get_remaining()
-	var hp_before: int = alpha.get("hp_current", 0)
+	var hp_before: int = entries[1]["combatant"].hp_current
 
 	await session.advance_ai_turn()
 
 	assert_eq(rig["history"].entries.size(), 1, "exactly one Strike must be resolved")
 	var attack_event = rig["event_sink"].events[0]
 	assert_false(attack_event.hit, "a Dodge decided via the PreHitAvoidance seam must still negate the Strike")
-	assert_eq(alpha.get("hp_current", 0), hp_before, "a negated Strike must deal zero damage")
+	assert_eq(entries[1]["combatant"].hp_current, hp_before, "a negated Strike must deal zero damage")
 	assert_eq(
 		entries[1]["action_economy"].get_remaining(), alpha_budget_before - 1,
 		"the DEFENDER's reaction must be spent exactly once"
@@ -761,13 +764,13 @@ func test_pass_via_prehit_seam_still_offers_the_existing_weapon_attack_window() 
 	var weapon_attack_resolver := ScriptedReactionResolver.new("block")
 	session.set_reaction_resolver_fn(Callable(weapon_attack_resolver, "resolve"))
 
-	var hp_before: int = alpha.get("hp_current", 0)
+	var hp_before: int = entries[1]["combatant"].hp_current
 
 	await session.advance_ai_turn()
 
 	assert_eq(weapon_attack_resolver.calls.size(), 1,
 		"declining the PreHitAvoidance offer (Pass) must still let the existing on-hit WeaponAttack window run")
-	assert_eq(alpha.get("hp_current", 0), hp_before - 2, "Block chosen via the existing WeaponAttack window must still reduce damage as before")
+	assert_eq(entries[1]["combatant"].hp_current, hp_before - 2, "Block chosen via the existing WeaponAttack window must still reduce damage as before")
 
 
 func test_unset_prehit_seam_leaves_advance_ai_turn_byte_for_byte_unchanged() -> void:
@@ -788,7 +791,7 @@ func test_unset_prehit_seam_leaves_advance_ai_turn_byte_for_byte_unchanged() -> 
 	session.set_reaction_resolver_fn(Callable(weapon_attack_resolver, "resolve"))
 
 	var alpha_budget_before: int = entries[1]["action_economy"].get_remaining()
-	var hp_before: int = alpha.get("hp_current", 0)
+	var hp_before: int = entries[1]["combatant"].hp_current
 
 	await session.advance_ai_turn()
 
@@ -796,5 +799,5 @@ func test_unset_prehit_seam_leaves_advance_ai_turn_byte_for_byte_unchanged() -> 
 		"with no PreHitAvoidance resolver injected, the existing WeaponAttack window must still be asked exactly as before")
 	var attack_event = rig["event_sink"].events[0]
 	assert_false(attack_event.hit)
-	assert_eq(alpha.get("hp_current", 0), hp_before)
+	assert_eq(entries[1]["combatant"].hp_current, hp_before)
 	assert_eq(entries[1]["action_economy"].get_remaining(), alpha_budget_before - 1)

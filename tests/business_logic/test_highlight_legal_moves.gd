@@ -40,6 +40,7 @@ const RoundSessionHolderClass         = preload("res://infrastructure/round_sess
 const MovementInputControllerClass    = preload("res://presentation/movement_input_controller.gd")
 const HexCoordClass                   = preload("res://core/geometry/hex_coord.gd")
 const ActionEconomyClass              = preload("res://core/rules/action_economy.gd")
+const CombatantClass                  = preload("res://core/domain/combatant.gd")
 
 
 ## SpyHexGridView -- a minimal stand-in for presentation/hex_grid_view.gd that
@@ -97,17 +98,17 @@ func after_each() -> void:
 ## Stand-in for MainScene._other_living_combatants(): with no other combatants in
 ## these fixtures, the roster query returns an empty Array (matching a `.new()`
 ## MainScene with empty _party/_enemies, as the prior version of this suite used).
-func _no_other_combatants(_combatant: Dictionary) -> Array:
+func _no_other_combatants(_combatant) -> Array:
 	return []
 
 
-func _origin_actor(combatant_id: String, is_enemy: bool) -> Dictionary:
-	return {
+func _origin_actor(combatant_id: String, is_enemy: bool):
+	return CombatantClass.from_dict({
 		"name":         combatant_id,
 		"combatant_id": combatant_id,
 		"hex_coord":    HexCoordClass.new(0, 0),
 		"_is_enemy":    is_enemy,
-	}
+	})
 
 
 func _as_key_set(hexes: Array) -> Dictionary:
@@ -123,7 +124,7 @@ func _as_key_set(hexes: Array) -> Dictionary:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_highlight_equals_union_of_step_and_stride_hexes_for_active_combatant() -> void:
-	var actor: Dictionary = _origin_actor("titus", false)
+	var actor = _origin_actor("titus", false)
 
 	_controller.on_active_actor_changed(actor)
 
@@ -161,7 +162,7 @@ func test_highlight_equals_union_of_step_and_stride_hexes_for_active_combatant()
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_no_highlight_is_pushed_for_a_non_player_turn_started_event() -> void:
-	var enemy_actor: Dictionary = _origin_actor("skeleton", true)
+	var enemy_actor = _origin_actor("skeleton", true)
 
 	_controller.on_active_actor_changed(enemy_actor)
 
@@ -176,14 +177,14 @@ func test_no_highlight_is_pushed_for_a_non_player_turn_started_event() -> void:
 
 
 func test_highlight_clears_when_turn_passes_from_player_to_enemy() -> void:
-	var player_actor: Dictionary = _origin_actor("titus", false)
+	var player_actor = _origin_actor("titus", false)
 	_controller.on_active_actor_changed(player_actor)
 	assert_true(
 		_hex_grid_view.set_selectable_calls[_hex_grid_view.set_selectable_calls.size() - 1].size() > 0,
 		"sanity check: the player's turn_started event highlights a non-empty set"
 	)
 
-	var enemy_actor: Dictionary = _origin_actor("skeleton", true)
+	var enemy_actor = _origin_actor("skeleton", true)
 	_controller.on_active_actor_changed(enemy_actor)
 
 	assert_eq(
@@ -198,7 +199,7 @@ func test_highlight_clears_when_turn_passes_from_player_to_enemy() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_debug_log_line_includes_combatant_id_and_step_stride_hex_counts() -> void:
-	var actor: Dictionary = _origin_actor("titus", false)
+	var actor = _origin_actor("titus", false)
 
 	_controller.on_active_actor_changed(actor)
 
@@ -219,7 +220,7 @@ func test_debug_log_line_includes_combatant_id_and_step_stride_hex_counts() -> v
 
 
 func test_debug_log_line_is_emitted_for_a_non_player_turn_too() -> void:
-	var enemy_actor: Dictionary = _origin_actor("skeleton", true)
+	var enemy_actor = _origin_actor("skeleton", true)
 
 	_controller.on_active_actor_changed(enemy_actor)
 

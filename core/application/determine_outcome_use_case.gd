@@ -68,7 +68,9 @@ func classify(party: Array, enemies: Array) -> String:
 ## Array has hp_current > 0.
 func _has_living(combatants: Array) -> bool:
 	for c in combatants:
-		if c.get("hp_current", 0) > 0:
+		# Phase C.3: `combatants` are Combatant instances (dot-access also works
+		# on the canonical combatant dicts older tests still pass in).
+		if c.hp_current > 0:
 			return true
 	return false
 

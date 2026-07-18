@@ -121,7 +121,7 @@ func get_resolution():
 ## ctx           — Dictionary, OPTIONAL (default {}) — same shape as
 ##                  resolve_to_hit()'s own `ctx` (only "open_space_available"
 ##                  is consulted, by is_dodge_eligible()).
-func legal_prehit_reactions(target: Dictionary, defense_type: String = "ac", ctx: Dictionary = {}) -> Array:
+func legal_prehit_reactions(target, defense_type: String = "ac", ctx: Dictionary = {}) -> Array:
 	var legal: Array = []
 	if ResolutionClass.is_dodge_eligible(defense_type, target, ctx):
 		legal.append("dodge")
@@ -141,8 +141,8 @@ func legal_prehit_reactions(target: Dictionary, defense_type: String = "ac", ctx
 ## use case has no EventSinkPort collaborator at all, so it is structurally
 ## incapable of emitting one (test_criteria #1).
 func resolve_to_hit(
-	attacker: Dictionary,
-	target: Dictionary,
+	attacker,
+	target,
 	weapon: Dictionary,
 	defense_type: String = "ac",
 	pre_hit_defense: String = "none",

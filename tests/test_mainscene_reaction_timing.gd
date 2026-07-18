@@ -104,7 +104,7 @@ func _boot_main_scene():
 ## Strike has fully concluded with no window ever offered.
 func _press_end_turn_and_drive_enemy_strike(instance) -> void:
 	assert_false(
-		instance.round_session.current_actor().get("_is_enemy", true),
+		instance.round_session.current_actor().is_enemy,
 		"fixture assumption: Titus (the player) acts first at seed=%d" % PROLOGUE_SEED
 	)
 	instance.verb_bar_view.press(END_TURN)
@@ -138,8 +138,8 @@ func _event_index(instance, event) -> int:
 ## action_budget_snapshot() (never a second/independent derivation of the
 ## budget).
 func _titus_action_budget_remaining(instance) -> int:
-	var titus: Dictionary = instance._party[0]
-	var titus_id: String = titus.get("combatant_id", titus.get("name", ""))
+	var titus = instance._party[0]
+	var titus_id: String = titus.combatant_id
 	for row in instance.round_session.action_budget_snapshot():
 		if row["combatant_id"] == titus_id:
 			return row["remaining"]

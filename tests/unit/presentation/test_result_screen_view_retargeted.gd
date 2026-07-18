@@ -105,7 +105,7 @@ func before_each() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_final_combatant_snapshot_is_visible_on_status_panel_view_after_result_screen_shows() -> void:
-	var attack_event = RoundEventsClass.AttackEvent.new(2, "Titus", "Skeleton", 17, "ac", 10, true, false, 12)
+	var attack_event = RoundEventsClass.AttackBroadcast.new(2, "Titus", "Skeleton", 17, "ac", 10, true, false, 12)
 	var defeated_event = RoundEventsClass.CombatantDefeatedEvent.new(2, "Skeleton", "Titus")
 	var result_event = RoundEventsClass.EncounterResultEvent.new(2, "won")
 
@@ -138,7 +138,7 @@ func test_final_combatant_snapshot_is_visible_on_status_panel_view_after_result_
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_full_ordered_event_log_is_visible_on_event_log_view_after_result_screen_shows() -> void:
-	var attack_event = RoundEventsClass.AttackEvent.new(1, "Titus", "Skeleton", 17, "ac", 10, true, false, 12)
+	var attack_event = RoundEventsClass.AttackBroadcast.new(1, "Titus", "Skeleton", 17, "ac", 10, true, false, 12)
 	var defeated_event = RoundEventsClass.CombatantDefeatedEvent.new(1, "Skeleton", "Titus")
 	var result_event = RoundEventsClass.EncounterResultEvent.new(1, "won")
 

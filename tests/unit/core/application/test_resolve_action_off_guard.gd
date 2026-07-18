@@ -31,6 +31,7 @@ const RoundEventsClass          = preload("res://core/rules/round_events.gd")
 const FlankingClass             = preload("res://core/rules/flanking.gd")
 const HexCoordClass             = preload("res://core/geometry/hex_coord.gd")
 const SeededRandomAdapterClass  = preload("res://core/combat/seeded_random_adapter.gd")
+const CombatantClass            = preload("res://core/domain/combatant.gd")
 
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 
@@ -73,8 +74,8 @@ class ScriptedRandomNumberPort:
 
 # ── Shared fixtures ──────────────────────────────────────────────────────────
 
-func _attacker() -> Dictionary:
-	return {
+func _attacker():
+	return CombatantClass.from_dict({
 		"name":     "Attacker",
 		"strength": 0,
 		"weapon": {
@@ -82,7 +83,7 @@ func _attacker() -> Dictionary:
 			"proficiency_bonus": 0,
 			"damage_die": 6
 		}
-	}
+	})
 
 
 ## _target(conditions) -> Dictionary — ac=12 is JUST out of reach of a raw
@@ -90,8 +91,8 @@ func _attacker() -> Dictionary:
 ## the same roll against an Off-Guard-reduced effective ac of 10 (10 >= 10
 ## -> hit) -- isolating the +2 bonus's effect precisely, mirroring
 ## tests/unit/test_resolution.gd's _boundary_target() fixture.
-func _target(conditions: Array = []) -> Dictionary:
-	return {"name": "Target", "hp_current": 50, "ac": 12, "conditions": conditions}
+func _target(conditions: Array = []):
+	return CombatantClass.from_dict({"name": "Target", "hp_current": 50, "ac": 12, "conditions": conditions})
 
 
 func _make_use_case(scripted_values: Array) -> Dictionary:
@@ -114,16 +115,16 @@ func _fresh_action_economy():
 # ══════════════════════════════════════════════════════════════════════════════
 
 func test_resolve_defense_value_is_two_lower_with_off_guard_condition() -> void:
-	var attacker: Dictionary = _attacker()
+	var attacker = _attacker()
 
 	var rig_baseline: Dictionary = _make_use_case([10, 4])
-	var baseline_target: Dictionary = _target([])
+	var baseline_target = _target([])
 	var result_baseline: Dictionary = rig_baseline["use_case"].resolve(
 		attacker, _fresh_action_economy(), baseline_target, "Strike", 1, 0
 	)
 
 	var rig_off_guard: Dictionary = _make_use_case([10, 4])
-	var off_guard_target: Dictionary = _target([FlankingClass.OFF_GUARD_CONDITION])
+	var off_guard_target = _target([FlankingClass.OFF_GUARD_CONDITION])
 	var result_off_guard: Dictionary = rig_off_guard["use_case"].resolve(
 		attacker, _fresh_action_economy(), off_guard_target, "Strike", 1, 0
 	)
@@ -144,7 +145,7 @@ func test_resolve_defense_value_is_two_lower_with_off_guard_condition() -> void:
 func test_resolve_off_guard_turns_a_boundary_miss_into_a_hit() -> void:
 	# raw=10, attribute_mod=0, proficiency=0 -> roll_total=10.
 	# Baseline: 10 < ac=12 -> miss. Off-Guard: 10 >= (12-2)=10 -> hit.
-	var attacker: Dictionary = _attacker()
+	var attacker = _attacker()
 
 	var rig_baseline: Dictionary = _make_use_case([10, 4])
 	var result_baseline: Dictionary = rig_baseline["use_case"].resolve(
@@ -163,7 +164,7 @@ func test_resolve_off_guard_turns_a_boundary_miss_into_a_hit() -> void:
 
 
 func test_resolve_ignores_unrelated_conditions_for_defense_reduction() -> void:
-	var attacker: Dictionary = _attacker()
+	var attacker = _attacker()
 	var rig: Dictionary = _make_use_case([10, 4])
 	var result: Dictionary = rig["use_case"].resolve(
 		attacker, _fresh_action_economy(), _target(["Dazed"]), "Strike", 1, 0
@@ -183,7 +184,7 @@ func test_resolve_ignores_unrelated_conditions_for_defense_reduction() -> void:
 const _TRIAL_SEED_COUNT: int = 200
 
 func test_resolve_off_guard_hit_rate_is_consistently_attacker_favorable_across_seeds() -> void:
-	var attacker: Dictionary = _attacker()
+	var attacker = _attacker()
 
 	var baseline_hits: int = 0
 	var off_guard_hits: int = 0
@@ -262,23 +263,23 @@ func test_main_scene_refresh_off_guard_conditions_writes_into_live_combatant_dic
 	# fixture setup to tests/unit/test_main_scene_interactive_wiring.gd's
 	# existing StatusPanelView-only wiring coverage, extended here to assert
 	# the LIVE combatant Dictionary itself is also updated.
-	var ally: Dictionary = {
+	var ally = CombatantClass.from_dict({
 		"name": "Marigold",
 		"hp_current": 10,
 		"combatant_id": "synthetic_ally_off_guard_resolve_test",
 		"hex_coord": HexCoordClass.new(2, 0),
-	}
+	})
 	instance._party.append(ally)
 
 	assert_eq(
-		instance._enemies[0].get("conditions", []), [],
+		instance._enemies[0].conditions, [],
 		"fixture assumption: before any flanking, the live target Dictionary carries no conditions"
 	)
 
 	instance._refresh_off_guard_conditions()
 
 	assert_true(
-		FlankingClass.OFF_GUARD_CONDITION in instance._enemies[0].get("conditions", []),
+		FlankingClass.OFF_GUARD_CONDITION in instance._enemies[0].conditions,
 		"MainScene._refresh_off_guard_conditions() must write Off-Guard into the LIVE _enemies[0] Dictionary -- " +
 		"the SAME Dictionary resolve_action_use_case.resolve() consumes as its `target` argument"
 	)
@@ -287,28 +288,28 @@ func test_main_scene_refresh_off_guard_conditions_writes_into_live_combatant_dic
 func test_main_scene_off_guard_wiring_reduces_defense_value_through_a_real_resolve_call() -> void:
 	var instance = _boot_main_scene()
 
-	var ally: Dictionary = {
+	var ally = CombatantClass.from_dict({
 		"name": "Marigold",
 		"hp_current": 10,
 		"combatant_id": "synthetic_ally_off_guard_resolve_defense_test",
 		"hex_coord": HexCoordClass.new(2, 0),
-	}
+	})
 	instance._party.append(ally)
 	instance._refresh_off_guard_conditions()
 
-	var live_target: Dictionary = instance._enemies[0]
+	var live_target = instance._enemies[0]
 	assert_true(
-		FlankingClass.OFF_GUARD_CONDITION in live_target.get("conditions", []),
+		FlankingClass.OFF_GUARD_CONDITION in live_target.conditions,
 		"fixture setup: the live enemy target must be Off-Guard before comparing defense_value"
 	)
 
-	var attacker: Dictionary = instance._party[0]
+	var attacker = instance._party[0]
 
 	# A fresh baseline target duplicated from the SAME live Dictionary but
 	# with conditions cleared isolates the Off-Guard reduction from every
 	# other stat (ac, hp, weapon) the real prologue fixture assigns.
-	var baseline_target: Dictionary = live_target.duplicate()
-	baseline_target["conditions"] = []
+	var baseline_target = CombatantClass.from_dict(live_target.to_dict())
+	baseline_target.conditions = []
 
 	var rig_baseline: Dictionary = _make_use_case([12, 4])
 	var result_baseline: Dictionary = rig_baseline["use_case"].resolve(

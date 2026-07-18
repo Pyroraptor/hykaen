@@ -33,6 +33,7 @@ const RunRoundUseCaseClass         = preload("res://core/application/run_round_u
 const ResolveActionUseCaseClass    = preload("res://core/application/resolve_action_use_case.gd")
 const DetermineOutcomeUseCaseClass = preload("res://core/application/determine_outcome_use_case.gd")
 const SeededRandomAdapterClass     = preload("res://core/combat/seeded_random_adapter.gd")
+const CombatantClass               = preload("res://core/domain/combatant.gd")
 
 
 # ── Test doubles ─────────────────────────────────────────────────────────
@@ -91,35 +92,35 @@ class FakeRoundHistoryPort:
 class FakeAIDecisionPort:
 	extends "res://core/application/ai_decision_port.gd"
 
-	func decide_action(_combatant: Dictionary, _targets: Array) -> Dictionary:
-		return {"action_type": "", "target": {}}
+	func decide_action(_combatant, _targets: Array) -> Dictionary:
+		return {"action_type": "", "target": null}
 
 
 # ── Shared fixture helpers ─────────────────────────────────────────────────
 
-func _player_combatant(p_name: String = "Titus") -> Dictionary:
-	return {
+func _player_combatant(p_name: String = "Titus"):
+	return CombatantClass.from_dict({
 		"name":        p_name,
 		"combatant_id": p_name.to_lower(),
 		"hp_current":  20,
 		"ac":          14,
 		"strength":    3,
 		"_is_enemy":   false,
-	}
+	})
 
 
-func _enemy_combatant(p_name: String = "Goblin") -> Dictionary:
-	return {
+func _enemy_combatant(p_name: String = "Goblin"):
+	return CombatantClass.from_dict({
 		"name":        p_name,
 		"combatant_id": p_name.to_lower(),
 		"hp_current":  20,
 		"ac":          12,
 		"strength":    2,
 		"_is_enemy":   true,
-	}
+	})
 
 
-func _entry(combatant: Dictionary, action_economy = null) -> Dictionary:
+func _entry(combatant, action_economy = null) -> Dictionary:
 	return {"combatant": combatant, "action_economy": action_economy if action_economy != null else ActionEconomyClass.new()}
 
 
@@ -147,13 +148,13 @@ func _begin_session(entries: Array, party: Array, enemies: Array):
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_free_pass_leaves_budget_remaining_unchanged() -> void:
-	var titus: Dictionary = _player_combatant()
-	var goblin: Dictionary = _enemy_combatant()
+	var titus = _player_combatant()
+	var goblin = _enemy_combatant()
 	var titus_ae = ActionEconomyClass.new()
 	var entries: Array = [_entry(titus, titus_ae), _entry(goblin)]
 
 	var session = _begin_session(entries, [titus], [goblin])
-	assert_eq(session.current_actor().get("name", ""), "Titus", "fixture assumption: the player must be current actor")
+	assert_eq(session.current_actor().name, "Titus", "fixture assumption: the player must be current actor")
 
 	var budget_before: int = titus_ae.get_remaining()
 	assert_eq(budget_before, ActionEconomyClass.MAX_BUDGET, "fixture assumption: a fresh combatant starts with the full budget")
@@ -173,13 +174,13 @@ func test_free_pass_leaves_budget_remaining_unchanged() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_free_pass_never_calls_spend_action() -> void:
-	var titus: Dictionary = _player_combatant()
-	var goblin: Dictionary = _enemy_combatant()
+	var titus = _player_combatant()
+	var goblin = _enemy_combatant()
 	var titus_ae = SpyActionEconomy.new()
 	var entries: Array = [_entry(titus, titus_ae), _entry(goblin)]
 
 	var session = _begin_session(entries, [titus], [goblin])
-	assert_eq(session.current_actor().get("name", ""), "Titus", "fixture assumption: the player must be current actor")
+	assert_eq(session.current_actor().name, "Titus", "fixture assumption: the player must be current actor")
 
 	session.end_current_turn()
 
@@ -196,15 +197,15 @@ func test_free_pass_never_calls_spend_action_across_repeated_turns() -> void:
 	# out of scope here, this suite only inspects the PLAYER's economy). No
 	# matter how many times the player free-passes, spend_action() must never
 	# be invoked on their ActionEconomy.
-	var titus: Dictionary = _player_combatant()
-	var goblin: Dictionary = _enemy_combatant()
+	var titus = _player_combatant()
+	var goblin = _enemy_combatant()
 	var titus_ae = SpyActionEconomy.new()
 	var entries: Array = [_entry(titus, titus_ae), _entry(goblin)]
 
 	var session = _begin_session(entries, [titus], [goblin])
 
 	for _i in range(3):
-		if session.current_actor().get("_is_enemy", false):
+		if session.current_actor().is_enemy:
 			session.advance_ai_turn()
 		else:
 			session.end_current_turn()
@@ -221,8 +222,8 @@ func test_free_pass_never_calls_spend_action_across_repeated_turns() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_free_passed_player_is_not_spent_and_can_still_react() -> void:
-	var titus: Dictionary = _player_combatant()
-	var goblin: Dictionary = _enemy_combatant()
+	var titus = _player_combatant()
+	var goblin = _enemy_combatant()
 	var titus_ae = ActionEconomyClass.new()
 	var entries: Array = [_entry(titus, titus_ae), _entry(goblin)]
 
@@ -246,8 +247,8 @@ func test_free_passed_player_is_not_spent_and_can_still_react() -> void:
 
 
 func test_free_passed_player_retains_full_budget_for_multiple_later_reactions() -> void:
-	var titus: Dictionary = _player_combatant()
-	var goblin: Dictionary = _enemy_combatant()
+	var titus = _player_combatant()
+	var goblin = _enemy_combatant()
 	var titus_ae = ActionEconomyClass.new()
 	var entries: Array = [_entry(titus, titus_ae), _entry(goblin)]
 

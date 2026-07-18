@@ -131,14 +131,16 @@ class RogueDoubleSpendResolver:
 		return {"choice": "none"}
 
 
-func _entry(combatant: Dictionary, action_economy = null) -> Dictionary:
+func _entry(combatant, action_economy = null) -> Dictionary:
 	return {"combatant": combatant, "action_economy": action_economy if action_economy != null else ActionEconomyClass.new()}
 
 
+const CombatantClass = preload("res://core/domain/combatant.gd")
+
 ## _attacker() -- the enemy (Bravo). roll_total = raw_d20 + strength(3) +
 ## proficiency_bonus(2) = raw_d20 + 5.
-func _attacker() -> Dictionary:
-	return {
+func _attacker():
+	return CombatantClass.from_dict({
 		"name":         "Bravo",
 		"combatant_id": "bravo",
 		"hp_current":   2000,
@@ -150,13 +152,13 @@ func _attacker() -> Dictionary:
 			"proficiency_bonus": 2,
 			"damage_die": 6,
 		},
-	}
+	})
 
 
 ## _defender(hp_current) -- the player (Alpha). Carries a weapon eligible for
 ## BOTH Parry (parry_bonus 3) and Block (block_value 2).
-func _defender(hp_current: int = 2000) -> Dictionary:
-	return {
+func _defender(hp_current: int = 2000):
+	return CombatantClass.from_dict({
 		"name":         "Alpha",
 		"combatant_id": "alpha",
 		"hp_current":   hp_current,
@@ -173,7 +175,7 @@ func _defender(hp_current: int = 2000) -> Dictionary:
 			"parry_bonus": 3,
 			"block_value": 2,
 		},
-	}
+	})
 
 
 func _make_session(entries: Array, party: Array, enemies: Array, random_number_port) -> Dictionary:
@@ -201,8 +203,8 @@ func _make_session(entries: Array, party: Array, enemies: Array, random_number_p
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_successful_parry_reduces_committed_damage_to_zero_per_mitigation_formula() -> void:
-	var bravo: Dictionary = _attacker()
-	var alpha: Dictionary = _defender()
+	var bravo = _attacker()
+	var alpha = _defender()
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
 	# attack_d20=10 -> roll_total=10+strength(3)+prof(2)=15, hits ac(10).
@@ -230,8 +232,8 @@ func test_successful_parry_reduces_committed_damage_to_zero_per_mitigation_formu
 
 
 func test_block_reduces_committed_damage_by_the_mitigation_formula_not_to_raw() -> void:
-	var bravo: Dictionary = _attacker()
-	var alpha: Dictionary = _defender()
+	var bravo = _attacker()
+	var alpha = _defender()
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
 	# attack_d20=10 -> roll_total=15, hits ac(10). damage_die=6 -> damage_raw=9.
@@ -259,8 +261,8 @@ func test_block_reduces_committed_damage_by_the_mitigation_formula_not_to_raw() 
 
 
 func test_pass_choice_leaves_full_unmitigated_raw_damage_committed() -> void:
-	var bravo: Dictionary = _attacker()
-	var alpha: Dictionary = _defender()
+	var bravo = _attacker()
+	var alpha = _defender()
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
 	# attack_d20=10 -> roll_total=15, hits ac(10). damage_die=6 -> damage_raw=6+3=9.
@@ -332,8 +334,8 @@ func test_lethal_but_parried_hit_never_defeats_the_target_or_emits_a_defeated_ev
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_a_second_reaction_spend_for_the_same_eligible_window_is_flagged_by_the_budget_gate_not_silently_allowed() -> void:
-	var bravo: Dictionary = _attacker()
-	var alpha: Dictionary = _defender()
+	var bravo = _attacker()
+	var alpha = _defender()
 	var alpha_ae: ActionEconomyClass = ActionEconomyClass.new()
 	var entries: Array = [_entry(bravo), _entry(alpha, alpha_ae)]
 

@@ -218,12 +218,14 @@ class ScriptedReactionResolver:
 		return {"choice": choice_to_return}
 
 
-func _entry(combatant: Dictionary, action_economy = null) -> Dictionary:
+const CombatantClass = preload("res://core/domain/combatant.gd")
+
+func _entry(combatant, action_economy = null) -> Dictionary:
 	return {"combatant": combatant, "action_economy": action_economy if action_economy != null else ActionEconomyClass.new()}
 
 
-func _attacker() -> Dictionary:
-	return {
+func _attacker():
+	return CombatantClass.from_dict({
 		"name":         "Bravo",
 		"combatant_id": "bravo",
 		"hp_current":   2000,
@@ -235,11 +237,11 @@ func _attacker() -> Dictionary:
 			"proficiency_bonus": 2,
 			"damage_die": 6,
 		},
-	}
+	})
 
 
-func _defender() -> Dictionary:
-	return {
+func _defender():
+	return CombatantClass.from_dict({
 		"name":         "Alpha",
 		"combatant_id": "alpha",
 		"hp_current":   2000,
@@ -255,7 +257,7 @@ func _defender() -> Dictionary:
 			"parry_bonus": 3,
 			"block_value": 2,
 		},
-	}
+	})
 
 
 func _make_session(entries: Array, party: Array, enemies: Array, random_number_port) -> Dictionary:
@@ -277,8 +279,8 @@ func _make_session(entries: Array, party: Array, enemies: Array, random_number_p
 
 
 func test_spend_reaction_called_exactly_once_when_dodge_succeeds() -> void:
-	var bravo: Dictionary = _attacker()
-	var alpha: Dictionary = _defender()
+	var bravo = _attacker()
+	var alpha = _defender()
 	var alpha_ae: SpyActionEconomy = SpyActionEconomy.new()
 	var entries: Array = [_entry(bravo), _entry(alpha, alpha_ae)]
 
@@ -300,8 +302,8 @@ func test_spend_reaction_called_exactly_once_when_dodge_succeeds() -> void:
 
 
 func test_spend_reaction_called_exactly_once_when_dodge_fails() -> void:
-	var bravo: Dictionary = _attacker()
-	var alpha: Dictionary = _defender()
+	var bravo = _attacker()
+	var alpha = _defender()
 	var alpha_ae: SpyActionEconomy = SpyActionEconomy.new()
 	var entries: Array = [_entry(bravo), _entry(alpha, alpha_ae)]
 
@@ -334,8 +336,8 @@ func test_spend_reaction_called_exactly_once_when_dodge_fails() -> void:
 
 
 func test_spend_reaction_called_exactly_once_for_an_on_hit_block_when_no_prehit_reaction_was_spent() -> void:
-	var bravo: Dictionary = _attacker()
-	var alpha: Dictionary = _defender()
+	var bravo = _attacker()
+	var alpha = _defender()
 	var alpha_ae: SpyActionEconomy = SpyActionEconomy.new()
 	var entries: Array = [_entry(bravo), _entry(alpha, alpha_ae)]
 
@@ -369,8 +371,8 @@ func test_spend_reaction_called_exactly_once_for_an_on_hit_block_when_no_prehit_
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_reaction_spend_stays_in_sync_between_live_economy_and_budget_snapshot() -> void:
-	var bravo: Dictionary = _attacker()
-	var alpha: Dictionary = _defender()
+	var bravo = _attacker()
+	var alpha = _defender()
 	var entries: Array = [_entry(bravo), _entry(alpha)]
 
 	# Same failed-Dodge scenario as above: exactly one reaction must be spent.

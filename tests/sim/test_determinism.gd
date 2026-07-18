@@ -34,7 +34,7 @@ extends GutTest
 ##      Dictionary `.get("roll", -1)`-style field plucking as the prior
 ##      version did. Each get_round_history() entry's typed
 ##      RoundEvents.RoundHistoryEntry (carried under the "entry" key) and
-##      each get_round_events() element (a RoundEvents.AttackEvent /
+##      each get_round_events() element (a RoundEvents.AttackBroadcast /
 ##      CombatantDefeatedEvent / EncounterResultEvent instance) is snapshotted
 ##      via `.to_dict()` and the resulting Arrays-of-Dictionaries are compared
 ##      with assert_eq, which performs Godot's native recursive Array/
@@ -261,7 +261,7 @@ func _round_events_to_dicts(events: Array) -> Array:
 	var snapshots: Array = []
 	for ev in events:
 		var class_tag: String = "Unknown"
-		if ev is RoundEventsClass.AttackEvent:
+		if ev is RoundEventsClass.AttackBroadcast:
 			class_tag = "AttackEvent"
 		elif ev is RoundEventsClass.CombatantDefeatedEvent:
 			class_tag = "CombatantDefeatedEvent"
