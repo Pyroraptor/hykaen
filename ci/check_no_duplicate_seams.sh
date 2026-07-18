@@ -35,6 +35,29 @@
 #      _token_reposition_fn Callable) call — never a second, independently
 #      implemented repositioning function.
 #
+#   4. core/domain/effects_applier.gd's EffectsApplier is the sole
+#      (non-legacy) call site of each Combatant combat-state mutator —
+#      take_damage()/heal()/add_condition()/move_to()
+#      (core/domain/combatant.gd) — FEAT-002 (US-002, ADR-002/ADR-006).
+#      This is "the single reusable seam the steel thread routes all
+#      mutation through": any NEW file calling one of these four methods
+#      outside EffectsApplier fails this check. A small, EXPLICIT set of
+#      pre-existing call sites is excluded per method (never a blanket
+#      exemption) because migrating them is out of this feature's scope:
+#        - take_damage(): core/application/resolve_action_use_case.gd and
+#          core/application/apply_on_hit_defense_uc.gd still inline-mutate
+#          HP directly, pending a later retrofit (design notes' US-004/
+#          US-005) that reroutes their damage through a constructed
+#          DamageEffect + EffectsApplier.apply() instead.
+#        - move_to(): core/rules/movement.gd is a DIFFERENT, permanent
+#          seam (the Movement rule layer driving Step/Stride, FEAT-013) —
+#          not an Effect-dispatch path, so it is not itself a duplicate of
+#          EffectsApplier's seam.
+#      heal()/add_condition() have no legacy exclusions (no pre-existing
+#      caller exists). A file mentioning e.g. "Combatant.heal()" only in a
+#      `##` doc-comment line is not a call site and must never be flagged
+#      — the scan below filters out comment-only lines before counting.
+#
 # Usage:
 #   ci/check_no_duplicate_seams.sh [repo_root]
 #
@@ -77,6 +100,59 @@ if [ "${#EXISTING_SCAN_DIRS[@]}" -eq 0 ]; then
 fi
 
 FAILURES=0
+
+# check_seam_sole_caller(method_name, legacy_caller...) — prints OK/ERROR
+# and returns 0/1. Finds every *.gd file under EXISTING_SCAN_DIRS with a
+# genuine `.method_name(` CALL (comment-only lines, e.g. a `##` doc-comment
+# mentioning "Combatant.heal()", are filtered out first — see the ":##"
+# pattern below, which matches a line-number/content separator directly
+# followed by "##"), excludes core/domain/effects_applier.gd's own file
+# together with any explicitly named `legacy_caller` paths (see check #4's
+# header comment for why each named exclusion exists), and fails unless
+# what's left is empty (no other caller exists yet) — a genuinely new/
+# rogue call site outside EffectsApplier and the documented legacy list is
+# what this guards against.
+check_seam_sole_caller() {
+    local method_name="$1"
+    shift
+    local legacy_callers=("$@")
+
+    local hits
+    hits="$(grep -rn "\.${method_name}(" --include="*.gd" "${EXISTING_SCAN_DIRS[@]}" 2>/dev/null \
+        | grep -vE ':[[:space:]]*##' || true)"
+
+    local caller_files=""
+    if [ -n "$hits" ]; then
+        caller_files="$(printf '%s\n' "$hits" | sed -E 's/^([^:]+):.*/\1/' | sort -u)"
+    fi
+
+    local remaining=()
+    while IFS= read -r f; do
+        [ -z "$f" ] && continue
+        if [ "$f" = "core/domain/effects_applier.gd" ]; then
+            continue
+        fi
+        local is_legacy=0
+        for legacy in "${legacy_callers[@]}"; do
+            if [ "$f" = "$legacy" ]; then
+                is_legacy=1
+                break
+            fi
+        done
+        if [ "$is_legacy" -eq 0 ]; then
+            remaining+=("$f")
+        fi
+    done <<< "$caller_files"
+
+    if [ "${#remaining[@]}" -eq 0 ]; then
+        echo "OK: no rogue call site of '${method_name}' found outside EffectsApplier/documented legacy callers (ADR-002/ADR-006, FEAT-002/US-002)"
+        return 0
+    fi
+
+    echo "ERROR: found a call site of '${method_name}' outside core/domain/effects_applier.gd and the documented legacy callers:" >&2
+    printf '%s\n' "${remaining[@]}" >&2
+    return 1
+}
 
 # ── 1. Exactly one _movement_used gate implementation ──────────────────────
 MOVEMENT_HITS="$(grep -rn "var _movement_used" --include="*.gd" "${EXISTING_SCAN_DIRS[@]}" 2>/dev/null || true)"
@@ -124,6 +200,27 @@ if [ "$MOVE_TOKEN_COUNT" -eq 1 ]; then
 else
     echo "ERROR: expected exactly one 'move_token' implementation, found $MOVE_TOKEN_COUNT:" >&2
     echo "$MOVE_TOKEN_HITS" >&2
+    FAILURES=$((FAILURES + 1))
+fi
+
+# ── 4. EffectsApplier is the sole (non-legacy) call site of each Combatant
+#      mutator: take_damage/heal/add_condition/move_to ─────────────────────
+if ! check_seam_sole_caller "take_damage" \
+    "core/application/resolve_action_use_case.gd" \
+    "core/application/apply_on_hit_defense_uc.gd"; then
+    FAILURES=$((FAILURES + 1))
+fi
+
+if ! check_seam_sole_caller "heal"; then
+    FAILURES=$((FAILURES + 1))
+fi
+
+if ! check_seam_sole_caller "add_condition"; then
+    FAILURES=$((FAILURES + 1))
+fi
+
+if ! check_seam_sole_caller "move_to" \
+    "core/rules/movement.gd"; then
     FAILURES=$((FAILURES + 1))
 fi
 

@@ -222,6 +222,23 @@ func test_no_duplicate_seams_check_exits_zero_against_real_repo() -> void:
 	)
 
 
+## FEAT-002 (US-002): the seam-4 EffectsApplier check must also run (and
+## pass) against the real repository, confirming EffectsApplier is
+## reported as the sole (non-legacy) call site of every Combatant mutator.
+func test_no_duplicate_seams_check_reports_effects_applier_seam_against_real_repo() -> void:
+	var repo_root: String = ProjectSettings.globalize_path("res://")
+	var result: Dictionary = _run_script(NO_DUP_SEAMS_SCRIPT, [repo_root])
+	assert_eq(
+		result["exit_code"], 0,
+		"check_no_duplicate_seams.sh must exit 0 against the current repository; output: %s" % result["output"]
+	)
+	for method_name in ["take_damage", "heal", "add_condition", "move_to"]:
+		assert_true(
+			result["output"].contains(method_name),
+			"output must confirm the '%s' EffectsApplier-seam check ran; got: %s" % [method_name, result["output"]]
+		)
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # ci/check_no_duplicate_seams.sh: injected duplicate _movement_used gate
 # is detected (test_criteria #2)
@@ -248,6 +265,12 @@ func _build_clean_fixture_repo(tmp_dir: String) -> void:
 	)
 	_copy_real_file_into_fixture(
 		"res://presentation/hex_grid_view.gd", tmp_dir + "/presentation/hex_grid_view.gd"
+	)
+	# FEAT-002 (US-002): EffectsApplier is the fixture's sole legitimate
+	# call site of take_damage()/heal()/add_condition()/move_to() -- see
+	# the seam-4 tests below.
+	_copy_real_file_into_fixture(
+		"res://core/domain/effects_applier.gd", tmp_dir + "/core/domain/effects_applier.gd"
 	)
 
 
@@ -320,6 +343,106 @@ func test_no_duplicate_seams_check_detects_injected_duplicate_token_reposition_p
 	assert_ne(
 		result["exit_code"], 0,
 		"check_no_duplicate_seams.sh must exit non-zero when a second 'move_token' implementation is injected"
+	)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# ci/check_no_duplicate_seams.sh: seam-4 -- EffectsApplier must be the sole
+# (non-legacy) call site of take_damage/heal/add_condition/move_to
+# (FEAT-002 / US-002)
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_no_duplicate_seams_check_detects_injected_duplicate_heal_caller() -> void:
+	var tmp_dir: String = _make_temp_dir()
+	if tmp_dir == "":
+		pending("mktemp unavailable in this sandbox — skipping fixture-injection check")
+		return
+
+	_build_clean_fixture_repo(tmp_dir)
+	_write_file(
+		tmp_dir + "/presentation/rogue_healer.gd",
+		"class_name RogueHealer\nextends RefCounted\nfunc do_heal(c) -> void:\n\tc.heal(5)\n"
+	)
+	var result: Dictionary = _run_script(NO_DUP_SEAMS_SCRIPT, [tmp_dir])
+	assert_ne(
+		result["exit_code"], 0,
+		"check_no_duplicate_seams.sh must exit non-zero when a file outside EffectsApplier calls .heal( directly"
+	)
+	assert_true(
+		result["output"].contains("rogue_healer.gd"),
+		"failure output must name the offending fixture file; got: %s" % result["output"]
+	)
+
+
+func test_no_duplicate_seams_check_detects_injected_duplicate_add_condition_caller() -> void:
+	var tmp_dir: String = _make_temp_dir()
+	if tmp_dir == "":
+		pending("mktemp unavailable in this sandbox — skipping fixture-injection check")
+		return
+
+	_build_clean_fixture_repo(tmp_dir)
+	_write_file(
+		tmp_dir + "/presentation/rogue_condition_setter.gd",
+		"class_name RogueConditionSetter\nextends RefCounted\nfunc do_it(c) -> void:\n\tc.add_condition(\"Off-Guard\")\n"
+	)
+	var result: Dictionary = _run_script(NO_DUP_SEAMS_SCRIPT, [tmp_dir])
+	assert_ne(
+		result["exit_code"], 0,
+		"check_no_duplicate_seams.sh must exit non-zero when a file outside EffectsApplier calls .add_condition( directly"
+	)
+	assert_true(
+		result["output"].contains("rogue_condition_setter.gd"),
+		"failure output must name the offending fixture file; got: %s" % result["output"]
+	)
+
+
+func test_no_duplicate_seams_check_detects_injected_take_damage_caller_outside_legacy_allowlist() -> void:
+	var tmp_dir: String = _make_temp_dir()
+	if tmp_dir == "":
+		pending("mktemp unavailable in this sandbox — skipping fixture-injection check")
+		return
+
+	_build_clean_fixture_repo(tmp_dir)
+	# resolve_action_use_case.gd / apply_on_hit_defense_uc.gd are the ONLY
+	# documented pre-existing take_damage() callers (pending US-004/US-005
+	# retrofit) -- a call site at any OTHER path must still be flagged.
+	_write_file(
+		tmp_dir + "/core/application/rogue_damage_source.gd",
+		"class_name RogueDamageSource\nextends RefCounted\nfunc do_it(c) -> void:\n\tc.take_damage(3)\n"
+	)
+	var result: Dictionary = _run_script(NO_DUP_SEAMS_SCRIPT, [tmp_dir])
+	assert_ne(
+		result["exit_code"], 0,
+		"check_no_duplicate_seams.sh must exit non-zero when a take_damage() call site exists outside EffectsApplier and the documented legacy allowlist"
+	)
+	assert_true(
+		result["output"].contains("rogue_damage_source.gd"),
+		"failure output must name the offending fixture file; got: %s" % result["output"]
+	)
+
+
+func test_no_duplicate_seams_check_detects_injected_move_to_caller_outside_legacy_allowlist() -> void:
+	var tmp_dir: String = _make_temp_dir()
+	if tmp_dir == "":
+		pending("mktemp unavailable in this sandbox — skipping fixture-injection check")
+		return
+
+	_build_clean_fixture_repo(tmp_dir)
+	# core/rules/movement.gd is the ONLY documented pre-existing move_to()
+	# caller (a distinct, permanent Movement rule-layer seam) -- a call
+	# site at any OTHER path must still be flagged.
+	_write_file(
+		tmp_dir + "/presentation/rogue_mover.gd",
+		"class_name RogueMover\nextends RefCounted\nfunc do_it(c, hex) -> void:\n\tc.move_to(hex)\n"
+	)
+	var result: Dictionary = _run_script(NO_DUP_SEAMS_SCRIPT, [tmp_dir])
+	assert_ne(
+		result["exit_code"], 0,
+		"check_no_duplicate_seams.sh must exit non-zero when a move_to() call site exists outside EffectsApplier and the documented legacy allowlist"
+	)
+	assert_true(
+		result["output"].contains("rogue_mover.gd"),
+		"failure output must name the offending fixture file; got: %s" % result["output"]
 	)
 
 
