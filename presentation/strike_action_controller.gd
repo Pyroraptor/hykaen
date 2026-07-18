@@ -123,6 +123,8 @@ func execute(selection = null) -> Dictionary:
 			var attack_event_id: String = "R%d-P%d" % [_round_number_fn.call(), _player_attack_event_id_counter]
 
 			var weapon: Dictionary = actor.weapon
+			var damage_final_val: int = resolved_attack_event.damage_final
+			var damage_raw_val: int = result.get("damage_raw", damage_final_val)
 			var structured_attack_event = AttackEventClass.new(
 				attack_event_id,
 				_round_number_fn.call(),
@@ -132,8 +134,8 @@ func execute(selection = null) -> Dictionary:
 				resolved_attack_event.roll,
 				resolved_attack_event.hit,
 				resolved_attack_event.crit,
-				resolved_attack_event.damage_final,
-				resolved_attack_event.damage_final,
+				damage_raw_val,
+				damage_final_val,
 				result.get("on_hit_suppressed", false),
 				false
 			)
@@ -152,7 +154,8 @@ func execute(selection = null) -> Dictionary:
 			var render_combat_log_use_case := RenderCombatLogUseCaseClass.new()
 			render_combat_log_use_case.record_reaction_outcome(
 				attack_event_id, enemy_reaction_window, enemy_reaction_choice,
-				"auto", result.get("on_hit_suppressed", false), 0,
+				"auto", result.get("on_hit_suppressed", false),
+				max(0, damage_raw_val - damage_final_val),
 				Callable(_event_log_view, "record_reaction")
 			)
 

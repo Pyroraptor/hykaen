@@ -672,6 +672,7 @@ func _finalize_strike_result(
 		"ok":              true,
 		"event":           attack_event,
 		"target_defeated": target_defeated,
+		"damage_raw":      strike_result.get("damage_raw", damage),
 		"damage_final":    damage,
 		# A successful Dodge (resolution.gd sets defender_stepped=true on the
 		# resulting miss) entitles the defender to a follow-up Step. Surface it
