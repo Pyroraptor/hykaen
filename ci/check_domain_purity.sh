@@ -15,15 +15,20 @@
 # blocking stage (see ci/pipeline.yml's domain_purity_check stage).
 #
 # FEAT-001 (US-001) extends this gate's coverage to the new
-# core/domain/effect*.gd Effect value-object family (Effect base +
+# core/domain/effects/ Effect value-object family (EffectBase +
 # EffectKind + DamageEffect/HealEffect/ConditionEffect/MoveEffect/
-# AddEnergyEffect) — no change to this script's logic was required: it
+# AddEnergyEffect) — no change to this script's SCAN logic was required: it
 # already recursively scans every *.gd file under target_dir (default
-# "core"), so a new file dropped under core/domain/ is covered
-# automatically. See tests/unit/test_effect_value_objects.gd's
-# test_domain_purity_check_passes_scoped_to_core_domain() for the
-# regression proof this gate actually covers the new module, and
-# tests/ci/test_static_checks.gd for this script's own general coverage.
+# "core"), so a new sub-package dropped under core/domain/ is covered
+# automatically, whether invoked with target_dir="core",
+# "core/domain", or the narrower "core/domain/effects" itself. See
+# tests/unit/domain/effects/test_effect_value_objects.gd's
+# test_domain_purity_check_passes_scoped_to_core_domain_effects() (positive
+# case) and test_domain_purity_check_fails_on_engine_import_injected_into_effects_fixture()
+# (negative case: an injected 'extends Node' inside a core/domain/effects/
+# fixture is caught) for the regression proof this gate actually covers the
+# new module, and tests/ci/test_static_checks.gd for this script's own
+# general coverage.
 #
 # Usage:
 #   ci/check_domain_purity.sh [target_dir]
