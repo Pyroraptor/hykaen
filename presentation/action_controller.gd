@@ -80,5 +80,115 @@ func enter_selection() -> Dictionary:
 	return {}
 
 
-func execute(_selection = null) -> Dictionary:
+## SelectionShape — FEAT-009 (US-009, design notes API contract #5): the three
+## shapes execute()'s `selection` argument may now take, additively:
+##   SCALAR       — the existing, unchanged shape (a target_id String, a
+##                   HexCoord, or null) every pre-existing verb (Strike/Step/
+##                   Stride/End Turn) already passes.
+##   OPTION_TARGET — a Layer-2a option paired with a Layer-2b target (a
+##                   Dictionary carrying both an "option" and a "target" key —
+##                   the same pairing core/application/resolved_selection.gd's
+##                   ResolvedSelection.option_then_target() produces).
+##   TARGET_SET    — an AREA-resolved list of targets/hexes (a plain Array —
+##                   mirrors ResolvedSelection.area_set()'s target_set).
+## Strike/Step/Stride/End Turn each override execute() ENTIRELY (never call
+## super.execute()), so none of this machinery is reachable from them at
+## all — purely additive groundwork for a future verb that instead overrides
+## only expected_shape() + the shape-specific _execute_*() handler below.
+enum SelectionShape {
+	SCALAR,
+	OPTION_TARGET,
+	TARGET_SET,
+}
+
+## Human-readable labels for SelectionShape, used only to build the
+## shape-mismatch diagnostic message below (Dictionary, not
+## SelectionShape.keys(), so the message stays stable even if enum member
+## order ever changes).
+const _SHAPE_NAMES: Dictionary = {
+	SelectionShape.SCALAR: "SCALAR",
+	SelectionShape.OPTION_TARGET: "OPTION_TARGET",
+	SelectionShape.TARGET_SET: "TARGET_SET",
+}
+
+
+## _classify_selection(selection) -> SelectionShape — inspects the RUNTIME
+## shape of `selection` and returns which of the three additive shapes it
+## matches. A Dictionary carrying both "option" and "target" keys is
+## OPTION_TARGET; any other Array is TARGET_SET; everything else (String,
+## HexCoord, null, int, ...) is SCALAR — the existing shape every verb
+## registered before this feature already hands execute().
+func _classify_selection(selection) -> int:
+	if selection is Dictionary and selection.has("option") and selection.has("target"):
+		return SelectionShape.OPTION_TARGET
+	if selection is Array:
+		return SelectionShape.TARGET_SET
+	return SelectionShape.SCALAR
+
+
+## expected_shape() -> SelectionShape — which shape THIS verb's execute()
+## `selection` argument is contracted to receive. Defaults to SCALAR, so
+## every verb registered before this feature (Strike/Step/Stride/End Turn)
+## — none of which override this — keeps the legacy scalar contract
+## unchanged. A future OPTION_TARGET/TARGET_SET verb overrides this
+## alongside its matching _execute_*() handler below.
+func expected_shape() -> int:
+	return SelectionShape.SCALAR
+
+
+## execute(selection) -> Dictionary — FEAT-009 (US-009): the additive shape
+## dispatch. Classifies `selection`'s runtime shape and, when it matches this
+## verb's expected_shape(), routes to the matching _execute_*() handler
+## below. A verb that instead overrides execute() directly (every verb
+## registered before this feature) never reaches this method at all, so
+## nothing here can regress an existing single-scalar caller like Strike —
+## the widened contract is additive machinery for callers that opt in by
+## NOT overriding execute().
+##
+## Shape mismatch (e.g. a SCALAR-only verb handed a TARGET_SET) is a wiring
+## bug, not a runtime/user error: fail-fast in dev/test via assert() (which
+## the engine compiles out of release exports), fail-soft with a logged
+## no-op Dictionary in a shipped build (design notes' error_handling policy
+## #5) — mirrors core/domain/effects_applier.gd's identical
+## assert()+push_error()+fail-soft-return convention for its own contract
+## violations.
+func execute(selection = null) -> Dictionary:
+	var shape: int = _classify_selection(selection)
+	var expected: int = expected_shape()
+
+	if shape != expected:
+		var message: String = (
+			"ActionController: selection shape mismatch -- expected %s but received %s"
+			% [_SHAPE_NAMES.get(expected, str(expected)), _SHAPE_NAMES.get(shape, str(shape))]
+		)
+		assert(false, message)
+		push_error(message)
+		return {"ok": false, "error": "ERR_SHAPE_MISMATCH"}
+
+	match shape:
+		SelectionShape.OPTION_TARGET:
+			return _execute_option_target(selection.get("option"), selection.get("target"))
+		SelectionShape.TARGET_SET:
+			return _execute_target_set(selection)
+		_:
+			return _execute_scalar(selection)
+
+
+## _execute_scalar(selection) -> Dictionary — SCALAR-shape handler. Override
+## in a subclass that opts into the base execute() dispatch above instead of
+## overriding execute() directly. Deliberately inert default (mirrors the
+## pre-existing execute() default), so an un-overridden verb fails safe.
+func _execute_scalar(_selection) -> Dictionary:
+	return {"ok": false}
+
+
+## _execute_option_target(option, target) -> Dictionary — OPTION_TARGET-shape
+## handler. Deliberately inert default.
+func _execute_option_target(_option, _target) -> Dictionary:
+	return {"ok": false}
+
+
+## _execute_target_set(targets) -> Dictionary — TARGET_SET-shape handler.
+## Deliberately inert default.
+func _execute_target_set(_targets: Array) -> Dictionary:
 	return {"ok": false}
