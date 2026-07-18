@@ -353,6 +353,20 @@ func test_application_layer_contains_no_new_port_or_use_case_class() -> void:
 	# introduces no new port/use-case orchestration of its own (see that
 	# file's own header doc) and is whitelisted here purely because this
 	# check's dir.list_dir_begin() scan is name-based, not type-based.
+	#
+	# FEAT-008 (US-008) deliberately extends this whitelist by TWO more
+	# files: core/application/resolved_selection.gd (ResolvedSelection --
+	# a plain RefCounted DATA value object, not a port, mirroring
+	# core/application/dto/effect_application_error.gd's fail-fast
+	# is_valid()/validation_error() convention) and
+	# core/application/selection_resolution_use_case.gd
+	# (SelectionResolutionUseCase -- the application-layer use case that
+	# resolves a SelectionDescriptor's SCALAR/OPTION_THEN_TARGET/AREA_SET
+	# resolution_mode into a ResolvedSelection, computing AREA_SET's
+	# affected-hex set via core/geometry's HexMath). No new port is
+	# introduced (design notes: "no new ports beyond the applier seam") --
+	# both files are whitelisted here purely because this check's
+	# dir.list_dir_begin() scan is name-based, not type-based.
 	var expected_files: Array = [
 		"_build_defense_context.gd",
 		"ai_decision_port.gd",
@@ -365,10 +379,12 @@ func test_application_layer_contains_no_new_port_or_use_case_class() -> void:
 		"resolve_action_use_case.gd",
 		"resolve_dodge_step_use_case.gd",
 		"resolve_to_hit_uc.gd",
+		"resolved_selection.gd",
 		"round_history_port.gd",
 		"round_session.gd",
 		"run_round_use_case.gd",
 		"selection_descriptor.gd",
+		"selection_resolution_use_case.gd",
 		"turn_order_port.gd",
 	]
 
