@@ -228,10 +228,17 @@ func attribute(attr_name: String) -> int:
 	var v = get(attr_name)
 	return int(v) if v != null else 0
 
-## Cast-a-Spell hooks (reserved). begin_cast()/advance_cast() land with the
-## spell feature; is_casting()/cancel_cast() are kept minimal now so the shape
-## is reserved and cast interruption (a lethal Opportunistic Strike cancels an
-## in-progress cast, mirroring lethal-OS-cancels-Stride) has a seam.
+## Cast-a-Spell hooks. begin_cast() (below) initializes casting_state for a
+## first cast (FEAT-005). cancel_cast() is the SOLE mutator that clears
+## casting_state — used both by ResolveCastUseCase's unconditional cleanup
+## step on a completed resolution (FEAT-276) AND by core/application/
+## use_cases/cancel_cast_use_case.gd's CancelCastUseCase (FEAT-280 / US-015;
+## FR-017) when a lethal Opportunistic Strike interrupts an in-progress cast
+## (mirroring iteration K FEAT-238's lethal-OS-cancels-Stride machinery) —
+## in EITHER case it performs ONLY `casting_state = {}`, never touching a
+## caster's round energy pool, so a cancellation never refunds
+## committed_energy (ADR-003) simply because this method has no reference to
+## that collaborator at all.
 func is_casting() -> bool:
 	return not casting_state.is_empty()
 

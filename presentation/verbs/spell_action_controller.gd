@@ -87,9 +87,30 @@ extends "res://presentation/action_controller.gd"
 ## controller's own ExecuteResult under the additive "reaction_result" key --
 ## every pre-existing key (success/casting_state/error) is byte-for-byte
 ## unchanged, so no FEAT-005/FEAT-006/FEAT-008 caller/test regresses.
-## CancelCastUseCase (acting on a lethal Opportunistic Strike outcome here)
-## remains a separate, later feature's scope -- this feature only ever
-## fires the window and reports what happened.
+## FEAT-279 fired the window and reported what happened, but never ACTED on
+## a lethal outcome — CancelCastUseCase remained a separate, later
+## feature's scope.
+##
+## FEAT-280 (US-015; FR-017) closes that gap: `_maybe_cancel_cast()`
+## (this feature's new helper) inspects the SAME `reaction_result`
+## Dictionary `_provoke_reaction_on_cast()` already returns and, whenever it
+## reports `stride_should_commit == false` (a lethal Opportunistic Strike
+## fired mid-action — mirrors iteration K FEAT-238's lethal-OS-cancels-
+## Stride "mover_downed" -> "stride_should_commit: false" contract,
+## presentation/stride_action_controller.gd's own cancel branch), hands
+## `actor` to core/application/use_cases/cancel_cast_use_case.gd's
+## CancelCastUseCase -- clearing casting_state WITHOUT refunding
+## committed_energy (ADR-003). This runs on BOTH the first-cast
+## (BeginCastUseCase) and continuing-cast (ContinueCastUseCase) branches
+## below, immediately after `_provoke_reaction_on_cast()` returns and
+## BEFORE `_maybe_resolve_cast()` is ever consulted -- so a cancelled cast
+## (actor.is_casting() == false) always fails `_maybe_resolve_cast()`'s own
+## `actor.is_casting()` gate identically to any other already-cleared
+## casting_state, guaranteeing ResolveSpellController/ResolveCastUseCase is
+## NEVER reached for a cancelled cast (no spell resolves, no effect is ever
+## applied) -- the mutual-exclusion invariant design notes' error_handling
+## section requires ("a cast either resolves exactly once or is cancelled
+## exactly once, never both").
 
 const ErrorCodeClass = preload("res://core/application/ports/errors.gd")
 const BeginCastUseCaseClass = preload("res://core/application/use_cases/begin_cast_use_case.gd")
@@ -98,6 +119,7 @@ const RoundEnergyPoolPortClass = preload("res://core/application/ports/round_ene
 const ResourceSpellCatalogAdapterClass = preload("res://core/adapters/resource_spell_catalog_adapter.gd")
 const ResolveSpellControllerClass = preload("res://presentation/verbs/resolve_spell_controller.gd")
 const ProvokeReactionOnCastUseCaseClass = preload("res://core/application/use_cases/provoke_reaction_on_cast_use_case.gd")
+const CancelCastUseCaseClass = preload("res://core/application/use_cases/cancel_cast_use_case.gd")
 const CastingStateClass = preload("res://core/domain/casting_state.gd")
 
 ## _spell_catalog_port — FEAT-005: the SpellCatalogPort collaborator every
@@ -282,7 +304,9 @@ func execute(selection = null) -> Dictionary:
 	if actor.is_casting():
 		var continue_result: Dictionary = ContinueCastUseCaseClass.new().execute(actor, current_action_economy())
 		if continue_result.get("success", false):
-			continue_result["reaction_result"] = await _provoke_reaction_on_cast(actor)
+			var continue_reaction_result: Dictionary = await _provoke_reaction_on_cast(actor)
+			continue_result["reaction_result"] = continue_reaction_result
+			continue_result = _maybe_cancel_cast(actor, continue_result, continue_reaction_result)
 		return _maybe_resolve_cast(actor, continue_result)
 
 	var spell_id: String = _extract_spell_id(selection)
@@ -297,7 +321,9 @@ func execute(selection = null) -> Dictionary:
 		actor, spell_id, _spell_catalog_port, pool_port, current_action_economy()
 	)
 	if begin_result.get("success", false):
-		begin_result["reaction_result"] = await _provoke_reaction_on_cast(actor)
+		var begin_reaction_result: Dictionary = await _provoke_reaction_on_cast(actor)
+		begin_result["reaction_result"] = begin_reaction_result
+		begin_result = _maybe_cancel_cast(actor, begin_result, begin_reaction_result)
 	return _maybe_resolve_cast(actor, begin_result)
 
 
@@ -337,6 +363,48 @@ func _provoke_reaction_on_cast(actor) -> Dictionary:
 		_round_number_fn.call() if _round_number_fn.is_valid() else 0,
 		0
 	)
+
+
+## _maybe_cancel_cast(actor, result, reaction_result) -> Dictionary —
+## FEAT-280 (US-015; FR-017): the lethal-Opportunistic-Strike-cancels-cast
+## branch, mirroring presentation/stride_action_controller.gd's own
+## `execute()` "stride_should_commit" check (iteration K FEAT-238's
+## lethal-OS-cancels-Stride machinery). `reaction_result` is whatever
+## `_provoke_reaction_on_cast()` just returned for THIS action
+## (ProvokeReactionOnCastUseCase's own Dictionary shape, forwarding
+## ResolveStrideUseCase's `mover_downed`/`stride_should_commit` fields
+## verbatim).
+##
+## When `stride_should_commit` is true (the common case -- no reactor chose
+## Opportunistic Strike, or none of the resolved strikes were lethal),
+## `result` is returned UNCHANGED. Only when it is false AND `actor` is
+## STILL mid-cast (defensive -- a lethal strike should always leave the
+## actor mid-cast at this point, since the Begin/ContinueCastUseCase
+## success branch immediately above always set casting_state) does this
+## method delegate to core/application/use_cases/cancel_cast_use_case.gd's
+## CancelCastUseCase.execute(actor) -- clearing casting_state WITHOUT
+## refunding committed_energy (ADR-003) -- and overwrites `result`'s
+## "casting_state"/"error" keys (ERR_CAST_CANCELLED) to reflect the
+## cancellation. Every OTHER key `result` already carries (e.g. "success",
+## still true -- the Begin/ContinueCastUseCase action itself DID succeed;
+## only the cast that action started/continued was subsequently cancelled)
+## is left byte-for-byte untouched.
+##
+## `_maybe_resolve_cast()` (called immediately after this method,
+## unmodified) naturally never resolves the cast once `actor.is_casting()`
+## is false, so no spell ever resolves and no effect is ever applied on
+## this path -- the mutual-exclusion invariant design notes'
+## error_handling section requires.
+func _maybe_cancel_cast(actor, result: Dictionary, reaction_result: Dictionary) -> Dictionary:
+	if reaction_result.get("stride_should_commit", true):
+		return result
+	if actor == null or not actor.is_casting():
+		return result
+
+	var cancel_result: Dictionary = CancelCastUseCaseClass.new().execute(actor)
+	result["casting_state"] = cancel_result.get("casting_state", null)
+	result["error"] = ErrorCodeClass.ERR_CAST_CANCELLED
+	return result
 
 
 ## _maybe_resolve_cast(actor, result) -> Dictionary — FEAT-008 (US-008;
