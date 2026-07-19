@@ -94,18 +94,31 @@ extends RefCounted
 ##                           presentation/strike_action_controller.gd's
 ##                           `living_enemies_fn` is threaded in by
 ##                           MainScene.gd's `_verb_deps()`).
+##   "resolution_port"     — FEAT-009 (US-009; FR-008): ResolutionPort
+##                           (core/application/ports/resolution_port.gd);
+##                           defaults to null — mirrors "targeting_port"'s
+##                           identical "no live composition-root wiring yet,
+##                           degrade safely" convention (MainScene.gd is NOT
+##                           modified by this feature either). When wired,
+##                           drives ResolveCastUseCase (core/application/
+##                           use_cases/resolve_cast_use_case.gd) once a
+##                           target has been chosen — see execute()'s own
+##                           doc for the exact gate.
 ##
 ## Usage:
 ##   var controller := ResolveSpellController.new({
 ##       "spell_catalog_port": catalog, "targeting_port": targeting,
 ##       "candidates_fn": func(): return [skeleton, goblin],
+##       "resolution_port": resolution_port,
 ##   })
-##   var result := controller.execute(marigold)  # {"success", "target_id", "error"}
+##   var result := controller.execute(marigold)  # {"success", "target_id", "error", "resolve_cast_result"?}
 
 const ErrorCodeClass = preload("res://core/application/ports/errors.gd")
 const CastingStateClass = preload("res://core/domain/casting_state.gd")
 const ResourceSpellCatalogAdapterClass = preload("res://core/adapters/resource_spell_catalog_adapter.gd")
 const HexMathClass = preload("res://core/geometry/hex_math.gd")
+const SpellClass = preload("res://core/domain/spell.gd")
+const ResolveCastUseCaseClass = preload("res://core/application/use_cases/resolve_cast_use_case.gd")
 
 ## 1 hex == 5 ft — the project-wide convention (docs/hollow-world-v0-spec.org,
 ## core/model/weapon_resource.gd's range_hexes doc). Spell range is authored
@@ -120,19 +133,33 @@ const FEET_PER_HEX: int = 5
 var _spell_catalog_port
 var _targeting_port
 var _candidates_fn: Callable
+var _resolution_port
+var _resolve_cast_use_case := ResolveCastUseCaseClass.new()
 
 
 func _init(deps: Dictionary = {}) -> void:
 	_spell_catalog_port = deps.get("spell_catalog_port", ResourceSpellCatalogAdapterClass.new())
 	_targeting_port = deps.get("targeting_port", null)
 	_candidates_fn = deps.get("candidates_fn", Callable())
+	_resolution_port = deps.get("resolution_port", null)
 
 
-## execute(actor) -> Dictionary{success, target_id, target, error} —
-## api_contracts #2's TARGETING step only (see file-level SCOPE doc for what
-## remains out of scope). Every "not yet time to resolve" case (null actor,
+## execute(actor) -> Dictionary{success, target_id, target, error,
+## resolve_cast_result?} — api_contracts #2's TARGETING step (see
+## file-level SCOPE doc for what remains out of scope), PLUS FEAT-009's
+## (US-009; FR-008) RESOLUTION step layered on top: once a non-null
+## `target` has been chosen AND `spell.defense` is an actual attack defense
+## (i.e. not Spell.Defense.NONE — a self/no-attack spell like Channel never
+## reaches this step, see `_maybe_resolve_attack()`'s own doc) AND a
+## ResolutionPort is wired (`deps["resolution_port"]`), this method drives
+## core/application/use_cases/resolve_cast_use_case.gd's ResolveCastUseCase
+## against that single target, attaching its Dictionary result under the
+## ADDITIVE "resolve_cast_result" key — every pre-existing key (success/
+## target_id/target/error) is byte-for-byte unchanged, so no FEAT-008
+## caller/test regresses. Every "not yet time to resolve" case (null actor,
 ## not casting, remaining_actions != 0) returns `_skip_result()` WITHOUT
-## ever invoking TargetingPort — the gate test_criteria #1/#3 assert against.
+## ever invoking TargetingPort OR ResolutionPort — the gate test_criteria
+## #1/#3 assert against.
 func execute(actor) -> Dictionary:
 	if not _should_resolve(actor):
 		return _skip_result()
@@ -161,11 +188,15 @@ func execute(actor) -> Dictionary:
 	var target = _targeting_port.request_single_target(legal_targets)
 	if target == null:
 		# api_contracts #2: "the cast still resolves as a wasted action" —
-		# this feature does not itself perform that resolution/cleanup (see
-		# SCOPE doc), only reports the no-valid-target outcome.
+		# nothing to resolve against, so ResolutionPort is never invoked
+		# either (mirrors the "not yet time to resolve" gate above).
 		return {"success": true, "target_id": null, "target": null, "error": ErrorCodeClass.ERR_NO_VALID_TARGET}
 
-	return {"success": true, "target_id": target.display_id(), "target": target, "error": ErrorCodeClass.NONE}
+	var result: Dictionary = {"success": true, "target_id": target.display_id(), "target": target, "error": ErrorCodeClass.NONE}
+	var resolve_cast_result = _maybe_resolve_attack(actor, spell, target)
+	if resolve_cast_result != null:
+		result["resolve_cast_result"] = resolve_cast_result
+	return result
 
 
 ## _should_resolve(actor) -> bool — the ADR-007 gate (file-level doc): true
@@ -181,6 +212,30 @@ func _should_resolve(actor) -> bool:
 		return false
 	var state = CastingStateClass.from_dict(actor.casting_state)
 	return state.remaining_actions == 0
+
+
+## _maybe_resolve_attack(actor, spell, target) -> Dictionary | null —
+## FEAT-009 (US-009; FR-008): drives ResolveCastUseCase against a SINGLE
+## already-chosen, non-null `target`, returning its Dictionary result, or
+## null when there is nothing to resolve — either `spell.defense` is
+## Spell.Defense.NONE (a self/no-attack spell, e.g. Channel's ADD_ENERGY —
+## there is no defense to roll against, so resolve_spell_attack() must
+## never be invoked at all) or no ResolutionPort is wired yet (mirrors
+## `_targeting_port == null`'s identical "unwired collaborator -> safe
+## fallback" convention above — no live composition-root wiring exists for
+## this yet, MainScene.gd is NOT modified by this feature).
+##
+## `spell.defense`/`actor`/`target` are handed to ResolveCastUseCase.
+## execute() UNMODIFIED (this feature's own scope doc: "calling
+## resolve_spell_attack(caster, target, spell, spell.defense) unmodified
+## per target") — this method performs no conversion itself; that is
+## entirely ResolveCastUseCase's/ResolutionPort's job.
+func _maybe_resolve_attack(actor, spell, target):
+	if spell.defense == SpellClass.Defense.NONE:
+		return null
+	if _resolution_port == null:
+		return null
+	return _resolve_cast_use_case.execute(actor, spell, [target], _resolution_port)
 
 
 ## _in_range_candidates(actor, range_ft) -> Array — every candidate from
