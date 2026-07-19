@@ -33,6 +33,30 @@
 ## builds/applies a DAMAGE effect at all — the target's hp is left
 ## untouched.
 ##
+## SCOPE (FEAT-277, this feature): layers the ADD_ENERGY effect-type case on
+## top — design notes' architecture section: "Channel ... resolves through
+## the identical SpellActionController/ResolveSpellController/
+## ResolveCastUseCase path (no bespoke verb)". A spell whose
+## `spell.effect_type` is core/domain/effects/effect_kind.gd EffectKind.
+## ADD_ENERGY (e.g. Channel) NEVER reaches ResolutionPort at all — there is
+## no attack roll, no target, no DAMAGE effect — it is dispatched instead to
+## `_execute_add_energy()` below, which builds a core/domain/effects/
+## add_energy_effect.gd AddEnergyEffect from `spell.effect_params["amount"]`
+## (defaulting to 1) and applies it directly to the CASTER's own
+## round-scoped core/domain/energy_pool.gd EnergyPool (design notes:
+## "applying +1 energy to the caster's own round pool on resolution") —
+## obtained via the injected `energy_pool_fn` Callable(caster) -> EnergyPool,
+## mirroring resolve_spell_controller.gd's own `_candidates_fn` "duck-typed
+## Callable collaborator, degrades safely when unwired/invalid" convention
+## (no core/application/ports/round_energy_pool_port.gd change is needed —
+## that port's reserve()/balance() contract is for the up-front,
+## non-refundable BeginCastUseCase payment, ADR-003, a wholly separate
+## concern from resolution-time energy gain). The SAME CLEANUP + LOG steps
+## below still run for this path (casting_state cleared, a CAST_RESOLVE
+## entry emitted with `energy_delta` set and `target_ids`/`hit`/
+## `damage_amount` left empty/null — design notes' data_model: "empty for
+## ADD_ENERGY-only spells like Channel").
+##
 ## SCOPE (FEAT-276, this feature): layers the CLEANUP + LOG steps on top —
 ## design notes' api_contracts #2: "CLEANUP: actor.casting_state = null
 ## unconditionally on completion of this call" and "LOG step:
@@ -93,6 +117,8 @@ extends RefCounted
 const ErrorCodeClass = preload("res://core/application/ports/errors.gd")
 const EffectsApplierClass = preload("res://core/domain/effects_applier.gd")
 const DamageEffectClass = preload("res://core/domain/effects/damage_effect.gd")
+const AddEnergyEffectClass = preload("res://core/domain/effects/add_energy_effect.gd")
+const EffectKindClass = preload("res://core/domain/effects/effect_kind.gd")
 const CombatLogEntryClass = preload("res://core/domain/combat_log_entry.gd")
 
 ## The single domain EffectsApplier instance this use case dispatches every
@@ -119,16 +145,26 @@ func get_effects_applier():
 	return _effects_applier
 
 
-## execute(caster, spell, targets, resolution_port, combat_log_port) ->
-## Dictionary — this feature's own scope only (see file-level doc). Fails
-## safe to ERR_INVALID_STATE, with NO ResolutionPort call at all and NO
-## CLEANUP/LOG step, when `caster`, `spell`, or `resolution_port` is null —
-## a caller reaching this use case in that state has a wiring bug (mirrors
-## continue_cast_use_case.gd's own "no partial/inconsistent state"
-## discipline); `caster.casting_state` is left completely untouched on this
-## defensive path. An empty (or null) `targets` Array is NOT an error — it
-## simply yields an empty `results` Array (e.g. a wasted-action resolve
-## with no valid target, per design notes' error_handling: "the cast still
+## execute(caster, spell, targets, resolution_port, combat_log_port,
+## energy_pool_fn) -> Dictionary — this feature's own scope only (see
+## file-level doc). Fails safe to ERR_INVALID_STATE, with NO CLEANUP/LOG
+## step, when `caster` or `spell` is null — a caller reaching this use case
+## in that state has a wiring bug (mirrors continue_cast_use_case.gd's own
+## "no partial/inconsistent state" discipline); `caster.casting_state` is
+## left completely untouched on this defensive path.
+##
+## FEAT-277: when `spell.effect_type` is EffectKind.ADD_ENERGY (e.g.
+## Channel), this call is dispatched ENTIRELY to `_execute_add_energy()`
+## below (see file-level FEAT-277 doc) — `resolution_port`/`targets` are
+## never consulted at all for this branch (no attack roll, no target — a
+## null/unwired `resolution_port` is therefore NOT an error for an
+## ADD_ENERGY spell, unlike the attack-defense branch below).
+##
+## For every OTHER spell (the attack-defense/DAMAGE branch, unchanged from
+## FEAT-009/FEAT-010): a null `resolution_port` IS an ERR_INVALID_STATE
+## failure. An empty (or null) `targets` Array is NOT an error — it simply
+## yields an empty `results` Array (e.g. a wasted-action resolve with no
+## valid target, per design notes' error_handling: "the cast still
 ## resolves ... still completes") — CLEANUP/LOG still run in that case (see
 ## file-level FEAT-276 doc). A null entry within `targets` is skipped
 ## rather than crashing (mirrors resolve_spell_controller.gd's own
@@ -137,9 +173,17 @@ func get_effects_applier():
 ## `combat_log_port` (FEAT-276) defaults to null — a caller/test not yet
 ## wiring a CombatLogPort (core/application/ports/combat_log_port.gd) never
 ## has emit() invoked at all (mirrors this file's own established
-## "unwired collaborator -> safe fallback" convention).
-func execute(caster, spell, targets: Array, resolution_port, combat_log_port = null) -> Dictionary:
-	if caster == null or spell == null or resolution_port == null:
+## "unwired collaborator -> safe fallback" convention). `energy_pool_fn`
+## (FEAT-277) defaults to an invalid Callable() — consulted ONLY by the
+## ADD_ENERGY branch (see `_apply_add_energy()`'s own doc).
+func execute(caster, spell, targets: Array, resolution_port, combat_log_port = null, energy_pool_fn = Callable()) -> Dictionary:
+	if caster == null or spell == null:
+		return {"success": false, "results": [], "error": ErrorCodeClass.ERR_INVALID_STATE}
+
+	if spell.effect_type == EffectKindClass.ADD_ENERGY:
+		return _execute_add_energy(caster, spell, combat_log_port, energy_pool_fn)
+
+	if resolution_port == null:
 		return {"success": false, "results": [], "error": ErrorCodeClass.ERR_INVALID_STATE}
 
 	var results: Array = []
@@ -163,6 +207,73 @@ func execute(caster, spell, targets: Array, resolution_port, combat_log_port = n
 	caster.cancel_cast()
 
 	return {"success": true, "results": results, "error": ErrorCodeClass.NONE}
+
+
+## _execute_add_energy(caster, spell, combat_log_port, energy_pool_fn) ->
+## Dictionary — FEAT-277 (US-012; FR-013): the ADD_ENERGY-effect-type branch
+## of execute() (see this method's own doc + file-level FEAT-277 doc).
+## Builds ONE core/domain/effects/add_energy_effect.gd AddEnergyEffect
+## targeted at the CASTER (`caster.display_id()`) from
+## `spell.effect_params["amount"]` (defaulting to 1 — Channel's own
+## authored SpellResource value, data/spells/channel.tres), applies it to
+## the caster's own round energy pool via `_apply_add_energy()`, emits the
+## SAME CAST_RESOLVE CombatLogEntry shape FEAT-276 established (with
+## `target_ids=[]`, `hit=null`, `damage_amount=null`, `energy_delta` set to
+## the amount actually applied — design notes' data_model: "empty for
+## ADD_ENERGY-only spells like Channel"), then runs the SAME unconditional
+## CLEANUP step (`caster.cancel_cast()`) every other branch of this use
+## case runs.
+func _execute_add_energy(caster, spell, combat_log_port, energy_pool_fn) -> Dictionary:
+	var amount: int = int(spell.effect_params.get("amount", 1))
+	var effect := AddEnergyEffectClass.new(caster.display_id(), amount)
+	var applied: int = _apply_add_energy(caster, effect, energy_pool_fn)
+
+	if combat_log_port != null:
+		var entry := CombatLogEntryClass.new(
+			CombatLogEntryClass.EventType.CAST_RESOLVE,
+			caster.display_id(),
+			spell.spell_id,
+			[],
+			null,
+			null,
+			applied
+		)
+		combat_log_port.emit(entry)
+
+	# CLEANUP (FEAT-276 convention, reused unconditionally here too).
+	caster.cancel_cast()
+
+	return {
+		"success": true,
+		"results": [{"target_id": caster.display_id(), "energy_delta": applied}],
+		"error": ErrorCodeClass.NONE,
+	}
+
+
+## _apply_add_energy(caster, effect, energy_pool_fn) -> int — FEAT-277:
+## applies `effect` (an AddEnergyEffect) to the EnergyPool
+## `energy_pool_fn.call(caster)` returns, mirroring `_apply_damage_on_hit()`'s
+## own "return the amount ACTUALLY applied" convention. An invalid `effect`
+## (AddEnergyEffect.is_valid() == false — amount <= 0, see that class' own
+## doc) or an unwired/invalid `energy_pool_fn` Callable (this codebase's
+## established "unwired collaborator -> safe fallback" convention, mirrors
+## resolve_spell_controller.gd's own `_candidates_fn` degrade) both skip the
+## pool mutation entirely and return 0 — never a fabricated non-zero delta.
+func _apply_add_energy(caster, effect, energy_pool_fn) -> int:
+	if not effect.is_valid():
+		push_error("ResolveCastUseCase: invalid AddEnergyEffect -- skipping: %s" % effect.validation_error())
+		return 0
+
+	if not (energy_pool_fn is Callable) or not energy_pool_fn.is_valid():
+		return 0
+
+	var pool = energy_pool_fn.call(caster)
+	if pool == null:
+		return 0
+
+	var before: int = pool.current
+	pool.add(effect.amount)
+	return pool.current - before
 
 
 ## _emit_combat_log_entry(caster, spell, results, combat_log_port) -> void

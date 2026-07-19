@@ -294,7 +294,14 @@ func test_controller_never_invokes_resolution_port_for_channel_self_target() -> 
 
 	assert_true(spy.calls.is_empty(), "a self/no-attack spell (Spell.Defense.NONE, e.g. Channel) must never invoke ResolutionPort")
 	assert_true(result.get("success"))
-	assert_false(result.has("resolve_cast_result"), "no resolve_cast_result key must be attached when there is nothing to resolve")
+	# FEAT-277 (US-012; FR-013): Channel now resolves through the SAME
+	# ResolveCastUseCase every attack-defense spell drives (no bespoke
+	# verb) -- the additive resolve_cast_result key IS now attached, even
+	# though ResolutionPort itself is (correctly, per the assertion above)
+	# never invoked for this ADD_ENERGY effect-type branch.
+	assert_true(result.has("resolve_cast_result"), "Channel must resolve through ResolveCastUseCase (FEAT-277), attaching resolve_cast_result")
+	var resolve_cast_result: Dictionary = result["resolve_cast_result"]
+	assert_true(resolve_cast_result.get("success"))
 
 
 func test_controller_never_invokes_resolution_port_when_no_valid_target() -> void:

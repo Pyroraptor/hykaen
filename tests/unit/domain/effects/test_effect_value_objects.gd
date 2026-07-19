@@ -26,9 +26,16 @@ extends GutTest
 ##   3. The domain-purity CI check (ci/check_domain_purity.sh) passes when
 ##      scoped to core/domain/effects/, and fails (non-zero exit) once an
 ##      engine import is injected into a fixture copy of that directory.
-##   4. AddEnergyEffect constructs correctly but is asserted UNUSED by any
-##      live (non-test, non-definition) call site in the repository
-##      (grep-based).
+##   4. AddEnergyEffect constructs correctly and (FEAT-277 / US-012; FR-013)
+##      is asserted to have exactly ONE live (non-test, non-definition)
+##      production call site: core/application/use_cases/
+##      resolve_cast_use_case.gd — its sole intended consumer, mapping
+##      Channel's ADD_ENERGY effect_type onto the caster's own round energy
+##      pool. Originally (design notes: "RESERVED, UNUSED this sprint")
+##      this criterion asserted ZERO live call sites; FEAT-277 is this VO's
+##      first real consumer, so the assertion narrows from "none" to
+##      "exactly this one", still catching any OTHER accidental/premature
+##      call site.
 ##
 ## GDScript's _init() cannot refuse to hand back an instance (no
 ## constructor-level exception mechanism), so "rejects ... at construction"
@@ -369,23 +376,27 @@ func test_domain_purity_check_fails_on_engine_import_injected_into_effects_fixtu
 
 # ══════════════════════════════════════════════════════════════════════════
 # Criterion 4: AddEnergyEffect constructs correctly (already proven above)
-# but is asserted UNUSED by any live call site (grep-based).
+# and (FEAT-277) its only live production call site is
+# resolve_cast_use_case.gd (grep-based).
 # ══════════════════════════════════════════════════════════════════════════
 
-## test_add_energy_effect_has_no_live_call_site() -- greps the WHOLE
-## repository for the literal token "AddEnergyEffect" and asserts every
-## hit is confined to:
+## test_add_energy_effect_live_call_site_is_confined_to_resolve_cast_use_case()
+## -- greps the WHOLE repository for the literal token "AddEnergyEffect" and
+## asserts every hit is confined to:
 ##   - `##` doc-comment lines (e.g. effect_base.gd's family-overview header,
 ##     which legitimately names every sibling VO including AddEnergyEffect)
 ##     -- filtered out the same way ci/check_no_duplicate_seams.sh's
 ##     check_seam_sole_caller() filters comment-only lines before counting
 ##     real call sites (see that script's ":##" pattern)
 ##   - its own definition file (core/domain/effects/add_energy_effect.gd)
-##   - test files (this suite, or any future one under tests/)
-## i.e. no application/presentation/infrastructure production file
-## constructs or even references AddEnergyEffect yet (design notes:
-## "RESERVED, UNUSED this sprint").
-func test_add_energy_effect_has_no_live_call_site() -> void:
+##   - test files (this suite, or any other under tests/)
+##   - core/application/use_cases/resolve_cast_use_case.gd (FEAT-277's sole
+##     intended production consumer)
+## i.e. no OTHER application/presentation/infrastructure production file
+## constructs or even references AddEnergyEffect (mirrors this file's own
+## prior "RESERVED, UNUSED this sprint" discipline, narrowed to permit
+## exactly this one now-legitimate call site).
+func test_add_energy_effect_live_call_site_is_confined_to_resolve_cast_use_case() -> void:
 	var repo_root: String = ProjectSettings.globalize_path("res://")
 	var out: Array = []
 	var rc: int = OS.execute(
@@ -395,7 +406,8 @@ func test_add_energy_effect_has_no_live_call_site() -> void:
 			"grep -rn 'AddEnergyEffect' '" + repo_root + "' --include='*.gd' " +
 			"| grep -vE ':[[:space:]]*##' " +
 			"| grep -v '/core/domain/effects/add_energy_effect\\.gd:' " +
-			"| grep -v '/tests/'",
+			"| grep -v '/tests/' " +
+			"| grep -v '/core/application/use_cases/resolve_cast_use_case\\.gd:'",
 		],
 		out,
 		true,
@@ -405,5 +417,5 @@ func test_add_energy_effect_has_no_live_call_site() -> void:
 		combined_output += String(line) + "\n"
 	assert_ne(
 		rc, 0,
-		"AddEnergyEffect must have zero live (non-definition, non-test, non-comment) call sites this sprint; found: %s" % combined_output
+		"AddEnergyEffect's only live production call site must be resolve_cast_use_case.gd (FEAT-277); found an additional/unexpected call site: %s" % combined_output
 	)

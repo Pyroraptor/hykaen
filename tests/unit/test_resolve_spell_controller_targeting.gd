@@ -233,6 +233,44 @@ func test_channel_self_target_spell_never_invokes_targeting_port() -> void:
 
 
 # ══════════════════════════════════════════════════════════════════════════
+# FEAT-277 (US-012; FR-013) -- Channel routes through the SAME
+# ResolveCastUseCase every attack-defense spell drives (no bespoke verb),
+# applying +1 energy to the caster's own round energy pool via the
+# injected "energy_pool_fn" dep.
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_channel_self_cast_attaches_resolve_cast_result_and_adds_energy_to_the_pool() -> void:
+	var actor = _caster_at(HexCoordClass.new(0, 0), 0, "channel")
+	var catalog := FakeSpellCatalogPort.new()
+	catalog.spells["channel"] = _channel()
+	var pool := EnergyPoolClass.new(4)
+	var controller := ResolveSpellControllerClass.new({
+		"spell_catalog_port": catalog,
+		"energy_pool_fn": func(_c): return pool,
+	})
+
+	var result: Dictionary = controller.execute(actor)
+
+	assert_true(result.get("success"))
+	assert_true(result.has("resolve_cast_result"), "Channel must route through ResolveCastUseCase, attaching resolve_cast_result")
+	assert_true(result["resolve_cast_result"].get("success"))
+	assert_eq(pool.current, 1, "the caster's own round energy pool must gain +1 energy on a resolved Channel cast")
+	assert_false(actor.is_casting(), "casting_state must be cleared once Channel resolves")
+
+
+func test_channel_self_cast_degrades_safely_with_no_energy_pool_fn_wired() -> void:
+	var actor = _caster_at(HexCoordClass.new(0, 0), 0, "channel")
+	var catalog := FakeSpellCatalogPort.new()
+	catalog.spells["channel"] = _channel()
+	var controller := ResolveSpellControllerClass.new({"spell_catalog_port": catalog})
+
+	var result: Dictionary = controller.execute(actor)
+
+	assert_true(result.get("success"), "an unwired energy_pool_fn must degrade safely, never crash")
+	assert_true(result.has("resolve_cast_result"))
+
+
+# ══════════════════════════════════════════════════════════════════════════
 # Criterion 3 -- a cancelled/interrupted casting_state never triggers
 # targeting
 # ══════════════════════════════════════════════════════════════════════════

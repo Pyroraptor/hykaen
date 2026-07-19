@@ -66,6 +66,19 @@ extends RefCounted
 ## targeting needed — target = self" — TargetingPort.request_single_target()
 ## is simply never called for such a spell.
 ##
+## SCOPE (FEAT-277, this feature; US-012, FR-013): a self/no-target spell
+## (range_ft <= 0) is no longer a dead end — `_maybe_resolve_self_cast()`
+## now hands it to the SAME core/application/use_cases/resolve_cast_use_case.gd
+## ResolveCastUseCase every attack-defense spell already drives (design
+## notes: "Routes Channel through the identical SpellActionController/
+## ResolveSpellController/ResolveCastUseCase path (no bespoke verb)"),
+## ONLY when `spell.effect_type` is core/domain/effects/effect_kind.gd
+## EffectKind.ADD_ENERGY — ResolutionPort is never reached for this branch
+## (no attack roll exists for Channel), but ResolveCastUseCase still runs
+## its CLEANUP + LOG steps and applies the ADD_ENERGY effect to the
+## caster's own round energy pool via the newly-injected `energy_pool_fn`
+## dep below.
+##
 ## Every collaborator is injected via a `deps: Dictionary` (mirrors
 ## presentation/verbs/spell_action_controller.gd's own `deps` convention):
 ##   "spell_catalog_port"  — SpellCatalogPort (core/application/ports/
@@ -113,6 +126,17 @@ extends RefCounted
 ##                           UNMODIFIED to ResolveCastUseCase.execute() (see
 ##                           that use case's own FEAT-276 doc for the
 ##                           CLEANUP/LOG steps it drives once wired).
+##   "energy_pool_fn"      — FEAT-277 (US-012; FR-013): Callable(caster) ->
+##                           EnergyPool (core/domain/energy_pool.gd); defaults
+##                           to an invalid Callable(), mirroring
+##                           "candidates_fn"'s identical "unwired collaborator
+##                           -> safe fallback" convention (no live
+##                           composition-root wiring exists yet for this
+##                           either — MainScene.gd is NOT modified by this
+##                           feature). Forwarded UNMODIFIED to
+##                           ResolveCastUseCase.execute() -- consulted ONLY
+##                           for a self-cast ADD_ENERGY spell (e.g. Channel),
+##                           see `_maybe_resolve_self_cast()`'s own doc.
 ##
 ## Usage:
 ##   var controller := ResolveSpellController.new({
@@ -144,6 +168,7 @@ var _targeting_port
 var _candidates_fn: Callable
 var _resolution_port
 var _combat_log_port
+var _energy_pool_fn: Callable
 var _resolve_cast_use_case := ResolveCastUseCaseClass.new()
 
 
@@ -153,6 +178,7 @@ func _init(deps: Dictionary = {}) -> void:
 	_candidates_fn = deps.get("candidates_fn", Callable())
 	_resolution_port = deps.get("resolution_port", null)
 	_combat_log_port = deps.get("combat_log_port", null)
+	_energy_pool_fn = deps.get("energy_pool_fn", Callable())
 
 
 ## execute(actor) -> Dictionary{success, target_id, target, error,
@@ -186,7 +212,11 @@ func execute(actor) -> Dictionary:
 	if spell.range_ft <= 0:
 		# Self/no-target spell (e.g. Channel) — never opens targeting at all
 		# (file-level doc). `target_id` is the caster's own id.
-		return {"success": true, "target_id": actor.display_id(), "target": actor, "error": ErrorCodeClass.NONE}
+		var self_cast_result := {"success": true, "target_id": actor.display_id(), "target": actor, "error": ErrorCodeClass.NONE}
+		var resolve_cast_result = _maybe_resolve_self_cast(actor, spell)
+		if resolve_cast_result != null:
+			self_cast_result["resolve_cast_result"] = resolve_cast_result
+		return self_cast_result
 
 	var legal_targets: Array = _in_range_candidates(actor, spell.range_ft)
 
@@ -244,6 +274,27 @@ func _should_resolve(actor) -> bool:
 ## (FEAT-276, possibly null) is forwarded alongside it unmodified —
 ## ResolveCastUseCase.execute() itself degrades safely (no emit() call at
 ## all) when it is null.
+## _maybe_resolve_self_cast(actor, spell) -> Dictionary | null — FEAT-277
+## (US-012; FR-013): drives ResolveCastUseCase for a self/no-target spell
+## (range_ft <= 0, e.g. Channel), returning its Dictionary result, or null
+## when there is nothing to resolve — ONLY `spell.effect_type ==
+## EffectKind.ADD_ENERGY` reaches ResolveCastUseCase here; any OTHER
+## self-targeted effect type is explicitly out of this feature's scope and
+## is left untouched (mirrors `_maybe_resolve_attack()`'s own "return null
+## when there is nothing to resolve" convention). `targets` is handed to
+## ResolveCastUseCase as an empty Array — the ADD_ENERGY branch never
+## consults it (see that use case's own FEAT-277 doc), it operates on
+## `actor` directly. `_resolution_port` is forwarded unmodified even though
+## it is never invoked for this branch (mirrors `_maybe_resolve_attack()`'s
+## identical "hand the collaborator through, let the use case decide"
+## discipline); `_energy_pool_fn` (this feature's own new dep) is what
+## actually drives the caster's round energy pool mutation.
+func _maybe_resolve_self_cast(actor, spell):
+	if spell.effect_type != SpellClass.EffectKindClass.ADD_ENERGY:
+		return null
+	return _resolve_cast_use_case.execute(actor, spell, [], _resolution_port, _combat_log_port, _energy_pool_fn)
+
+
 func _maybe_resolve_attack(actor, spell, target):
 	if spell.defense == SpellClass.Defense.NONE:
 		return null
