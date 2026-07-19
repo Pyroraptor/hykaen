@@ -1629,6 +1629,14 @@ func _on_selection_overlay_resolved(_verb_id: String, _result) -> void:
 		var actor = round_session.current_actor_entity()
 		if actor != null:
 			_turn_presentation().highlight_legal_moves(actor, actor.display_id())
+			# Push action budget to StatusPanelView. Strike already does this via AttackEvent,
+			# but Cast Spell / Continue Cast spend actions without emitting any event, so an
+			# explicit push is required here (mirrors StrideActionController's pattern).
+			var ae = round_session.current_action_economy()
+			if ae != null and status_panel_view != null:
+				status_panel_view.on_verb_action_budget_changed(
+					actor.display_id(), ae.get_remaining(), ae.is_spent()
+				)
 
 
 # ── Spell picker panel ───────────────────────────────────────────────────────

@@ -326,6 +326,12 @@ func activate(verb_id: String, selection) -> void:
 	else:
 		_awaiting_option = false
 		_refresh_highlight()
+		# Auto-resolve when there's nothing to select at all (no options, hexes, or
+		# targets). Handles verbs that return an empty descriptor to signal "just run it"
+		# (e.g. Cast a Spell when the actor is already mid-cast: enter_selection returns
+		# {} so ContinueCastUseCase fires without requiring a hex or target click).
+		if _candidate_hexes.is_empty() and _target_hex_by_id.is_empty():
+			_resolve(null)
 
 
 ## is_awaiting_option() -> bool — FEAT-010 (US-010): true while Layer-2a's
