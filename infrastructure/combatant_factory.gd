@@ -58,6 +58,21 @@ func build_party_combatant(character_path: String, hex_coord, combatant_id: Stri
 	var ac: int = attrs.compute_ac(character.attributes, armor_res.ac_base, armor_res.category)
 	var stamina: int = attrs.compute_stamina(character.attributes, class_data)
 
+	# FEAT-002 (Iteration M P0-0, US-001/FR-001/FR-002): resolve this
+	# character's spellcasting_attribute_score through the EXISTING
+	# construction path — no bespoke caster path. The governing attribute
+	# name lives on class_data (core/model/class_resource.gd's
+	# spellcasting_attribute, e.g. "willpower" for a Divine Warrior); "" for a
+	# non-caster class (e.g. Fighter) resolves to a score of 0, matching
+	# every other non-caster combatant built here today. known_spell_ids is
+	# carried straight from the authored CharacterResource (duplicated to
+	# avoid aliasing its mutable Array), mirroring the "skills" Dictionary
+	# carry-through above.
+	var spellcasting_attribute_name: String = class_data.spellcasting_attribute
+	var spellcasting_attribute_score: int = 0
+	if spellcasting_attribute_name != "":
+		spellcasting_attribute_score = character.attributes.get(spellcasting_attribute_name, 0)
+
 	var combatant: Dictionary = {
 		"name":       character.name,
 		"hp_current": hp,
@@ -81,6 +96,11 @@ func build_party_combatant(character_path: String, hex_coord, combatant_id: Stri
 		# into the combatant (mirrors this codebase's existing convention of
 		# never handing a Resource's own mutable container out by reference).
 		"skills":     character.skills.duplicate(),
+		# FEAT-002 (Iteration M P0-0): resolved caster fields (see comment
+		# above) — 0 / [] for a non-caster character, threaded through the
+		# SAME construction path every party combatant uses.
+		"spellcasting_attribute_score": spellcasting_attribute_score,
+		"known_spell_ids": character.known_spell_ids.duplicate(),
 		"weapon": {
 			"damage_modifier_attribute": weapon_res.damage_modifier_attribute,
 			"proficiency_bonus":         weapon_res.proficiency_bonus,

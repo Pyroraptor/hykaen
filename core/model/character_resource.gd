@@ -30,6 +30,8 @@
 ##                        reaction/defense checks (FR-007, e.g. Dodge/Steel).
 ##   starting_equipment — Array of Resource paths (WeaponResource / ArmorResource)
 ##   talent_selections  — Array of talent identifiers chosen at character creation
+##   known_spell_ids    — Array of spell_id Strings this character knows
+##                        (FEAT-002, Iteration M P0-0). Empty for non-casters.
 
 class_name CharacterResource
 extends Resource
@@ -58,6 +60,16 @@ extends Resource
 
 ## Array of talent identifiers selected during character creation.
 @export var talent_selections: Array = []
+
+## Array of spell_id Strings (FK-by-id references into the SpellResource
+## catalog, e.g. "fire_bolt"/"channel" — see core/resources/spell_resource.gd)
+## this character knows how to cast. Empty by default for non-caster
+## characters (e.g. Titus, Gram Marx). The character's spellcasting attribute
+## itself is NOT duplicated here — it already lives on class_ref
+## (core/model/class_resource.gd's spellcasting_attribute), so a caster's
+## governing attribute is read via character.class_ref.spellcasting_attribute,
+## never copied onto this resource (3NF: no derived/duplicated field).
+@export var known_spell_ids: Array = []
 
 ## The attribute that drives this character's primary offensive output.
 ## Examples: "strength" (melee martial), "dexterity" (finesse/ranged),

@@ -93,6 +93,22 @@ var intuition: int = 0
 var weapon: Dictionary = {}
 var skills: Dictionary = {}
 
+## Casting-related authored data (FEAT-002, Iteration M P0-0). Zero-value/
+## empty for a non-caster combatant (e.g. Titus).
+##
+## spellcasting_attribute_score — this combatant's score in whichever
+## attribute governs its spellcasting (e.g. willpower for a Divine Warrior),
+## resolved ONCE at construction time by CombatantFactory from
+## CharacterResource.class_ref.spellcasting_attribute + attributes. Not
+## re-derived here (Combatant carries data, not the class_ref/attribute
+## lookup rule).
+var spellcasting_attribute_score: int = 0
+
+## known_spell_ids — Array of spell_id Strings this combatant knows how to
+## cast (mirrors CharacterResource.known_spell_ids, threaded through
+## CombatantFactory). Empty for a non-caster combatant.
+var known_spell_ids: Array = []
+
 # ── Runtime state ───────────────────────────────────────────────────────────
 
 ## Active condition tags (e.g. "Off-Guard", "Immobilized"). Drives Off-Guard
@@ -252,6 +268,8 @@ static func from_dict(spec: Dictionary) -> Combatant:
 	c.weapon          = (spec.get("weapon", {}) as Dictionary).duplicate(true)
 	c.skills          = (spec.get("skills", {}) as Dictionary).duplicate(true)
 	c.conditions      = (spec.get("conditions", []) as Array).duplicate()
+	c.spellcasting_attribute_score = int(spec.get("spellcasting_attribute_score", 0))
+	c.known_spell_ids = (spec.get("known_spell_ids", []) as Array).duplicate()
 	c.initiative_roll = int(spec.get("_initiative_roll", 0))
 	c.is_enemy        = is_enemy_flag
 	c.casting_state   = (spec.get("casting_state", {}) as Dictionary).duplicate(true)
@@ -288,4 +306,12 @@ func to_dict() -> Dictionary:
 		d["combatant_id"] = combatant_id
 	if not casting_state.is_empty():
 		d["casting_state"] = casting_state.duplicate(true)
+	# FEAT-002 (Iteration M P0-0): part of the NORMALISED canonical shape
+	# (like "skills" above) — ALWAYS emitted, 0 / [] for a non-caster
+	# combatant, so every consumer can read it via .get(key, default) with no
+	# special-casing (mirrors this file's own "skills"/"weapon" convention,
+	# NOT the optional combatant_id/casting_state convention immediately
+	# above, since this is a permanent trait, not transient in-progress state).
+	d["spellcasting_attribute_score"] = spellcasting_attribute_score
+	d["known_spell_ids"] = known_spell_ids.duplicate()
 	return d

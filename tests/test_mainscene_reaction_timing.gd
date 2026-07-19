@@ -109,6 +109,16 @@ func _press_end_turn_and_drive_enemy_strike(instance) -> void:
 	)
 	instance.verb_bar_view.press(END_TURN)
 
+	# Iteration M ("Cast a Spell"): the prologue roster now seats Marigold (a
+	# second living, player-controlled combatant) BEFORE the Skeleton in turn
+	# order at this fixture's seed. TurnController only auto-drives Enemy
+	# turns (presentation/turn_controller.gd's _drive()), so Marigold's own
+	# turn needs an explicit manual End Turn / pass here too before the
+	# Skeleton's Strike is actually auto-driven.
+	var next_actor = instance.round_session.current_actor()
+	if next_actor != null and not next_actor.is_enemy:
+		instance.verb_bar_view.press(END_TURN)
+
 
 ## _reaction_window_opened_events(instance, trigger_type) -> Array — every
 ## RoundEvents.ReactionWindowOpenedEvent the REAL event_sink has recorded so

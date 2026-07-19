@@ -182,26 +182,30 @@ func test_mainscene_boot_populates_hex_battlefield_status_panel_and_initiative()
 	assert_false(instance.round_session.is_round_over(), "the freshly-begun RoundSession must not already be over with no player input")
 
 	# Hex battlefield (US-005): one token per combatant loaded from
-	# prologue_encounter.tres (Titus + Skeleton).
+	# prologue_encounter.tres (Titus + Marigold + Skeleton, Iteration M "Cast
+	# a Spell" roster).
 	var hex_grid_view = instance.hex_grid_view
 	assert_not_null(hex_grid_view, "MainScene must expose a non-null hex_grid_view")
-	assert_eq(hex_grid_view.get_token_count(), 2, "the hex battlefield must render one token per prologue combatant")
+	assert_eq(hex_grid_view.get_token_count(), 3, "the hex battlefield must render one token per prologue combatant")
 	assert_not_null(hex_grid_view.get_token("player_0"), "the hex battlefield must render Titus's token (player_0)")
+	assert_not_null(hex_grid_view.get_token("player_1"), "the hex battlefield must render Marigold's token (player_1)")
 	assert_not_null(hex_grid_view.get_token("enemy_0"), "the hex battlefield must render the Skeleton's token (enemy_0)")
 
-	# Status panel (US-006): populated for both combatants.
+	# Status panel (US-006): populated for all three combatants.
 	var status_panel_view = instance.status_panel_view
 	assert_not_null(status_panel_view, "MainScene must expose a non-null status_panel_view")
-	assert_eq(status_panel_view.get_row_count(), 2, "the status panel must show one row per prologue combatant")
+	assert_eq(status_panel_view.get_row_count(), 3, "the status panel must show one row per prologue combatant")
 	assert_eq(status_panel_view.get_status("player_0").get("name", ""), "Titus")
+	assert_eq(status_panel_view.get_status("player_1").get("name", ""), "Marigold")
 	assert_eq(status_panel_view.get_status("enemy_0").get("name", ""), "Skeleton")
 
-	# Initiative order (US-007): populated for both combatants.
+	# Initiative order (US-007): populated for all three combatants.
 	var initiative_view = instance.initiative_view
 	assert_not_null(initiative_view, "MainScene must expose a non-null initiative_view")
-	assert_eq(initiative_view.get_row_count(), 2, "the initiative list must show one row per prologue combatant")
+	assert_eq(initiative_view.get_row_count(), 3, "the initiative list must show one row per prologue combatant")
 	var ordered_ids: Array = initiative_view.get_ordered_combatant_ids()
 	assert_true(ordered_ids.has("player_0"), "the initiative order must include Titus (player_0)")
+	assert_true(ordered_ids.has("player_1"), "the initiative order must include Marigold (player_1)")
 	assert_true(ordered_ids.has("enemy_0"), "the initiative order must include the Skeleton (enemy_0)")
 
 
@@ -363,6 +367,23 @@ func test_enemy_ai_turn_auto_drives_through_identical_pipeline_after_end_turn() 
 		instance.round_session.is_round_over(),
 		"passing the player's turn with no damage yet dealt must not conclude the round"
 	)
+
+	# Marigold (the roster's second, castable party member -- Iteration M
+	# "Cast a Spell") now sits BETWEEN Titus and the Skeleton in round 1's
+	# turn order. RoundSession/TurnController only auto-drives Enemy turns
+	# (presentation/turn_controller.gd's _drive() breaks its auto-drive loop
+	# the moment current_actor() is a living, non-enemy combatant) -- so
+	# Titus's own End Turn press above settles on Marigold's turn first, and
+	# an EXTRA manual End Turn press (Marigold passing, with no action spent
+	# -- the SAME "EndTurnControl is ALWAYS available" contract Titus's own
+	# turn already relies on) is required before the Skeleton's turn is ever
+	# reached and auto-driven.
+	assert_false(
+		instance.round_session.current_actor().is_enemy,
+		"fixture assumption: Marigold (the second living player combatant) must act next, ahead of the Skeleton"
+	)
+	var pass_result: Dictionary = instance.end_turn_control.press()
+	assert_true(pass_result.get("ok", false), "the real $EndTurnControl must forward to RoundSession.end_current_turn() successfully for Marigold's passed turn")
 
 	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 	assert_eq(

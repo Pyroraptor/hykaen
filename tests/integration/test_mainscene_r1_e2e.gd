@@ -24,7 +24,7 @@ extends GutTest
 ##      attack" invariant, and the Dodge-Step relocation, must BOTH still
 ##      hold when interleaved).
 ##
-## seed_override=7 is pinned (mirrors tests/gut/test_log_single_row_per_attack.gd's
+## seed_override=1 is pinned (mirrors tests/gut/test_log_single_row_per_attack.gd's
 ## own established fixture note verbatim): the smallest seed under which the
 ## player's opening Strike does NOT defeat the Skeleton outright (so it
 ## survives to take its own turn) — this suite additionally forces the
@@ -32,7 +32,7 @@ extends GutTest
 ## Mobility skill set absurdly high, mirroring
 ## tests/gut/test_defense_segment_reaction_outcomes.gd's
 ## `_force_guaranteed_dodge_success()` convention) rather than depending on
-## seed=7's own natural roll for THAT Strike.
+## seed=1's own natural roll for THAT Strike.
 ##
 ## Every collaborator driven below (`verb_bar_view`, `hex_grid_view`,
 ## `round_session`, `end_turn_control`, `event_log_view`,
@@ -122,6 +122,17 @@ func _force_guaranteed_dodge_success(instance) -> void:
 ## SAME real "end Titus's turn -> Skeleton auto-drives its Strike against
 ## Titus" flow tests/gut/test_rich_log_enemy_attack.gd already established,
 ## but with the PreHitAvoidance resolver scripted to ALWAYS choose "dodge".
+##
+## Marigold (the roster's second, castable party member -- Iteration M "Cast
+## a Spell") now sits BETWEEN Titus and the Skeleton in round 1's turn order.
+## RoundSession/TurnController only auto-drives Enemy turns (see
+## presentation/turn_controller.gd's _drive(), which breaks its auto-drive
+## loop the moment current_actor() is a living, non-enemy combatant) -- so
+## Titus's own End Turn press settles on Marigold's turn first, and an EXTRA
+## manual End Turn press (Marigold passing, with no action spent -- the SAME
+## "EndTurnControl is ALWAYS available" contract Titus's own turn already
+## relies on) is required before the Skeleton's turn is ever reached and
+## auto-driven.
 func _resolve_one_real_enemy_strike_with_forced_dodge(instance) -> void:
 	var prehit_resolver := _FixedChoiceResolver.new("dodge")
 	var onhit_resolver := _FixedChoiceResolver.new("none")
@@ -133,6 +144,16 @@ func _resolve_one_real_enemy_strike_with_forced_dodge(instance) -> void:
 		press_result.get("ok", false),
 		"the real EndTurnControl.press() must forward to RoundSession.end_current_turn() successfully"
 	)
+
+	# Pass every OTHER living, player-controlled combatant's turn (Marigold)
+	# before the Skeleton's turn is reached -- TurnController auto-drives ONLY
+	# Enemy turns, never a second player-controlled combatant's.
+	while not instance.round_session.is_round_over() and not instance.round_session.current_actor().is_enemy:
+		var pass_result: Dictionary = instance.end_turn_control.press()
+		assert_true(
+			pass_result.get("ok", false),
+			"the real EndTurnControl.press() must forward to RoundSession.end_current_turn() successfully for every other living player-controlled combatant (Marigold) ahead of the Skeleton's turn"
+		)
 
 
 func _attack_row_indices(instance) -> Array:
@@ -176,7 +197,7 @@ func _assert_seams_are_the_real_composition_root_bindings(instance) -> void:
 
 
 func test_round1_player_strike_then_enemy_forced_dodge_strike_each_produce_one_row_and_dodge_step_relocates_defender() -> void:
-	var instance = _boot_main_scene_with_seed(7)
+	var instance = _boot_main_scene_with_seed(1)
 	await get_tree().process_frame
 
 	assert_eq(instance.event_log_view.get_entry_count(), 0, "sanity: the log must start empty before any Strike is scripted")

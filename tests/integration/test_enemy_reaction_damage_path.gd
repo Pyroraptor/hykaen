@@ -99,6 +99,16 @@ func _press_end_turn_and_drive_enemy_strike(instance) -> void:
 		"fixture assumption: Titus (the player) acts first at seed=%d" % PROLOGUE_SEED
 	)
 	instance.verb_bar_view.press(END_TURN)
+	# Marigold (the second, player-controlled party member added alongside
+	# Titus) now holds the cursor -- RoundSession/TurnController only
+	# auto-drives AI (enemy) turns, never a second living player combatant --
+	# so an explicit manual End Turn is required here too before the
+	# Skeleton's turn (and its Strike) is ever reached.
+	assert_false(
+		instance.round_session.current_actor().is_enemy,
+		"fixture assumption: Marigold (the second party member) acts second, before the enemy, at seed=%d" % PROLOGUE_SEED
+	)
+	instance.verb_bar_view.press(END_TURN)
 
 
 func _latest_structured_attack_event(instance):

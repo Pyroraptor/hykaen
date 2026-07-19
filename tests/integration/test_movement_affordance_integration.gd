@@ -128,9 +128,10 @@ func test_real_mainscene_boots_headlessly_with_the_real_movement_affordance_stac
 		"MainScene must wire the REAL presentation/turn_controller.gd TurnController -- no stub/mock"
 	)
 
-	# Sanity check: the hex battlefield rendered at least the two prologue
-	# combatants' tokens (Titus + Skeleton) via the real HexGridView.
-	assert_eq(instance.hex_grid_view.get_token_count(), 2, "the real HexGridView must render one token per prologue combatant")
+	# Sanity check: the hex battlefield rendered one token per prologue
+	# combatant (Titus + Marigold + Skeleton, Iteration M "Cast a Spell"
+	# roster) via the real HexGridView.
+	assert_eq(instance.hex_grid_view.get_token_count(), 3, "the real HexGridView must render one token per prologue combatant")
 
 
 # ══════════════════════════════════════════════════════════════════════════

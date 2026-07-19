@@ -141,10 +141,12 @@ func test_clicking_end_turn_advances_the_turn_cursor_through_the_real_turn_port(
 
 	# TurnState genuinely advanced -- the real RoundSession.end_current_turn()
 	# ran (this is the SAME TurnPort.end_turn() the design notes name), proven
-	# through the real event sink's TurnAdvancedEvent trail rather than by
-	# comparing actor names (the prologue's two combatants alternate turns and
-	# so settle back on the SAME named actor, Titus, once TurnController has
-	# auto-driven the Skeleton's Enemy turn in between, US-011).
+	# through the real event sink's TurnAdvancedEvent trail. The prologue
+	# roster now seats a SECOND living, player-controlled combatant
+	# (Marigold, "player_1") between Titus and the Skeleton in turn order --
+	# so this FIRST End Turn press settles the cursor on Marigold directly
+	# (never auto-driven, since Marigold is not an Enemy), producing exactly
+	# one TurnAdvancedEvent so far.
 	var turn_advanced_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.TurnAdvancedEvent)
 	assert_true(
 		instance.round_session.is_round_over() or turn_advanced_events.size() >= 1,
@@ -153,18 +155,32 @@ func test_clicking_end_turn_advances_the_turn_cursor_through_the_real_turn_port(
 	assert_true(instance.event_sink.log.size() > events_before, "ending the turn must emit at least one new round event through the real event sink")
 
 	if not instance.round_session.is_round_over():
-		# With only two combatants (Titus/Skeleton), TurnController must have
-		# auto-driven the Skeleton's Enemy turn (US-011) and settled the
-		# cursor back on a LIVING PLAYER combatant -- never left sitting on
-		# the Enemy.
+		# The cursor must never have landed on the Enemy without
+		# TurnController auto-driving its turn -- true here trivially,
+		# since the immediate next actor (Marigold) is herself a player.
 		assert_false(
 			instance.round_session.current_actor().is_enemy,
-			"TurnController must auto-drive any Enemy turn so RoundSession settles back on a player combatant"
+			"TurnController must never settle RoundSession on an un-auto-driven Enemy turn"
 		)
-		assert_true(
-			turn_advanced_events.size() >= 2,
-			"both End Turn's own cursor advance and the auto-driven Enemy turn's cursor advance must be observable through the real event sink"
-		)
+
+		# Press End Turn again for Marigold's own turn (a free pass, no
+		# action spent) -- THIS is the press that finally hands the cursor
+		# to the Skeleton, whose Enemy turn TurnController._drive() must
+		# then auto-drive (US-011), settling back on a LIVING PLAYER
+		# combatant (Titus) -- never left sitting on the Enemy.
+		var second_result = instance.verb_bar_view.press(END_TURN)
+		assert_true(second_result.get("ok", false), "Marigold's own End Turn press must also resolve successfully through the same real TurnPort path")
+
+		if not instance.round_session.is_round_over():
+			assert_false(
+				instance.round_session.current_actor().is_enemy,
+				"TurnController must auto-drive any Enemy turn so RoundSession settles back on a player combatant"
+			)
+			turn_advanced_events = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.TurnAdvancedEvent)
+			assert_true(
+				turn_advanced_events.size() >= 3,
+				"Titus's own End Turn advance, Marigold's own End Turn advance, AND the auto-driven Enemy turn's cursor advance must all be observable through the real event sink"
+			)
 
 
 func test_clicking_end_turn_settles_the_ui_back_at_layer1_verb_select() -> void:

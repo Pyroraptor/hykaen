@@ -122,10 +122,11 @@ func test_seed_override_produces_identical_event_sequence_across_two_boots() -> 
 
 	# Sanity check that this is genuinely the KEPT single stack, not a
 	# resurrected duplicate (FEAT-001/US-001): exactly one HexGridView token
-	# set, matching the prologue's two combatants.
+	# set, matching the prologue's three combatants (Titus, Marigold, and the
+	# Skeleton -- Iteration M's "Cast a Spell" roster addition of Marigold).
 	assert_eq(
-		instance_1.hex_grid_view.get_token_count(), 2,
-		"fixture assumption: the kept single HexGridView stack renders both prologue combatants"
+		instance_1.hex_grid_view.get_token_count(), 3,
+		"fixture assumption: the kept single HexGridView stack renders all three prologue combatants"
 	)
 
 	assert_eq(

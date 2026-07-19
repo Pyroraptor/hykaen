@@ -136,13 +136,18 @@ func _wire_event_log_seam(instance) -> Array:
 	return recorded_attacks
 
 
-## _advance_to_enemy_turn(instance) -> void — ends Titus's own turn via the
-## real RoundSession.end_current_turn() (a FREE pass — US-002/ADR-010's
-## documented contract: spends no action, leaves Titus's full ActionEconomy
+## _advance_to_enemy_turn(instance) -> void — ends Titus's own turn, then
+## Marigold's own turn (both FREE passes — US-002/ADR-010's documented
+## contract: spends no action, leaves each combatant's full ActionEconomy
 ## budget available for the reactions this suite is about to script), so the
 ## round cursor settles on the Skeleton (the prologue fixture's sole enemy) —
 ## the precondition every scenario below needs before calling
 ## advance_ai_turn() directly as the sole entry point for the Strike itself.
+## The prologue roster now seats a second living, player-controlled combatant
+## (Marigold, "player_1") between Titus and the enemy in turn order —
+## RoundSession/TurnController only auto-drives AI (enemy) turns, never other
+## living player combatants, so this helper must manually pass Marigold's
+## turn too before the cursor reaches the enemy.
 func _advance_to_enemy_turn(instance) -> void:
 	assert_false(
 		instance.round_session.current_actor().is_enemy,
@@ -150,6 +155,9 @@ func _advance_to_enemy_turn(instance) -> void:
 	)
 	var end_result: Dictionary = instance.round_session.end_current_turn()
 	assert_true(end_result.get("ok", false), "ending Titus's own turn (no action taken) must succeed")
+	if not instance.round_session.current_actor().is_enemy:
+		var marigold_end_result: Dictionary = instance.round_session.end_current_turn()
+		assert_true(marigold_end_result.get("ok", false), "ending Marigold's own turn (no action taken) must succeed")
 	assert_true(
 		instance.round_session.current_actor().is_enemy,
 		"the round cursor must now sit on the Skeleton enemy"

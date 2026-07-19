@@ -199,8 +199,17 @@ func test_verb_bar_availability_does_not_throw_while_the_enemy_is_the_current_ac
 	# Advance the cursor directly (bypassing EndTurnControl's own auto-drive
 	# wiring) so the Enemy becomes current_actor() while the availability
 	# closures are queried, without immediately auto-resolving its turn.
+	# The prologue roster now seats a second living, player-controlled
+	# combatant (Marigold, "player_1") between Titus and the enemy in turn
+	# order, so a single end_current_turn() call only advances the cursor
+	# onto Marigold's own turn -- a second manual end_current_turn() call
+	# (Marigold's own, free pass) is required to hand the cursor to the
+	# Enemy.
 	var end_turn_result: Dictionary = instance.round_session.end_current_turn()
 	assert_true(end_turn_result.get("ok", false), "fixture assumption: end_current_turn() must succeed")
+	if not instance.round_session.current_actor().is_enemy:
+		var marigold_end_turn_result: Dictionary = instance.round_session.end_current_turn()
+		assert_true(marigold_end_turn_result.get("ok", false), "fixture assumption: ending Marigold's own turn must succeed")
 	assert_true(instance.round_session.current_actor().is_enemy, "fixture assumption: the cursor now sits on the Enemy")
 
 	var strike_available = instance._verb_registry.is_available("STRIKE")

@@ -23,11 +23,28 @@ func _boot_main_scene_with_seed(seed_value: int):
 ## 959, under which Titus still wins initiative and the same real-budget-
 ## depletion scenario this probe exercises holds under the CORRECTED
 ## initiative computation.
+##
+## Iteration M ("Cast a Spell"): the prologue roster now also includes
+## Marigold (a spellcaster, "player_1"), whose own initiative roll consumes
+## an extra draw off the SAME shared, seeded random_port stream ahead of
+## Titus's — for BOTH of this probe's pinned seeds (959, 13269), the turn
+## order under the three-combatant roster is now Marigold (player_1) ->
+## Titus (player_0) -> Skeleton (enemy_0), verified directly against this
+## exact boot. This probe's actual concern is real per-ROUND ActionEconomy
+## budget depletion for a Strike-capable combatant (Marigold, a spellcaster,
+## has no Strike verb available at all) — so Marigold's own leading turn is
+## ended first (via the SAME real verb_bar_view.press("END_TURN") flow the
+## rest of this suite already uses) to reach Titus, the fixture's intended
+## melee striker, before the probe's loop begins.
 func test_probe_real_depletion(seed_value = use_parameters([959, 13269])) -> void:
 	var instance = _boot_main_scene_with_seed(seed_value)
 	await get_tree().process_frame
 
+	if not instance.round_session.current_actor().is_enemy and instance.round_session.current_actor().display_id() != "player_0":
+		instance.verb_bar_view.press("END_TURN")
+
 	var actor_id: String = instance.round_session.current_actor().display_id()
+	assert_eq(actor_id, "player_0", "fixture assumption: Titus (player_0), the melee striker, must be the actor driving this probe")
 	var enemy_id: String = ""
 	for e in instance._enemies:
 		enemy_id = e.combatant_id

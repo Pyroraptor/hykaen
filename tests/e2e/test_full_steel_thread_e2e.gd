@@ -506,6 +506,16 @@ func test_enemy_ai_leg_strides_toward_nearest_target_but_does_not_strike_same_tu
 	var end_turn_result: Dictionary = instance.end_turn_control.press()
 	assert_true(end_turn_result.get("ok", false), "ending the player's turn (no action taken) must succeed")
 
+	# The prologue roster now seats a SECOND living, player-controlled
+	# combatant (Marigold, player_1) between Titus and the enemy in turn
+	# order. $TurnController only auto-drives AI (enemy) turns, not other
+	# living player combatants, so this suite must also manually end
+	# Marigold's turn (WITHOUT acting, same as Titus above) before the
+	# enemy's own AI turn is reached.
+	if not instance.round_session.current_actor().is_enemy:
+		var marigold_end_turn_result: Dictionary = instance.end_turn_control.press()
+		assert_true(marigold_end_turn_result.get("ok", false), "ending Marigold's turn (no action taken) must succeed")
+
 	# ── Stride toward the nearest living target (US-004) ────────────────────
 	var moved_hex = enemy.hex_coord
 	assert_false(
@@ -610,6 +620,16 @@ func test_enemy_ai_leg_strides_but_does_not_strike_when_no_action_remains_after_
 	assert_false(instance.round_session.current_actor().is_enemy, "fixture assumption: the player still acts first")
 	var end_turn_result: Dictionary = instance.end_turn_control.press()
 	assert_true(end_turn_result.get("ok", false), "ending the player's turn (no action taken) must succeed")
+
+	# The prologue roster now seats a SECOND living, player-controlled
+	# combatant (Marigold, player_1) between Titus and the enemy in turn
+	# order. $TurnController only auto-drives AI (enemy) turns, not other
+	# living player combatants, so this suite must also manually end
+	# Marigold's turn (WITHOUT acting, same as Titus above) before the
+	# enemy's own AI turn is reached.
+	if not instance.round_session.current_actor().is_enemy:
+		var marigold_end_turn_result: Dictionary = instance.end_turn_control.press()
+		assert_true(marigold_end_turn_result.get("ok", false), "ending Marigold's turn (no action taken) must succeed")
 
 	# The AI must still issue its Stride with the one remaining action...
 	var moved_hex = enemy.hex_coord

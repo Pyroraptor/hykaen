@@ -136,6 +136,17 @@ func test_boot_real_mainscene_scripted_enemy_strike_and_reaction_produces_rich_l
 	var press_result: Dictionary = instance.end_turn_control.press()
 	assert_true(press_result.get("ok", false), "the real EndTurnControl.press() must forward to RoundSession.end_current_turn() successfully")
 
+	# Iteration M ("Cast a Spell"): the prologue roster now seats Marigold (a
+	# second living, player-controlled combatant) BEFORE the Skeleton in turn
+	# order at this fixture's seed. TurnController only auto-drives Enemy
+	# turns (presentation/turn_controller.gd's _drive()), so Marigold's own
+	# turn needs an explicit manual End Turn / pass here too before the
+	# Skeleton's Strike is actually auto-driven.
+	var next_actor = instance.round_session.current_actor()
+	if next_actor != null and not next_actor.is_enemy:
+		press_result = instance.end_turn_control.press()
+		assert_true(press_result.get("ok", false), "the real EndTurnControl.press() must forward to RoundSession.end_current_turn() successfully for Marigold's pass")
+
 	assert_eq(scripted_resolver.calls.size(), 1, "the scripted PreHitAvoidance resolver must be awaited exactly once for the Skeleton's Strike against Titus")
 	var prehit_call: Dictionary = scripted_resolver.calls[0]
 	assert_eq(prehit_call.get("trigger_type", ""), "PreHitAvoidance", "the scripted resolver must have been awaited for a genuine PreHitAvoidance window")

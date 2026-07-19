@@ -31,6 +31,10 @@ func _enemy_spec() -> Dictionary:
 		"intuition":        0,
 		"weapon":           {"damage_die": 6, "proficiency_bonus": 1, "parry_bonus": 0, "block_value": 0, "block_die": 0},
 		"skills":           {"mobility": 1, "determination": 0},
+		# FEAT-002 (Iteration M P0-0): part of the canonical shape (like
+		# "skills" above) — 0 / [] for this non-caster enemy fixture.
+		"spellcasting_attribute_score": 0,
+		"known_spell_ids":  [],
 		"conditions":       ["Off-Guard"],
 		"_initiative_roll": 17,
 		"_is_enemy":        true,

@@ -1,22 +1,16 @@
 {
-  "_doc": "FEAT-255 (US-012, resolves PR-004) pinned-seed baseline fixture. Captured by driving the REAL res://MainScene.tscn composition root at seed=42 through exactly one END_TURN press (VerbBarView.press(\"END_TURN\"), Titus acts first at this seed so this hands the turn to the Skeleton and drives its full automated reaction/attack/turn-advance sequence back to Titus -- mirrors tests/regression/test_end_turn_direct_execute.gd's established END_TURN direct-execute convention), with every opened reaction_prompt_ui pop-up resolved via its own \"none\" option when offered. tests/regression/test_baseline_diff_regression.gd re-drives this IDENTICAL interaction and asserts every field below (the full ordered sequence of round events END_TURN's direct-execute -> automated enemy turn produces, plus the pre/post active-actor identity) stays byte-identical -- zero deltas.",
+  "_doc": "FEAT-255 (US-012, resolves PR-004) pinned-seed baseline fixture. Captured by driving the REAL res://MainScene.tscn composition root at seed=42 through exactly one END_TURN press (VerbBarView.press(\"END_TURN\")), with every opened reaction_prompt_ui pop-up resolved via its own \"none\" option when offered. tests/regression/test_baseline_diff_regression.gd re-drives this IDENTICAL interaction and asserts every field below stays byte-identical -- zero deltas. UPDATED (FEAT-002, Iteration M P0-0): the prologue roster now seats Marigold as a second living, player-controlled combatant (\"player_1\") between Titus and the Skeleton in turn order. Titus still acts first at this seed, but a single END_TURN press now only ends Titus's OWN turn and hands control to Marigold (a second living player) -- RoundSession/TurnController only auto-drives AI (enemy) turns, never a second living player combatant -- so this one press no longer reaches the Skeleton's automated reaction/attack/turn-advance sequence at all. Re-captured from a real, fresh MainScene boot at seed=42 after the roster change (two independent boots confirmed identical output before pinning here).",
   "seed": 42,
   "actor_before_name": "Titus",
-  "actor_after_name": "Titus",
+  "actor_after_name": "Marigold",
   "end_turn_result": {
     "ok": true,
     "round_over": false
   },
   "event_class_sequence": [
-    "TurnAdvancedEvent",
-    "ReactionWindowOpenedEvent",
-    "ReactionResolvedBroadcast",
-    "ReactionWindowOpenedEvent",
-    "ReactionResolvedBroadcast",
-    "AttackBroadcast",
     "TurnAdvancedEvent"
   ],
-  "event_count": 7,
+  "event_count": 1,
   "log_count_before": 0,
-  "log_count_after": 1
+  "log_count_after": 0
 }

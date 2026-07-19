@@ -248,9 +248,20 @@ func test_pressing_end_turn_control_advances_cursor_and_auto_drives_enemy_turn()
 	var press_result: Dictionary = instance.end_turn_control.press()
 	assert_true(press_result.get("ok", false), "EndTurnControl.press() must forward to RoundSession.end_current_turn() successfully")
 
-	# RoundSession.end_current_turn() must have run: with only two
-	# combatants in the prologue encounter (Titus/Skeleton), the cursor
-	# fully cycles back to the SAME first actor once TurnController has
+	# The prologue roster now seats a second living, player-controlled
+	# combatant (Marigold, "player_1") between Titus and the enemy in turn
+	# order -- TurnController only auto-drives AI (enemy) turns, never other
+	# living player combatants, so this first press only advances the cursor
+	# onto Marigold's own turn (no auto-drive fires yet). A second manual
+	# End Turn press (Marigold's own, free pass) is required to hand the
+	# cursor to the Skeleton and trigger TurnController's auto-drive.
+	if not instance.round_session.is_round_over() and not instance.round_session.current_actor().is_enemy:
+		var marigold_press_result: Dictionary = instance.end_turn_control.press()
+		assert_true(marigold_press_result.get("ok", false), "ending Marigold's own turn via EndTurnControl must succeed")
+
+	# RoundSession.end_current_turn() must have run: with three combatants
+	# in the prologue encounter (Titus/Marigold/Skeleton), the cursor
+	# fully cycles back to a living player actor once TurnController has
 	# auto-driven the Skeleton's Enemy turn in between (US-011) -- so the
 	# turn cursor having genuinely moved is proven via the event trail
 	# (at least one TurnAdvancedEvent), not by the settled actor's name

@@ -26,17 +26,22 @@ extends GutTest
 ## G3's "trace-but-don't-apply" anti-pattern eliminated for BOTH call sites
 ## in the SAME live session, not just each in isolation).
 ##
-## Fixture note: seed_override=7 is pinned because, with this project's
-## Titus-vs-Skeleton prologue fixture, it is the smallest seed under which
-## (a) the player's opening Strike does NOT defeat the Skeleton (so the
-## Skeleton survives to take its own turn — most other seeds' opening
-## Strike is a one-shot kill against the Skeleton's hp=8, which would abort
-## the round before the enemy path ever fires) and (b) both Strikes resolve
-## as a Miss, which is the two-branch on_attack_event()/render_attack_entry()
-## format each still has to render richly (roll + "Defense: none.", the SAME
-## per-row fields checked in test_rich_log_player_attack.gd /
-## test_rich_log_enemy_attack.gd) — this suite does not depend on hit vs.
-## miss to prove the single-row invariant, only that Strike resolved at all.
+## Fixture note: seed_override=1 is pinned because, with this project's
+## Titus/Marigold-vs-Skeleton prologue fixture (the roster now seats a
+## second living, player-controlled combatant, Marigold, whose own initiative
+## roll consumes one extra draw from core/rules/rng.gd's single seeded
+## sequential stream, shifting every subsequent roll relative to any seed's
+## pre-Marigold behavior), it is the smallest seed under which (a) Titus
+## (the player) is genuinely the FIRST actor in turn order — required so
+## this suite's opening _resolve_one_real_player_strike() call has a
+## Strike to make at all — and (b) the player's opening Strike does NOT
+## defeat the Skeleton (so the Skeleton survives to take its own turn once
+## Marigold's own turn is also passed — most other seeds' opening Strike is
+## a one-shot kill against the Skeleton's hp=8, which would abort the round
+## before the enemy path ever fires). This suite does not depend on hit vs.
+## miss to prove the single-row invariant (at seed=1 the opening Strike is
+## actually a Critical Hit, not a Miss) — only that each Strike resolved at
+## all and rendered its own single rich row.
 ##
 ## Verifies (test_criteria):
 ##   1. Booting real MainScene and scripting one player attack and one enemy
@@ -104,6 +109,20 @@ func _resolve_one_real_enemy_strike(instance) -> void:
 		"the real EndTurnControl.press() must forward to RoundSession.end_current_turn() successfully"
 	)
 
+	# FEAT-002 (Iteration M P0-0): the prologue roster now seats Marigold as a
+	# second living, player-controlled combatant ("player_1") between Titus
+	# and the Skeleton in turn order. RoundSession/TurnController only
+	# auto-drives AI (enemy) turns, never a second living player -- so
+	# Titus's own End Turn press above only hands the turn to Marigold; a
+	# second press (Marigold's free pass) is required before the Skeleton's
+	# AI turn (and therefore its Strike) is actually reached.
+	if not instance.round_session.current_actor().is_enemy:
+		var second_press_result: Dictionary = instance.end_turn_control.press()
+		assert_true(
+			second_press_result.get("ok", false),
+			"the real EndTurnControl.press() must forward to RoundSession.end_current_turn() successfully for Marigold's turn too"
+		)
+
 
 ## _attack_row_indices(instance) -> Array[int] — every append-order index
 ## whose rendered text is an "... attacks ..." row (the fingerprint shared by
@@ -125,7 +144,7 @@ func _attack_row_indices(instance) -> Array:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_one_player_attack_and_one_enemy_attack_each_produce_exactly_one_row() -> void:
-	var instance = _boot_main_scene_with_seed(7)
+	var instance = _boot_main_scene_with_seed(1)
 	await get_tree().process_frame
 
 	assert_eq(instance.event_log_view.get_entry_count(), 0, "sanity: the log must start empty before any Strike is scripted")
@@ -196,7 +215,7 @@ func test_one_player_attack_and_one_enemy_attack_each_produce_exactly_one_row() 
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_non_visible_status_panel_consumer_is_unaffected_by_log_row_suppression() -> void:
-	var instance = _boot_main_scene_with_seed(7)
+	var instance = _boot_main_scene_with_seed(1)
 	await get_tree().process_frame
 
 	assert_not_null(instance.status_panel_view, "MainScene.status_panel_view must be wired after boot")

@@ -108,6 +108,16 @@ func _drive_incoming_strike_and_choose(instance, on_hit_choice: String) -> Array
 		"fixture assumption: Titus (the player) acts first at seed=%d" % PROLOGUE_SEED
 	)
 	instance.verb_bar_view.press("END_TURN")
+	# The roster now includes Marigold (a second, player-controlled combatant,
+	# "player_1"), who acts second at seed=42 -- BEFORE the Skeleton's turn.
+	# TurnController only auto-drives Enemy turns (US-011), so ending Titus's
+	# turn alone now stops the cursor on Marigold, not the enemy; an extra
+	# manual End Turn is required to advance past her turn too.
+	assert_false(
+		instance.round_session.current_actor().is_enemy,
+		"fixture assumption: Marigold (the second player combatant) acts second at seed=%d" % PROLOGUE_SEED
+	)
+	instance.verb_bar_view.press("END_TURN")
 	assert_true(instance.reaction_prompt_ui.is_open(), "the PreHitAvoidance pop-up must open for the incoming Strike")
 	instance.reaction_prompt_ui.press_option("none")
 	assert_true(instance.reaction_prompt_ui.is_open(), "the OnHitMitigation pop-up must open once the Strike is confirmed to hit")

@@ -142,16 +142,36 @@ func _force_guaranteed_dodge_success(instance) -> void:
 ## (mirrors test_defense_segment_reaction_outcomes.gd's own
 ## `_resolve_one_real_enemy_strike()` convention) — forcing a genuine
 ## PreHitAvoidance Dodge resolution to happen for the Skeleton's Strike.
+##
+## The prologue roster now seats a SECOND living, player-controlled combatant
+## (Marigold, "player_1") between Titus and the Skeleton in turn order.
+## presentation/turn_controller.gd's _drive() auto-resolves ONLY consecutive
+## Enemy turns — it never auto-passes another player-controlled combatant's
+## turn. So ending Titus's turn now lands the cursor on Marigold (still a
+## player turn), and only a SECOND EndTurnControl.press() (Marigold free-
+## passing, spending no action) advances the cursor onto the Skeleton, whose
+## turn _drive() then auto-resolves via advance_ai_turn() as before.
 func _resolve_one_real_enemy_strike_with_forced_dodge(instance) -> void:
 	var prehit_resolver := _FixedChoiceResolver.new("dodge")
 	var onhit_resolver := _FixedChoiceResolver.new("none")
 	instance.round_session.set_prehit_avoidance_resolver_fn(Callable(prehit_resolver, "resolve"))
 	instance.round_session.set_onhit_mitigation_resolver_fn(Callable(onhit_resolver, "resolve"))
 
+	# End Titus's turn — the cursor advances to Marigold (player_1), a second
+	# living player-controlled combatant that is never auto-driven.
 	var press_result: Dictionary = instance.end_turn_control.press()
 	assert_true(
 		press_result.get("ok", false),
 		"the real EndTurnControl.press() must forward to RoundSession.end_current_turn() successfully"
+	)
+
+	# End Marigold's turn (free pass, no action spent) — this advances the
+	# cursor onto the Skeleton, whose turn turn_controller._drive() then
+	# auto-resolves via advance_ai_turn() before this second press() returns.
+	press_result = instance.end_turn_control.press()
+	assert_true(
+		press_result.get("ok", false),
+		"the real EndTurnControl.press() must forward Marigold's free-pass turn to RoundSession.end_current_turn() successfully"
 	)
 
 

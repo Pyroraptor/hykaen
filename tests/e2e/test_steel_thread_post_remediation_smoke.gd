@@ -142,7 +142,7 @@ func test_boots_real_main_scene_with_injected_seed_and_reaches_interactive_state
 	assert_false(instance.round_session.is_round_over(), "the freshly-begun RoundSession must not already be over with zero player input")
 
 	assert_not_null(instance.hex_grid_view, "MainScene must expose a non-null hex_grid_view")
-	assert_eq(instance.hex_grid_view.get_token_count(), 2, "HexGridView must render one token per live combatant")
+	assert_eq(instance.hex_grid_view.get_token_count(), 3, "HexGridView must render one token per live combatant")
 
 	assert_not_null(instance.event_log_view, "MainScene must expose a non-null event_log_view")
 	assert_eq(instance.event_log_view.get_entry_count(), 0, "fixture assumption: no events have been logged yet before any player input")
@@ -170,7 +170,7 @@ func test_full_journey_strike_pass_ai_turn_and_result_screen_stays_locked_throug
 	await get_tree().process_frame
 
 	# ── Boot-time render assertions (hex grid + event log) ──────────────────
-	assert_eq(instance.hex_grid_view.get_token_count(), 2, "HexGridView must render both combatant tokens at boot")
+	assert_eq(instance.hex_grid_view.get_token_count(), 3, "HexGridView must render both combatant tokens at boot")
 	assert_eq(instance.event_log_view.get_entry_count(), 0, "fixture assumption: no events logged before any input")
 	assert_false(instance.result_screen_view.is_shown(), "fixture assumption: no result is shown before any input")
 
@@ -325,11 +325,13 @@ func test_hex_grid_view_resyncs_token_position_after_step_and_stride() -> void:
 	const PLAYER_ID: String = "player_0"
 
 	# Titus starts at (0,0) (prologue_encounter.tres); the Skeleton occupies
-	# (1,0). (-1,0) is one of (0,0)'s 6 flat-top axial neighbors and is
-	# unoccupied -- a legal Step destination.
-	var step_destination := HexCoordClass.new(-1, 0)
+	# (1,0) and Marigold (the prologue roster's second party member, added
+	# per Iteration M "Cast a Spell") occupies (-1,0). (0,1) is one of
+	# (0,0)'s 6 flat-top axial neighbors and remains unoccupied -- a legal
+	# Step destination.
+	var step_destination := HexCoordClass.new(0, 1)
 	var step_result: Dictionary = instance.movement_input_controller.step_to(step_destination)
-	assert_true(step_result.get("ok", false), "fixture assumption: Step to (-1,0) must succeed: %s" % step_result)
+	assert_true(step_result.get("ok", false), "fixture assumption: Step to (0,1) must succeed: %s" % step_result)
 
 	var domain_actor = instance._party[0]
 	assert_true(
@@ -357,10 +359,10 @@ func test_hex_grid_view_resyncs_token_position_after_step_and_stride() -> void:
 	)
 	action_economy.start_of_turn()
 
-	# From (-1,0), Stride to (-4,0) -- hex_distance 3, within Speed (4) and unoccupied.
-	var stride_destination := HexCoordClass.new(-4, 0)
+	# From (0,1), Stride to (0,4) -- hex_distance 3, within Speed (4) and unoccupied.
+	var stride_destination := HexCoordClass.new(0, 4)
 	var stride_result: Dictionary = instance.movement_input_controller.stride_to(stride_destination)
-	assert_true(stride_result.get("ok", false), "fixture assumption: Stride to (-4,0) must succeed: %s" % stride_result)
+	assert_true(stride_result.get("ok", false), "fixture assumption: Stride to (0,4) must succeed: %s" % stride_result)
 
 	assert_true(
 		domain_actor["hex_coord"].equals(stride_destination),
