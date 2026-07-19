@@ -346,13 +346,53 @@ func _controller(verb_id: String):
 ## supplied one, else the entry's own (possibly still-null) targeting_payload.
 ## Reports {ok: false, reason: "ERR_CONTROLLER_NOT_FOUND"} for an entry whose
 ## verb_id has no resolvable controller, rather than crashing.
+##
+## Each real sub-controller's OWN execute() (StrideActionController /
+## StrikeActionController, unmodified) still spends its own action from the
+## actor's live core/rules/action_economy.gd ActionEconomy -- a proper
+## no-self-spend execution mode (per-sub-action charges suppressed, exactly
+## ONE action + one Stamina charged at the Combine level via the ledger) is
+## the design notes' longer-term shape and remains a later Iteration N
+## feature (the single-charge invariant, US-008). Without SOME allowance
+## here, though, a queue's SECOND-or-later sub-action would always be
+## rejected with ACTION_ALREADY_USED (ADR-103's real "exactly one
+## spend_action() per turn" gate) the instant the FIRST sub-action (e.g.
+## Stride) legitimately spends the actor's one action -- silently breaking
+## this feature's own exit-point contract (a queued Strike could never
+## resolve after a queued Stride for ANY real actor). `_allow_next_sub_action_spend()`
+## below is the minimal stopgap: it clears ONLY the per-TURN
+## spend_action()-already-used gate (via the SAME public
+## ActionEconomy.start_of_turn() every turn boundary already calls) before
+## each sub-action's own execute(), and ONLY when the actor's per-ROUND
+## budget is not already exhausted (is_spent()) -- so a genuinely
+## budget-exhausted actor still cannot be forced through Combine. This is
+## intentionally narrower than a real no-self-spend mode (it does not yet
+## enforce the "exactly one action" ledger invariant -- a queue's real
+## budget still drops by one per sub-action that spends), which is why it
+## stays scoped to unblocking this feature's own resolution-ordering
+## contract rather than reimplementing US-008 here.
 func _sub_action_resolver(sel: Dictionary) -> Callable:
 	return func(entry):
 		var controller = _controller(entry.verb_id)
 		if controller == null:
 			return {"ok": false, "reason": "ERR_CONTROLLER_NOT_FOUND"}
+		_allow_next_sub_action_spend()
 		var payload = sel.get(entry.verb_id, entry.targeting_payload)
 		return await controller.execute(payload)
+
+
+## _allow_next_sub_action_spend() -> void — see `_sub_action_resolver()`'s
+## own doc above for the full rationale. Clears the actor's live
+## ActionEconomy per-turn "already spent an action this turn" gate via the
+## SAME public `start_of_turn()` API every turn boundary already calls --
+## never reaches into ActionEconomy's private fields -- but ONLY when the
+## actor's per-ROUND budget is not already exhausted, so this can never let
+## a genuinely Spent actor take a sub-action. No-op when there is no live
+## action economy (e.g. a test double session that supplies null).
+func _allow_next_sub_action_spend() -> void:
+	var economy = current_action_economy()
+	if economy != null and not economy.is_spent() and not economy.can_take_action():
+		economy.start_of_turn()
 
 
 ## build_charge_queue() -> Array[SubActionQueueEntry] — FEAT-005 (US-005;
