@@ -116,6 +116,28 @@ const SubActionQueueEntryClass = preload("res://core/rules/sub_action_queue_entr
 ## a documented no-op in GDScript, so every PRE-FEAT-007 synchronous
 ## resolver (tests/unit/test_sub_action_queue_resolution.gd,
 ## tests/unit/test_combine_enter_selection.gd) is unaffected.
+##
+## FEAT-010 (US-010; FR-009; ADR-006) closes the abort-safety gap FEAT-008's
+## charge-first rework left open: FEAT-008 committed the Combine's own
+## action/Stamina charge BEFORE resolving the sub-action queue, so an
+## illegal/aborting sub-action (e.g. an illegal Stride destination) could
+## previously leave an ORPHANED spend -- a committed charge with zero
+## corresponding effect. `execute()` now runs a non-mutating
+## `_preflight_charge_check()` (replicating ActionEconomy.spend_action()'s
+## own precondition order via its existing public queries) BEFORE resolving
+## the queue -- so an already-exhausted action economy still aborts before
+## any sub-action runs, exactly as before -- but only COMMITS the real
+## charge once the queue reaches a committed (not aborted) terminal state.
+## `_sub_action_resolver()` also now classifies a failing STRIDE entry as a
+## hard {ok: false, reason: "ILLEGAL_SUB_TARGET"} abort (no effect ever
+## applied, so the whole Combine aborts with zero charge), and a STRIKE
+## entry whose target has been invalidated as a graceful
+## {ok: true, skipped: true, reason: "TARGET_INVALIDATED"} skip (the queue
+## still reaches a defined {ok: true} terminal state, and the ONE charge is
+## still committed, since an earlier entry's effect -- e.g. the queued
+## STRIDE's move -- already genuinely applied). See
+## tests/unit/test_combine_abort_illegal_stride.gd /
+## tests/unit/test_combine_target_invalidated_strike.gd.
 
 ## _controller_for_fn — FEAT-007: the data-driven sub-action-controller
 ## resolver, `deps["controller_for"]` (a Callable(verb_id: String) ->
@@ -263,11 +285,11 @@ func enter_selection(pair: Array = _default_charge_pair()) -> Dictionary:
 
 ## execute(selection) -> Dictionary — FEAT-002 (US-002; FR-001) + FEAT-003
 ## (US-003; FR-002; ADR-004) + FEAT-007 (US-007; the steel thread's exit
-## point): validates via core/rules/action_economy.gd
-## ActionEconomy.combine_actions() BEFORE spending any Stamina, THEN (FEAT-007)
-## queues and resolves the chosen sub-actions IN ORDER, each through its own
-## controller looked up via `_controller(verb_id)` (see this file's own
-## FEAT-005/FEAT-007 doc above):
+## point) + FEAT-010 (US-010; FR-009; ADR-006, abort-safe execution):
+## validates via core/rules/action_economy.gd ActionEconomy.combine_actions()
+## BEFORE spending any Stamina, THEN (FEAT-007) queues and resolves the
+## chosen sub-actions IN ORDER, each through its own controller looked up via
+## `_controller(verb_id)` (see this file's own FEAT-005/FEAT-007 doc above):
 ##   - combine_actions() is the SOLE Stamina-check code path (FR-002 /
 ##     ADR-004): on failure (stamina_pool < 1), execute() short-circuits
 ##     BEFORE any mutation and returns {ok: false, reason: "VALIDATION_FAILED"}
@@ -282,21 +304,57 @@ func enter_selection(pair: Array = _default_charge_pair()) -> Dictionary:
 ##                    HexCoord, selection["STRIKE"] is a target_id String) —
 ##                    falling back to the queue entry's own
 ##                    targeting_payload when the key is absent.
+##   - FEAT-010 (US-010): the Combine-level action/Stamina charge is now
+##     committed ONLY AFTER the sub-action queue reaches a committed (not
+##     aborted) terminal state — never before, so an illegal/aborting
+##     sub-action can never leave an "orphaned spend" (a committed charge
+##     with no corresponding effect). A non-mutating `_preflight_charge_check()`
+##     (below) still runs BEFORE the queue resolves, replicating
+##     ActionEconomy.spend_action()'s own precondition order (ALREADY_SPENT /
+##     ACTION_ALREADY_USED / MOVEMENT_ALREADY_USED) purely by reading its
+##     existing public queries (is_spent()/can_take_action()/
+##     can_take_movement_action()) — so a Combine whose action economy is
+##     already exhausted STILL fails before any sub-action resolves, exactly
+##     preserving FEAT-008's original charge-first guarantee
+##     (tests/unit/test_combine_single_charge.gd's
+##     test_combine_execute_fails_before_effects_when_action_already_used)
+##     without ever committing a charge that resolution might subsequently
+##     abort. "Movement" trait is tagged when the queue contains a STRIDE, so
+##     the movement lockout trips exactly once at the Combine level — the
+##     SAME gate every standalone Stride trips — rather than being bypassed
+##     or double-tripped (FEAT-009).
 ##   - Each entry resolves via resolve_sub_action_queue() (FEAT-005's
 ##     existing generic, order_index-ordered loop -- no second/duplicate
-##     resolution loop is authored here), whose resolver looks the entry's
-##     controller up via `_controller(entry.verb_id)` and awaits its
-##     execute(payload) call. Because the loop resolves strictly in order,
-##     a queued STRIKE always observes the actor's POST-move position when a
-##     STRIDE precedes it in the queue (see file-level doc). The loop stops
-##     at the first failing sub-action (resolve_sub_action_queue()'s existing
-##     contract), and execute() reports {ok: false, reason: <the failing
-##     entry's reason>, resolved_verb_ids: <ids resolved before it failed>}
-##     without ever spending Stamina for a Combine that didn't fully resolve.
-##   - On full success, Combine drains exactly one Stamina through
-##     Combatant.spend_stamina(), the SAME single mutator every earlier
-##     validation feature reads/writes through, so there is exactly one
-##     Stamina-consuming code path for a Combine execute() call, never a
+##     resolution loop is authored here), whose resolver (`_sub_action_resolver()`
+##     below) looks the entry's controller up via `_controller(entry.verb_id)`
+##     and awaits its execute(payload) call. Because the loop resolves
+##     strictly in order, a queued STRIKE always observes the actor's
+##     POST-move position when a STRIDE precedes it in the queue (see
+##     file-level doc).
+##       - A failing STRIDE entry (e.g. an illegal/no-longer-selectable
+##         destination) is classified {ok: false, reason: "ILLEGAL_SUB_TARGET"}
+##         by `_sub_action_resolver()` — this ABORTS the whole Combine (no
+##         sub-action past it is ever reached, no charge is ever committed,
+##         since Stride's own effect never applied): execute() reports
+##         {ok: false, reason: "ILLEGAL_SUB_TARGET", resolved_verb_ids: <ids
+##         resolved before it>} (FEAT-010; US-010).
+##       - A failing STRIKE entry whose target is no longer selectable (e.g.
+##         it died/left reach between the queued STRIDE committing and
+##         STRIKE's own resolution step) is classified as a GRACEFUL SKIP —
+##         {ok: true, skipped: true, reason: "TARGET_INVALIDATED"} — rather
+##         than aborting: the queue resolution loop continues/completes, so a
+##         Combine whose STRIDE already committed still reaches a defined
+##         {ok: true} terminal ExecutionResult (never a partial-effect abort)
+##         and its ONE charge is still committed below, since an effect (the
+##         Stride move) genuinely applied (FEAT-010; US-010).
+##   - Any other sub-action failure still aborts the whole Combine (no
+##     charge, no further sub-actions): execute() reports {ok: false, reason:
+##     <the failing entry's own reason>, resolved_verb_ids: <ids resolved
+##     before it failed>}.
+##   - On a committed terminal state, Combine drains exactly one Stamina
+##     through Combatant.spend_stamina(), the SAME single mutator every
+##     earlier validation feature reads/writes through, so there is exactly
+##     one Stamina-consuming code path for a Combine execute() call, never a
 ##     second/duplicate one.
 ##   - When no `controller_for` resolver was injected (deps lacks
 ##     "controller_for"), execute() degrades to the pre-FEAT-007
@@ -322,44 +380,25 @@ func execute(selection = null) -> Dictionary:
 
 	var sel: Dictionary = selection if selection is Dictionary else {}
 	var queue: Array = sel.get("queue", build_charge_queue())
+	var has_stride: bool = _queue_has_stride(queue)
 
-	# FEAT-008 (US-008; FR-007; ADR-003) — charge FIRST, before any sub-action
-	# effects. If the actor's action economy is already exhausted or _action_used
-	# this turn, spend_action() fails here with zero mutation (no sub-actions have
-	# run yet, so no position/HP changes have occurred). "Movement" trait is tagged
-	# when the queue contains a STRIDE, so the movement lockout trips exactly once
-	# at the Combine level — the SAME gate every standalone Stride trips — rather
-	# than being bypassed or double-tripped.
-	#
-	# FEAT-009 (US-009; FR-008) is this behaviour's own dedicated pinning
-	# feature: tests/unit/test_combine_movement_lockout.gd asserts that (a) a
-	# Charge (STRIDE+STRIKE) execute() trips the actor's live ActionEconomy
-	# Movement-trait lockout (can_take_movement_action() == false) exactly
-	# like a standalone Stride would, (b) a later standalone Movement-trait
-	# action attempt within the same turn is rejected by that SAME gate
-	# (ERR_MOVEMENT_LOCKED / MOVEMENT_ALREADY_USED — never a second/parallel
-	# lockout mechanism), and (c) a Combine whose resolved queue contains no
-	# STRIDE entry leaves the Movement lockout completely untouched. No
-	# production logic changes were required for FEAT-009 — the tagging
-	# below (authored as part of FEAT-008's charge-first rework) already
-	# satisfies it; this comment plus that test file are FEAT-009's own
-	# contribution.
+	# FEAT-010 (US-010; FR-009; ADR-006) — a non-mutating precondition peek,
+	# BEFORE any sub-action resolves, so an already-exhausted action economy
+	# still aborts a Combine with zero mutation (preserving FEAT-008's
+	# original charge-first guarantee) WITHOUT committing a charge this
+	# call might otherwise need to roll back if the queue subsequently
+	# aborts (see this method's own doc above).
 	var economy = current_action_economy()
 	if economy != null:
-		var has_stride: bool = false
-		for entry in queue:
-			if entry.verb_id == "STRIDE":
-				has_stride = true
-				break
-		var combine_traits: Array = ["Movement"] if has_stride else []
-		var charge: Dictionary = economy.spend_action({"name": "COMBINE", "traits": combine_traits})
-		if not charge.get("success", false):
-			return {"ok": false, "reason": charge.get("reason", "ACTION_UNAVAILABLE")}
+		var preflight: Dictionary = _preflight_charge_check(economy, has_stride)
+		if not preflight.get("ok", false):
+			return {"ok": false, "reason": preflight.get("reason", "ACTION_UNAVAILABLE")}
 
-	# Economy charged. Now resolve sub-actions under full suppression — each
-	# sub-controller's own spend_action() becomes a no-op (the budget and
-	# _action_used/_movement_used gates were already set by the charge above),
-	# but its own game effect (the move, the attack) still applies normally.
+	# Resolve sub-actions under full suppression — each sub-controller's own
+	# spend_action() becomes a no-op (the Combine's own charge, committed
+	# below only once this loop reaches a committed terminal state, is the
+	# ONE real action-economy mutation), but its own game effect (the move,
+	# the attack) still applies normally.
 	var resolution: Dictionary = await resolve_sub_action_queue(queue, _sub_action_resolver(sel))
 	if not resolution.get("ok", false):
 		return {
@@ -368,8 +407,62 @@ func execute(selection = null) -> Dictionary:
 			"resolved_verb_ids": resolution.get("resolved_verb_ids", []),
 		}
 
+	# FEAT-010: the queue reached a committed (not aborted) terminal state —
+	# NOW, and only now, commit the Combine's own single action-economy
+	# charge, tagged "Movement" once when the queue contained a STRIDE
+	# (FEAT-009). Defense in depth: this should be unreachable given the
+	# preflight check above (nothing else can mutate `economy` while
+	# sub-actions run under no-self-spend suppression), but on the
+	# (unreachable in practice) chance it still fails, report failure with
+	# zero further mutation rather than spending Stamina for a Combine whose
+	# own action charge itself failed.
+	if economy != null:
+		var combine_traits: Array = ["Movement"] if has_stride else []
+		var charge: Dictionary = economy.spend_action({"name": "COMBINE", "traits": combine_traits})
+		if not charge.get("success", false):
+			return {"ok": false, "reason": charge.get("reason", "ACTION_UNAVAILABLE")}
+
 	actor.spend_stamina()
-	return {"ok": true, "resolved_verb_ids": resolution.get("resolved_verb_ids", [])}
+	return {
+		"ok": true,
+		"resolved_verb_ids": resolution.get("resolved_verb_ids", []),
+		"skipped_verb_ids": resolution.get("skipped_verb_ids", []),
+	}
+
+
+## _queue_has_stride(queue) -> bool — true iff `queue` contains a STRIDE
+## entry. Shared by execute()'s preflight check and its post-resolution
+## charge tagging (FEAT-009/FEAT-010) so both consult the SAME single
+## derivation of "does this Combine's queue contain a Movement-trait
+## sub-action" rather than two independently-authored scans.
+func _queue_has_stride(queue: Array) -> bool:
+	for entry in queue:
+		if entry.verb_id == "STRIDE":
+			return true
+	return false
+
+
+## _preflight_charge_check(economy, has_stride) -> Dictionary — FEAT-010
+## (US-010; FR-009; ADR-006): a PURE, non-mutating read of the SAME
+## precondition order core/rules/action_economy.gd's ActionEconomy.spend_action()
+## itself enforces (ALREADY_SPENT -> ACTION_ALREADY_USED ->
+## MOVEMENT_ALREADY_USED), using only its existing public queries
+## (is_spent()/can_take_action()/can_take_movement_action()). This lets
+## execute() fail BEFORE any sub-action resolves when the actor's action
+## economy is already exhausted — matching the real spend_action() call's
+## own rejection exactly — without actually committing a charge (economy is
+## left completely untouched either way): the REAL commit happens only once
+## the sub-action queue below reaches a committed terminal state (see
+## execute()'s own doc). Returns {ok: true} when a real spend_action() call
+## with these same traits would be expected to succeed.
+func _preflight_charge_check(economy, has_stride: bool) -> Dictionary:
+	if economy.is_spent():
+		return {"ok": false, "reason": "ALREADY_SPENT"}
+	if not economy.can_take_action():
+		return {"ok": false, "reason": "ACTION_ALREADY_USED"}
+	if has_stride and not economy.can_take_movement_action():
+		return {"ok": false, "reason": "MOVEMENT_ALREADY_USED"}
+	return {"ok": true}
 
 
 ## _controller(verb_id) -> ActionController or null — FEAT-007: the SAME
@@ -414,13 +507,59 @@ func _controller(verb_id: String):
 ## (`_allow_next_sub_action_spend()`, which cleared the per-turn gate between
 ## sub-actions and let EACH one genuinely drain the shared budget) with the
 ## real no-self-spend mode the design always intended.
+##
+## FEAT-010 (US-010; FR-009; ADR-006) — abort-safe execution: a sub-action's
+## own targeting/legality check runs at exactly this point, immediately
+## before its own effect would apply (Stride/Strike's own execute()
+## contract, unchanged by this feature). A failing entry's result is
+## reclassified here, by verb, into exactly one of two outcomes:
+##   - A failing STRIDE entry (destination no longer/never a legal Stride
+##     destination -- StrideActionController's own execute() rejects it,
+##     via its movement collaborator, BEFORE any positional mutation) is
+##     reported {ok: false, reason: "ILLEGAL_SUB_TARGET"}, propagating a
+##     genuine failure up to resolve_sub_action_queue()'s existing
+##     stop-at-first-failure contract -- the whole Combine aborts, no charge
+##     is ever committed (execute() above only reaches its charge point once
+##     resolution succeeds), and no effect has applied for the aborted
+##     entry, so there is no orphaned spend.
+##   - A failing STRIKE entry whose target is no longer selectable (dead,
+##     out of reach, or otherwise invalidated between the queued STRIDE
+##     committing and this entry's own resolution step --
+##     StrikeActionController's own execute() reports
+##     "ERR_TARGET_NOT_SELECTABLE") is reported {ok: true, skipped: true,
+##     verb_id: "STRIKE", reason: "TARGET_INVALIDATED"} instead of a
+##     failure -- a GRACEFUL skip: resolve_sub_action_queue() treats this as
+##     a successfully-resolved entry (no abort), so the Combine still
+##     reaches a defined {ok: true} terminal ExecutionResult reflecting
+##     whatever DID commit (e.g. the queued STRIDE's own move) rather than
+##     discarding it. execute() above still commits its ONE charge in this
+##     case, since an effect (the earlier STRIDE) genuinely applied -- the
+##     no-orphaned-spend invariant is about spend WITHOUT effect, not about
+##     every sub-action necessarily completing.
+##   - Any other sub-action failure (an unresolved controller lookup, or a
+##     verb-specific rejection this feature does not special-case) is
+##     returned verbatim, preserving pre-FEAT-010 behaviour.
 func _sub_action_resolver(sel: Dictionary) -> Callable:
 	return func(entry):
 		var controller = _controller(entry.verb_id)
 		if controller == null:
 			return {"ok": false, "reason": "ERR_CONTROLLER_NOT_FOUND"}
 		var payload = sel.get(entry.verb_id, entry.targeting_payload)
-		return await controller.execute(payload, true)
+		var result: Dictionary = await controller.execute(payload, true)
+		if result.get("ok", false):
+			return result
+
+		if entry.verb_id == "STRIDE":
+			return {
+				"ok": false,
+				"reason": "ILLEGAL_SUB_TARGET",
+				"sub_error": result.get("error", result.get("reason", null)),
+			}
+
+		if entry.verb_id == "STRIKE" and result.get("error", "") == "ERR_TARGET_NOT_SELECTABLE":
+			return {"ok": true, "skipped": true, "verb_id": entry.verb_id, "reason": "TARGET_INVALIDATED"}
+
+		return result
 
 
 ## build_charge_queue() -> Array[SubActionQueueEntry] — FEAT-005 (US-005;
@@ -466,9 +605,22 @@ func build_charge_queue() -> Array:
 ## {ok: false, resolved_verb_ids: <ids resolved before the failure>,
 ## reason: <the failing entry's own reason, if any>}. When every entry
 ## resolves, returns {ok: true, resolved_verb_ids: <all verb_ids, in
-## resolution order>}.
+## resolution order>, skipped_verb_ids: <the subset of resolved_verb_ids
+## whose own resolver result carried "skipped": true>}.
+##
+## FEAT-010 (US-010; FR-009; ADR-006) adds `skipped_verb_ids` purely
+## additively -- a resolver may report {ok: true, skipped: true, ...} for an
+## entry that gracefully degraded rather than genuinely applying its effect
+## (e.g. presentation/combine_action_controller.gd's own `_sub_action_resolver()`
+## for a Strike whose target was invalidated -- see that method's own doc).
+## Such an entry still counts as "resolved" (ok=true, no abort) but is ALSO
+## surfaced in `skipped_verb_ids` so a caller (execute()) can distinguish "every
+## sub-action's effect genuinely applied" from "the queue reached a defined
+## terminal state, but not every entry's effect applied" without either loop
+## or caller re-deriving that distinction from resolver internals.
 func resolve_sub_action_queue(queue: Array, resolver: Callable) -> Dictionary:
 	var resolved_verb_ids: Array = []
+	var skipped_verb_ids: Array = []
 	var ordered: Array = SubActionQueueEntryClass.sorted(queue)
 	for entry in ordered:
 		# FEAT-007: awaited so an async resolver (e.g. one that calls a real
@@ -485,4 +637,6 @@ func resolve_sub_action_queue(queue: Array, resolver: Callable) -> Dictionary:
 				"reason": result.get("reason", null),
 			}
 		resolved_verb_ids.append(entry.verb_id)
-	return {"ok": true, "resolved_verb_ids": resolved_verb_ids}
+		if result.get("skipped", false):
+			skipped_verb_ids.append(entry.verb_id)
+	return {"ok": true, "resolved_verb_ids": resolved_verb_ids, "skipped_verb_ids": skipped_verb_ids}
