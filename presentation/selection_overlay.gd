@@ -373,8 +373,8 @@ func choose_option(option) -> void:
 		return
 	_chosen_option = option
 	_awaiting_option = false
-	# Per-option candidate_targets (e.g. ranged spells embed their target list
-	# in the option dict so Channel/self-cast spells can leave it empty).
+	# Per-option candidate_targets override (future verbs may embed a
+	# target list in the option dict to switch Layer-2b at pick time).
 	if option is Dictionary and "candidate_targets" in option:
 		_target_hex_by_id = _resolve_target_hexes(option.get("candidate_targets", []))
 		_candidate_hexes = []

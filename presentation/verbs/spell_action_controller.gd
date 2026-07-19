@@ -299,11 +299,7 @@ func enter_selection() -> Dictionary:
 			for spell_id in castable_ids:
 				var spell = _spell_catalog_port.get_spell(spell_id)
 				var label: String = spell.spell_name if spell != null and spell.spell_name != "" else spell_id
-				var targets: Array = []
-				if spell != null and spell.range_ft > 0 and _living_enemy_reactors_fn.is_valid():
-					for enemy in _living_enemy_reactors_fn.call():
-						targets.append(enemy.display_id())
-				spell_options.append({"id": spell_id, "label": label, "candidate_targets": targets})
+				spell_options.append({"id": spell_id, "label": label})
 
 	return {"verb_id": "CAST_SPELL", "candidate_options": spell_options, "candidate_hexes": [], "candidate_targets": []}
 
