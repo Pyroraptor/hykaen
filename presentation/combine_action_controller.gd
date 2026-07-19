@@ -43,14 +43,43 @@ const ActionEconomyClass = preload("res://core/rules/action_economy.gd")
 ## Stamina is rejected (ExecutionResult {ok:false, reason:"VALIDATION_FAILED"})
 ## with ZERO mutation — no parallel/duplicate ad-hoc stamina comparison is
 ## authored here; combine_actions() is the SOLE Stamina-check code path (see
-## execute()'s own doc below). The Dazed/Repeat checks combine_actions() also
-## performs are exercised against a fresh, never-Dazed ActionEconomy instance
-## constructed with placeholder Repeat-tagged actions for THIS feature's
-## scope only — real Dazed gating and the real N-length sub-action queue are
-## later Iteration N features layered on top, without changing this seam.
+## execute()'s own doc below). The Repeat check combine_actions() also
+## performs is exercised against placeholder Repeat-tagged actions for THIS
+## feature's scope only — real Repeat-trait/sub-action-pair selection and the
+## real N-length sub-action queue are later Iteration N features layered on
+## top, without changing this seam.
+##
+## FEAT-004 (US-004; FR-004) extracts this Stamina/Dazed check into the
+## shared `_validate_combine()` private helper below, reused by BOTH
+## availability() and execute() — so real, live Dazed gating (via
+## ActionEconomy.set_dazed()) now applies uniformly to both entry points,
+## with `action_economy.combine_actions()` remaining the file's SOLE
+## Stamina/Dazed-comparison call site (see `_validate_combine()`'s own doc).
 
 func _init(deps: Dictionary) -> void:
 	super(deps)
+
+
+## _validate_combine(actor) -> Dictionary — the SOLE Stamina/Dazed-check code
+## path shared by availability() and execute() (FEAT-004 layered on top of
+## FEAT-003's ADR-004 invariant): both callers route through this single
+## private helper rather than each re-deriving their own comparison, so
+## action_economy.combine_actions() remains the ONLY place a Stamina/Dazed
+## comparison is ever authored in this file (see
+## tests/unit/test_combine_stamina_rejection.gd's
+## test_no_parallel_ad_hoc_stamina_comparison_exists /
+## test_combine_actions_is_the_sole_stamina_check_call_site, which assert
+## exactly this). Placeholder Repeat-tagged actions are used for THIS
+## feature's scope only -- real Repeat-trait/sub-action-pair selection is a
+## later Iteration N feature layered on top, without changing this seam.
+func _validate_combine(actor) -> Dictionary:
+	var economy := ActionEconomyClass.new()
+	economy.set_dazed(actor.has_condition("Dazed"))
+	return economy.combine_actions(
+		{"name": "combine_a", "traits": ["Repeat"]},
+		{"name": "combine_b", "traits": ["Repeat"]},
+		actor.stamina
+	)
 
 
 ## availability() -> bool — FEAT-004 (US-004; FR-004): gate the COMBINE verb
@@ -67,11 +96,7 @@ func availability() -> bool:
 	var actor = current_actor_entity()
 	if actor == null:
 		return false
-	if actor.stamina < 1:
-		return false
-	if actor.has_condition("Dazed"):
-		return false
-	return true
+	return _validate_combine(actor).get("ok", false)
 
 
 ## enter_selection() -> Dictionary — stub, empty selection. The real
@@ -85,12 +110,12 @@ func enter_selection() -> Dictionary:
 ## (US-003; FR-002; ADR-004): validates via
 ## core/rules/action_economy.gd ActionEconomy.combine_actions() BEFORE
 ## spending any Stamina. This is still a PARTIALLY-stubbed execute() -- no
-## real Dazed gating, no Repeat-trait selection, and no sub-action queue
-## orchestration yet (those are later Iteration N features layered on top,
-## without changing this seam; see the file-level FEAT-003 doc above for why
-## combine_actions() is called with placeholder Repeat-tagged actions on a
-## fresh, never-Dazed ActionEconomy for this feature's scope) -- but the
-## Stamina>=1 REJECTION gate and the Stamina spend itself are both real:
+## real Repeat-trait selection and no sub-action queue orchestration yet
+## (those are later Iteration N features layered on top, without changing
+## this seam; see the file-level FEAT-003/FEAT-004 doc above for why
+## combine_actions() is called with placeholder Repeat-tagged actions) -- but
+## the Stamina>=1 REJECTION gate, the real live Dazed gate (FEAT-004), and
+## the Stamina spend itself are all real:
 ##   - combine_actions() is the SOLE Stamina-check code path (FR-002 /
 ##     ADR-004): on failure (stamina_pool < 1), execute() short-circuits
 ##     BEFORE any mutation and returns {ok: false, reason: "VALIDATION_FAILED"}
@@ -108,11 +133,7 @@ func execute(_selection = null) -> Dictionary:
 	if actor == null:
 		return {"ok": false}
 
-	var validation: Dictionary = ActionEconomyClass.new().combine_actions(
-		{"name": "combine_a", "traits": ["Repeat"]},
-		{"name": "combine_b", "traits": ["Repeat"]},
-		actor.stamina
-	)
+	var validation: Dictionary = _validate_combine(actor)
 	if not validation.get("ok", false):
 		return {"ok": false, "reason": "VALIDATION_FAILED"}
 

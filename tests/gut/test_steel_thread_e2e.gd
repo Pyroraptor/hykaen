@@ -133,7 +133,7 @@ func test_entry_point_verb_bar_renders_correctly_gated_at_turn_start() -> void:
 		instance.verb_bar_view.get_verb_ids(), [STRIKE, STEP, STRIDE, END_TURN, CAST_SPELL, COMBINE],
 		"the Layer 1 verb bar must render exactly one button per Strike/Step/Stride/End Turn/Cast Spell/Combine, in that order"
 	)
-	assert_eq(instance.verb_bar_view.get_button_count(), 6, "exactly six verb buttons must be rendered (FEAT-001 adds COMBINE, entry-point scaffold, always disabled until later gating lands)")
+	assert_eq(instance.verb_bar_view.get_button_count(), 6, "exactly six verb buttons must be rendered (FEAT-001 adds COMBINE as the entry-point scaffold; FEAT-004 wires its live Stamina/Dazed gating)")
 
 	# Each verb's rendered enabled/disabled state must agree EXACTLY with live
 	# game-state availability -- never a stale/hardcoded gate.
@@ -154,11 +154,16 @@ func test_entry_point_verb_bar_renders_correctly_gated_at_turn_start() -> void:
 	assert_eq(instance.verb_bar_view.get_button(STRIDE).disabled, not expected_stride_available)
 	assert_false(instance.verb_bar_view.get_button(END_TURN).disabled, "End Turn's rendered button must never be disabled")
 
-	# FEAT-001 (Iteration N kickoff): COMBINE's availability() is currently an
-	# inert, fail-closed stub -- its rendered button must always be disabled
-	# until a later feature wires real Stamina/Dazed/Repeat gating.
-	assert_false(instance._verb_registry.is_available(COMBINE), "COMBINE's stub availability() must be fail-closed (unavailable) until real gating lands")
-	assert_true(instance.verb_bar_view.get_button(COMBINE).disabled, "Combine's rendered button must be disabled while its availability() stub is fail-closed")
+	# FEAT-004 (US-004; FR-004): COMBINE's availability() now gates on the
+	# actor's LIVE Stamina/Dazed state (Stamina >= 1 AND NOT Dazed), exactly
+	# like every other verb's rendered state must agree with live game state
+	# -- never a stale/hardcoded gate (superseding FEAT-001's inert
+	# always-disabled stub).
+	var actor = instance.round_session.current_actor_entity()
+	var expected_combine_available: bool = actor != null and actor.stamina >= 1 and not actor.has_condition("Dazed")
+
+	assert_eq(instance._verb_registry.is_available(COMBINE), expected_combine_available, "COMBINE gating must reflect live Stamina>=1 and NOT Dazed state")
+	assert_eq(instance.verb_bar_view.get_button(COMBINE).disabled, not expected_combine_available, "Combine's rendered button must agree with its live availability() gating")
 
 
 # ══════════════════════════════════════════════════════════════════════════
