@@ -45,6 +45,16 @@ extends RefCounted
 
 const HexCoordClass = preload("res://core/geometry/hex_coord.gd")
 
+## CastingStateClass — FEAT-005 (US-005; FR-004): preloaded ONLY to
+## construct the CastingState value object begin_cast() (below) projects
+## onto `casting_state`'s plain-Dictionary field — see core/domain/
+## casting_state.gd's own file-level "compatibility note" for why the field
+## itself stays a Dictionary rather than a typed CastingState instance
+## (every pre-existing caller/test, e.g. tests/unit/core/domain/
+## test_combatant_combat_state.gd's test_casting_hooks_default_and_cancel(),
+## already assigns/reads it as a raw Dictionary).
+const CastingStateClass = preload("res://core/domain/casting_state.gd")
+
 # ── Identity & position (FEAT-001) ──────────────────────────────────────────
 
 ## Unique identifier for this combatant within its Encounter.
@@ -227,6 +237,28 @@ func is_casting() -> bool:
 
 func cancel_cast() -> void:
 	casting_state = {}
+
+
+## begin_cast(spell_id, actions_cost, committed_energy) -> void — FEAT-005
+## (US-005; FR-004): the SOLE mutator that initializes `casting_state` for a
+## first cast (mirrors move_to()'s "sole mutator" convention above).
+## BeginCastUseCase (core/application/use_cases/begin_cast_use_case.gd) is
+## the ONE caller, and calls it ONLY after RoundEnergyPoolPort.reserve() has
+## already succeeded -- this method itself performs no validation, matching
+## Combatant's own "data entity, not the rule-enforcing layer" discipline
+## (see move_to()'s doc).
+##
+## Builds a core/domain/casting_state.gd CastingState value object with
+## `remaining_actions = actions_cost - 1` -- design notes' api_contracts #1:
+## "sets casting_state{spell_id, remaining_actions=spell.actions_cost,
+## committed_energy}, spends the turn action, remaining_actions -= 1" is
+## folded into ONE atomic assignment here rather than two separate steps, so
+## `casting_state` is never observably set at the pre-decrement value. A
+## 2-action spell (e.g. Fire Bolt) begun this turn therefore shows
+## remaining_actions == 1 immediately after this call returns.
+func begin_cast(spell_id: String, actions_cost: int, committed_energy: int) -> void:
+	var state := CastingStateClass.new(spell_id, actions_cost - 1, committed_energy, display_id())
+	casting_state = state.to_dict()
 
 
 # ── Dictionary interop (migration bridge; removed in Phase D) ────────────────
