@@ -171,6 +171,25 @@ def check_provenance(
 
     old_text = get_file_at_revision(repo_dir, parent, SIM_RESULTS_RELATIVE_PATH)
     new_text = get_file_at_revision(repo_dir, commit, SIM_RESULTS_RELATIVE_PATH)
+
+    # FEAT-292 (resolves PR-001/PR-002): sim_results.json is now a
+    # gitignored, regenerated-on-every-run artifact rather than a committed
+    # artifact of record (see .gitignore / scripts/test_command.sh), so a
+    # commit that simply stops tracking it (`new_text is None`, i.e. the
+    # file no longer exists at `commit`) is an outright REMOVAL, not a
+    # metric drift needing attribution — there is no new (possibly
+    # doctored) numeric value being smuggled in for this check to catch,
+    # so it is never a violation on its own.
+    if old_text is not None and new_text is None:
+        return ProvenanceCheckResult(
+            ok=True,
+            message=(
+                f"OK: {SIM_RESULTS_RELATIVE_PATH} was removed (untracked) between "
+                f"{parent} and {commit}; a removal is not a metric drift needing "
+                "attribution (FEAT-292)."
+            ),
+        )
+
     old_data = json.loads(old_text) if old_text else {}
     new_data = json.loads(new_text) if new_text else {}
 
