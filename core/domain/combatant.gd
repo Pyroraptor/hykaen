@@ -138,6 +138,16 @@ var is_enemy: bool = false
 ## in-progress cast survives round boundaries, per the spec.
 var casting_state: Dictionary = {}
 
+## actions_this_turn — FEAT-004 (US-004; FR-004), Iteration N (Combinations):
+## the actions this combatant currently has available to fuse into a Combine
+## THIS turn (e.g. Stride + Strike, for the Charge steel thread). Each entry
+## is an ActionRecord-shaped value (a verb_id String is sufficient for this
+## feature's scope); combinable_actions_available() below reads only its
+## size. This is the Combatant-owned source of truth
+## CombineActionController.availability() gates its ">=2 combinable actions"
+## predicate against, rather than re-deriving an ad-hoc counter of its own.
+var actions_this_turn: Array = []
+
 
 func _init(
 	p_combatant_id: String = "",
@@ -212,6 +222,22 @@ func heal(amount: int) -> void:
 ## later Iteration N feature layered on top of this single mutator.
 func spend_stamina(amount: int = 1) -> void:
 	stamina -= amount
+
+## has_min_stamina(amount) -> bool — FEAT-004 (US-004; FR-004): true iff this
+## combatant's live stamina is at least `amount` (defaults to 1, the
+## Combine-availability threshold). Encapsulates the stamina comparison on
+## the entity itself so callers (e.g. CombineActionController.availability())
+## never need to hand-roll their own `.stamina <`/`>=` comparison -- mirrors
+## is_conscious()'s "derived predicate, not re-derived by callers" role.
+func has_min_stamina(amount: int = 1) -> bool:
+	return stamina >= amount
+
+## combinable_actions_available() -> int — FEAT-004 (US-004; FR-004): the
+## count of actions currently available to fuse into a Combine this turn
+## (see actions_this_turn above). Read-only derived accessor -- the sole way
+## CombineActionController.availability() queries this per-turn count.
+func combinable_actions_available() -> int:
+	return actions_this_turn.size()
 
 ## Condition tags (String). has_/add_/remove_ keep the conditions[] list in one
 ## place; Off-Guard and Immobilized are read through has_condition().

@@ -53,10 +53,39 @@ func _init(deps: Dictionary) -> void:
 	super(deps)
 
 
-## availability() -> bool — stub, fail-closed. Real gating (Stamina >= 1, not
-## Dazed, >= 2 combinable actions this turn) is wired in a later feature.
+## availability() -> bool — FEAT-004 (US-004; FR-004): the real three-
+## predicate gate that decides whether the COMBINE verb is even offered to
+## the player, composed from the live current actor entity:
+##   1. actor.has_min_stamina(1) -- stamina >= 1. The comparison itself
+##      lives on Combatant (core/domain/combatant.gd), NOT here, so this
+##      file never hand-rolls its own ad-hoc `.stamina` comparison --
+##      test_combine_stamina_rejection.gd's regression scan already forbids
+##      that pattern, and action_economy.combine_actions() remains the SOLE
+##      Stamina-check call site within THIS file (its own call count stays
+##      exactly one, unchanged from FEAT-003).
+##   2. actor is NOT Dazed (Combatant.has_condition("Dazed") -- the SAME
+##      "Dazed" condition-tag string used project-wide, e.g.
+##      tests/unit/test_resolution.gd / test_status_panel_view.gd, rather
+##      than a second/parallel Dazed representation).
+##   3. actor.combinable_actions_available() >= 2 (core/domain/combatant.gd
+##      FEAT-004 addition) -- at least two actions are available to fuse
+##      this turn.
+## Fails closed (false) with no live actor, mirroring the FEAT-001 stub's
+## no-crash "fails safe rather than crashing" no-live-session contract.
+## enter_selection()/execute() remain the earlier features' partial
+## implementations; the real N-length sub-action queue orchestration is a
+## later Iteration N feature layered on top of this seam.
 func availability() -> bool:
-	return false
+	var actor = current_actor_entity()
+	if actor == null:
+		return false
+	if not actor.has_min_stamina(1):
+		return false
+	if actor.has_condition("Dazed"):
+		return false
+	if actor.combinable_actions_available() < 2:
+		return false
+	return true
 
 
 ## enter_selection() -> Dictionary — stub, empty selection. The real
