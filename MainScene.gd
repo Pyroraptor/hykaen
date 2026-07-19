@@ -1639,6 +1639,13 @@ func _on_selection_overlay_resolved(_verb_id: String, _result) -> void:
 				status_panel_view.on_verb_action_budget_changed(
 					actor.display_id(), ae.get_remaining(), ae.is_spent()
 				)
+		# Push fresh HP values for all combatants after any spell resolution.
+		# Spell damage is applied via EffectsApplier (no AttackEvent emitted),
+		# so on_attack_event() never fires — an explicit HP push is required
+		# (mirrors the action-budget push above for the same reason).
+		if status_panel_view != null:
+			for combatant in _party + _enemies:
+				status_panel_view.update_combatant_hp(combatant.display_id(), combatant.hp_current)
 
 
 # ── Spell picker panel ───────────────────────────────────────────────────────

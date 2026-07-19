@@ -139,6 +139,17 @@ func get_row_count() -> int:
 	return _rows.size()
 
 
+## update_combatant_hp(combatant_id, hp) → void — directly sets the displayed
+## HP for a combatant row. Used after spell resolution, which applies damage
+## through EffectsApplier but never emits an AttackEvent (so on_attack_event()
+## never fires). A combatant_id with no loaded row is a silent no-op.
+func update_combatant_hp(combatant_id: String, hp: int) -> void:
+	if not _rows.has(combatant_id):
+		return
+	_rows[combatant_id]["hp_current"] = hp
+	_create_or_update_label(combatant_id)
+
+
 ## set_off_guard(combatant_id, is_off_guard) → void — FEAT-015 (US-015 /
 ## FR-016): toggles FlankingClass.OFF_GUARD_CONDITION ("Off-Guard") in the
 ## given combatant's displayed conditions list and refreshes its rendered
