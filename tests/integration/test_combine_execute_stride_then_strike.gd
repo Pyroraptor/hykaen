@@ -52,6 +52,7 @@ const StrikeActionControllerClass  = preload("res://presentation/strike_action_c
 const HexCoordClass                = preload("res://core/geometry/hex_coord.gd")
 const HexMathClass                 = preload("res://core/geometry/hex_math.gd")
 const MovementClass                = preload("res://core/rules/movement.gd")
+const ActionEconomyClass           = preload("res://core/rules/action_economy.gd")
 
 ## PROLOGUE_SEED — this project's established known-good fixture seed
 ## (mirrors tests/integration/test_reserve_gate_boot_real.gd's identically-
@@ -91,6 +92,27 @@ func _skeleton(instance):
 	return skeleton
 
 
+## _drain_action_economy_to_reserve_floor(ae) -> void — mirrors
+## tests/integration/test_reserve_gate_boot_real.gd's identically-named/
+## purposed helper: spends reactions off the Skeleton's OWN real, live
+## ActionEconomy one at a time (spend_reaction(), never a hand-constructed/
+## fresh ActionEconomy) until exactly the RESERVE floor remains, so
+## infrastructure/ai_reaction_policy.gd's real RESERVE gate forces every
+## reaction (Dodge included) to Pass regardless of how "worthwhile" AC_
+## GUARANTEED_HIT would otherwise make Dodge look. This is used here
+## instead of the "Immobilized" condition convention other AC_GUARANTEED_HIT
+## suites rely on, because MainScene._refresh_off_guard_conditions() (fired
+## by this test's own Stride, via _after_successful_move()) OVERWRITES a
+## combatant's entire "conditions" list every time either side moves --
+## wiping out a manually-set "Immobilized" tag before Strike ever resolves.
+## Draining the ActionEconomy instead is immune to that: it is a completely
+## separate live field _refresh_off_guard_conditions() never touches.
+func _drain_action_economy_to_reserve_floor(ae) -> void:
+	while ae.get_remaining() > ActionEconomyClass.RESERVE:
+		ae.spend_reaction()
+	assert_eq(ae.get_remaining(), ActionEconomyClass.RESERVE, "fixture assumption: the Skeleton's own live ActionEconomy must be drained to exactly the RESERVE floor")
+
+
 func test_execute_moves_actor_then_resolves_strike_against_the_now_reachable_target() -> void:
 	var instance = _boot_main_scene()
 	await get_tree().process_frame
@@ -112,6 +134,19 @@ func test_execute_moves_actor_then_resolves_strike_against_the_now_reachable_tar
 	# drives Titus to. ──────────────────────────────────────────────────────
 	skeleton.hex_coord = HexCoordClass.new(SKELETON_REPOSITIONED_HEX_Q, 0)
 	skeleton.ac = AC_GUARANTEED_HIT
+	# AC_GUARANTEED_HIT is so far below any possible defense_value that it
+	# would ALSO make MobilityDodgeRule.dodge_worthwhile() (10 + mobility >
+	# targeted_defense_value) unconditionally true, routing this Strike into
+	# the PreHitAvoidance Dodge branch (substituting a real Mobility-skill
+	# roll for the deliberately-tanked AC) instead of resolving a guaranteed
+	# hit. Disabled here via the Skeleton's own live ActionEconomy RESERVE
+	# floor (see _drain_action_economy_to_reserve_floor()'s own doc above)
+	# rather than the "Immobilized" condition convention, since this test's
+	# own Stride would otherwise wipe that condition via
+	# MainScene._refresh_off_guard_conditions().
+	var skeleton_action_economy = instance._action_economy_for(skeleton)
+	assert_not_null(skeleton_action_economy, "fixture assumption: the Skeleton must have a live ActionEconomy wired at boot")
+	_drain_action_economy_to_reserve_floor(skeleton_action_economy)
 
 	var stride_destination = HexCoordClass.new(STRIDE_DESTINATION_HEX_Q, 0)
 
