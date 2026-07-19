@@ -1,0 +1,19 @@
+[gd_resource type="Resource" script_class="SpellResource" load_steps=2 format=3 uid="uid://c8ch4nnel000001"]
+
+[ext_resource type="Script" uid="uid://cspres0urce00001" path="res://core/resources/spell_resource.gd" id="1_channel"]
+
+[resource]
+script = ExtResource("1_channel")
+spell_id = "channel"
+name = "Channel"
+actions_cost = 1
+energy_cost = 0
+defense = 0
+range_ft = 0
+damage_formula = ""
+damage_type = ""
+traits = ["Concentrate"]
+effect_type = 4
+effect_params = {
+"amount": 1
+}

@@ -1,0 +1,20 @@
+[gd_resource type="Resource" script_class="SpellResource" load_steps=2 format=3 uid="uid://c8f1r3b0lt00001"]
+
+[ext_resource type="Script" uid="uid://cspres0urce00001" path="res://core/resources/spell_resource.gd" id="1_firebolt"]
+
+[resource]
+script = ExtResource("1_firebolt")
+spell_id = "fire_bolt"
+name = "Fire Bolt"
+actions_cost = 2
+energy_cost = 0
+defense = 2
+range_ft = 50
+damage_formula = "2d8+ATTR"
+damage_type = "fire"
+traits = []
+effect_type = 0
+effect_params = {
+"formula": "2d8+ATTR",
+"type": "fire"
+}
