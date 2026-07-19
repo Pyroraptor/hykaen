@@ -395,6 +395,23 @@ func _provoke_reaction_on_cast(actor) -> Dictionary:
 ## is false, so no spell ever resolves and no effect is ever applied on
 ## this path -- the mutual-exclusion invariant design notes'
 ## error_handling section requires.
+##
+## FEAT-281 (US-016; FR-018) is the mirror-image proof of this same method's
+## OTHER branch: when `reaction_result.stride_should_commit` is true (no
+## reactor chose Opportunistic Strike, or the resolved strike(s) never
+## downed `actor`), this method's early `return result` leaves EVERY field
+## `result` already carries -- including "casting_state" (spell_id/
+## remaining_actions/committed_energy, untouched since Begin/ContinueCastUseCase
+## set them, immediately above this call) -- byte-for-byte unchanged.
+## CancelCastUseCase is never even constructed on this branch, so the cast
+## is guaranteed to still be mid-cast (or freshly resolved by
+## `_maybe_resolve_cast()` immediately after, if remaining_actions just hit
+## 0) exactly as if no reaction had fired at all. No code change was
+## required for this feature -- see tests/boot/
+## test_nonlethal_os_leaves_cast_in_progress.gd for the boot-real proof
+## that a genuinely non-lethal Opportunistic Strike provoked mid-cast
+## leaves casting_state's three tracked fields unchanged and the cast goes
+## on to resolve normally on its following action.
 func _maybe_cancel_cast(actor, result: Dictionary, reaction_result: Dictionary) -> Dictionary:
 	if reaction_result.get("stride_should_commit", true):
 		return result
