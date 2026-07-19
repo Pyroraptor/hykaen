@@ -12,7 +12,7 @@ defense = 2
 range_ft = 50
 damage_formula = "2d8+ATTR"
 damage_type = "fire"
-traits = []
+traits = ["Concentrate"]
 effect_type = 0
 effect_params = {
 "formula": "2d8+ATTR",
