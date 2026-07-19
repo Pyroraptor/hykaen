@@ -209,7 +209,7 @@ func _init(deps: Dictionary = {}) -> void:
 ## not casting, remaining_actions != 0) returns `_skip_result()` WITHOUT
 ## ever invoking TargetingPort OR ResolutionPort — the gate test_criteria
 ## #1/#3 assert against.
-func execute(actor, round_number: int = 0) -> Dictionary:
+func execute(actor, round_number: int = 0, pre_chosen_target_id: String = "") -> Dictionary:
 	if not _should_resolve(actor):
 		return _skip_result()
 
@@ -231,6 +231,25 @@ func execute(actor, round_number: int = 0) -> Dictionary:
 		return self_cast_result
 
 	var legal_targets: Array = _in_range_candidates(actor, spell.range_ft)
+
+	# When a target was pre-chosen via the overlay (enter_selection() returned
+	# candidate_targets, player clicked an enemy), look it up in legal_targets
+	# and resolve without calling the targeting port (synchronous path).
+	if pre_chosen_target_id != "":
+		var pre_target = null
+		for t in legal_targets:
+			if t.display_id() == pre_chosen_target_id:
+				pre_target = t
+				break
+		if pre_target == null and not legal_targets.is_empty():
+			pre_target = legal_targets[0]
+		if pre_target != null:
+			var pre_result := {"success": true, "target_id": pre_target.display_id(), "target": pre_target, "error": ErrorCodeClass.NONE}
+			var resolve_cast_result = _maybe_resolve_attack(actor, spell, pre_target, round_number)
+			if resolve_cast_result != null:
+				pre_result["resolve_cast_result"] = resolve_cast_result
+			return pre_result
+		return {"success": false, "target_id": null, "target": null, "error": ErrorCodeClass.ERR_NO_VALID_TARGET}
 
 	if _targeting_port == null:
 		# No live TargetingPort adapter wired yet at this feature's

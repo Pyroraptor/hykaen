@@ -188,6 +188,7 @@ var _resolve_action_use_case
 var _living_enemy_reactors_fn: Callable
 var _turn_order_fn: Callable
 var _combat_log_port
+var _targeting_candidates_fn: Callable
 
 
 ## _verb_deps() -> Array[String] — the closed list of application-layer PORTS
@@ -223,6 +224,7 @@ func _init(deps: Dictionary) -> void:
 	_living_enemy_reactors_fn = deps.get("living_enemy_reactors", Callable())
 	_turn_order_fn = deps.get("current_turn_order", Callable())
 	_combat_log_port = deps.get("combat_log_port", null)
+	_targeting_candidates_fn = deps.get("targeting_candidates_fn", Callable())
 	_resolve_spell_controller = deps.get("resolve_spell_controller", ResolveSpellControllerClass.new({
 		"spell_catalog_port": _spell_catalog_port,
 		"targeting_port": deps.get("targeting_port", null),
@@ -292,6 +294,18 @@ func availability() -> bool:
 func enter_selection() -> Dictionary:
 	var actor = current_actor_entity()
 	if actor != null and actor.is_casting():
+		var state = CastingStateClass.from_dict(actor.casting_state)
+		if state.remaining_actions == 1 and _targeting_candidates_fn.is_valid():
+			# Last action before resolution — show living enemies as targets so
+			# the player picks the target via the overlay (same flow as STRIKE),
+			# keeping targeting out of execute() and avoiding async suspension.
+			var candidates: Array = _targeting_candidates_fn.call()
+			if not candidates.is_empty():
+				return {
+					"verb_id": "CAST_SPELL",
+					"candidate_targets": candidates.map(func(c): return c.display_id()),
+					"candidate_hexes": [],
+				}
 		return {}
 
 	var spell_options: Array = []
@@ -341,12 +355,15 @@ func execute(selection = null) -> Dictionary:
 		return _inert_result()
 
 	if actor.is_casting():
+		# When the overlay provides a pre-chosen target (remaining_actions==1
+		# path in enter_selection()), selection is the target's display_id.
+		var pre_chosen_target_id: String = selection if selection is String and selection != "" else ""
 		var continue_result: Dictionary = ContinueCastUseCaseClass.new().execute(actor, current_action_economy())
 		if continue_result.get("success", false):
 			var continue_reaction_result: Dictionary = await _provoke_reaction_on_cast(actor)
 			continue_result["reaction_result"] = continue_reaction_result
 			continue_result = _maybe_cancel_cast(actor, continue_result, continue_reaction_result)
-		return await _maybe_resolve_cast(actor, continue_result)
+		return await _maybe_resolve_cast(actor, continue_result, pre_chosen_target_id)
 
 	# Unwrap OPTION_TARGET shape {"option": {id, label, ...}, "target": enemy_id}
 	# emitted by SelectionOverlay when a spell is picked via the Layer-2a picker.
@@ -535,12 +552,12 @@ func _maybe_cancel_cast(actor, result: Dictionary, reaction_result: Dictionary) 
 ## still-in-progress cast (remaining_actions > 0) both fail this gate
 ## identically, so ResolveSpellController.execute() -- and therefore
 ## TargetingPort -- is never reached for either case.
-func _maybe_resolve_cast(actor, result: Dictionary) -> Dictionary:
+func _maybe_resolve_cast(actor, result: Dictionary, pre_chosen_target_id: String = "") -> Dictionary:
 	if actor != null and actor.is_casting():
 		var state = CastingStateClass.from_dict(actor.casting_state)
 		if state.remaining_actions == 0:
 			var round_num: int = _round_number_fn.call() if _round_number_fn.is_valid() else 0
-			result["resolve_spell_result"] = await _resolve_spell_controller.execute(actor, round_num)
+			result["resolve_spell_result"] = await _resolve_spell_controller.execute(actor, round_num, pre_chosen_target_id)
 	return result
 
 
