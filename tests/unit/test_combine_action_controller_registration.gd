@@ -106,7 +106,15 @@ func test_combine_action_controller_enter_selection_stub_does_not_throw() -> voi
 
 func test_combine_action_controller_execute_stub_returns_not_ok() -> void:
 	var controller := CombineActionControllerClass.new(_deps())
-	var result: Dictionary = controller.execute(null)
+	# execute() is a coroutine (it internally awaits sub-action queue
+	# resolution as of FEAT-007/FEAT-008) so callers must await it, exactly
+	# like every other verb controller's execute() in this suite (see e.g.
+	# tests/unit/test_combine_single_charge.gd). With no `_controller_for_fn`
+	# resolver injected via `_deps()`, this exercises the "no
+	# sub-action-controller resolver wired" degrade path, which still yields
+	# a controlled Dictionary result -- not a crash -- but since `_deps()`
+	# supplies no actor here, execute() short-circuits ok=false before that.
+	var result: Dictionary = await controller.execute(null)
 	assert_false(result.get("ok", true), "an un-implemented COMBINE execute() stub must report ok=false, never a crash or a false success")
 
 
