@@ -319,25 +319,42 @@ func combining_forbidden() -> bool:
 ## On success, returns stamina_pool - 1 as stamina_remaining.
 ## Does NOT decrement _budget — caller must spend_action() separately for each.
 ##
-## Returns:
-##   {success: false, error: "Cannot combine: Dazed"}
+## Returns a Result-style Dictionary carrying BOTH the legacy success/error
+## keys (preserved for existing callers, e.g. tests/unit/test_action_economy.gd)
+## and the ADR-002/ADR-004-style ok/reason keys (FEAT-003, Iteration N
+## Combinations) — the latter is what
+## presentation/combine_action_controller.gd's execute() reads to reject a
+## Combine BEFORE any Stamina spend, mirroring spend_action()'s own
+## dual-shape upgrade (ADR-103) so this is the SOLE Stamina-check code path
+## every caller (present and future) shares rather than re-deriving:
+##   {success: false, error: "Cannot combine: Dazed",
+##    ok: false, reason: "DAZED"}
 ##       — when _dazed is true
-##   {success: false, error: "Combination requires Repeat trait on both actions: <name> missing Repeat"}
+##   {success: false, error: "Combination requires Repeat trait on both actions: <name> missing Repeat",
+##    ok: false, reason: "MISSING_REPEAT"}
 ##       — when action_a or action_b lacks the "Repeat" trait
-##   {success: false, error: "Insufficient Stamina for combination"}
+##   {success: false, error: "Insufficient Stamina for combination",
+##    ok: false, reason: "INSUFFICIENT_STAMINA"}
 ##       — when stamina_pool < 1
-##   {success: true, stamina_remaining: int}
+##   {success: true, stamina_remaining: int, ok: true}
 ##       — combination accepted; stamina_remaining = stamina_pool - 1
 func combine_actions(action_a, action_b, stamina_pool) -> Dictionary:
 	if _dazed:
-		return {"success": false, "error": "Cannot combine: Dazed"}
+		return {
+			"success": false,
+			"error": "Cannot combine: Dazed",
+			"ok": false,
+			"reason": "DAZED",
+		}
 
 	var traits_a: Array = action_a.get("traits", [])
 	if not traits_a.has("Repeat"):
 		var name_a: String = action_a.get("name", "action_a")
 		return {
 			"success": false,
-			"error": "Combination requires Repeat trait on both actions: %s missing Repeat" % name_a
+			"error": "Combination requires Repeat trait on both actions: %s missing Repeat" % name_a,
+			"ok": false,
+			"reason": "MISSING_REPEAT",
 		}
 
 	var traits_b: Array = action_b.get("traits", [])
@@ -345,13 +362,20 @@ func combine_actions(action_a, action_b, stamina_pool) -> Dictionary:
 		var name_b: String = action_b.get("name", "action_b")
 		return {
 			"success": false,
-			"error": "Combination requires Repeat trait on both actions: %s missing Repeat" % name_b
+			"error": "Combination requires Repeat trait on both actions: %s missing Repeat" % name_b,
+			"ok": false,
+			"reason": "MISSING_REPEAT",
 		}
 
 	if stamina_pool < 1:
-		return {"success": false, "error": "Insufficient Stamina for combination"}
+		return {
+			"success": false,
+			"error": "Insufficient Stamina for combination",
+			"ok": false,
+			"reason": "INSUFFICIENT_STAMINA",
+		}
 
-	return {"success": true, "stamina_remaining": stamina_pool - 1}
+	return {"success": true, "stamina_remaining": stamina_pool - 1, "ok": true}
 
 
 # ── Inspection ────────────────────────────────────────────────────────────────
