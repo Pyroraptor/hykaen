@@ -135,6 +135,21 @@ func test_casting_state_unchanged_across_other_combatants_interleaved_turns() ->
 	# -- proving the earlier interleaved turns genuinely never touched it.
 	var continue_result: Dictionary = instance._verb_bar_cast_spell_execute()
 	assert_true(continue_result.get("success", false), "continuing an in-progress cast with no selection argument must succeed (US-006: no re-selection)")
-	assert_eq(marigold.casting_state.get("remaining_actions"), 0, "Marigold's OWN Cast-a-Spell action -- and ONLY that -- must drive remaining_actions to 0")
-	assert_eq(marigold.casting_state.get("spell_id"), expected_spell_id, "spell_id must still be unchanged after the continuing cast")
-	assert_eq(marigold.casting_state.get("committed_energy"), expected_committed_energy, "committed_energy must still be unchanged after the continuing cast -- no re-payment")
+	# The "casting_state" key on the ExecuteResult is ContinueCastUseCase's
+	# OWN pre-resolution snapshot (SpellActionController._maybe_resolve_cast()
+	# only ever ADDS a "resolve_spell_result" key alongside it, never
+	# rewrites "casting_state" in place), so it still reads the state exactly
+	# as continuing the cast left it, regardless of whether resolution
+	# subsequently ran.
+	assert_eq(continue_result.get("casting_state", {}).get("remaining_actions"), 0, "Marigold's OWN Cast-a-Spell action -- and ONLY that -- must drive remaining_actions to 0")
+	assert_eq(continue_result.get("casting_state", {}).get("spell_id"), expected_spell_id, "spell_id must still be unchanged after the continuing cast")
+	assert_eq(continue_result.get("casting_state", {}).get("committed_energy"), expected_committed_energy, "committed_energy must still be unchanged after the continuing cast -- no re-payment")
+
+	# FEAT-285 (resolves PR-002/PR-004): MainScene.gd's `_verb_deps()` now
+	# wires a real "targeting_candidates_fn" (the living-enemy pool), so the
+	# in-range Skeleton is a genuine legal target -- reaching
+	# remaining_actions == 0 immediately drives ResolveCastUseCase to
+	# completion, which clears the LIVE Combatant's own casting_state field
+	# (a separate mutation from the ExecuteResult snapshot asserted above).
+	assert_false(marigold.is_casting(), "with a real in-range target now wired, remaining_actions reaching 0 must resolve the cast immediately, even across interleaved turns")
+	assert_true(marigold.casting_state.is_empty(), "the live Combatant's own casting_state must be cleared once the interleaved-turn-spanning cast resolves")
