@@ -309,12 +309,18 @@ func combining_forbidden() -> bool:
 
 ## combine_actions(action_a, action_b, stamina_pool) → Dictionary
 ##
-## Validates and records a Combination of two actions (FR-003 / US-007).
-## Prerequisites (checked in order):
+## Validates and records a Combination of two actions (FR-003 / US-007;
+## Iteration N's FEAT-006 / US-006 / FR-005 layers the DIFFERENT-VERB-OR-
+## SAME-VERB-WITH-REPEAT rule on top of the original all-Repeat-required
+## check). Prerequisites (checked in order):
 ##   1. Combatant must not be Dazed.
-##   2. action_a must have "Repeat" in its traits Array.
-##   3. action_b must have "Repeat" in its traits Array.
-##   4. stamina_pool must be ≥ 1.
+##   2. If action_a and action_b are the SAME verb (action_a["name"] ==
+##      action_b["name"]), BOTH must carry the "Repeat" trait — an
+##      identical, non-Repeat pair is rejected. Two DIFFERENT verbs never
+##      need the Repeat trait at all (e.g. Charge's [Stride, Strike] pair,
+##      the v0 default presentation/combine_action_controller.gd's
+##      enter_selection() offers).
+##   3. stamina_pool must be ≥ 1.
 ##
 ## On success, returns stamina_pool - 1 as stamina_remaining.
 ## Does NOT decrement _budget — caller must spend_action() separately for each.
@@ -323,16 +329,18 @@ func combining_forbidden() -> bool:
 ## keys (preserved for existing callers, e.g. tests/unit/test_action_economy.gd)
 ## and the ADR-002/ADR-004-style ok/reason keys (FEAT-003, Iteration N
 ## Combinations) — the latter is what
-## presentation/combine_action_controller.gd's execute() reads to reject a
-## Combine BEFORE any Stamina spend, mirroring spend_action()'s own
-## dual-shape upgrade (ADR-103) so this is the SOLE Stamina-check code path
-## every caller (present and future) shares rather than re-deriving:
+## presentation/combine_action_controller.gd's execute()/enter_selection()
+## read to reject a Combine BEFORE any Stamina spend or sub-action queueing,
+## mirroring spend_action()'s own dual-shape upgrade (ADR-103) so this is the
+## SOLE Stamina/verb-pair-check code path every caller (present and future)
+## shares rather than re-deriving:
 ##   {success: false, error: "Cannot combine: Dazed",
 ##    ok: false, reason: "DAZED"}
 ##       — when _dazed is true
 ##   {success: false, error: "Combination requires Repeat trait on both actions: <name> missing Repeat",
-##    ok: false, reason: "MISSING_REPEAT"}
-##       — when action_a or action_b lacks the "Repeat" trait
+##    ok: false, reason: "IDENTICAL_NON_REPEAT_VERBS"}
+##       — when action_a and action_b are the SAME verb (identical "name")
+##         and either lacks the "Repeat" trait
 ##   {success: false, error: "Insufficient Stamina for combination",
 ##    ok: false, reason: "INSUFFICIENT_STAMINA"}
 ##       — when stamina_pool < 1
@@ -347,25 +355,22 @@ func combine_actions(action_a, action_b, stamina_pool) -> Dictionary:
 			"reason": "DAZED",
 		}
 
-	var traits_a: Array = action_a.get("traits", [])
-	if not traits_a.has("Repeat"):
-		var name_a: String = action_a.get("name", "action_a")
-		return {
-			"success": false,
-			"error": "Combination requires Repeat trait on both actions: %s missing Repeat" % name_a,
-			"ok": false,
-			"reason": "MISSING_REPEAT",
-		}
+	var name_a = action_a.get("name", "action_a")
+	var name_b = action_b.get("name", "action_b")
 
-	var traits_b: Array = action_b.get("traits", [])
-	if not traits_b.has("Repeat"):
-		var name_b: String = action_b.get("name", "action_b")
-		return {
-			"success": false,
-			"error": "Combination requires Repeat trait on both actions: %s missing Repeat" % name_b,
-			"ok": false,
-			"reason": "MISSING_REPEAT",
-		}
+	# Same-verb pair (FR-005): both entries must carry "Repeat". Two
+	# DIFFERENT verbs (e.g. Stride + Strike) skip this check entirely — the
+	# Repeat trait is only ever relevant to a self-combined, identical pair.
+	if name_a == name_b:
+		var traits_a: Array = action_a.get("traits", [])
+		var traits_b: Array = action_b.get("traits", [])
+		if not traits_a.has("Repeat") or not traits_b.has("Repeat"):
+			return {
+				"success": false,
+				"error": "Combination requires Repeat trait on both actions: %s missing Repeat" % name_a,
+				"ok": false,
+				"reason": "IDENTICAL_NON_REPEAT_VERBS",
+			}
 
 	if stamina_pool < 1:
 		return {

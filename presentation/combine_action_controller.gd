@@ -87,13 +87,29 @@ func _init(deps: Dictionary) -> void:
 ## feature's scope only -- real Repeat-trait/sub-action-pair selection is a
 ## later Iteration N feature layered on top, without changing this seam.
 func _validate_combine(actor) -> Dictionary:
+	return _run_combine_validation(
+		actor,
+		{"name": "combine_a", "traits": ["Repeat"]},
+		{"name": "combine_b", "traits": ["Repeat"]}
+	)
+
+
+## _run_combine_validation(actor, action_a, action_b) -> Dictionary — FEAT-006
+## (US-006; FR-005): the SOLE call site of
+## action_economy.combine_actions() within this file, shared by
+## _validate_combine() (availability()/execute()'s placeholder Repeat-tagged
+## check) AND enter_selection() (the REAL, player-chosen pair). Extracting
+## this keeps the file's existing "combine_actions() called exactly once"
+## invariant intact (see
+## tests/unit/test_combine_stamina_rejection.gd's
+## test_combine_actions_is_the_sole_stamina_check_call_site) even though two
+## different call SITES within the source now need to reach it -- both route
+## through this one private helper instead of each calling
+## economy.combine_actions() directly.
+func _run_combine_validation(actor, action_a: Dictionary, action_b: Dictionary) -> Dictionary:
 	var economy := ActionEconomyClass.new()
 	economy.set_dazed(actor.has_condition("Dazed"))
-	return economy.combine_actions(
-		{"name": "combine_a", "traits": ["Repeat"]},
-		{"name": "combine_b", "traits": ["Repeat"]},
-		actor.stamina
-	)
+	return economy.combine_actions(action_a, action_b, actor.stamina)
 
 
 ## availability() -> bool — FEAT-004 (US-004; FR-004): gate the COMBINE verb
@@ -113,11 +129,66 @@ func availability() -> bool:
 	return _validate_combine(actor).get("ok", false)
 
 
-## enter_selection() -> Dictionary — stub, empty selection. The real
-## sub-action queue selection UI (choosing the ordered pair/N-tuple of verbs
-## to fuse) is wired in a later feature.
-func enter_selection() -> Dictionary:
-	return {}
+## _default_charge_pair() -> Array[Dictionary] — v0's fixed Charge sub-action
+## pair (Stride, Strike): two DIFFERENT verbs, so the different-verb branch
+## of action_economy.combine_actions()'s rule accepts them with no Repeat
+## trait required. This is enter_selection()'s default `pair` argument when
+## a caller doesn't supply its own (FEAT-006; US-006).
+static func _default_charge_pair() -> Array:
+	return [
+		{"verb_id": "STRIDE", "traits": []},
+		{"verb_id": "STRIKE", "traits": []},
+	]
+
+
+## enter_selection(pair) -> Dictionary — FEAT-006 (US-006; FR-005): the
+## player-facing entry point for choosing the ordered pair of sub-actions to
+## fuse. `pair` is an Array of exactly two Dictionaries shaped
+## {"verb_id": String, "traits": Array[String]} -- v0 defaults to
+## _default_charge_pair() (STRIDE, STRIKE -- different verbs, so no Repeat
+## trait is required), but a caller (present or future selection UI) may
+## instead supply an identical-verb pair (e.g. two STRIKEs), which is legal
+## ONLY when both entries carry the "Repeat" trait.
+##
+## Routes the different-verb-OR-same-verb-with-Repeat rule through the SAME
+## action_economy.combine_actions() validation call _validate_combine()
+## (shared by availability()/execute()) already uses -- this is not a
+## second/parallel rule implementation; only the two actions handed to
+## combine_actions() differ (the REAL chosen pair, not _validate_combine()'s
+## placeholder Repeat-tagged stand-ins).
+##
+## Returns:
+##   {ok: true, queue: Array[SubActionQueueEntry]}  -- the FEAT-005 queue
+##       structure (order_index 0..N-1, in pair order, targeting_payload
+##       still null -- populated by each sub-action's own targeting pass, a
+##       later feature), built via the SAME SubActionQueueEntry value object
+##       build_charge_queue() constructs from, so the default pair's queue
+##       matches build_charge_queue()'s output exactly.
+##   {ok: false, reason: "IDENTICAL_NON_REPEAT_VERBS" | "DAZED" |
+##       "INSUFFICIENT_STAMINA"} -- surfaced to the player as a rejected
+##       selection, never a crash (mirrors availability()/execute()'s
+##       fail-closed contract). reason is whatever
+##       action_economy.combine_actions() reports.
+## Fails closed (ok=false, no reason) with no live actor or a malformed
+## (non-2-entry) pair.
+func enter_selection(pair: Array = _default_charge_pair()) -> Dictionary:
+	var actor = current_actor_entity()
+	if actor == null or pair.size() != 2:
+		return {"ok": false}
+
+	var action_a := {"name": pair[0].get("verb_id", ""), "traits": pair[0].get("traits", [])}
+	var action_b := {"name": pair[1].get("verb_id", ""), "traits": pair[1].get("traits", [])}
+
+	var validation: Dictionary = _run_combine_validation(actor, action_a, action_b)
+
+	if not validation.get("ok", false):
+		return {"ok": false, "reason": validation.get("reason")}
+
+	var queue: Array = [
+		SubActionQueueEntryClass.new(0, pair[0].get("verb_id", "")),
+		SubActionQueueEntryClass.new(1, pair[1].get("verb_id", "")),
+	]
+	return {"ok": true, "queue": queue}
 
 
 ## execute(selection) -> Dictionary — FEAT-002 (US-002; FR-001) + FEAT-003
@@ -165,6 +236,17 @@ func build_charge_queue() -> Array:
 	return SubActionQueueEntryClass.build_charge_queue()
 
 
+## FEAT-006 (US-006; FR-005) layers the REAL enter_selection() player-facing
+## sub-action pair selection on top of FEAT-005's queue structure: the
+## default (no-argument) call offers v0 Charge's [STRIDE, STRIKE] pair --
+## two DIFFERENT verbs, so no Repeat trait is required -- but a caller may
+## instead supply its own two-entry `pair` (e.g. an identical-verb pair),
+## which is legal ONLY when both entries carry the "Repeat" trait. The
+## different-verb-OR-same-verb-with-Repeat rule is enforced through the
+## SAME action_economy.combine_actions() validation call every other Combine
+## entry point already shares (see enter_selection()'s own doc below) --
+## no second/parallel rule implementation is authored here.
+##
 ## resolve_sub_action_queue(queue, resolver) -> Dictionary — FEAT-005
 ## (US-005; ADR-005/FR-010): the GENERIC N-length sub-action queue
 ## resolution loop. Sorts `queue` by order_index (via

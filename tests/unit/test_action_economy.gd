@@ -222,15 +222,32 @@ func test_combine_actions_both_repeat_stamina_5_returns_success_stamina_4() -> v
 
 
 func test_combine_actions_missing_repeat_on_action_b_returns_repeat_error() -> void:
+	# NOTE (FEAT-006 / US-006 / FR-005): the Repeat-trait requirement only
+	# applies to an IDENTICAL-verb pair now — two DIFFERENT verbs (e.g. the
+	# old "Strike" + "Guard" fixture this test used) are legal without Repeat
+	# at all. Both actions here share the same verb name ("Strike") so this
+	# test still exercises its original intent: a same-verb pair missing
+	# Repeat on the second entry is rejected.
 	var ae = _make_ae()
 	var action_a := {"name": "Strike", "traits": ["Repeat"]}
-	var action_b := {"name": "Guard", "traits": []}
+	var action_b := {"name": "Strike", "traits": []}
 	var result: Dictionary = ae.combine_actions(action_a, action_b, 5)
 	assert_false(result["success"], "combine_actions must fail when action_b lacks Repeat")
 	assert_true(
 		result["error"].contains("Repeat trait"),
 		"error must contain 'Repeat trait' when action_b lacks Repeat; got: '%s'" % result["error"]
 	)
+
+
+func test_combine_actions_different_verbs_without_repeat_succeeds() -> void:
+	# FEAT-006 / US-006 / FR-005: two DIFFERENT verbs (e.g. Charge's
+	# Stride + Strike) never require the Repeat trait at all.
+	var ae = _make_ae()
+	var action_a := {"name": "Stride", "traits": []}
+	var action_b := {"name": "Strike", "traits": []}
+	var result: Dictionary = ae.combine_actions(action_a, action_b, 5)
+	assert_true(result["success"], "combine_actions must succeed for two different verbs, even without Repeat")
+	assert_eq(result["stamina_remaining"], 4)
 
 
 func test_combine_actions_stamina_pool_zero_returns_stamina_error() -> void:
