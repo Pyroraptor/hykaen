@@ -247,7 +247,7 @@ func test_pre_existing_verb_deps_keys_are_unchanged_by_the_cast_spell_additions(
 	assert_eq(query_selectable_step_hexes.get_method(), "_query_selectable_step_hexes")
 
 
-func test_strike_step_stride_end_turn_controllers_still_construct_and_operate_normally() -> void:
+func test_strike_step_stride_and_end_turn_verbs_still_construct_controllers_and_operate_normally() -> void:
 	var instance = _boot_main_scene()
 	await get_tree().process_frame
 
