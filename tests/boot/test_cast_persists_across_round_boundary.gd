@@ -146,9 +146,24 @@ func test_committed_energy_and_spell_id_survive_end_of_round_pool_emptying() -> 
 
 	var continue_result: Dictionary = instance._verb_bar_cast_spell_execute()
 	assert_true(continue_result.get("success", false), "continuing a cast that spans a round boundary must still succeed, with no re-selection (US-006: no selection argument at all)")
-	assert_eq(marigold.casting_state.get("remaining_actions"), 0, "Marigold's continuing cast in round 2 must drive remaining_actions to 0, completing the Fire Bolt cast begun in round 1")
+	# The "casting_state" key on the ExecuteResult is ContinueCastUseCase's
+	# OWN pre-resolution snapshot (SpellActionController._maybe_resolve_cast()
+	# only ever ADDS a "resolve_spell_result" key alongside it, never
+	# rewrites "casting_state" in place), so it still reads the state exactly
+	# as continuing the cast left it, regardless of whether resolution
+	# subsequently ran.
+	assert_eq(continue_result.get("casting_state", {}).get("remaining_actions"), 0, "Marigold's continuing cast in round 2 must drive remaining_actions to 0, completing the Fire Bolt cast begun in round 1")
 	assert_eq(continue_result.get("casting_state", {}).get("spell_id"), expected_spell_id, "spell_id must still be unchanged once the cast completes in round 2")
 	assert_eq(
-		marigold.casting_state.get("committed_energy"), expected_committed_energy,
+		continue_result.get("casting_state", {}).get("committed_energy"), expected_committed_energy,
 		"committed_energy must remain exactly what was reserved back in round 1 -- no re-payment, no drift, even though it spanned a round boundary and an intervening pool reset"
 	)
+
+	# FEAT-285 (resolves PR-002/PR-004): MainScene.gd's `_verb_deps()` now
+	# wires a real "targeting_candidates_fn" (the living-enemy pool), so the
+	# in-range Skeleton is a genuine legal target -- reaching
+	# remaining_actions == 0 immediately drives ResolveCastUseCase to
+	# completion, which clears the LIVE Combatant's own casting_state field
+	# (a separate mutation from the ExecuteResult snapshot asserted above).
+	assert_false(marigold.is_casting(), "with a real in-range target now wired, remaining_actions reaching 0 must resolve the cast immediately, even spanning the round boundary")
+	assert_true(marigold.casting_state.is_empty(), "the live Combatant's own casting_state must be cleared once the round-spanning cast resolves")

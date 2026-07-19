@@ -93,11 +93,24 @@ func test_second_cast_spell_action_on_same_caster_drives_remaining_actions_to_ze
 	var continue_result: Dictionary = instance._verb_bar_cast_spell_execute()
 
 	assert_true(continue_result.get("success", false), "continuing an in-progress cast with no selection argument must succeed (US-006: no re-selection)")
+	# The "casting_state" key on the ExecuteResult is ContinueCastUseCase's
+	# OWN pre-resolution snapshot (SpellActionController._maybe_resolve_cast()
+	# only ever ADDS a "resolve_spell_result" key alongside it -- it never
+	# rewrites "casting_state" in place), so it still reads remaining_actions
+	# == 0 / spell_id == "fire_bolt" / committed_energy unchanged regardless
+	# of whether resolution subsequently ran.
 	assert_eq(continue_result.get("casting_state", {}).get("remaining_actions"), 0, "a second Cast-a-Spell action on the same caster must drive remaining_actions to 0")
-	assert_eq(marigold.casting_state.get("remaining_actions"), 0, "the live Combatant's own casting_state must also show remaining_actions == 0")
-
+	assert_eq(continue_result.get("casting_state", {}).get("spell_id"), "fire_bolt", "spell_id must be unchanged by ContinueCastUseCase -- no re-selection")
 	# No re-payment of energy: committed_energy is carried through unchanged,
 	# and the round energy pool balance is untouched by this continue-cast
 	# action.
-	assert_eq(marigold.casting_state.get("committed_energy"), committed_energy_after_begin, "committed_energy must be unchanged by ContinueCastUseCase -- no re-payment of energy")
-	assert_eq(continue_result.get("casting_state", {}).get("spell_id"), "fire_bolt", "spell_id must be unchanged by ContinueCastUseCase -- no re-selection")
+	assert_eq(continue_result.get("casting_state", {}).get("committed_energy"), committed_energy_after_begin, "committed_energy must be unchanged by ContinueCastUseCase -- no re-payment of energy")
+
+	# FEAT-285 (resolves PR-002/PR-004): MainScene.gd's `_verb_deps()` now
+	# wires a real "targeting_candidates_fn" (the living-enemy pool), so the
+	# in-range Skeleton is a genuine legal target -- reaching
+	# remaining_actions == 0 immediately drives ResolveCastUseCase to
+	# completion, which clears the LIVE Combatant's own casting_state field
+	# (a separate mutation from the ExecuteResult snapshot asserted above).
+	assert_false(marigold.is_casting(), "with a real in-range target now wired, remaining_actions reaching 0 must resolve the cast immediately")
+	assert_true(marigold.casting_state.is_empty(), "the live Combatant's own casting_state must be cleared once resolution completes")

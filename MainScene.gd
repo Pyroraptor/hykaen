@@ -1694,6 +1694,34 @@ func _reaction():
 ## byte-for-byte unchanged, so STRIKE/STEP/STRIDE/END_TURN's own
 ## `_verb_deps()` reads are unaffected by this addition (extra keys are
 ## harmless — file-level doc above).
+##
+## FEAT-285 (resolves PR-002/PR-004): adds "targeting_candidates_fn" —
+## presentation/verbs/spell_action_controller.gd's `_init()` already reads
+## `deps.get("targeting_candidates_fn", Callable())` and forwards it to
+## ResolveSpellController as its own "candidates_fn" (that file's own doc:
+## "the candidate target pool BEFORE range filtering"), but this dict never
+## supplied one — an unwired Callable() degrades to an EMPTY candidate
+## Array (ResolveSpellController._in_range_candidates()'s own documented
+## fallback), so `_targeting_port.request_single_target([])` always
+## returned null and every real, composition-root-driven targeted spell
+## cast (e.g. Fire Bolt) resolved as ERR_NO_VALID_TARGET — a wasted action,
+## never a real hit — regardless of how close/legal the target actually
+## was. FEAT-283's own boot-real proof (tests/boot/
+## test_cast_spell_verb_deps_composition_root_wiring.gd) never caught this
+## because it only drove Channel (a self/no-target ADD_ENERGY spell, which
+## never reaches `_in_range_candidates()` at all); every EARLIER Fire-Bolt-
+## carrying boot-real suite (tests/e2e/test_steel_thread_cast_a_spell.gd/
+## tests/e2e/test_determinism_pinned_seed_cast_a_spell.gd) masked this exact
+## gap by `_verb_deps().duplicate()`-ing and manually overriding
+## "resolve_spell_controller" with its OWN hand-wired `candidates_fn` —
+## PR-002/PR-004's blocker finding. Bound to `_living_enemy_reactors()`
+## below — the SAME real living-enemy accessor "living_enemy_reactors"
+## already reads for the Opportunistic-Strike reactor pool, so no new/
+## duplicate seam is introduced (ci/check_no_duplicate_seams.sh) — spells
+## only ever target living enemies in this codebase's current scope,
+## mirroring presentation/strike_action_controller.gd's own `living_enemies_fn`
+## precedent this key's own doc (resolve_spell_controller.gd) already
+## pointed to.
 func _verb_deps() -> Dictionary:
 	if _verb_deps_cache == null:
 		_verb_deps_cache = {
@@ -1712,6 +1740,7 @@ func _verb_deps() -> Dictionary:
 			"current_turn_order": Callable(self, "_current_turn_order"),
 			"query_selectable_step_hexes": Callable(self, "_query_selectable_step_hexes"),
 			"targeting_port": spell_targeting_port,
+			"targeting_candidates_fn": Callable(self, "_living_enemy_reactors"),
 			"resolution_port": spell_resolution_port,
 			"combat_log_port": spell_combat_log_port,
 			"energy_pool_fn": Callable(self, "_energy_pool_for"),
