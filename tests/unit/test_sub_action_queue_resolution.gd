@@ -46,7 +46,7 @@ func test_charge_queue_resolves_stride_then_strike_in_order() -> void:
 	var queue: Array = controller.build_charge_queue()
 	var resolved_order: Array = []
 
-	var result: Dictionary = controller.resolve_sub_action_queue(queue, _recording_resolver(resolved_order))
+	var result: Dictionary = await controller.resolve_sub_action_queue(queue, _recording_resolver(resolved_order))
 
 	assert_true(result.get("ok", false), "a fully-resolving Charge queue must report ok=true")
 	assert_eq(resolved_order, ["STRIDE", "STRIKE"], "Charge's 2-entry queue must resolve STRIDE then STRIKE, in that order")
@@ -78,7 +78,7 @@ func test_synthetic_n3_queue_resolves_in_order_with_no_special_casing() -> void:
 	]
 	var resolved_order: Array = []
 
-	var result: Dictionary = controller.resolve_sub_action_queue(queue, _recording_resolver(resolved_order))
+	var result: Dictionary = await controller.resolve_sub_action_queue(queue, _recording_resolver(resolved_order))
 
 	assert_true(result.get("ok", false), "a fully-resolving N=3 queue must report ok=true, exactly like N=2")
 	assert_eq(resolved_order, ["ALPHA", "BETA", "GAMMA"], "an arbitrary N=3 queue must resolve via the same generic loop as N=2, in order_index order")
@@ -93,7 +93,7 @@ func test_synthetic_n1_and_n4_queues_also_resolve_via_the_same_loop() -> void:
 
 	var n1_queue: Array = [SubActionQueueEntryClass.new(0, "SOLO")]
 	var n1_order: Array = []
-	var n1_result: Dictionary = controller.resolve_sub_action_queue(n1_queue, _recording_resolver(n1_order))
+	var n1_result: Dictionary = await controller.resolve_sub_action_queue(n1_queue, _recording_resolver(n1_order))
 	assert_true(n1_result.get("ok", false))
 	assert_eq(n1_order, ["SOLO"])
 
@@ -104,7 +104,7 @@ func test_synthetic_n1_and_n4_queues_also_resolve_via_the_same_loop() -> void:
 		SubActionQueueEntryClass.new(3, "Z"),
 	]
 	var n4_order: Array = []
-	var n4_result: Dictionary = controller.resolve_sub_action_queue(n4_queue, _recording_resolver(n4_order))
+	var n4_result: Dictionary = await controller.resolve_sub_action_queue(n4_queue, _recording_resolver(n4_order))
 	assert_true(n4_result.get("ok", false))
 	assert_eq(n4_order, ["W", "X", "Y", "Z"])
 
@@ -123,7 +123,7 @@ func test_order_index_is_honored_even_when_entries_are_inserted_out_of_order() -
 	]
 	var resolved_order: Array = []
 
-	var result: Dictionary = controller.resolve_sub_action_queue(queue, _recording_resolver(resolved_order))
+	var result: Dictionary = await controller.resolve_sub_action_queue(queue, _recording_resolver(resolved_order))
 
 	assert_true(result.get("ok", false))
 	assert_eq(resolved_order, ["FIRST", "SECOND", "THIRD"], "resolution order must follow order_index, not the entries' insertion/array position")
@@ -176,7 +176,7 @@ func test_loop_stops_at_first_failing_entry_and_never_reaches_later_entries() ->
 		resolved_order.append(entry.verb_id)
 		return {"ok": true}
 
-	var result: Dictionary = controller.resolve_sub_action_queue(queue, resolver)
+	var result: Dictionary = await controller.resolve_sub_action_queue(queue, resolver)
 
 	assert_false(result.get("ok", true), "the loop must report ok=false once any entry fails")
 	assert_eq(result.get("resolved_verb_ids", []), ["FIRST"], "only entries resolved BEFORE the failing entry are reported")

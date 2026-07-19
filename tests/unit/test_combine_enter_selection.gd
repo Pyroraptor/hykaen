@@ -225,7 +225,7 @@ func test_returned_queue_resolves_via_the_shared_resolve_sub_action_queue_loop()
 		resolved_order.append(entry.verb_id)
 		return {"ok": true}
 
-	var resolution: Dictionary = controller.resolve_sub_action_queue(queue, resolver)
+	var resolution: Dictionary = await controller.resolve_sub_action_queue(queue, resolver)
 
 	assert_true(resolution.get("ok", false))
 	assert_eq(resolved_order, ["STRIDE", "STRIKE"])
