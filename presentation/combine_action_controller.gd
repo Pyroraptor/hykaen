@@ -18,15 +18,21 @@ extends "res://presentation/action_controller.gd"
 ## despite Combine sitting one layer "above" the verbs it fuses (see
 ## docs/iterations/iteration-N-combinations.org).
 ##
-## Scope of THIS feature only: entry-point plumbing. The three-method verb
-## contract below is deliberately an INERT stub — fail-closed availability(),
-## an empty enter_selection(), a no-op/not-ok execute() — mirroring
+## Scope of the FEAT-001 kickoff: entry-point plumbing. The three-method verb
+## contract below was an INERT stub — fail-closed availability(), an empty
+## enter_selection(), a no-op/not-ok execute() — mirroring
 ## presentation/action_controller.gd's own "fails safe rather than crashing"
 ## base defaults. Real gating (Stamina >= 1, not Dazed, >= 2 combinable
 ## actions this turn, via core/rules/action_economy.gd's existing
 ## combine_actions() validation) and the N-length sub-action queue
 ## orchestration are later Iteration N features, built ON TOP of this seam
 ## without changing it.
+##
+## FEAT-002 (US-002; FR-001) layers the FIRST of those on top: execute() now
+## wires a REAL, live Stamina decrement (Combatant.spend_stamina()) — see
+## execute()'s own doc below. availability()/enter_selection() remain
+## unchanged stubs; real Dazed/Repeat/Stamina>=1 validation is still a later
+## feature.
 
 func _init(deps: Dictionary) -> void:
 	super(deps)
@@ -45,9 +51,20 @@ func enter_selection() -> Dictionary:
 	return {}
 
 
-## execute(selection) -> Dictionary — stub, always reports failure with zero
-## side effects. The real validate-then-orchestrate execution (queueing
-## sub-actions resolved via `_controller(sub_id)`, charging exactly one
-## action + one Stamina at the Combine level) is wired in a later feature.
+## execute(selection) -> Dictionary — FEAT-002 (US-002; FR-001): wires the
+## live Stamina decrement. This is still a STUBBED execute() -- no
+## Dazed/Repeat/Stamina>=1 validation and no sub-action queue orchestration
+## yet (those are later Iteration N features layered on top, without
+## changing this seam) -- but the Stamina spend itself is real: on a live
+## actor, Combine drains exactly one Stamina through
+## Combatant.spend_stamina(), the SAME single mutator every later
+## validation feature reads/writes through, so there is exactly one
+## Stamina-consuming code path for a Combine execute() call, never a
+## second/duplicate one. Fails safe (ok=false, no mutation) when there is
+## no live actor, mirroring the FEAT-001 stub's no-crash contract.
 func execute(_selection = null) -> Dictionary:
-	return {"ok": false}
+	var actor = current_actor_entity()
+	if actor == null:
+		return {"ok": false}
+	actor.spend_stamina()
+	return {"ok": true}

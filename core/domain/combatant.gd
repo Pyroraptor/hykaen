@@ -201,6 +201,18 @@ func take_damage(amount: int) -> void:
 func heal(amount: int) -> void:
 	hp_current = mini(hp_max, hp_current + amount)
 
+## spend_stamina(amount) — FEAT-002 (US-002; FR-001): the SOLE mutator that
+## decrements Stamina from its live, in-place value on this entity. Combine
+## (and every later Stamina-consuming verb) drains through THIS one method,
+## so Stamina has exactly one source of truth and exactly one code path
+## that changes it -- mirrors move_to()/take_damage()'s own "sole mutator"
+## convention above. NOT clamped at 0 and performs no validation of its
+## own (mirrors take_damage()'s unclamped arithmetic) -- a caller checks
+## stamina against the required cost BEFORE calling this; that gating is a
+## later Iteration N feature layered on top of this single mutator.
+func spend_stamina(amount: int = 1) -> void:
+	stamina -= amount
+
 ## Condition tags (String). has_/add_/remove_ keep the conditions[] list in one
 ## place; Off-Guard and Immobilized are read through has_condition().
 func has_condition(condition: String) -> bool:
