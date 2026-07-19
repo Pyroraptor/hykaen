@@ -291,13 +291,21 @@ func enter_selection() -> Dictionary:
 	if actor != null and actor.is_casting():
 		return {}
 
-	var candidate_targets: Array = []
+	var spell_options: Array = []
 	if actor != null:
 		var pool_port = _round_energy_pool_port(actor)
 		if pool_port != null:
-			candidate_targets = BeginCastUseCaseClass.new().castable_spell_ids(actor, _spell_catalog_port, pool_port)
+			var castable_ids: Array = BeginCastUseCaseClass.new().castable_spell_ids(actor, _spell_catalog_port, pool_port)
+			for spell_id in castable_ids:
+				var spell = _spell_catalog_port.get_spell(spell_id)
+				var label: String = spell.spell_name if spell != null and spell.spell_name != "" else spell_id
+				var targets: Array = []
+				if spell != null and spell.range_ft > 0 and _living_enemy_reactors_fn.is_valid():
+					for enemy in _living_enemy_reactors_fn.call():
+						targets.append(enemy.display_id())
+				spell_options.append({"id": spell_id, "label": label, "candidate_targets": targets})
 
-	return {"verb_id": "CAST_SPELL", "candidate_hexes": [], "candidate_targets": candidate_targets}
+	return {"verb_id": "CAST_SPELL", "candidate_options": spell_options, "candidate_hexes": [], "candidate_targets": []}
 
 
 ## execute(selection) -> Dictionary — US-004 contract #3, completed by
@@ -340,6 +348,11 @@ func execute(selection = null) -> Dictionary:
 			continue_result["reaction_result"] = continue_reaction_result
 			continue_result = _maybe_cancel_cast(actor, continue_result, continue_reaction_result)
 		return _maybe_resolve_cast(actor, continue_result)
+
+	# Unwrap OPTION_TARGET shape {"option": {id, label, ...}, "target": enemy_id}
+	# emitted by SelectionOverlay when a spell is picked via the Layer-2a picker.
+	if selection is Dictionary and "option" in selection:
+		selection = selection.get("option", {}).get("id", "")
 
 	var spell_id: String = _extract_spell_id(selection)
 	if spell_id == "":

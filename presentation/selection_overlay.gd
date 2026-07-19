@@ -373,7 +373,15 @@ func choose_option(option) -> void:
 		return
 	_chosen_option = option
 	_awaiting_option = false
+	# Per-option candidate_targets (e.g. ranged spells embed their target list
+	# in the option dict so Channel/self-cast spells can leave it empty).
+	if option is Dictionary and "candidate_targets" in option:
+		_target_hex_by_id = _resolve_target_hexes(option.get("candidate_targets", []))
+		_candidate_hexes = []
 	_refresh_highlight()
+	# Auto-resolve when no targets or hexes remain (e.g. Channel, self-cast).
+	if _candidate_hexes.is_empty() and _target_hex_by_id.is_empty():
+		_resolve(null)
 
 
 ## clear() -> void — leaves Layer 2 (returns to Layer 1) and clears any

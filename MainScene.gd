@@ -909,6 +909,7 @@ func _ready() -> void:
 	if verb_bar_view != null:
 		verb_bar_view.verb_selection_entered.connect(_on_verb_bar_selection_entered)
 	selection_overlay.selection_resolved.connect(_on_selection_overlay_resolved)
+	_setup_spell_picker_panel()
 
 	# ── FEAT-176 / US-012 (FR-007, ADR-005): wire the generic Layer 2 cancel/
 	# back affordance (Esc/right-click/Cancel button) over the SAME
@@ -1590,7 +1591,7 @@ func _verb_bar_cast_spell_enter_selection() -> Dictionary:
 
 
 func _verb_bar_cast_spell_execute(selection = null) -> Dictionary:
-	return _controller("CAST_SPELL").execute(selection)
+	return await _controller("CAST_SPELL").execute(selection)
 
 
 ## _on_verb_bar_selection_entered(verb_id, selection) -> void — FEAT-008 /
@@ -1602,6 +1603,8 @@ func _verb_bar_cast_spell_execute(selection = null) -> Dictionary:
 ## verb_id here (ADR-002/CR-001: no forked Layer 2 wiring per verb).
 func _on_verb_bar_selection_entered(verb_id: String, selection) -> void:
 	selection_overlay.activate(verb_id, selection)
+	if selection_overlay.is_awaiting_option():
+		_show_spell_picker(selection_overlay.get_candidate_options())
 
 
 ## _on_selection_overlay_resolved(_verb_id, _result) -> void — FEAT-008 /
@@ -1617,6 +1620,7 @@ func _on_verb_bar_selection_entered(verb_id: String, selection) -> void:
 ## resolved Strike does not itself move anyone, so nothing else already
 ## re-pushes that highlight after selection_overlay.clear() blanks it.
 func _on_selection_overlay_resolved(_verb_id: String, _result) -> void:
+	_hide_spell_picker()
 	if verb_bar_view != null:
 		verb_bar_view.refresh_availability()
 	if round_session != null:
@@ -1625,6 +1629,65 @@ func _on_selection_overlay_resolved(_verb_id: String, _result) -> void:
 		var actor = round_session.current_actor_entity()
 		if actor != null:
 			_turn_presentation().highlight_legal_moves(actor, actor.display_id())
+
+
+# ── Spell picker panel ───────────────────────────────────────────────────────
+# A simple floating panel shown during Layer-2a spell selection (when
+# selection_overlay.is_awaiting_option() is true). Populated with one button
+# per candidate_option; clicking a button calls choose_option() and hides the
+# panel. For ranged spells (e.g. Fire Bolt) the overlay then enters Layer-2b
+# and highlights enemy targets; for self-cast spells (e.g. Channel) it
+# auto-resolves immediately (no targets to pick).
+
+var _spell_picker_panel: Panel = null
+
+func _setup_spell_picker_panel() -> void:
+	_spell_picker_panel = Panel.new()
+	_spell_picker_panel.visible = false
+	_spell_picker_panel.custom_minimum_size = Vector2(220, 40)
+
+	var vbox := VBoxContainer.new()
+	vbox.name = "SpellList"
+	vbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 8)
+	_spell_picker_panel.add_child(vbox)
+
+	# Anchor bottom-center above the verb bar area.
+	_spell_picker_panel.anchor_left = 0.5
+	_spell_picker_panel.anchor_right = 0.5
+	_spell_picker_panel.anchor_top = 1.0
+	_spell_picker_panel.anchor_bottom = 1.0
+	_spell_picker_panel.offset_left = -110
+	_spell_picker_panel.offset_right = 110
+	_spell_picker_panel.offset_top = -220
+	_spell_picker_panel.offset_bottom = -100
+
+	add_child(_spell_picker_panel)
+
+	selection_overlay.selection_cancelled.connect(func(_v): _hide_spell_picker())
+
+
+func _show_spell_picker(options: Array) -> void:
+	if _spell_picker_panel == null:
+		return
+	var vbox: VBoxContainer = _spell_picker_panel.get_node("SpellList")
+	for child in vbox.get_children():
+		child.queue_free()
+	for option in options:
+		var btn := Button.new()
+		btn.text = option.get("label", option.get("id", "?"))
+		btn.pressed.connect(_on_spell_option_pressed.bind(option))
+		vbox.add_child(btn)
+	_spell_picker_panel.visible = true
+
+
+func _on_spell_option_pressed(option: Dictionary) -> void:
+	_hide_spell_picker()
+	selection_overlay.choose_option(option)
+
+
+func _hide_spell_picker() -> void:
+	if _spell_picker_panel != null:
+		_spell_picker_panel.visible = false
 
 
 ## _turn_presentation() — lazily builds (once) and returns the extracted
