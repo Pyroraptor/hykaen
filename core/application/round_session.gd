@@ -95,6 +95,15 @@ const RenderCombatLogUseCaseClass = preload("res://core/application/render_comba
 ## use case this file already preloads).
 const ResolveDodgeStepUseCaseClass = preload("res://core/application/resolve_dodge_step_use_case.gd")
 
+## EnergyPoolClass — FEAT-003 (US-003; FR-012, FR-015): preloaded to
+## construct/hold the per-caster Channeling energy pool value object (see
+## core/domain/energy_pool.gd's own doc). RoundSession is the sole owner of
+## the `energy_pools: Dictionary[caster_id -> EnergyPool]` collection (see
+## `_energy_pools` below) — a caster's committed_energy (Combatant.
+## casting_state, a wholly separate field) is never touched by anything in
+## this section.
+const EnergyPoolClass = preload("res://core/domain/energy_pool.gd")
+
 var _entries: Array
 var _party: Array
 var _enemies: Array
@@ -633,6 +642,45 @@ var _reaction_budget_violations: Array = []
 ## above).
 func get_reaction_budget_violations() -> Array:
 	return _reaction_budget_violations.duplicate()
+
+
+## _energy_pools — FEAT-003 (US-003; FR-012, FR-015): Dictionary[caster_id
+## (String) -> EnergyPoolClass instance] — one per-round Channeling energy
+## pool per caster who has drawn one this round (see get_energy_pool()
+## below, the sole creation site). Round-scoped: a fresh RoundSession (one
+## per round, per this file's own doc) starts with an empty Dictionary —
+## never carried over from a prior round's instance. This collection is
+## entirely separate from a caster's `committed_energy`, which lives on
+## Combatant.casting_state (core/domain/combatant.gd) and is never read or
+## written by anything in this section.
+var _energy_pools: Dictionary = {}
+
+
+## get_energy_pool(caster) -> EnergyPoolClass — returns `caster`'s energy
+## pool for this round, creating one on first access. `caster` is expected
+## to be a Combatant (or any duck-typed object exposing display_id() and
+## spellcasting_attribute_score, mirroring this file's established
+## `target.display_id()` identity convention, e.g. _resolve_dodge_step_prompt()
+## above). Capacity is resolved ONCE, at creation time, from
+## `caster.spellcasting_attribute_score` (design notes' data_model: "capacity
+## = spellcasting_attribute_score ... re-derived at pool creation, not
+## copied ahead of time") — a later change to that score never retroactively
+## resizes an already-created pool this round. Repeated calls for the SAME
+## caster_id return the SAME EnergyPoolClass instance (never a fresh one),
+## so a caller's in-progress banked energy is never silently reset mid-round.
+func get_energy_pool(caster):
+	var caster_id: String = caster.display_id()
+	if not _energy_pools.has(caster_id):
+		_energy_pools[caster_id] = EnergyPoolClass.new(caster.spellcasting_attribute_score)
+	return _energy_pools[caster_id]
+
+
+## get_energy_pools() -> Dictionary — a read-only copy of every energy pool
+## created so far this round (caster_id -> EnergyPoolClass), mirroring
+## get_reaction_budget_violations()'s read-only-copy convention immediately
+## above.
+func get_energy_pools() -> Dictionary:
+	return _energy_pools.duplicate()
 
 
 ## _attack_event_id_counter — FEAT-007 (US-007 / FR-008): monotonically
@@ -1856,10 +1904,24 @@ func end_current_turn() -> Dictionary:
 ## logic runs. A DECIDED ('won'/'lost') outcome, by contrast, is a terminal
 ## state — the encounter is over, no further round will ever be begun for
 ## these combatants, so there is no reason to reset their budgets at all.
+## FEAT-003 (US-003; FR-012, FR-015): every caster's EnergyPool
+## (`_energy_pools`, see get_energy_pool()'s own doc above) is emptied
+## (current -> 0) alongside the ActionEconomy end_of_round() reset above,
+## under the SAME "outcome still undecided" guard — a decided ('won'/
+## 'lost') outcome is terminal (no further round is ever begun for these
+## combatants, per this method's own pre-existing doc), so there is no
+## reason to reset pools any more than there is to reset ActionEconomy
+## budgets in that case. EnergyPool.empty() ONLY zeroes `current` on the
+## pool value object itself — it never reaches, reads, or mutates a
+## caster's `committed_energy` (Combatant.casting_state, a wholly separate
+## field this loop never touches), satisfying this feature's "without
+## touching already-committed energy" requirement.
 func finish() -> Dictionary:
 	if _outcome == "":
 		for entry in _entries:
 			entry["action_economy"].end_of_round()
+		for pool in _energy_pools.values():
+			pool.empty()
 
 	var this_round_history: Array = []
 	for hist_entry in _round_history_port.get_history():
