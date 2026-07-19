@@ -1,0 +1,9 @@
+[gd_resource type="Resource" script_class="CombineContentResource" load_steps=2 format=3 uid="uid://ch4rge0mb1ne001"]
+
+[ext_resource type="Script" uid="uid://vrbtbl0mb1ne0001" path="res://core/rules/verb_table.gd" id="1_charge"]
+
+[resource]
+script = ExtResource("1_charge")
+combine_id = "CHARGE"
+name = "Charge"
+queue_verb_ids = ["STRIDE", "STRIKE"]

@@ -3,6 +3,16 @@ extends "res://presentation/action_controller.gd"
 const ActionEconomyClass = preload("res://core/rules/action_economy.gd")
 const SubActionQueueEntryClass = preload("res://core/rules/sub_action_queue_entry.gd")
 
+## CHARGE_CONTENT_PATH — FEAT-286 (US-011; FR-011): the authored v0 Combine
+## content this file's default queue/pair are now SOURCED FROM, rather than
+## a hardcoded literal baked into _default_charge_pair()/build_charge_queue()
+## below (see core/rules/verb_table.gd's own CombineContentResource schema
+## doc for the "data, not code" rationale). "CHARGE" (queue=[STRIDE, STRIKE])
+## is the only Combine content authored for v0; a future Combine adds a new
+## data/combines/{combine_id}.tres file on the same schema without any
+## controller-code edit.
+const CHARGE_CONTENT_PATH: String = "res://data/combines/charge.tres"
+
 ## CombineActionController — FEAT-001 (US-001; FR-003; ADR-001), Iteration N
 ## (Combinations) kickoff.
 ##
@@ -221,16 +231,53 @@ func availability() -> bool:
 	return _validate_combine(actor).get("ok", false)
 
 
-## _default_charge_pair() -> Array[Dictionary] — v0's fixed Charge sub-action
-## pair (Stride, Strike): two DIFFERENT verbs, so the different-verb branch
-## of action_economy.combine_actions()'s rule accepts them with no Repeat
-## trait required. This is enter_selection()'s default `pair` argument when
-## a caller doesn't supply its own (FEAT-006; US-006).
+## _load_charge_content() -> CombineContentResource or null — FEAT-286
+## (US-011; FR-011): the SOLE ResourceLoader.load() call site for Charge's
+## authored content, shared by _default_charge_pair() and build_charge_queue()
+## below so there is exactly one place this file reads
+## data/combines/charge.tres from disk. Mirrors
+## core/adapters/resource_spell_catalog_adapter.gd's established "load, then
+## has_method('is_valid')-check before ever trusting a hydrated Resource"
+## convention: a missing/malformed authored file is logged and treated as
+## absent (returns null) rather than crashing or silently exposing invalid
+## data — callers fall back to the pre-FEAT-286 hardcoded Charge shape so a
+## corrupt/missing content file degrades gracefully instead of breaking the
+## whole Combine verb.
+static func _load_charge_content():
+	var content = ResourceLoader.load(CHARGE_CONTENT_PATH)
+	if content == null:
+		push_error("CombineActionController: failed to load Charge content at %s" % CHARGE_CONTENT_PATH)
+		return null
+	if not content.has_method("is_valid") or not content.is_valid():
+		var reason: String = content.validation_error() if content.has_method("validation_error") else "not a valid CombineContentResource"
+		push_error("CombineActionController: rejecting malformed Charge content: %s" % reason)
+		return null
+	return content
+
+
+## _default_charge_pair() -> Array[Dictionary] — v0's Charge sub-action pair
+## (Stride, Strike), now SOURCED FROM the authored
+## data/combines/charge.tres content (FEAT-286; US-011; FR-011) via
+## _load_charge_content() rather than a hardcoded literal — two DIFFERENT
+## verbs, so the different-verb branch of action_economy.combine_actions()'s
+## rule accepts them with no Repeat trait required. This is
+## enter_selection()'s default `pair` argument when a caller doesn't supply
+## its own (FEAT-006; US-006). Falls back to the original v0 hardcoded
+## [STRIDE, STRIKE] shape when the authored content fails to load/validate
+## (see _load_charge_content()'s own doc) — this file still has exactly ONE
+## authoritative Charge shape at any given moment, never two independently
+## drifting ones.
 static func _default_charge_pair() -> Array:
-	return [
-		{"verb_id": "STRIDE", "traits": []},
-		{"verb_id": "STRIKE", "traits": []},
-	]
+	var content = _load_charge_content()
+	if content == null:
+		return [
+			{"verb_id": "STRIDE", "traits": []},
+			{"verb_id": "STRIKE", "traits": []},
+		]
+	var pair: Array = []
+	for verb_id in content.queue_verb_ids:
+		pair.append({"verb_id": verb_id, "traits": []})
+	return pair
 
 
 ## enter_selection(pair) -> Dictionary — FEAT-006 (US-006; FR-005): the
@@ -563,13 +610,28 @@ func _sub_action_resolver(sel: Dictionary) -> Callable:
 
 
 ## build_charge_queue() -> Array[SubActionQueueEntry] — FEAT-005 (US-005;
-## ADR-005/FR-010): the v0 Charge sub-action queue (Stride then Strike),
-## authored on the generalized SubActionQueueEntry structure rather than as
-## a bespoke fixed-pair shape. Delegates entirely to
-## SubActionQueueEntry.build_charge_queue() -- this file introduces no
-## second/parallel way to construct a Charge queue.
+## ADR-005/FR-010) + FEAT-286 (US-011; FR-011): the v0 Charge sub-action
+## queue (Stride then Strike), authored on the generalized
+## SubActionQueueEntry structure. As of FEAT-286, the verb_id sequence is
+## SOURCED FROM the authored data/combines/charge.tres content (via
+## _load_charge_content(), the SAME loader _default_charge_pair() shares —
+## see that method's own doc) rather than a hardcoded literal, so Charge is
+## genuine playable CONTENT rather than logic baked into this controller.
+## order_index is derived from each entry's position in the authored
+## queue_verb_ids Array, matching SubActionQueueEntry.build_charge_queue()'s
+## own order_index convention exactly. Falls back to
+## SubActionQueueEntry.build_charge_queue()'s original hardcoded
+## [STRIDE, STRIKE] shape when the authored content fails to load/validate,
+## so this file still has exactly ONE authoritative Charge queue shape at
+## any given moment, never two independently drifting ones.
 func build_charge_queue() -> Array:
-	return SubActionQueueEntryClass.build_charge_queue()
+	var content = _load_charge_content()
+	if content == null:
+		return SubActionQueueEntryClass.build_charge_queue()
+	var queue: Array = []
+	for i in content.queue_verb_ids.size():
+		queue.append(SubActionQueueEntryClass.new(i, content.queue_verb_ids[i]))
+	return queue
 
 
 ## FEAT-006 (US-006; FR-005) layers the REAL enter_selection() player-facing
