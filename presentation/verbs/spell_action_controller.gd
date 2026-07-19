@@ -346,7 +346,7 @@ func execute(selection = null) -> Dictionary:
 			var continue_reaction_result: Dictionary = await _provoke_reaction_on_cast(actor)
 			continue_result["reaction_result"] = continue_reaction_result
 			continue_result = _maybe_cancel_cast(actor, continue_result, continue_reaction_result)
-		return _maybe_resolve_cast(actor, continue_result)
+		return await _maybe_resolve_cast(actor, continue_result)
 
 	# Unwrap OPTION_TARGET shape {"option": {id, label, ...}, "target": enemy_id}
 	# emitted by SelectionOverlay when a spell is picked via the Layer-2a picker.
@@ -369,7 +369,7 @@ func execute(selection = null) -> Dictionary:
 		var begin_reaction_result: Dictionary = await _provoke_reaction_on_cast(actor)
 		begin_result["reaction_result"] = begin_reaction_result
 		begin_result = _maybe_cancel_cast(actor, begin_result, begin_reaction_result)
-	return _maybe_resolve_cast(actor, begin_result)
+	return await _maybe_resolve_cast(actor, begin_result)
 
 
 ## _provoke_reaction_on_cast(actor) -> Dictionary — FEAT-279 (US-014; FR-016,
@@ -540,7 +540,7 @@ func _maybe_resolve_cast(actor, result: Dictionary) -> Dictionary:
 		var state = CastingStateClass.from_dict(actor.casting_state)
 		if state.remaining_actions == 0:
 			var round_num: int = _round_number_fn.call() if _round_number_fn.is_valid() else 0
-			result["resolve_spell_result"] = _resolve_spell_controller.execute(actor, round_num)
+			result["resolve_spell_result"] = await _resolve_spell_controller.execute(actor, round_num)
 	return result
 
 

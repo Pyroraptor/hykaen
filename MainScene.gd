@@ -251,6 +251,7 @@ const DetermineOutcomeUseCaseClass     = preload("res://core/application/determi
 const RunRoundUseCaseClass             = preload("res://core/application/run_round_use_case.gd")
 const AIClass                          = preload("res://core/combat/ai.gd")
 const MovementInputControllerClass     = preload("res://presentation/movement_input_controller.gd")
+const PlayerTargetingPortClass         = preload("res://presentation/ui/player_targeting_port.gd")
 const FlankingClass                    = preload("res://core/rules/flanking.gd")
 const CoordinateTransformClass         = preload("res://presentation/infrastructure/coordinate_transform.gd")
 const HexGridViewClass                 = preload("res://presentation/hex_grid_view.gd")
@@ -648,33 +649,9 @@ var _view_model_builder := ViewModelBuilderClass.new()
 var centering_offset: Vector2 = Vector2.ZERO
 
 
-## _FirstLegalTargetingPort — FEAT-283 (resolves PR-001): MainScene's OWN
-## composition-root-only default TargetingPort adapter (extends
-## core/application/ports/targeting_port.gd BY PATH, mirroring
-## infrastructure/ui_hex_choice_resolver.gd's/infrastructure/
-## ai_reaction_policy.gd's identical "concrete adapter, wired ONLY here"
-## precedent). ResolveSpellController.execute() calls
-## `_targeting_port.request_single_target(legal_targets)` SYNCHRONOUSLY (no
-## `await` — see that file's own doc), so this adapter cannot block on a
-## player-facing pop-up the way `hex_choice_resolver`
-## (HexChoiceResolverPort, an `await`ed port) does; it instead resolves
-## deterministically and immediately, exactly like `enemy_reaction_chooser`/
-## `hex_choice_resolver`'s AI-facing siblings. Picks the FIRST candidate in
-## the (already range-filtered, per ResolveSpellController's own doc)
-## `legal_targets` Array — a real, always-terminating choice, never a
-## fabricated one: an empty `legal_targets` still yields null (the base
-## class's own invariant, inherited unchanged). A future feature may replace
-## this with a genuine player-facing picker (mirrors design notes'
-## documented extension points); until then this is the real, live default
-## every booted MainScene resolves a spell's target through — never a
-## test-only double.
-class _FirstLegalTargetingPort:
-	extends "res://core/application/ports/targeting_port.gd"
-
-	func request_single_target(legal_targets: Array):
-		if legal_targets.is_empty():
-			return null
-		return legal_targets[0]
+## _FirstLegalTargetingPort — SUPERSEDED by presentation/ui/player_targeting_port.gd
+## PlayerTargetingPort (wired below). Retained only to avoid breaking any
+## external reference by name; no longer instantiated by this composition root.
 
 
 ## spell_targeting_port / spell_resolution_port / spell_combat_log_port —
@@ -740,7 +717,7 @@ func _ready() -> void:
 	# Constructed well before `_verb_deps()` is first read (_build_verb_registry()
 	# below), so `_controller("CAST_SPELL")` never observes a null value for
 	# any of the three. See these fields' own doc above. ────────────────────
-	spell_targeting_port = _FirstLegalTargetingPort.new()
+	spell_targeting_port = PlayerTargetingPortClass.new(hex_grid_view)
 	spell_resolution_port = ResolutionPortClass.ResolutionRulesAdapter.new(random_port)
 	spell_combat_log_port = CombatLogPanelAdapterClass.new()
 	if event_log_view != null:

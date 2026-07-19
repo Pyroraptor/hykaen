@@ -238,7 +238,7 @@ func execute(actor, round_number: int = 0) -> Dictionary:
 		# than crash; never fabricate a target of our own.
 		return {"success": false, "target_id": null, "target": null, "error": ErrorCodeClass.ERR_NO_VALID_TARGET}
 
-	var target = _targeting_port.request_single_target(legal_targets)
+	var target = await _targeting_port.request_single_target(legal_targets)
 	if target == null:
 		# api_contracts #2: "the cast still resolves as a wasted action" —
 		# nothing to resolve against, so ResolutionPort is never invoked
