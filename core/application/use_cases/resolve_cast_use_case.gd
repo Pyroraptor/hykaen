@@ -176,12 +176,12 @@ func get_effects_applier():
 ## "unwired collaborator -> safe fallback" convention). `energy_pool_fn`
 ## (FEAT-277) defaults to an invalid Callable() — consulted ONLY by the
 ## ADD_ENERGY branch (see `_apply_add_energy()`'s own doc).
-func execute(caster, spell, targets: Array, resolution_port, combat_log_port = null, energy_pool_fn = Callable()) -> Dictionary:
+func execute(caster, spell, targets: Array, resolution_port, combat_log_port = null, energy_pool_fn = Callable(), round_number: int = 0) -> Dictionary:
 	if caster == null or spell == null:
 		return {"success": false, "results": [], "error": ErrorCodeClass.ERR_INVALID_STATE}
 
 	if spell.effect_type == EffectKindClass.ADD_ENERGY:
-		return _execute_add_energy(caster, spell, combat_log_port, energy_pool_fn)
+		return _execute_add_energy(caster, spell, combat_log_port, energy_pool_fn, round_number)
 
 	if resolution_port == null:
 		return {"success": false, "results": [], "error": ErrorCodeClass.ERR_INVALID_STATE}
@@ -198,7 +198,7 @@ func execute(caster, spell, targets: Array, resolution_port, combat_log_port = n
 			"damage_applied": damage_applied,
 		})
 
-	_emit_combat_log_entry(caster, spell, results, combat_log_port)
+	_emit_combat_log_entry(caster, spell, results, combat_log_port, round_number)
 
 	# CLEANUP (FEAT-276; api_contracts #2): unconditional, regardless of
 	# hit/miss/no-valid-target -- the SOLE existing Combatant mutator that
@@ -223,7 +223,7 @@ func execute(caster, spell, targets: Array, resolution_port, combat_log_port = n
 ## ADD_ENERGY-only spells like Channel"), then runs the SAME unconditional
 ## CLEANUP step (`caster.cancel_cast()`) every other branch of this use
 ## case runs.
-func _execute_add_energy(caster, spell, combat_log_port, energy_pool_fn) -> Dictionary:
+func _execute_add_energy(caster, spell, combat_log_port, energy_pool_fn, round_number: int = 0) -> Dictionary:
 	var amount: int = int(spell.effect_params.get("amount", 1))
 	var effect := AddEnergyEffectClass.new(caster.display_id(), amount)
 	var applied: int = _apply_add_energy(caster, effect, energy_pool_fn)
@@ -236,7 +236,8 @@ func _execute_add_energy(caster, spell, combat_log_port, energy_pool_fn) -> Dict
 			[],
 			null,
 			null,
-			applied
+			applied,
+			round_number
 		)
 		combat_log_port.emit(entry)
 
@@ -286,7 +287,7 @@ func _apply_add_energy(caster, effect, energy_pool_fn) -> int:
 ## hands it to `combat_log_port.emit()` -- skipped entirely (no
 ## CombatLogEntry constructed at all) when `combat_log_port` is null (see
 ## execute()'s own doc).
-func _emit_combat_log_entry(caster, spell, results: Array, combat_log_port) -> void:
+func _emit_combat_log_entry(caster, spell, results: Array, combat_log_port, round_number: int = 0) -> void:
 	if combat_log_port == null:
 		return
 
@@ -309,7 +310,8 @@ func _emit_combat_log_entry(caster, spell, results: Array, combat_log_port) -> v
 		target_ids,
 		hit,
 		damage_amount,
-		null
+		null,
+		round_number
 	)
 	combat_log_port.emit(entry)
 

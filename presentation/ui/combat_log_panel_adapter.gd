@@ -48,6 +48,17 @@ extends "res://core/application/ports/combat_log_port.gd"
 ## presentation/event_log_view.gd's `_entries` append-only convention).
 var _entries: Array = []
 
+## _log_view — optional EventLogView reference set via configure(). When set,
+## every emit() call immediately forwards the entry for live rendering.
+var _log_view = null
+
+
+## configure(log_view) -> void — wires a live EventLogView so emit() calls
+## forward to on_spell_log_entry() for immediate rendering. Called once by
+## the composition root (MainScene._ready()) after both objects are created.
+func configure(log_view) -> void:
+	_log_view = log_view
+
 
 ## emit(entry) -> void — CombatLogPort's contract: appends `entry` to this
 ## adapter's in-memory log. A null entry is skipped with a push_error
@@ -58,6 +69,8 @@ func emit(entry) -> void:
 		push_error("CombatLogPanelAdapter.emit(): null entry -- skipping")
 		return
 	_entries.append(entry)
+	if _log_view != null and _log_view.has_method("on_spell_log_entry"):
+		_log_view.on_spell_log_entry(entry)
 
 
 ## get_entry_count() -> int — number of entries emitted so far.

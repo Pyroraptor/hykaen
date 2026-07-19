@@ -514,3 +514,47 @@ func _event_get(event, key: String, default = null):
 		return default
 	var value = event.get(key)
 	return value if value != null else default
+
+
+## on_spell_log_entry(entry) → void — renders a CombatLogEntry (from
+## core/domain/combat_log_entry.gd) as a human-readable line. Called by
+## CombatLogPanelAdapter when a spell cast event is emitted.
+func on_spell_log_entry(entry) -> void:
+	if entry == null:
+		return
+	var actor: String = _format_combat_id(entry.actor_id)
+	var spell: String = _format_combat_id(entry.spell_id)
+	var text: String
+	match entry.event_type:
+		0: # CAST_BEGIN
+			text = "Round %d: %s begins casting %s." % [entry.round_number, actor, spell]
+		1: # CAST_CONTINUE
+			text = "Round %d: %s continues casting %s." % [entry.round_number, actor, spell]
+		2: # CAST_RESOLVE
+			if entry.energy_delta != null:
+				text = "Round %d: %s casts %s — gained %d energy." % [entry.round_number, actor, spell, entry.energy_delta]
+			elif entry.hit == null:
+				text = "Round %d: %s casts %s — no valid target." % [entry.round_number, actor, spell]
+			elif entry.hit:
+				var target: String = _format_combat_id(entry.target_ids[0]) if entry.target_ids.size() > 0 else "target"
+				var dmg: int = entry.damage_amount if entry.damage_amount != null else 0
+				text = "Round %d: %s casts %s — Hit %s for %d damage." % [entry.round_number, actor, spell, target, dmg]
+			else:
+				var target: String = _format_combat_id(entry.target_ids[0]) if entry.target_ids.size() > 0 else "target"
+				text = "Round %d: %s casts %s — Miss vs %s." % [entry.round_number, actor, spell, target]
+		3: # CAST_CANCELLED
+			text = "Round %d: %s's %s was cancelled." % [entry.round_number, actor, spell]
+		_:
+			text = "Round %d: %s: %s" % [entry.round_number, actor, spell]
+	_append_entry(entry.round_number, text)
+
+
+## _format_combat_id(id) -> String — converts a snake_case combatant/spell id
+## to a readable Title Case label. E.g. "fire_bolt" → "Fire Bolt",
+## "marigold_1" → "Marigold 1".
+func _format_combat_id(id: String) -> String:
+	var parts: Array = id.split("_")
+	var out: Array = []
+	for part in parts:
+		out.append(part.capitalize())
+	return " ".join(out)

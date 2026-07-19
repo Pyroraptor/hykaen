@@ -137,6 +137,7 @@ const ResolveSpellControllerClass = preload("res://presentation/verbs/resolve_sp
 const ProvokeReactionOnCastUseCaseClass = preload("res://core/application/use_cases/provoke_reaction_on_cast_use_case.gd")
 const CancelCastUseCaseClass = preload("res://core/application/use_cases/cancel_cast_use_case.gd")
 const CastingStateClass = preload("res://core/domain/casting_state.gd")
+const CombatLogEntryClass = preload("res://core/domain/combat_log_entry.gd")
 
 ## _spell_catalog_port — FEAT-005: the SpellCatalogPort collaborator every
 ## availability()/execute() call resolves a spell_id through. Reads
@@ -186,6 +187,7 @@ var _round_number_fn: Callable
 var _resolve_action_use_case
 var _living_enemy_reactors_fn: Callable
 var _turn_order_fn: Callable
+var _combat_log_port
 
 
 ## _verb_deps() -> Array[String] — the closed list of application-layer PORTS
@@ -220,6 +222,7 @@ func _init(deps: Dictionary) -> void:
 	_resolve_action_use_case = deps.get("resolve_action_use_case", null)
 	_living_enemy_reactors_fn = deps.get("living_enemy_reactors", Callable())
 	_turn_order_fn = deps.get("current_turn_order", Callable())
+	_combat_log_port = deps.get("combat_log_port", null)
 	_resolve_spell_controller = deps.get("resolve_spell_controller", ResolveSpellControllerClass.new({
 		"spell_catalog_port": _spell_catalog_port,
 		"targeting_port": deps.get("targeting_port", null),
@@ -362,6 +365,7 @@ func execute(selection = null) -> Dictionary:
 		actor, spell_id, _spell_catalog_port, pool_port, current_action_economy()
 	)
 	if begin_result.get("success", false):
+		_emit_cast_begin_log(actor)
 		var begin_reaction_result: Dictionary = await _provoke_reaction_on_cast(actor)
 		begin_result["reaction_result"] = begin_reaction_result
 		begin_result = _maybe_cancel_cast(actor, begin_result, begin_reaction_result)
@@ -535,7 +539,8 @@ func _maybe_resolve_cast(actor, result: Dictionary) -> Dictionary:
 	if actor != null and actor.is_casting():
 		var state = CastingStateClass.from_dict(actor.casting_state)
 		if state.remaining_actions == 0:
-			result["resolve_spell_result"] = _resolve_spell_controller.execute(actor)
+			var round_num: int = _round_number_fn.call() if _round_number_fn.is_valid() else 0
+			result["resolve_spell_result"] = _resolve_spell_controller.execute(actor, round_num)
 	return result
 
 
@@ -551,6 +556,20 @@ func _extract_spell_id(selection) -> String:
 	if selection is Dictionary:
 		return String(selection.get("spell_id", ""))
 	return ""
+
+
+## _emit_cast_begin_log(actor) -> void — emits a CAST_BEGIN CombatLogEntry
+## immediately after begin_cast() succeeds, so the player sees a "begins
+## casting" message in the combat log before waiting for resolution.
+func _emit_cast_begin_log(actor) -> void:
+	if _combat_log_port == null:
+		return
+	var spell_id: String = String(actor.casting_state.get("spell_id", ""))
+	var round_num: int = _round_number_fn.call() if _round_number_fn.is_valid() else 0
+	_combat_log_port.emit(CombatLogEntryClass.new(
+		CombatLogEntryClass.EventType.CAST_BEGIN,
+		actor.display_id(), spell_id, [], null, null, null, round_num
+	))
 
 
 ## _inert_result() -> Dictionary — the FEAT-004 skeleton's deliberately-inert

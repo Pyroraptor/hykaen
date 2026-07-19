@@ -743,6 +743,8 @@ func _ready() -> void:
 	spell_targeting_port = _FirstLegalTargetingPort.new()
 	spell_resolution_port = ResolutionPortClass.ResolutionRulesAdapter.new(random_port)
 	spell_combat_log_port = CombatLogPanelAdapterClass.new()
+	if event_log_view != null:
+		spell_combat_log_port.configure(event_log_view)
 
 	_party = []
 	for i in range(encounter_resource.party_resource_paths.size()):

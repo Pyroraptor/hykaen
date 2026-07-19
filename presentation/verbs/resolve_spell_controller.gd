@@ -209,7 +209,7 @@ func _init(deps: Dictionary = {}) -> void:
 ## not casting, remaining_actions != 0) returns `_skip_result()` WITHOUT
 ## ever invoking TargetingPort OR ResolutionPort — the gate test_criteria
 ## #1/#3 assert against.
-func execute(actor) -> Dictionary:
+func execute(actor, round_number: int = 0) -> Dictionary:
 	if not _should_resolve(actor):
 		return _skip_result()
 
@@ -225,7 +225,7 @@ func execute(actor) -> Dictionary:
 		# Self/no-target spell (e.g. Channel) — never opens targeting at all
 		# (file-level doc). `target_id` is the caster's own id.
 		var self_cast_result := {"success": true, "target_id": actor.display_id(), "target": actor, "error": ErrorCodeClass.NONE}
-		var resolve_cast_result = _maybe_resolve_self_cast(actor, spell)
+		var resolve_cast_result = _maybe_resolve_self_cast(actor, spell, round_number)
 		if resolve_cast_result != null:
 			self_cast_result["resolve_cast_result"] = resolve_cast_result
 		return self_cast_result
@@ -246,7 +246,7 @@ func execute(actor) -> Dictionary:
 		return {"success": true, "target_id": null, "target": null, "error": ErrorCodeClass.ERR_NO_VALID_TARGET}
 
 	var result: Dictionary = {"success": true, "target_id": target.display_id(), "target": target, "error": ErrorCodeClass.NONE}
-	var resolve_cast_result = _maybe_resolve_attack(actor, spell, target)
+	var resolve_cast_result = _maybe_resolve_attack(actor, spell, target, round_number)
 	if resolve_cast_result != null:
 		result["resolve_cast_result"] = resolve_cast_result
 	return result
@@ -301,18 +301,18 @@ func _should_resolve(actor) -> bool:
 ## identical "hand the collaborator through, let the use case decide"
 ## discipline); `_energy_pool_fn` (this feature's own new dep) is what
 ## actually drives the caster's round energy pool mutation.
-func _maybe_resolve_self_cast(actor, spell):
+func _maybe_resolve_self_cast(actor, spell, round_number: int = 0):
 	if spell.effect_type != SpellClass.EffectKindClass.ADD_ENERGY:
 		return null
-	return _resolve_cast_use_case.execute(actor, spell, [], _resolution_port, _combat_log_port, _energy_pool_fn)
+	return _resolve_cast_use_case.execute(actor, spell, [], _resolution_port, _combat_log_port, _energy_pool_fn, round_number)
 
 
-func _maybe_resolve_attack(actor, spell, target):
+func _maybe_resolve_attack(actor, spell, target, round_number: int = 0):
 	if spell.defense == SpellClass.Defense.NONE:
 		return null
 	if _resolution_port == null:
 		return null
-	return _resolve_cast_use_case.execute(actor, spell, [target], _resolution_port, _combat_log_port)
+	return _resolve_cast_use_case.execute(actor, spell, [target], _resolution_port, _combat_log_port, Callable(), round_number)
 
 
 ## _in_range_candidates(actor, range_ft) -> Array — every candidate from
