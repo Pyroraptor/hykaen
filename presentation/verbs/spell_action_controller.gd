@@ -25,7 +25,7 @@ extends "res://presentation/action_controller.gd"
 ## resource_spell_catalog_adapter.gd ResourceSpellCatalogAdapter, unless a
 ## caller injects `deps["spell_catalog_port"]`, e.g. a test double).
 ##
-## FEAT-006 (this feature; US-006, FR-005) wires the SUBSEQUENT-ACTION half:
+## FEAT-006 (US-006, FR-005) wires the SUBSEQUENT-ACTION half:
 ## an already-mid-cast actor's execute() call now delegates to
 ## core/application/use_cases/continue_cast_use_case.gd's
 ## ContinueCastUseCase instead of falling through to the FEAT-004 inert
@@ -35,8 +35,26 @@ extends "res://presentation/action_controller.gd"
 ## this path), just decrement casting_state.remaining_actions and spend the
 ## turn's action. ResolveCastUseCase/CancelCastUseCase (resolving/cancelling
 ## a cast once remaining_actions hits 0, or a lethal Opportunistic Strike)
-## remain OUT of this feature's scope -- ContinueCastUseCase only ever
+## remain OUT of FEAT-006's scope -- ContinueCastUseCase only ever
 ## decrements and stops.
+##
+## FEAT-008 (this feature; US-008, FR-007, ADR-007) wires the RESOLUTION
+## TRIGGER: after EITHER the first-cast (BeginCastUseCase) OR the
+## continuing-cast (ContinueCastUseCase) branch below runs,
+## `_maybe_resolve_cast()` checks whether that call just drove
+## `actor.casting_state.remaining_actions` to exactly 0 -- a 1-action spell
+## (e.g. Channel) can reach 0 on the FIRST cast, not just a later
+## continuation -- and, ONLY then, hands `actor` to
+## presentation/verbs/resolve_spell_controller.gd's ResolveSpellController
+## (this feature's other new file), which drives the TargetingPort
+## integration (target selection, range-filtered) under its own strict
+## remaining_actions==0 gate. See that file's own doc for the full contract
+## and for what remains OUT of this feature's scope (the rest of
+## ResolveCastUseCase -- attack resolution, effect application, combat log,
+## casting_state cleanup). The resolve outcome is attached to this
+## controller's own ExecuteResult under the additive "resolve_spell_result"
+## key -- every pre-existing key (success/casting_state/error) is
+## byte-for-byte unchanged, so no FEAT-005/FEAT-006 caller/test regresses.
 ##
 ## Fail-safe degrade (mirrors this project's established "unwired
 ## collaborator -> safe fallback" convention, e.g. core/application/
@@ -52,6 +70,8 @@ const BeginCastUseCaseClass = preload("res://core/application/use_cases/begin_ca
 const ContinueCastUseCaseClass = preload("res://core/application/use_cases/continue_cast_use_case.gd")
 const RoundEnergyPoolPortClass = preload("res://core/application/ports/round_energy_pool_port.gd")
 const ResourceSpellCatalogAdapterClass = preload("res://core/adapters/resource_spell_catalog_adapter.gd")
+const ResolveSpellControllerClass = preload("res://presentation/verbs/resolve_spell_controller.gd")
+const CastingStateClass = preload("res://core/domain/casting_state.gd")
 
 ## _spell_catalog_port — FEAT-005: the SpellCatalogPort collaborator every
 ## availability()/execute() call resolves a spell_id through. Reads
@@ -62,6 +82,20 @@ const ResourceSpellCatalogAdapterClass = preload("res://core/adapters/resource_s
 ## for this feature to work end-to-end (MainScene.gd's `_verb_deps()` dict
 ## itself is not modified by this feature).
 var _spell_catalog_port
+
+## _resolve_spell_controller — FEAT-008: the ResolveSpellController this
+## controller hands `actor` to once a cast reaches remaining_actions == 0
+## (see file-level doc). Built from `deps["resolve_spell_controller"]` when
+## a caller/test injects one (e.g. a spy verifying the wiring itself);
+## otherwise a fresh one is constructed here from
+## `deps["targeting_port"]`/`deps["targeting_candidates_fn"]` (both default
+## to ResolveSpellController's own safe-degrade defaults -- no live
+## TargetingPort/candidate-source composition-root wiring exists yet at
+## this feature's state, MainScene.gd is NOT modified by this feature) and
+## this same `_spell_catalog_port`, mirroring `_round_energy_pool_port()`'s
+## identical "build the real collaborator here, degrade safely when unwired"
+## convention.
+var _resolve_spell_controller
 
 ## _verb_deps() -> Array[String] — the closed list of application-layer PORTS
 ## (see design notes' architecture section: "declares `_verb_deps()`
@@ -89,6 +123,11 @@ static func _verb_deps() -> Array:
 func _init(deps: Dictionary) -> void:
 	super(deps)
 	_spell_catalog_port = deps.get("spell_catalog_port", ResourceSpellCatalogAdapterClass.new())
+	_resolve_spell_controller = deps.get("resolve_spell_controller", ResolveSpellControllerClass.new({
+		"spell_catalog_port": _spell_catalog_port,
+		"targeting_port": deps.get("targeting_port", null),
+		"candidates_fn": deps.get("targeting_candidates_fn", Callable()),
+	}))
 
 
 ## _round_energy_pool_port(actor) -> RoundEnergyPoolPort or null — FEAT-005:
@@ -179,7 +218,8 @@ func execute(selection = null) -> Dictionary:
 		return _inert_result()
 
 	if actor.is_casting():
-		return ContinueCastUseCaseClass.new().execute(actor, current_action_economy())
+		var continue_result: Dictionary = ContinueCastUseCaseClass.new().execute(actor, current_action_economy())
+		return _maybe_resolve_cast(actor, continue_result)
 
 	var spell_id: String = _extract_spell_id(selection)
 	if spell_id == "":
@@ -189,9 +229,32 @@ func execute(selection = null) -> Dictionary:
 	if pool_port == null:
 		return _inert_result()
 
-	return BeginCastUseCaseClass.new().execute(
+	var begin_result: Dictionary = BeginCastUseCaseClass.new().execute(
 		actor, spell_id, _spell_catalog_port, pool_port, current_action_economy()
 	)
+	return _maybe_resolve_cast(actor, begin_result)
+
+
+## _maybe_resolve_cast(actor, result) -> Dictionary — FEAT-008 (US-008;
+## FR-007, ADR-007): the strict remaining_actions==0 gate. `result` (the
+## Begin/ContinueCastUseCase ExecuteResult, UNCHANGED) is returned as-is
+## except for an additive "resolve_spell_result" key, present ONLY when
+## `actor` is still mid-cast (is_casting()) AND its CastingState's
+## remaining_actions has reached exactly 0 -- a 1-action spell (e.g.
+## Channel) can satisfy this gate on the FIRST cast, not only a later
+## continuation, so this check runs after BOTH execute() branches above,
+## never just the continuing-cast one. A cancelled/interrupted cast (empty
+## casting_state, is_casting() == false -- e.g. a failed energy reservation,
+## or a future lethal-Opportunistic-Strike CancelCastUseCase call) and a
+## still-in-progress cast (remaining_actions > 0) both fail this gate
+## identically, so ResolveSpellController.execute() -- and therefore
+## TargetingPort -- is never reached for either case.
+func _maybe_resolve_cast(actor, result: Dictionary) -> Dictionary:
+	if actor != null and actor.is_casting():
+		var state = CastingStateClass.from_dict(actor.casting_state)
+		if state.remaining_actions == 0:
+			result["resolve_spell_result"] = _resolve_spell_controller.execute(actor)
+	return result
 
 
 ## _extract_spell_id(selection) -> String — accepts either the plain scalar
