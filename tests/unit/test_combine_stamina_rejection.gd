@@ -90,7 +90,7 @@ func test_execute_with_zero_stamina_returns_ok_false_reason_validation_failed() 
 	var actor := _make_actor(0)
 	var controller := CombineActionControllerClass.new(_deps(actor))
 
-	var result: Dictionary = controller.execute(null)
+	var result: Dictionary = await controller.execute(null)
 
 	assert_false(result.get("ok", true), "execute() with stamina=0 must report ok=false")
 	assert_eq(
@@ -103,7 +103,7 @@ func test_execute_with_zero_stamina_does_not_decrement_stamina() -> void:
 	var actor := _make_actor(0)
 	var controller := CombineActionControllerClass.new(_deps(actor))
 
-	controller.execute(null)
+	await controller.execute(null)
 
 	assert_eq(actor.stamina, 0, "a rejected Combine execute() call must leave stamina at 0 -- no decrement")
 
@@ -112,7 +112,7 @@ func test_execute_with_zero_stamina_never_calls_spend_stamina() -> void:
 	var actor := _make_actor(0)
 	var controller := CombineActionControllerClass.new(_deps(actor))
 
-	controller.execute(null)
+	await controller.execute(null)
 
 	assert_eq(
 		actor.spend_stamina_call_count, 0,
@@ -127,7 +127,7 @@ func test_execute_with_negative_stamina_is_also_rejected() -> void:
 	var actor := _make_actor(-1)
 	var controller := CombineActionControllerClass.new(_deps(actor))
 
-	var result: Dictionary = controller.execute(null)
+	var result: Dictionary = await controller.execute(null)
 
 	assert_false(result.get("ok", true), "execute() with negative stamina must report ok=false")
 	assert_eq(actor.stamina, -1, "a rejected Combine execute() call must not further decrement an already-negative stamina")
@@ -143,7 +143,7 @@ func test_execute_with_sufficient_stamina_still_succeeds_and_spends_one() -> voi
 	var actor := _make_actor(1)
 	var controller := CombineActionControllerClass.new(_deps(actor))
 
-	var result: Dictionary = controller.execute(null)
+	var result: Dictionary = await controller.execute(null)
 
 	assert_true(result.get("ok", false), "execute() with stamina>=1 must still report ok=true")
 	assert_eq(actor.stamina, 0, "execute() with stamina=1 must still spend exactly one Stamina, landing at 0")

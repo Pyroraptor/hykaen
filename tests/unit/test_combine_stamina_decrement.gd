@@ -82,7 +82,7 @@ func test_execute_decrements_actor_stamina_by_exactly_one() -> void:
 	var actor := _make_actor(3)
 	var controller := CombineActionControllerClass.new(_deps(actor))
 
-	var result: Dictionary = controller.execute(null)
+	var result: Dictionary = await controller.execute(null)
 
 	assert_eq(actor.stamina, 2, "a valid Combine execute() call must spend exactly one Stamina from the actor's live resource")
 	assert_true(result.get("ok", false), "execute() must report ok=true when it successfully spends the actor's Stamina")
@@ -96,7 +96,7 @@ func test_execute_mutates_the_same_live_actor_instance_injected_via_the_session(
 	var actor := _make_actor(1)
 	var controller := CombineActionControllerClass.new(_deps(actor))
 
-	controller.execute(null)
+	await controller.execute(null)
 
 	assert_eq(actor.stamina, 0, "execute() must mutate the live actor instance in place, not a detached copy")
 
@@ -110,7 +110,7 @@ func test_execute_spends_stamina_via_exactly_one_call_to_spend_stamina() -> void
 	var actor := _make_actor(3)
 	var controller := CombineActionControllerClass.new(_deps(actor))
 
-	controller.execute(null)
+	await controller.execute(null)
 
 	assert_eq(
 		actor.spend_stamina_call_count, 1,
@@ -122,8 +122,8 @@ func test_repeated_execute_calls_each_spend_stamina_exactly_once() -> void:
 	var actor := _make_actor(5)
 	var controller := CombineActionControllerClass.new(_deps(actor))
 
-	controller.execute(null)
-	controller.execute(null)
+	await controller.execute(null)
+	await controller.execute(null)
 
 	assert_eq(
 		actor.spend_stamina_call_count, 2,
@@ -141,6 +141,6 @@ func test_repeated_execute_calls_each_spend_stamina_exactly_once() -> void:
 func test_execute_with_no_live_session_fails_safe_without_crashing() -> void:
 	var controller := CombineActionControllerClass.new(_deps())
 
-	var result: Dictionary = controller.execute(null)
+	var result: Dictionary = await controller.execute(null)
 
 	assert_false(result.get("ok", true), "execute() with no live actor must report ok=false, never a crash or a false success")
