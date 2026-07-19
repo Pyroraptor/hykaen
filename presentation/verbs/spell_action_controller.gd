@@ -14,7 +14,7 @@ extends "res://presentation/action_controller.gd"
 ## contract (deliberately inert, matching action_controller.gd's own
 ## "un-overridden defaults fail safe rather than crash" convention).
 ##
-## FEAT-005 (this feature) wires the FIRST-CAST half of the real pipeline:
+## FEAT-005 wired the FIRST-CAST half of the real pipeline:
 ## core/application/use_cases/begin_cast_use_case.gd's BeginCastUseCase, run
 ## against core/application/ports/round_energy_pool_port.gd's
 ## RoundEnergyPoolPort (a SessionEnergyPoolAdapter this controller builds
@@ -24,9 +24,19 @@ extends "res://presentation/action_controller.gd"
 ## SpellCatalogPort (defaulting to the ALREADY-EXISTING core/adapters/
 ## resource_spell_catalog_adapter.gd ResourceSpellCatalogAdapter, unless a
 ## caller injects `deps["spell_catalog_port"]`, e.g. a test double).
-## ContinueCastUseCase/ResolveCastUseCase/CancelCastUseCase (an
-## already-mid-cast actor) remain OUT of this feature's scope -- execute()
-## still returns the FEAT-004 inert stub shape for that branch.
+##
+## FEAT-006 (this feature; US-006, FR-005) wires the SUBSEQUENT-ACTION half:
+## an already-mid-cast actor's execute() call now delegates to
+## core/application/use_cases/continue_cast_use_case.gd's
+## ContinueCastUseCase instead of falling through to the FEAT-004 inert
+## stub -- no re-selection (enter_selection() already returns {} for this
+## branch, unchanged since FEAT-005), no re-payment of energy (no
+## RoundEnergyPoolPort/SpellCatalogPort collaborator is even constructed on
+## this path), just decrement casting_state.remaining_actions and spend the
+## turn's action. ResolveCastUseCase/CancelCastUseCase (resolving/cancelling
+## a cast once remaining_actions hits 0, or a lethal Opportunistic Strike)
+## remain OUT of this feature's scope -- ContinueCastUseCase only ever
+## decrements and stops.
 ##
 ## Fail-safe degrade (mirrors this project's established "unwired
 ## collaborator -> safe fallback" convention, e.g. core/application/
@@ -39,6 +49,7 @@ extends "res://presentation/action_controller.gd"
 
 const ErrorCodeClass = preload("res://core/application/ports/errors.gd")
 const BeginCastUseCaseClass = preload("res://core/application/use_cases/begin_cast_use_case.gd")
+const ContinueCastUseCaseClass = preload("res://core/application/use_cases/continue_cast_use_case.gd")
 const RoundEnergyPoolPortClass = preload("res://core/application/ports/round_energy_pool_port.gd")
 const ResourceSpellCatalogAdapterClass = preload("res://core/adapters/resource_spell_catalog_adapter.gd")
 
@@ -135,26 +146,40 @@ func enter_selection() -> Dictionary:
 
 
 ## execute(selection) -> Dictionary — US-004 contract #3, completed by
-## FEAT-005 for the FIRST-CAST branch: when the live actor is NOT already
-## mid-cast, delegates to BeginCastUseCase.execute() -- reserving
-## `selection`'s spell's energy up front via RoundEnergyPoolPort, then
-## initializing casting_state and spending the turn action (see that use
-## case's own doc for the full ExecuteResult contract, including
-## ERR_INSUFFICIENT_ENERGY / ERR_NOT_CASTABLE).
+## FEAT-005 for the FIRST-CAST branch and FEAT-006 for the CONTINUING-CAST
+## branch:
+##   - actor already mid-cast (actor.is_casting()): delegates to
+##     ContinueCastUseCase.execute() -- no re-selection, no re-payment of
+##     energy, just decrement casting_state.remaining_actions and spend the
+##     turn's action (US-006). `selection` is ignored on this branch --
+##     enter_selection() already returned {} for it, so no caller should be
+##     handing one in, but a stray value must not change this branch's
+##     behavior either.
+##   - actor NOT already mid-cast: delegates to BeginCastUseCase.execute()
+##     -- reserving `selection`'s spell's energy up front via
+##     RoundEnergyPoolPort, then initializing casting_state and spending
+##     the turn action (see that use case's own doc for the full
+##     ExecuteResult contract, including ERR_INSUFFICIENT_ENERGY /
+##     ERR_NOT_CASTABLE).
 ##
-## `selection` is the ALREADY-PICKED spell_id (a String, mirroring every
-## other verb's `selection` == the Layer-2-resolved pick, e.g. Strike's
-## target_id) or a Dictionary carrying one under the "spell_id" key.
+## `selection` (first-cast branch only) is the ALREADY-PICKED spell_id (a
+## String, mirroring every other verb's `selection` == the Layer-2-resolved
+## pick, e.g. Strike's target_id) or a Dictionary carrying one under the
+## "spell_id" key.
 ##
-## Continuing-cast branch (actor.is_casting()) and every "cannot yet
-## determine a real answer" fallback (no live actor, no/empty selection, no
-## session-backed RoundEnergyPoolPort available -- see file-level "fail-safe
-## degrade" doc) all return the SAME FEAT-004 inert stub shape byte-for-byte
-## -- ContinueCastUseCase is a separate, later feature's scope.
+## Every "cannot yet determine a real answer" fallback (no live actor,
+## no/empty selection on the first-cast branch, no session-backed
+## RoundEnergyPoolPort available -- see file-level "fail-safe degrade" doc)
+## returns the SAME FEAT-004 inert stub shape byte-for-byte --
+## ResolveCastUseCase/CancelCastUseCase remain a separate, later feature's
+## scope.
 func execute(selection = null) -> Dictionary:
 	var actor = current_actor_entity()
-	if actor == null or actor.is_casting():
+	if actor == null:
 		return _inert_result()
+
+	if actor.is_casting():
+		return ContinueCastUseCaseClass.new().execute(actor, current_action_economy())
 
 	var spell_id: String = _extract_spell_id(selection)
 	if spell_id == "":
