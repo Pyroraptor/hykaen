@@ -111,6 +111,22 @@ extends "res://presentation/action_controller.gd"
 ## applied) -- the mutual-exclusion invariant design notes' error_handling
 ## section requires ("a cast either resolves exactly once or is cancelled
 ## exactly once, never both").
+##
+## FEAT-284 (US-014; FR-016, PR-003) closes a gating gap in FEAT-279:
+## `_provoke_reaction_on_cast()` fired the OpportunisticStrike window for
+## ANY successful cast unconditionally, rather than checking
+## `spell.has_trait("Concentrate")` first as design notes' architecture
+## section always specified ("fire ReactionWindowPort for the Concentrate
+## trait"). `_actor_is_casting_a_concentrate_trait_spell()` (this feature's
+## new helper) now gates the window on that explicit runtime check,
+## resolved through `_spell_catalog_port` from `actor`'s own live
+## casting_state.spell_id -- so a future non-Concentrate spell (e.g. a
+## reaction-type spell per the Shield extension point) can never
+## incorrectly provoke Opportunistic Strike. Fire Bolt and Channel both
+## author `traits = ["Concentrate"]` (data/spells/fire_bolt.tres,
+## data/spells/channel.tres), so this gate is transparent/no-op for both
+## of this codebase's currently-wired spells -- no FEAT-279/FEAT-280
+## caller/test regresses.
 
 const ErrorCodeClass = preload("res://core/application/ports/errors.gd")
 const BeginCastUseCaseClass = preload("res://core/application/use_cases/begin_cast_use_case.gd")
@@ -362,6 +378,9 @@ func _provoke_reaction_on_cast(actor) -> Dictionary:
 	if _reaction == null:
 		return {"reactions": [], "mover_downed": false, "stride_should_commit": true}
 
+	if not _actor_is_casting_a_concentrate_trait_spell(actor):
+		return {"reactions": [], "mover_downed": false, "stride_should_commit": true}
+
 	var living_reactors: Array = _living_enemy_reactors_fn.call() if _living_enemy_reactors_fn.is_valid() else []
 	var candidate_reactors: Array = _reaction.order_candidate_reactors_by_initiative(living_reactors)
 	if _turn_order_fn.is_valid():
@@ -379,6 +398,55 @@ func _provoke_reaction_on_cast(actor) -> Dictionary:
 		_round_number_fn.call() if _round_number_fn.is_valid() else 0,
 		0
 	)
+
+
+## _actor_is_casting_a_concentrate_trait_spell(actor) -> bool — FEAT-284
+## (US-014; FR-016, PR-003 gating finding): the explicit runtime trait check
+## `_provoke_reaction_on_cast()` now gates on BEFORE it ever touches
+## `_reaction`. FEAT-279 fired the Opportunistic Strike reaction window for
+## ANY successful cast unconditionally; per design notes' architecture
+## section ("ProvokeReactionOnCastUseCase(actor) — wraps Begin/
+## ContinueCastUseCase to fire ReactionWindowPort for the Concentrate
+## trait") and core/resources/spell_resource.gd's own authoring doc ("every
+## Cast-a-Spell action carrying the Concentrate trait provokes
+## Opportunistic Strike identically to Stride"), only a Concentrate-trait
+## spell is actually supposed to provoke — a future non-Concentrate spell
+## (e.g. a reaction-type spell per the Shield extension point, design
+## notes' architecture section) must NOT incorrectly open this window.
+##
+## Resolves `actor`'s CURRENT casting_state.spell_id (the plain Dictionary
+## field Combatant.casting_state — see core/domain/casting_state.gd's own
+## "compatibility note") through `_spell_catalog_port` (the SAME
+## SpellCatalogPort collaborator BeginCastUseCase/enter_selection() already
+## use) into a core/domain/spell.gd Spell domain value object, then checks
+## Spell.has_trait("Concentrate"). Fire Bolt and Channel (data/spells/
+## fire_bolt.tres, data/spells/channel.tres) both author `traits =
+## ["Concentrate"]`, so this gate is transparent to every existing US-014
+## caller — the check is additive/no-op for both of this codebase's
+## currently-wired spells; it only changes behavior for a spell that
+## deliberately omits the trait.
+##
+## Degrades safely (false, never a crash) whenever `actor` is not mid-cast
+## (is_casting() == false — should be unreachable at this call site, since
+## both execute() branches only invoke `_provoke_reaction_on_cast()` after
+## a successful Begin/ContinueCastUseCase call, which always leaves
+## casting_state set — defensive-only), its casting_state carries no/an
+## empty spell_id, `_spell_catalog_port` is unwired, or the spell_id fails
+## to resolve through the catalog (an unknown/malformed spell_id) — mirrors
+## core/adapters/resource_spell_catalog_adapter.gd's own established
+## "unresolvable spell_id treated as unknown" convention.
+func _actor_is_casting_a_concentrate_trait_spell(actor) -> bool:
+	if actor == null or not actor.is_casting():
+		return false
+	if _spell_catalog_port == null:
+		return false
+
+	var spell_id: String = String(actor.casting_state.get("spell_id", ""))
+	if spell_id == "":
+		return false
+
+	var spell = _spell_catalog_port.get_spell(spell_id)
+	return spell != null and spell.has_trait("Concentrate")
 
 
 ## _maybe_cancel_cast(actor, result, reaction_result) -> Dictionary —

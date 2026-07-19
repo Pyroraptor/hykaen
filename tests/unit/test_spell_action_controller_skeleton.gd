@@ -147,7 +147,7 @@ func test_execute_returns_contract_consistent_shape_without_crashing() -> void:
 	var actor = _make_caster(["fire_bolt"])
 	var controller := SpellActionControllerClass.new(_deps(actor))
 
-	var result: Dictionary = controller.execute("fire_bolt")
+	var result: Dictionary = await controller.execute("fire_bolt")
 
 	assert_true(result.has("success"), "execute()'s result must carry a 'success' key (ExecuteResult contract)")
 	assert_true(result.has("casting_state"), "execute()'s result must carry a 'casting_state' key (ExecuteResult contract)")
@@ -160,7 +160,7 @@ func test_execute_returns_contract_consistent_shape_without_crashing() -> void:
 func test_execute_does_not_crash_with_no_selection_argument() -> void:
 	var controller := SpellActionControllerClass.new(_deps())
 
-	var result: Dictionary = controller.execute()
+	var result: Dictionary = await controller.execute()
 
 	assert_false(result.get("success", true), "execute() called with no selection argument at all must still fail safe, never crash")
 
