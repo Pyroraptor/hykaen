@@ -330,6 +330,20 @@ func execute(selection = null) -> Dictionary:
 	# when the queue contains a STRIDE, so the movement lockout trips exactly once
 	# at the Combine level — the SAME gate every standalone Stride trips — rather
 	# than being bypassed or double-tripped.
+	#
+	# FEAT-009 (US-009; FR-008) is this behaviour's own dedicated pinning
+	# feature: tests/unit/test_combine_movement_lockout.gd asserts that (a) a
+	# Charge (STRIDE+STRIKE) execute() trips the actor's live ActionEconomy
+	# Movement-trait lockout (can_take_movement_action() == false) exactly
+	# like a standalone Stride would, (b) a later standalone Movement-trait
+	# action attempt within the same turn is rejected by that SAME gate
+	# (ERR_MOVEMENT_LOCKED / MOVEMENT_ALREADY_USED — never a second/parallel
+	# lockout mechanism), and (c) a Combine whose resolved queue contains no
+	# STRIDE entry leaves the Movement lockout completely untouched. No
+	# production logic changes were required for FEAT-009 — the tagging
+	# below (authored as part of FEAT-008's charge-first rework) already
+	# satisfies it; this comment plus that test file are FEAT-009's own
+	# contribution.
 	var economy = current_action_economy()
 	if economy != null:
 		var has_stride: bool = false
