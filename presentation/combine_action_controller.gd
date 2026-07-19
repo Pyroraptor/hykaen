@@ -1,6 +1,7 @@
 extends "res://presentation/action_controller.gd"
 
 const ActionEconomyClass = preload("res://core/rules/action_economy.gd")
+const SubActionQueueEntryClass = preload("res://core/rules/sub_action_queue_entry.gd")
 
 ## CombineActionController — FEAT-001 (US-001; FR-003; ADR-001), Iteration N
 ## (Combinations) kickoff.
@@ -55,6 +56,19 @@ const ActionEconomyClass = preload("res://core/rules/action_economy.gd")
 ## ActionEconomy.set_dazed()) now applies uniformly to both entry points,
 ## with `action_economy.combine_actions()` remaining the file's SOLE
 ## Stamina/Dazed-comparison call site (see `_validate_combine()`'s own doc).
+##
+## FEAT-005 (US-005; ADR-005/FR-010) layers the GENERALIZED N-length
+## sub-action queue structure on top: `build_charge_queue()` authors the v0
+## 2-entry Charge queue (Stride then Strike) on
+## core/rules/sub_action_queue_entry.gd's SubActionQueueEntry value object,
+## and `resolve_sub_action_queue()` is the single generic resolution loop
+## that walks ANY N-length queue in order_index order, calling a supplied
+## resolver once per entry. Neither method is wired into execute() yet —
+## the actual sub-controller lookup/no-self-spend invocation (via the verb
+## registry) is a later Iteration N feature layered on top of this seam,
+## without changing it; this feature's scope is the queue structure and its
+## resolution loop only (see this file's own tests plus
+## tests/unit/test_sub_action_queue_resolution.gd).
 
 func _init(deps: Dictionary) -> void:
 	super(deps)
@@ -139,3 +153,51 @@ func execute(_selection = null) -> Dictionary:
 
 	actor.spend_stamina()
 	return {"ok": true}
+
+
+## build_charge_queue() -> Array[SubActionQueueEntry] — FEAT-005 (US-005;
+## ADR-005/FR-010): the v0 Charge sub-action queue (Stride then Strike),
+## authored on the generalized SubActionQueueEntry structure rather than as
+## a bespoke fixed-pair shape. Delegates entirely to
+## SubActionQueueEntry.build_charge_queue() -- this file introduces no
+## second/parallel way to construct a Charge queue.
+func build_charge_queue() -> Array:
+	return SubActionQueueEntryClass.build_charge_queue()
+
+
+## resolve_sub_action_queue(queue, resolver) -> Dictionary — FEAT-005
+## (US-005; ADR-005/FR-010): the GENERIC N-length sub-action queue
+## resolution loop. Sorts `queue` by order_index (via
+## SubActionQueueEntry.sorted() — order_index, never insertion/array
+## position, is authoritative) and calls `resolver` once per entry, in
+## that order. Never assumes a fixed length: the SAME loop drives the v0
+## 2-entry Charge queue (build_charge_queue() above) and any synthetic
+## N-length queue a caller supplies, with zero special-casing on queue
+## length (see tests/unit/test_sub_action_queue_resolution.gd's N=3 case).
+##
+## `resolver` — a Callable(entry: SubActionQueueEntry) -> Dictionary,
+## returning a Result-style {ok: bool, ...} Dictionary for that single
+## entry's resolution. The actual sub-controller lookup/execute call (via
+## the verb registry, with a no-self-spend execution mode) is a later
+## Iteration N feature layered on top of this seam; this loop is
+## resolver-agnostic and performs no verb-table lookups of its own.
+##
+## Stops at the first entry whose resolver call reports ok=false — no
+## further entries are resolved beyond that point — and returns
+## {ok: false, resolved_verb_ids: <ids resolved before the failure>,
+## reason: <the failing entry's own reason, if any>}. When every entry
+## resolves, returns {ok: true, resolved_verb_ids: <all verb_ids, in
+## resolution order>}.
+func resolve_sub_action_queue(queue: Array, resolver: Callable) -> Dictionary:
+	var resolved_verb_ids: Array = []
+	var ordered: Array = SubActionQueueEntryClass.sorted(queue)
+	for entry in ordered:
+		var result: Dictionary = resolver.call(entry)
+		if not result.get("ok", false):
+			return {
+				"ok": false,
+				"resolved_verb_ids": resolved_verb_ids,
+				"reason": result.get("reason", null),
+			}
+		resolved_verb_ids.append(entry.verb_id)
+	return {"ok": true, "resolved_verb_ids": resolved_verb_ids}
