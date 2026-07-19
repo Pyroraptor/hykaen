@@ -92,7 +92,15 @@ extends GutTest
 ## res://MainScene.tscn (via the SAME `_boot_main_scene_with_seed()`
 ## convention every other allow-listed suite uses).
 ##
-## Satisfies: DEF-005, US-011, FEAT-141, FEAT-159, FEAT-001, FEAT-180, FEAT-010, FEAT-220, FEAT-246.
+## FEAT-282 (US-018, DEF-005 continuation): tests/e2e/
+## test_steel_thread_cast_a_spell.gd was added to this allow-list for the
+## same reason — it is the Cast-a-Spell steel thread's end-to-end
+## integration suite (entry point through Fire Bolt/Channel resolution and
+## an Opportunistic Strike exposure window to exit point), and it, too,
+## genuinely instantiates/boots res://MainScene.tscn (via the SAME
+## `_boot_main_scene()` convention every other allow-listed suite uses).
+##
+## Satisfies: DEF-005, US-011, FEAT-141, FEAT-159, FEAT-001, FEAT-180, FEAT-010, FEAT-220, FEAT-246, FEAT-282.
 ##
 ## ══════════════════════════════════════════════════════════════════════════
 ## FEAT-171 (DEF-003): the guard above only ever inspected FILENAMES. That
@@ -126,6 +134,7 @@ const ALLOWED_STEEL_THREAD_PATHS: Array = [
 	"res://tests/test_steel_thread_full_e2e.gd",
 	"res://tests/gut/test_smoke_full_steel_thread.gd",
 	"res://tests/e2e/test_steel_thread_strike_full_flow.gd",
+	"res://tests/e2e/test_steel_thread_cast_a_spell.gd",
 ]
 
 ## Path-fragment/identifier substrings from the removed duplicate
