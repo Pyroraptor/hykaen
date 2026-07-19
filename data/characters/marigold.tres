@@ -12,3 +12,4 @@ attributes = {"constitution": 3, "dexterity": 3, "intellect": 1, "intuition": 3,
 starting_equipment = ["res://data/weapons/shortsword.tres", "res://data/armor/leather_armor.tres"]
 talent_selections = ["divine_champion_stealth"]
 primary_offensive_attribute = "dexterity"
+known_spell_ids = ["fire_bolt", "channel"]
