@@ -104,6 +104,15 @@ extends RefCounted
 ##                           use_cases/resolve_cast_use_case.gd) once a
 ##                           target has been chosen — see execute()'s own
 ##                           doc for the exact gate.
+##   "combat_log_port"     — FEAT-276 (US-011; FR-010): CombatLogPort
+##                           (core/application/ports/combat_log_port.gd);
+##                           defaults to null — mirrors "resolution_port"'s
+##                           identical "no live composition-root wiring yet,
+##                           degrade safely" convention (MainScene.gd is NOT
+##                           modified by this feature either). Forwarded
+##                           UNMODIFIED to ResolveCastUseCase.execute() (see
+##                           that use case's own FEAT-276 doc for the
+##                           CLEANUP/LOG steps it drives once wired).
 ##
 ## Usage:
 ##   var controller := ResolveSpellController.new({
@@ -134,6 +143,7 @@ var _spell_catalog_port
 var _targeting_port
 var _candidates_fn: Callable
 var _resolution_port
+var _combat_log_port
 var _resolve_cast_use_case := ResolveCastUseCaseClass.new()
 
 
@@ -142,6 +152,7 @@ func _init(deps: Dictionary = {}) -> void:
 	_targeting_port = deps.get("targeting_port", null)
 	_candidates_fn = deps.get("candidates_fn", Callable())
 	_resolution_port = deps.get("resolution_port", null)
+	_combat_log_port = deps.get("combat_log_port", null)
 
 
 ## execute(actor) -> Dictionary{success, target_id, target, error,
@@ -229,13 +240,16 @@ func _should_resolve(actor) -> bool:
 ## execute() UNMODIFIED (this feature's own scope doc: "calling
 ## resolve_spell_attack(caster, target, spell, spell.defense) unmodified
 ## per target") — this method performs no conversion itself; that is
-## entirely ResolveCastUseCase's/ResolutionPort's job.
+## entirely ResolveCastUseCase's/ResolutionPort's job. `_combat_log_port`
+## (FEAT-276, possibly null) is forwarded alongside it unmodified —
+## ResolveCastUseCase.execute() itself degrades safely (no emit() call at
+## all) when it is null.
 func _maybe_resolve_attack(actor, spell, target):
 	if spell.defense == SpellClass.Defense.NONE:
 		return null
 	if _resolution_port == null:
 		return null
-	return _resolve_cast_use_case.execute(actor, spell, [target], _resolution_port)
+	return _resolve_cast_use_case.execute(actor, spell, [target], _resolution_port, _combat_log_port)
 
 
 ## _in_range_candidates(actor, range_ft) -> Array — every candidate from
