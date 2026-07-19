@@ -100,7 +100,16 @@ extends GutTest
 ## genuinely instantiates/boots res://MainScene.tscn (via the SAME
 ## `_boot_main_scene()` convention every other allow-listed suite uses).
 ##
-## Satisfies: DEF-005, US-011, FEAT-141, FEAT-159, FEAT-001, FEAT-180, FEAT-010, FEAT-220, FEAT-246, FEAT-282.
+## FEAT-287 (US-011/US-012, DEF-005 continuation): tests/e2e/
+## test_steel_thread_charge_combine.gd was added to this allow-list for the
+## same reason — it is the project's FINAL end-to-end steel thread smoke
+## test (COMBINE->Charge, entry point through the token's Stride move and
+## Strike resolution to the single-charge action-economy ledger, plus a
+## pinned-seed determinism re-run), and it, too, genuinely instantiates/
+## boots res://MainScene.tscn (via the SAME `_boot_main_scene()` convention
+## every other allow-listed suite uses).
+##
+## Satisfies: DEF-005, US-011, FEAT-141, FEAT-159, FEAT-001, FEAT-180, FEAT-010, FEAT-220, FEAT-246, FEAT-282, FEAT-287.
 ##
 ## ══════════════════════════════════════════════════════════════════════════
 ## FEAT-171 (DEF-003): the guard above only ever inspected FILENAMES. That
@@ -135,6 +144,7 @@ const ALLOWED_STEEL_THREAD_PATHS: Array = [
 	"res://tests/gut/test_smoke_full_steel_thread.gd",
 	"res://tests/e2e/test_steel_thread_strike_full_flow.gd",
 	"res://tests/e2e/test_steel_thread_cast_a_spell.gd",
+	"res://tests/e2e/test_steel_thread_charge_combine.gd",
 ]
 
 ## Path-fragment/identifier substrings from the removed duplicate
