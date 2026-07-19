@@ -262,9 +262,11 @@ func availability() -> bool:
 	var actor = current_actor_entity()
 	if actor == null:
 		return false
+	var ae = current_action_economy()
+	if ae != null and not ae.can_take_action():
+		return false
 	if actor.is_casting():
-		var ae = current_action_economy()
-		return ae == null or ae.can_take_action()
+		return true
 	if actor.known_spell_ids.is_empty():
 		return false
 

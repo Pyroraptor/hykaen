@@ -189,6 +189,15 @@ const SpellActionControllerClass       = preload("res://presentation/verbs/spell
 ## `deps["energy_pool_fn"]` below — see that file's own `_init()`).
 const ResolveSpellControllerClass      = preload("res://presentation/verbs/resolve_spell_controller.gd")
 
+## CombineActionControllerClass — FEAT-001 (US-001, FR-003, ADR-001),
+## Iteration N (Combinations) kickoff: presentation/combine_action_controller.gd's
+## CombineActionController, the COMBINE meta-verb's entry-point scaffold.
+## Registered below in VERB_TABLE exactly like every other verb — reached
+## via `_controller("COMBINE")` — so a later feature's real sub-action queue
+## orchestration reaches STRIDE/STRIKE through THIS SAME `_controller(verb_id)`
+## lookup rather than a hard-coded reference.
+const CombineActionControllerClass     = preload("res://presentation/combine_action_controller.gd")
+
 ## TargetingPortClass — core/application/ports/targeting_port.gd's abstract
 ## base (FEAT-283), extended BY PATH below (_FirstLegalTargetingPort) —
 ## mirrors this project's established preload-typing convention for
@@ -240,6 +249,7 @@ const VERB_TABLE := {
 	"STRIDE": StrideActionControllerClass,
 	"END_TURN": EndTurnActionControllerClass,
 	"CAST_SPELL": SpellActionControllerClass,
+	"COMBINE": CombineActionControllerClass,
 }
 const ConsoleEventSinkAdapterClass     = preload("res://infrastructure/console_event_sink_adapter.gd")
 const EncounterTurnOrderAdapterClass   = preload("res://infrastructure/encounter_turn_order_adapter.gd")
@@ -1571,6 +1581,30 @@ func _verb_bar_cast_spell_enter_selection() -> Dictionary:
 
 func _verb_bar_cast_spell_execute(selection = null) -> Dictionary:
 	return await _controller("CAST_SPELL").execute(selection)
+
+
+## The COMBINE verb's availability/enter_selection/execute are delegated to
+## presentation/combine_action_controller.gd (CombineActionController, a
+## concrete ActionController subclass) — FEAT-001 (US-001, FR-003), Iteration
+## N (Combinations) kickoff. These thin shims mirror the STRIKE/STEP/STRIDE/
+## END_TURN/CAST_SPELL shims exactly (see VERB_TABLE's own doc: "adding a
+## verb is ~one entry ... + the three thin _verb_bar_<verb>_* shims"),
+## keeping VerbBarRegistry's Callable(self, "_verb_bar_combine_*")
+## registrations working the instant COMBINE is added to VERB_TABLE.
+## CombineActionController.execute() is currently an inert synchronous stub
+## (no `await` inside it, per this feature's scope), so this shim does not
+## `await` it either — mirrors _verb_bar_end_turn_execute()'s identical
+## non-async convention.
+func _verb_bar_combine_availability() -> bool:
+	return _controller("COMBINE").availability()
+
+
+func _verb_bar_combine_enter_selection() -> Dictionary:
+	return _controller("COMBINE").enter_selection()
+
+
+func _verb_bar_combine_execute(selection = null) -> Dictionary:
+	return _controller("COMBINE").execute(selection)
 
 
 ## _on_verb_bar_selection_entered(verb_id, selection) -> void — FEAT-008 /

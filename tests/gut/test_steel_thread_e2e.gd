@@ -56,6 +56,7 @@ const STEP: String = "STEP"
 const STRIDE: String = "STRIDE"
 const END_TURN: String = "END_TURN"
 const CAST_SPELL: String = "CAST_SPELL"
+const COMBINE: String = "COMBINE"
 
 ## The pinned deterministic-test fixture seed (matches
 ## data/encounters/prologue_encounter.tres' own `seed` field, 42) — injected
@@ -129,10 +130,10 @@ func test_entry_point_verb_bar_renders_correctly_gated_at_turn_start() -> void:
 
 	assert_not_null(instance.verb_bar_view, "MainScene must wire a real $VerbBarView (Layer 1 entry point)")
 	assert_eq(
-		instance.verb_bar_view.get_verb_ids(), [STRIKE, STEP, STRIDE, END_TURN, CAST_SPELL],
-		"the Layer 1 verb bar must render exactly one button per Strike/Step/Stride/End Turn/Cast Spell, in that order"
+		instance.verb_bar_view.get_verb_ids(), [STRIKE, STEP, STRIDE, END_TURN, CAST_SPELL, COMBINE],
+		"the Layer 1 verb bar must render exactly one button per Strike/Step/Stride/End Turn/Cast Spell/Combine, in that order"
 	)
-	assert_eq(instance.verb_bar_view.get_button_count(), 5, "exactly five verb buttons must be rendered (FEAT-004 adds CAST_SPELL)")
+	assert_eq(instance.verb_bar_view.get_button_count(), 6, "exactly six verb buttons must be rendered (FEAT-001 adds COMBINE, entry-point scaffold, always disabled until later gating lands)")
 
 	# Each verb's rendered enabled/disabled state must agree EXACTLY with live
 	# game-state availability -- never a stale/hardcoded gate.
@@ -152,6 +153,12 @@ func test_entry_point_verb_bar_renders_correctly_gated_at_turn_start() -> void:
 	assert_eq(instance.verb_bar_view.get_button(STEP).disabled, not expected_step_available)
 	assert_eq(instance.verb_bar_view.get_button(STRIDE).disabled, not expected_stride_available)
 	assert_false(instance.verb_bar_view.get_button(END_TURN).disabled, "End Turn's rendered button must never be disabled")
+
+	# FEAT-001 (Iteration N kickoff): COMBINE's availability() is currently an
+	# inert, fail-closed stub -- its rendered button must always be disabled
+	# until a later feature wires real Stamina/Dazed/Repeat gating.
+	assert_false(instance._verb_registry.is_available(COMBINE), "COMBINE's stub availability() must be fail-closed (unavailable) until real gating lands")
+	assert_true(instance.verb_bar_view.get_button(COMBINE).disabled, "Combine's rendered button must be disabled while its availability() stub is fail-closed")
 
 
 # ══════════════════════════════════════════════════════════════════════════
