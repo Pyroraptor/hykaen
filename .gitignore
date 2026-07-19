@@ -24,3 +24,24 @@ Thumbs.db
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# FEAT-292 (resolves PR-001/PR-002): sim_results.json is a GENERATED
+# artifact — tests/sim/test_balance_sim.gd (core/sim/simulator.gd's N=1000
+# balance regression) rewrites res://sim_results.json on every single test
+# run, and two of its seven keys (commit_hash, timestamp) change on every
+# regen even when nothing balance-relevant moved. It used to be committed
+# to git, which meant `scripts/test_command.sh` (and its N=1000 stage
+# specifically) left the working tree dirty after every run — a
+# CLAUDE.md commit-hygiene / deployment-gate violation, since nobody was
+# ever meant to hand-commit a fresh commit_hash/timestamp pair every time
+# the suite executes.
+#
+# The file stays at its existing res://sim_results.json (repo root) path —
+# scripts/ci/check_sim_results_provenance.py, tests/pytest/
+# test_sim_results_provenance.py, and .github/workflows/test.yml's
+# artifact-upload step all read/write it there — but it is no longer
+# tracked by git. Anchored to the repo root (leading `/`) and matched by
+# exact filename only, so this rule can never shadow any data/*.tres
+# resource file (per CLAUDE.md, data/ files must remain trackable/
+# committed) — see tests/ci/test_sim_results_gitignore_feat292.py.
+/sim_results.json
