@@ -189,11 +189,14 @@ func test_unrecognized_verb_id_is_still_absent_from_verb_table() -> void:
 func test_verb_table_membership_is_unchanged_by_this_feature() -> void:
 	# Static regression proof that widening action_controller.gd's execute()
 	# shape contract did not touch the verb_id registry itself: exactly the
-	# same four verbs, no more, no fewer.
+	# same four pre-FEAT-009 verbs, no more, no fewer, plus CAST_SPELL —
+	# registered by the later FEAT-004 (US-004 / FR-003) data-driven
+	# VERB_TABLE entry (presentation/verbs/spell_action_controller.gd) — the
+	# one intentional, documented addition since this suite was written.
 	var verb_ids: Array = MainSceneClass.VERB_TABLE.keys()
 	verb_ids.sort()
 
-	assert_eq(verb_ids, ["END_TURN", "STEP", "STRIDE", "STRIKE"], "VERB_TABLE must still register exactly the same four pre-existing verbs")
+	assert_eq(verb_ids, ["CAST_SPELL", "END_TURN", "STEP", "STRIDE", "STRIKE"], "VERB_TABLE must still register exactly the same four pre-existing verbs plus CAST_SPELL (FEAT-004)")
 
 
 # ══════════════════════════════════════════════════════════════════════════

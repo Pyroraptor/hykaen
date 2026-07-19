@@ -55,6 +55,7 @@ const STRIKE: String = "STRIKE"
 const STEP: String = "STEP"
 const STRIDE: String = "STRIDE"
 const END_TURN: String = "END_TURN"
+const CAST_SPELL: String = "CAST_SPELL"
 
 ## The pinned deterministic-test fixture seed (matches
 ## data/encounters/prologue_encounter.tres' own `seed` field, 42) — injected
@@ -128,10 +129,10 @@ func test_entry_point_verb_bar_renders_correctly_gated_at_turn_start() -> void:
 
 	assert_not_null(instance.verb_bar_view, "MainScene must wire a real $VerbBarView (Layer 1 entry point)")
 	assert_eq(
-		instance.verb_bar_view.get_verb_ids(), [STRIKE, STEP, STRIDE, END_TURN],
-		"the Layer 1 verb bar must render exactly one button per Strike/Step/Stride/End Turn, in that order"
+		instance.verb_bar_view.get_verb_ids(), [STRIKE, STEP, STRIDE, END_TURN, CAST_SPELL],
+		"the Layer 1 verb bar must render exactly one button per Strike/Step/Stride/End Turn/Cast Spell, in that order"
 	)
-	assert_eq(instance.verb_bar_view.get_button_count(), 4, "exactly four verb buttons must be rendered")
+	assert_eq(instance.verb_bar_view.get_button_count(), 5, "exactly five verb buttons must be rendered (FEAT-004 adds CAST_SPELL)")
 
 	# Each verb's rendered enabled/disabled state must agree EXACTLY with live
 	# game-state availability -- never a stale/hardcoded gate.

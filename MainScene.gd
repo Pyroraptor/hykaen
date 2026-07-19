@@ -180,6 +180,7 @@ const EndTurnActionControllerClass     = preload("res://presentation/end_turn_ac
 const StepActionControllerClass        = preload("res://presentation/step_action_controller.gd")
 const StrideActionControllerClass      = preload("res://presentation/stride_action_controller.gd")
 const StrikeActionControllerClass      = preload("res://presentation/strike_action_controller.gd")
+const SpellActionControllerClass       = preload("res://presentation/verbs/spell_action_controller.gd")
 
 ## VERB_TABLE — the single data-driven verb registry (composition-root de-bloat,
 ## 2026-07-11): verb_id → concrete ActionController subclass. This one table is
@@ -189,11 +190,18 @@ const StrikeActionControllerClass      = preload("res://presentation/strike_acti
 ## _verb_bar_<verb>_* shims tests call on `self`), NOT scattered edits. A future
 ## CombineActionController resolves its sub-action controllers via the same
 ## _controller(verb_id) lookup this table backs.
+##
+## CAST_SPELL (FEAT-004 / US-004, FR-003) — registered pointing at
+## presentation/verbs/spell_action_controller.gd's SpellActionController, a
+## skeleton three-step verb contract (see that file's own doc for scope); the
+## real BeginCastUseCase/ContinueCastUseCase/ResolveCastUseCase wiring lands
+## with later features in this iteration.
 const VERB_TABLE := {
 	"STRIKE": StrikeActionControllerClass,
 	"STEP": StepActionControllerClass,
 	"STRIDE": StrideActionControllerClass,
 	"END_TURN": EndTurnActionControllerClass,
+	"CAST_SPELL": SpellActionControllerClass,
 }
 const ConsoleEventSinkAdapterClass     = preload("res://infrastructure/console_event_sink_adapter.gd")
 const EncounterTurnOrderAdapterClass   = preload("res://infrastructure/encounter_turn_order_adapter.gd")
@@ -1463,6 +1471,30 @@ func _verb_bar_end_turn_enter_selection() -> Dictionary:
 
 func _verb_bar_end_turn_execute(_selection = null) -> Dictionary:
 	return _controller("END_TURN").execute(_selection)
+
+
+## The CAST_SPELL verb's availability/enter_selection/execute are delegated to
+## presentation/verbs/spell_action_controller.gd (SpellActionController, a
+## concrete ActionController subclass) — FEAT-004 (US-004, FR-003). These thin
+## shims mirror the STRIKE/STEP/STRIDE/END_TURN shims exactly (see VERB_TABLE's
+## own doc: "adding a verb is ~one entry ... + the three thin
+## _verb_bar_<verb>_* shims"), keeping the VerbBarRegistry's
+## Callable(self, "_verb_bar_cast_spell_*") registrations and any direct-call
+## tests working unchanged. SpellActionController.execute() is currently a
+## synchronous skeleton stub (no `await` inside it), so this shim does not
+## `await` it either — mirrors _verb_bar_step_execute()/_verb_bar_end_turn_execute()'s
+## identical non-async convention, not _verb_bar_strike_execute()/
+## _verb_bar_stride_execute()'s awaited one.
+func _verb_bar_cast_spell_availability() -> bool:
+	return _controller("CAST_SPELL").availability()
+
+
+func _verb_bar_cast_spell_enter_selection() -> Dictionary:
+	return _controller("CAST_SPELL").enter_selection()
+
+
+func _verb_bar_cast_spell_execute(selection = null) -> Dictionary:
+	return _controller("CAST_SPELL").execute(selection)
 
 
 ## _on_verb_bar_selection_entered(verb_id, selection) -> void — FEAT-008 /
