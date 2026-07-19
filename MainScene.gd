@@ -182,6 +182,39 @@ const StrideActionControllerClass      = preload("res://presentation/stride_acti
 const StrikeActionControllerClass      = preload("res://presentation/strike_action_controller.gd")
 const SpellActionControllerClass       = preload("res://presentation/verbs/spell_action_controller.gd")
 
+## ResolveSpellControllerClass — FEAT-283 (resolves PR-001): preloaded here
+## ONLY so this file can doc-reference/typecheck it; MainScene never
+## constructs a ResolveSpellController directly (SpellActionController does,
+## from `deps["resolution_port"]`/`deps["combat_log_port"]`/
+## `deps["energy_pool_fn"]` below — see that file's own `_init()`).
+const ResolveSpellControllerClass      = preload("res://presentation/verbs/resolve_spell_controller.gd")
+
+## TargetingPortClass — core/application/ports/targeting_port.gd's abstract
+## base (FEAT-283), extended BY PATH below (_FirstLegalTargetingPort) —
+## mirrors this project's established preload-typing convention for
+## concrete adapters/subtypes (see presentation/ui/combat_log_panel_adapter.gd's
+## own doc for why a bare global class_name is avoided as an `extends`
+## target).
+const TargetingPortClass               = preload("res://core/application/ports/targeting_port.gd")
+
+## ResolutionPortClass — core/application/ports/resolution_port.gd's
+## ResolutionPort (FEAT-283); this composition root wires its own
+## `ResolutionRulesAdapter` inner class (unmodified, nested in that file)
+## around the SAME `random_port` RandomPort adapter every other interactive
+## Strike resolution already uses (step 2 of this file's own doc above) —
+## no second/parallel RNG stream.
+const ResolutionPortClass              = preload("res://core/application/ports/resolution_port.gd")
+
+## CombatLogPanelAdapterClass — presentation/ui/combat_log_panel_adapter.gd's
+## CombatLogPanelAdapter (FEAT-283), the ONE production CombatLogPort
+## implementation this codebase ships — wired here so CAST_SPELL's
+## ResolveCastUseCase (invoked from ResolveSpellController, via
+## SpellActionController's `_maybe_resolve_cast()`) has a real place to emit
+## CAST_BEGIN/CAST_CONTINUE/CAST_RESOLVE/CAST_CANCELLED entries to, mirroring
+## every other Presentation projection this composition root already wires
+## (`event_log_view`, `status_panel_view`, …).
+const CombatLogPanelAdapterClass       = preload("res://presentation/ui/combat_log_panel_adapter.gd")
+
 ## VERB_TABLE — the single data-driven verb registry (composition-root de-bloat,
 ## 2026-07-11): verb_id → concrete ActionController subclass. This one table is
 ## the sole place a verb is enumerated; _build_verb_registry() loops it to wire
@@ -192,10 +225,15 @@ const SpellActionControllerClass       = preload("res://presentation/verbs/spell
 ## _controller(verb_id) lookup this table backs.
 ##
 ## CAST_SPELL (FEAT-004 / US-004, FR-003) — registered pointing at
-## presentation/verbs/spell_action_controller.gd's SpellActionController, a
-## skeleton three-step verb contract (see that file's own doc for scope); the
-## real BeginCastUseCase/ContinueCastUseCase/ResolveCastUseCase wiring lands
-## with later features in this iteration.
+## presentation/verbs/spell_action_controller.gd's SpellActionController.
+## FEAT-283 (resolves PR-001) completed this verb's composition-root
+## wiring: `_verb_deps()` below now carries real `targeting_port`/
+## `resolution_port`/`combat_log_port`/`energy_pool_fn` entries alongside
+## the SelectionPort/ReactionWindowPort/SpellCatalogPort collaborators
+## SpellActionController already read out of it, so
+## `_controller("CAST_SPELL")` resolves every dependency
+## ResolveCastUseCase's full pipeline needs from the REAL scene composition
+## root, with zero test-only overrides.
 const VERB_TABLE := {
 	"STRIKE": StrikeActionControllerClass,
 	"STEP": StepActionControllerClass,
@@ -610,6 +648,52 @@ var _view_model_builder := ViewModelBuilderClass.new()
 var centering_offset: Vector2 = Vector2.ZERO
 
 
+## _FirstLegalTargetingPort — FEAT-283 (resolves PR-001): MainScene's OWN
+## composition-root-only default TargetingPort adapter (extends
+## core/application/ports/targeting_port.gd BY PATH, mirroring
+## infrastructure/ui_hex_choice_resolver.gd's/infrastructure/
+## ai_reaction_policy.gd's identical "concrete adapter, wired ONLY here"
+## precedent). ResolveSpellController.execute() calls
+## `_targeting_port.request_single_target(legal_targets)` SYNCHRONOUSLY (no
+## `await` — see that file's own doc), so this adapter cannot block on a
+## player-facing pop-up the way `hex_choice_resolver`
+## (HexChoiceResolverPort, an `await`ed port) does; it instead resolves
+## deterministically and immediately, exactly like `enemy_reaction_chooser`/
+## `hex_choice_resolver`'s AI-facing siblings. Picks the FIRST candidate in
+## the (already range-filtered, per ResolveSpellController's own doc)
+## `legal_targets` Array — a real, always-terminating choice, never a
+## fabricated one: an empty `legal_targets` still yields null (the base
+## class's own invariant, inherited unchanged). A future feature may replace
+## this with a genuine player-facing picker (mirrors design notes'
+## documented extension points); until then this is the real, live default
+## every booted MainScene resolves a spell's target through — never a
+## test-only double.
+class _FirstLegalTargetingPort:
+	extends "res://core/application/ports/targeting_port.gd"
+
+	func request_single_target(legal_targets: Array):
+		if legal_targets.is_empty():
+			return null
+		return legal_targets[0]
+
+
+## spell_targeting_port / spell_resolution_port / spell_combat_log_port —
+## FEAT-283 (resolves PR-001): the CAST_SPELL verb's real
+## TargetingPort/ResolutionPort/CombatLogPort adapters, constructed ONCE in
+## _ready() (see that method's own FEAT-283 doc) and registered under
+## `_verb_deps()`'s "targeting_port"/"resolution_port"/"combat_log_port"
+## keys below — the four keys design notes' architecture section and
+## PR-001's blocker finding called out as never having been wired into the
+## real composition root. Exposed as fields (rather than kept as _ready()
+## locals) so tests can verify them directly, mirroring
+## `enemy_reaction_chooser`/`hex_choice_resolver`/`reaction_window`'s
+## identical "constructed here, exposed for verification/injection"
+## precedent.
+var spell_targeting_port = null
+var spell_resolution_port = null
+var spell_combat_log_port = null
+
+
 func _ready() -> void:
 	encounter_repository = ResourceEncounterRepositoryClass.new()
 	var hex_combatants: Array = encounter_repository.load_combatants(PROLOGUE_ENCOUNTER_PATH)
@@ -647,6 +731,18 @@ func _ready() -> void:
 
 	random_port = GodotRandomAdapterClass.new(resolved_seed)
 	event_sink = ConsoleEventSinkAdapterClass.new()
+
+	# ── FEAT-283 (resolves PR-001): construct CAST_SPELL's real
+	# TargetingPort/ResolutionPort/CombatLogPort adapters as early as
+	# `random_port` is available (ResolutionPort's ResolutionRulesAdapter is
+	# built around it — the SAME RandomPort stream every other interactive
+	# resolution in this pipeline already consumes, no second/parallel RNG).
+	# Constructed well before `_verb_deps()` is first read (_build_verb_registry()
+	# below), so `_controller("CAST_SPELL")` never observes a null value for
+	# any of the three. See these fields' own doc above. ────────────────────
+	spell_targeting_port = _FirstLegalTargetingPort.new()
+	spell_resolution_port = ResolutionPortClass.ResolutionRulesAdapter.new(random_port)
+	spell_combat_log_port = CombatLogPanelAdapterClass.new()
 
 	_party = []
 	for i in range(encounter_resource.party_resource_paths.size()):
