@@ -1680,6 +1680,20 @@ func _reaction():
 ## the old per-verb positional constructors. Individual verbs read only their own
 ## keys; extra keys are harmless, which is what keeps adding a verb to ~one table
 ## entry.
+##
+## FEAT-283 (resolves PR-001): adds the four CAST_SPELL-only keys design
+## notes' architecture section and PR-001's blocker finding called out as
+## never having been wired into this dict — "targeting_port"/
+## "resolution_port"/"combat_log_port" (the real `spell_targeting_port`/
+## `spell_resolution_port`/`spell_combat_log_port` fields, constructed ONCE
+## in _ready(), see those fields' own doc) and "energy_pool_fn" (a Callable
+## bound to `_energy_pool_for()` below, mirroring "action_economy_for"'s
+## identical "live accessor Callable, re-resolved through the stable
+## RoundSessionHolder on every call" convention — never a stale per-round
+## EnergyPool reference). Every OTHER pre-existing key above is left
+## byte-for-byte unchanged, so STRIKE/STEP/STRIDE/END_TURN's own
+## `_verb_deps()` reads are unaffected by this addition (extra keys are
+## harmless — file-level doc above).
 func _verb_deps() -> Dictionary:
 	if _verb_deps_cache == null:
 		_verb_deps_cache = {
@@ -1697,8 +1711,34 @@ func _verb_deps() -> Dictionary:
 			"living_enemy_reactors": Callable(self, "_living_enemy_reactors"),
 			"current_turn_order": Callable(self, "_current_turn_order"),
 			"query_selectable_step_hexes": Callable(self, "_query_selectable_step_hexes"),
+			"targeting_port": spell_targeting_port,
+			"resolution_port": spell_resolution_port,
+			"combat_log_port": spell_combat_log_port,
+			"energy_pool_fn": Callable(self, "_energy_pool_for"),
 		}
 	return _verb_deps_cache
+
+
+## _energy_pool_for(caster) -> EnergyPool or null — FEAT-283 (resolves
+## PR-001): the real "energy_pool_fn" Callable(caster) -> EnergyPool
+## `_verb_deps()` now registers, so ResolveCastUseCase's ADD_ENERGY branch
+## (e.g. Channel, core/application/use_cases/resolve_cast_use_case.gd's own
+## FEAT-277 doc) mutates the SAME live, round-scoped EnergyPool every other
+## CAST_SPELL collaborator reads/writes through, never a second/parallel
+## pool. Delegates to the live `round_session`'s own
+## get_energy_pool(caster) (core/application/round_session.gd), read
+## through the `round_session` property so this Callable is never bound to
+## a stale per-round instance — mirrors `_action_economy_for()`'s identical
+## "re-fetch the live session on every call" discipline. Returns null
+## (rather than crashing) when no round_session is live yet — a defensive
+## fallback that should be unreachable once a real MainScene has completed
+## _ready() (round_session is non-null immediately after, per
+## tests/unit/test_main_scene_interactive_wiring.gd's own criterion 1).
+func _energy_pool_for(caster):
+	var session = round_session
+	if session == null or caster == null:
+		return null
+	return session.get_energy_pool(caster)
 
 
 ## _controller(verb_id) — the single data-driven controller resolver (2026-07-11):

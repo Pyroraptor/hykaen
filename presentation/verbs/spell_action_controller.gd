@@ -137,13 +137,26 @@ var _spell_catalog_port
 ## (see file-level doc). Built from `deps["resolve_spell_controller"]` when
 ## a caller/test injects one (e.g. a spy verifying the wiring itself);
 ## otherwise a fresh one is constructed here from
-## `deps["targeting_port"]`/`deps["targeting_candidates_fn"]` (both default
-## to ResolveSpellController's own safe-degrade defaults -- no live
-## TargetingPort/candidate-source composition-root wiring exists yet at
-## this feature's state, MainScene.gd is NOT modified by this feature) and
-## this same `_spell_catalog_port`, mirroring `_round_energy_pool_port()`'s
-## identical "build the real collaborator here, degrade safely when unwired"
+## `deps["targeting_port"]`/`deps["targeting_candidates_fn"]`/
+## `deps["resolution_port"]`/`deps["combat_log_port"]`/
+## `deps["energy_pool_fn"]` (each defaulting to ResolveSpellController's own
+## safe-degrade defaults when a caller doesn't supply one) and this same
+## `_spell_catalog_port`, mirroring `_round_energy_pool_port()`'s identical
+## "build the real collaborator here, degrade safely when unwired"
 ## convention.
+##
+## FEAT-283 (resolves PR-001): `resolution_port`/`combat_log_port`/
+## `energy_pool_fn` are now forwarded from `deps` alongside `targeting_port`
+## -- previously only `targeting_port`/`targeting_candidates_fn` were read
+## here, so a REAL MainScene composition root (which never populates
+## `targeting_candidates_fn` either, an out-of-scope extension point) could
+## wire `resolution_port`/`combat_log_port`/`energy_pool_fn` into its own
+## `_verb_deps()` dict and still never see them reach the ResolveCastUseCase
+## pipeline -- PR-001's blocker finding. `_verb_deps()`'s "targeting_port"/
+## "resolution_port"/"combat_log_port"/"energy_pool_fn" keys are ALL sourced
+## from this SAME `deps` dict now, so `_controller("CAST_SPELL")` resolves
+## every one of them from whatever the caller (real composition root or
+## test) populated `deps` with, with no missing forward.
 var _resolve_spell_controller
 
 ## FEAT-279 (US-014): the shared reaction-provoking collaborators, read
@@ -195,6 +208,9 @@ func _init(deps: Dictionary) -> void:
 		"spell_catalog_port": _spell_catalog_port,
 		"targeting_port": deps.get("targeting_port", null),
 		"candidates_fn": deps.get("targeting_candidates_fn", Callable()),
+		"resolution_port": deps.get("resolution_port", null),
+		"combat_log_port": deps.get("combat_log_port", null),
+		"energy_pool_fn": deps.get("energy_pool_fn", Callable()),
 	}))
 
 

@@ -109,34 +109,46 @@ extends RefCounted
 ##                           MainScene.gd's `_verb_deps()`).
 ##   "resolution_port"     — FEAT-009 (US-009; FR-008): ResolutionPort
 ##                           (core/application/ports/resolution_port.gd);
-##                           defaults to null — mirrors "targeting_port"'s
-##                           identical "no live composition-root wiring yet,
-##                           degrade safely" convention (MainScene.gd is NOT
-##                           modified by this feature either). When wired,
-##                           drives ResolveCastUseCase (core/application/
-##                           use_cases/resolve_cast_use_case.gd) once a
-##                           target has been chosen — see execute()'s own
-##                           doc for the exact gate.
+##                           defaults to null (a caller/test that never
+##                           supplies one still degrades safely). When
+##                           wired, drives ResolveCastUseCase (core/
+##                           application/use_cases/resolve_cast_use_case.gd)
+##                           once a target has been chosen — see execute()'s
+##                           own doc for the exact gate. FEAT-283 (resolves
+##                           PR-001): MainScene.gd's `_verb_deps()` now
+##                           supplies its own real `spell_resolution_port`
+##                           (a ResolutionRulesAdapter wrapping the
+##                           composition root's shared RandomPort) under
+##                           this key, forwarded here by
+##                           spell_action_controller.gd's SpellActionController
+##                           -- a REAL booted MainScene needs no test-only
+##                           override to resolve this port anymore.
 ##   "combat_log_port"     — FEAT-276 (US-011; FR-010): CombatLogPort
 ##                           (core/application/ports/combat_log_port.gd);
-##                           defaults to null — mirrors "resolution_port"'s
-##                           identical "no live composition-root wiring yet,
-##                           degrade safely" convention (MainScene.gd is NOT
-##                           modified by this feature either). Forwarded
-##                           UNMODIFIED to ResolveCastUseCase.execute() (see
-##                           that use case's own FEAT-276 doc for the
-##                           CLEANUP/LOG steps it drives once wired).
+##                           defaults to null, mirroring "resolution_port"'s
+##                           identical "unwired collaborator -> safe
+##                           fallback" convention. Forwarded UNMODIFIED to
+##                           ResolveCastUseCase.execute() (see that use
+##                           case's own FEAT-276 doc for the CLEANUP/LOG
+##                           steps it drives once wired). FEAT-283: same
+##                           real-wiring precedent as "resolution_port"
+##                           above — MainScene.gd's `_verb_deps()` now
+##                           supplies its real `spell_combat_log_port`
+##                           (a CombatLogPanelAdapter) under this key.
 ##   "energy_pool_fn"      — FEAT-277 (US-012; FR-013): Callable(caster) ->
 ##                           EnergyPool (core/domain/energy_pool.gd); defaults
 ##                           to an invalid Callable(), mirroring
 ##                           "candidates_fn"'s identical "unwired collaborator
-##                           -> safe fallback" convention (no live
-##                           composition-root wiring exists yet for this
-##                           either — MainScene.gd is NOT modified by this
-##                           feature). Forwarded UNMODIFIED to
-##                           ResolveCastUseCase.execute() -- consulted ONLY
-##                           for a self-cast ADD_ENERGY spell (e.g. Channel),
-##                           see `_maybe_resolve_self_cast()`'s own doc.
+##                           -> safe fallback" convention. Forwarded
+##                           UNMODIFIED to ResolveCastUseCase.execute() --
+##                           consulted ONLY for a self-cast ADD_ENERGY spell
+##                           (e.g. Channel), see `_maybe_resolve_self_cast()`'s
+##                           own doc. FEAT-283: same real-wiring precedent as
+##                           "resolution_port"/"combat_log_port" above —
+##                           MainScene.gd's `_verb_deps()` now supplies a
+##                           real Callable bound to its own
+##                           `_energy_pool_for()`, reading the LIVE
+##                           RoundSession's energy pool for the given caster.
 ##
 ## Usage:
 ##   var controller := ResolveSpellController.new({
