@@ -1591,10 +1591,13 @@ func _verb_bar_cast_spell_execute(selection = null) -> Dictionary:
 ## verb is ~one entry ... + the three thin _verb_bar_<verb>_* shims"),
 ## keeping VerbBarRegistry's Callable(self, "_verb_bar_combine_*")
 ## registrations working the instant COMBINE is added to VERB_TABLE.
-## CombineActionController.execute() is currently an inert synchronous stub
-## (no `await` inside it, per this feature's scope), so this shim does not
-## `await` it either — mirrors _verb_bar_end_turn_execute()'s identical
-## non-async convention.
+## CombineActionController.execute() (FEAT-007) now awaits each resolved
+## sub-action's own controller.execute() call (STRIDE's own execute() itself
+## awaits Opportunistic-Strike resolution), so this shim `await`s it too —
+## mirrors _verb_bar_strike_execute()'s/_verb_bar_stride_execute()'s
+## identical awaited convention (harmless even for the pre-FEAT-007
+## no-`controller_for` degrade path: `await` on an already-resolved value is
+## a documented GDScript no-op).
 func _verb_bar_combine_availability() -> bool:
 	return _controller("COMBINE").availability()
 
@@ -1604,7 +1607,7 @@ func _verb_bar_combine_enter_selection() -> Dictionary:
 
 
 func _verb_bar_combine_execute(selection = null) -> Dictionary:
-	return _controller("COMBINE").execute(selection)
+	return await _controller("COMBINE").execute(selection)
 
 
 ## _on_verb_bar_selection_entered(verb_id, selection) -> void — FEAT-008 /
@@ -1814,6 +1817,16 @@ func _reaction():
 ## mirroring presentation/strike_action_controller.gd's own `living_enemies_fn`
 ## precedent this key's own doc (resolve_spell_controller.gd) already
 ## pointed to.
+##
+## FEAT-007 (US-007; Iteration N Combinations, the steel thread's exit
+## point) adds "controller_for" — `Callable(self, "_controller")`, the SAME
+## method this composition root's OWN `_controller(verb_id)` lookup below is
+## defined as. presentation/combine_action_controller.gd's
+## CombineActionController reads this Callable (never a hard preload/
+## class_name reference to StrideActionController/StrikeActionController) so
+## a real, booted Combine resolves its queued STRIDE/STRIKE sub-actions to
+## the EXACT SAME memoized `_controllers` instances every other verb is
+## resolved through — one registry, one resolution path.
 func _verb_deps() -> Dictionary:
 	if _verb_deps_cache == null:
 		_verb_deps_cache = {
@@ -1836,6 +1849,7 @@ func _verb_deps() -> Dictionary:
 			"resolution_port": spell_resolution_port,
 			"combat_log_port": spell_combat_log_port,
 			"energy_pool_fn": Callable(self, "_energy_pool_for"),
+			"controller_for": Callable(self, "_controller"),
 		}
 	return _verb_deps_cache
 

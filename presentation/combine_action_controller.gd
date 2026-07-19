@@ -69,9 +69,67 @@ const SubActionQueueEntryClass = preload("res://core/rules/sub_action_queue_entr
 ## without changing it; this feature's scope is the queue structure and its
 ## resolution loop only (see this file's own tests plus
 ## tests/unit/test_sub_action_queue_resolution.gd).
+##
+## FEAT-007 (US-007; the steel thread's exit point) finally WIRES
+## resolve_sub_action_queue() into execute(): a valid, validated Combine now
+## actually resolves its sub-action queue (v0: STRIDE then STRIKE) IN ORDER,
+## each sub-action reached through its OWN controller looked up via
+## `_controller(verb_id)` -- the SAME data-driven-registry seam
+## MainScene.gd's own `_controller(verb_id)` resolves every top-level verb
+## through (ADR-001) -- never a hard preload/class_name reference to
+## StrideActionController/StrikeActionController (see this file's own
+## FEAT-001 doc + tests/unit/test_combine_action_controller_registration.gd's
+## static-scan criterion, which still holds).
+##
+## `_controller(verb_id)` here is a thin wrapper around `_controller_for_fn`
+## -- a Callable(verb_id) -> ActionController-like collaborator injected via
+## `deps["controller_for"]`. The REAL composition root (MainScene.gd) wires
+## this to `Callable(self, "_controller")`, so a real, booted Combine
+## resolves its STRIDE/STRIKE sub-controllers to the EXACT SAME memoized
+## instances every other verb reaches through MainScene's own
+## `_controller(verb_id)` table lookup -- one registry, one resolution path,
+## reused rather than duplicated. Because each sub-action is resolved AND
+## EXECUTED in queue order (order_index, via
+## SubActionQueueEntryClass.sorted(), already enforced by
+## resolve_sub_action_queue()), a queued STRIKE's own reach/target-validity
+## check (StrikeActionController._reachable_targets(), which always reads
+## the actor's LIVE, current hex_coord) naturally observes the actor's
+## POST-Stride position -- Stride's own execute() call has already mutated
+## that live Combatant instance in place by the time Strike's execute() call
+## begins. No positional snapshot/threading is authored here; this falls out
+## of "resolve strictly in order, through live references" for free.
+##
+## When no `controller_for` resolver is wired (every PRE-FEAT-007 unit test
+## in this suite -- tests/unit/test_combine_stamina_decrement.gd /
+## test_combine_stamina_rejection.gd -- constructs a CombineActionController
+## with only `{"session_holder": ...}`), execute() degrades to the exact
+## FEAT-002/FEAT-003 contract those tests already pin: validate, then spend
+## exactly one Stamina, report {ok: true} -- no sub-action queue is built or
+## resolved. This is not a second/parallel code path so much as it is the
+## PRE-existing path, preserved verbatim for callers that never opt into
+## sub-action orchestration by supplying a resolver.
+##
+## Sub-controller execute() calls are `await`-ed (StrideActionController's
+## own execute() itself awaits ResolveStrideUseCase's Opportunistic-Strike
+## resolution), so `resolve_sub_action_queue()` now also awaits each
+## resolver call -- `await` on an already-resolved (non-coroutine) value is
+## a documented no-op in GDScript, so every PRE-FEAT-007 synchronous
+## resolver (tests/unit/test_sub_action_queue_resolution.gd,
+## tests/unit/test_combine_enter_selection.gd) is unaffected.
+
+## _controller_for_fn — FEAT-007: the data-driven sub-action-controller
+## resolver, `deps["controller_for"]` (a Callable(verb_id: String) ->
+## ActionController-like instance). Defaults to an invalid/empty Callable()
+## when not supplied, in which case `_controller(verb_id)` returns null and
+## execute() falls back to its pre-FEAT-007 stamina-only contract (see the
+## file-level doc above). The REAL composition root wires this to
+## `Callable(MainScene, "_controller")`.
+var _controller_for_fn: Callable
+
 
 func _init(deps: Dictionary) -> void:
 	super(deps)
+	_controller_for_fn = deps.get("controller_for", Callable())
 
 
 ## _validate_combine(actor) -> Dictionary — the SOLE Stamina/Dazed-check code
@@ -192,28 +250,50 @@ func enter_selection(pair: Array = _default_charge_pair()) -> Dictionary:
 
 
 ## execute(selection) -> Dictionary — FEAT-002 (US-002; FR-001) + FEAT-003
-## (US-003; FR-002; ADR-004): validates via
-## core/rules/action_economy.gd ActionEconomy.combine_actions() BEFORE
-## spending any Stamina. This is still a PARTIALLY-stubbed execute() -- no
-## real Repeat-trait selection and no sub-action queue orchestration yet
-## (those are later Iteration N features layered on top, without changing
-## this seam; see the file-level FEAT-003/FEAT-004 doc above for why
-## combine_actions() is called with placeholder Repeat-tagged actions) -- but
-## the Stamina>=1 REJECTION gate, the real live Dazed gate (FEAT-004), and
-## the Stamina spend itself are all real:
+## (US-003; FR-002; ADR-004) + FEAT-007 (US-007; the steel thread's exit
+## point): validates via core/rules/action_economy.gd
+## ActionEconomy.combine_actions() BEFORE spending any Stamina, THEN (FEAT-007)
+## queues and resolves the chosen sub-actions IN ORDER, each through its own
+## controller looked up via `_controller(verb_id)` (see this file's own
+## FEAT-005/FEAT-007 doc above):
 ##   - combine_actions() is the SOLE Stamina-check code path (FR-002 /
 ##     ADR-004): on failure (stamina_pool < 1), execute() short-circuits
 ##     BEFORE any mutation and returns {ok: false, reason: "VALIDATION_FAILED"}
 ##     (design notes' api_contracts #3 failure-mode list), never decrementing
 ##     actor.stamina.
-##   - On success, Combine drains exactly one Stamina through
-##     Combatant.spend_stamina(), the SAME single mutator every later
+##   - `selection` (optional) is a Dictionary that may carry:
+##       "queue"    — an Array[SubActionQueueEntry] to resolve, defaulting to
+##                    build_charge_queue() (v0's STRIDE-then-STRIKE Charge)
+##                    when omitted.
+##       <verb_id>  — the targeting payload to hand that queue entry's own
+##                    controller.execute() (e.g. selection["STRIDE"] is a
+##                    HexCoord, selection["STRIKE"] is a target_id String) —
+##                    falling back to the queue entry's own
+##                    targeting_payload when the key is absent.
+##   - Each entry resolves via resolve_sub_action_queue() (FEAT-005's
+##     existing generic, order_index-ordered loop -- no second/duplicate
+##     resolution loop is authored here), whose resolver looks the entry's
+##     controller up via `_controller(entry.verb_id)` and awaits its
+##     execute(payload) call. Because the loop resolves strictly in order,
+##     a queued STRIKE always observes the actor's POST-move position when a
+##     STRIDE precedes it in the queue (see file-level doc). The loop stops
+##     at the first failing sub-action (resolve_sub_action_queue()'s existing
+##     contract), and execute() reports {ok: false, reason: <the failing
+##     entry's reason>, resolved_verb_ids: <ids resolved before it failed>}
+##     without ever spending Stamina for a Combine that didn't fully resolve.
+##   - On full success, Combine drains exactly one Stamina through
+##     Combatant.spend_stamina(), the SAME single mutator every earlier
 ##     validation feature reads/writes through, so there is exactly one
 ##     Stamina-consuming code path for a Combine execute() call, never a
 ##     second/duplicate one.
+##   - When no `controller_for` resolver was injected (deps lacks
+##     "controller_for"), execute() degrades to the pre-FEAT-007
+##     validate-then-spend-only contract (see file-level doc) -- no queue is
+##     built or resolved, preserving tests/unit/test_combine_stamina_decrement.gd
+##     / tests/unit/test_combine_stamina_rejection.gd's existing pin exactly.
 ## Fails safe (ok=false, no mutation) when there is no live actor, mirroring
 ## the FEAT-001 stub's no-crash contract.
-func execute(_selection = null) -> Dictionary:
+func execute(selection = null) -> Dictionary:
 	var actor = current_actor_entity()
 	if actor == null:
 		return {"ok": false}
@@ -222,8 +302,57 @@ func execute(_selection = null) -> Dictionary:
 	if not validation.get("ok", false):
 		return {"ok": false, "reason": "VALIDATION_FAILED"}
 
+	if not _controller_for_fn.is_valid():
+		# No sub-action controller resolver wired -- degrade to the
+		# pre-FEAT-007 validate-then-spend-only contract (see file-level doc).
+		actor.spend_stamina()
+		return {"ok": true}
+
+	var sel: Dictionary = selection if selection is Dictionary else {}
+	var queue: Array = sel.get("queue", build_charge_queue())
+
+	var resolution: Dictionary = await resolve_sub_action_queue(queue, _sub_action_resolver(sel))
+	if not resolution.get("ok", false):
+		return {
+			"ok": false,
+			"reason": resolution.get("reason", "SUB_ACTION_FAILED"),
+			"resolved_verb_ids": resolution.get("resolved_verb_ids", []),
+		}
+
 	actor.spend_stamina()
-	return {"ok": true}
+	return {"ok": true, "resolved_verb_ids": resolution.get("resolved_verb_ids", [])}
+
+
+## _controller(verb_id) -> ActionController or null — FEAT-007: the SAME
+## data-driven table-lookup seam every other verb (and now Combine's own
+## sub-actions) is resolved through, delegating entirely to the injected
+## `_controller_for_fn` Callable (see this file's own field-level doc above)
+## rather than ever preloading/hard-referencing a concrete controller class.
+## Returns null when no resolver was ever injected -- callers (execute()'s
+## resolver below) must treat that as "sub-action controller unavailable",
+## never crash.
+func _controller(verb_id: String):
+	if not _controller_for_fn.is_valid():
+		return null
+	return _controller_for_fn.call(verb_id)
+
+
+## _sub_action_resolver(sel) -> Callable — FEAT-007: builds the
+## Callable(entry: SubActionQueueEntry) -> Dictionary resolve_sub_action_queue()
+## expects, closing over `sel` (execute()'s own selection Dictionary). For
+## each queue entry: resolves its controller via `_controller(entry.verb_id)`
+## (never a direct class reference), then awaits that controller's OWN
+## execute(payload) call -- `payload` is `sel[entry.verb_id]` when the caller
+## supplied one, else the entry's own (possibly still-null) targeting_payload.
+## Reports {ok: false, reason: "ERR_CONTROLLER_NOT_FOUND"} for an entry whose
+## verb_id has no resolvable controller, rather than crashing.
+func _sub_action_resolver(sel: Dictionary) -> Callable:
+	return func(entry):
+		var controller = _controller(entry.verb_id)
+		if controller == null:
+			return {"ok": false, "reason": "ERR_CONTROLLER_NOT_FOUND"}
+		var payload = sel.get(entry.verb_id, entry.targeting_payload)
+		return await controller.execute(payload)
 
 
 ## build_charge_queue() -> Array[SubActionQueueEntry] — FEAT-005 (US-005;
@@ -274,7 +403,13 @@ func resolve_sub_action_queue(queue: Array, resolver: Callable) -> Dictionary:
 	var resolved_verb_ids: Array = []
 	var ordered: Array = SubActionQueueEntryClass.sorted(queue)
 	for entry in ordered:
-		var result: Dictionary = resolver.call(entry)
+		# FEAT-007: awaited so an async resolver (e.g. one that calls a real
+		# ActionController.execute(), which may itself await) is driven to
+		# completion before this loop reads its result. `await` on an
+		# already-resolved (non-coroutine) value is a documented GDScript
+		# no-op, so every pre-existing synchronous resolver (this file's own
+		# earlier tests) is unaffected.
+		var result: Dictionary = await resolver.call(entry)
 		if not result.get("ok", false):
 			return {
 				"ok": false,
