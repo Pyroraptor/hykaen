@@ -176,8 +176,8 @@ func test_full_channel_cast_resolves_end_to_end_through_the_real_composition_roo
 		"Channel's resolution must add exactly +1 to the caster's own round energy pool via the real energy_pool_fn"
 	)
 
-	assert_eq(combat_log_panel.get_entry_count(), 1, "exactly one CAST_RESOLVE entry must be emitted via the real combat_log_port")
-	var entry = combat_log_panel.get_entry(0)
+	assert_eq(combat_log_panel.get_resolve_entry_count(), 1, "exactly one CAST_RESOLVE entry must be emitted via the real combat_log_port")
+	var entry = combat_log_panel.get_resolve_entry(0)
 	assert_true(entry is CombatLogEntryClass)
 	assert_eq(entry.event_type, CombatLogEntryClass.EventType.CAST_RESOLVE)
 	assert_eq(entry.spell_id, "channel")

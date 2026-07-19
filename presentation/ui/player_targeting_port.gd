@@ -35,10 +35,8 @@ func _init(p_hex_grid_view) -> void:
 func request_single_target(legal_targets: Array):
 	if legal_targets.is_empty():
 		return null
-	# Fast-path: only one legal target — no UI needed.
-	if legal_targets.size() == 1:
-		return legal_targets[0]
-	# Multi-target: build parallel target/hex arrays, highlight, await click.
+	# Always prompt the player, even with a single legal target, so target
+	# selection is consistently interactive regardless of enemy count.
 	var targets_with_hexes: Array = []
 	var highlight_hexes: Array = []
 	for target in legal_targets:

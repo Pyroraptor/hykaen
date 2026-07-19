@@ -97,6 +97,34 @@ func get_entry_text(index: int) -> String:
 	return render_entry(entry) if entry != null else ""
 
 
+## get_resolve_entry_count() -> int — number of CAST_RESOLVE entries emitted.
+func get_resolve_entry_count() -> int:
+	var count := 0
+	for e in _entries:
+		if e.event_type == 2:
+			count += 1
+	return count
+
+
+## get_resolve_entry(index) -> CombatLogEntry | null — the Nth CAST_RESOLVE
+## entry in emission order, or null when index is out of range.
+func get_resolve_entry(index: int):
+	var i := 0
+	for e in _entries:
+		if e.event_type == 2:
+			if i == index:
+				return e
+			i += 1
+	return null
+
+
+## get_resolve_entry_text(index) -> String — rendered text for the Nth
+## CAST_RESOLVE entry, or "" when index is out of range.
+func get_resolve_entry_text(index: int) -> String:
+	var entry = get_resolve_entry(index)
+	return render_entry(entry) if entry != null else ""
+
+
 ## render_entry(entry) -> String — formats one CombatLogEntry as a
 ## human-readable line. Purely a reformatting of already-computed data
 ## (mirrors presentation/event_log_view.gd's render_attack_entry()'s

@@ -264,7 +264,7 @@ func test_controller_attaches_resolve_cast_result_once_fire_bolt_target_is_chose
 		"resolution_port": spy,
 	})
 
-	var result: Dictionary = controller.execute(actor)
+	var result: Dictionary = await controller.execute(actor)
 
 	assert_true(result.get("success"))
 	assert_eq(result.get("target_id"), "skeleton")
@@ -290,7 +290,7 @@ func test_controller_never_invokes_resolution_port_for_channel_self_target() -> 
 		"resolution_port": spy,
 	})
 
-	var result: Dictionary = controller.execute(actor)
+	var result: Dictionary = await controller.execute(actor)
 
 	assert_true(spy.calls.is_empty(), "a self/no-attack spell (Spell.Defense.NONE, e.g. Channel) must never invoke ResolutionPort")
 	assert_true(result.get("success"))
@@ -319,7 +319,7 @@ func test_controller_never_invokes_resolution_port_when_no_valid_target() -> voi
 		"resolution_port": spy,
 	})
 
-	var result: Dictionary = controller.execute(actor)
+	var result: Dictionary = await controller.execute(actor)
 
 	assert_true(spy.calls.is_empty(), "no chosen target means nothing to resolve -- ResolutionPort must never be invoked")
 	assert_eq(result.get("error"), ErrorCodeClass.ERR_NO_VALID_TARGET)
@@ -340,7 +340,7 @@ func test_controller_degrades_safely_with_no_resolution_port_wired() -> void:
 		"candidates_fn": func(): return [enemy],
 	})
 
-	var result: Dictionary = controller.execute(actor)
+	var result: Dictionary = await controller.execute(actor)
 
 	assert_true(result.get("success"), "targeting alone must still succeed with no ResolutionPort wired")
 	assert_eq(result.get("target_id"), "skeleton")

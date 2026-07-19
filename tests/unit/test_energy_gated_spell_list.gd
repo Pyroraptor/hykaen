@@ -223,9 +223,9 @@ func test_enter_selection_never_offers_fireball_at_l1_pool_capacity() -> void:
 	var selection: Dictionary = controller.enter_selection()
 
 	assert_eq(selection.get("verb_id"), "CAST_SPELL")
-	assert_true(selection.get("candidate_targets", []).has("fire_bolt"), "Fire Bolt must still be offered at L1")
-	assert_true(selection.get("candidate_targets", []).has("channel"), "Channel must still be offered at L1")
-	assert_false(selection.get("candidate_targets", []).has("fireball"), "Fireball must NEVER be offered as castable at L1 (min energy 2 > L1 pool budget)")
+	assert_true(selection.get("candidate_options", []).any(func(o): return o.get("id") == "fire_bolt"), "Fire Bolt must still be offered at L1")
+	assert_true(selection.get("candidate_options", []).any(func(o): return o.get("id") == "channel"), "Channel must still be offered at L1")
+	assert_false(selection.get("candidate_options", []).any(func(o): return o.get("id") == "fireball"), "Fireball must NEVER be offered as castable at L1 (min energy 2 > L1 pool budget)")
 
 
 func test_enter_selection_offers_fireball_once_pool_balance_is_sufficient() -> void:
@@ -239,7 +239,7 @@ func test_enter_selection_offers_fireball_once_pool_balance_is_sufficient() -> v
 
 	var selection: Dictionary = controller.enter_selection()
 
-	assert_true(selection.get("candidate_targets", []).has("fireball"), "Fireball must be offered once the live pool balance meets its min energy (2)")
+	assert_true(selection.get("candidate_options", []).any(func(o): return o.get("id") == "fireball"), "Fireball must be offered once the live pool balance meets its min energy (2)")
 
 
 func test_enter_selection_degrades_to_empty_candidates_with_no_live_session() -> void:
@@ -252,4 +252,4 @@ func test_enter_selection_degrades_to_empty_candidates_with_no_live_session() ->
 	var selection: Dictionary = controller.enter_selection()
 
 	assert_eq(selection.get("verb_id"), "CAST_SPELL")
-	assert_eq(selection.get("candidate_targets"), [], "no live session must still fail safe to empty candidate_targets, never crash")
+	assert_eq(selection.get("candidate_options"), [], "no live session must still fail safe to empty candidate_options, never crash")

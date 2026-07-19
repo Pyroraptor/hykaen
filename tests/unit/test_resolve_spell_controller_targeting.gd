@@ -115,7 +115,7 @@ func test_execute_does_not_invoke_targeting_port_when_actor_is_null() -> void:
 	var targeting := SpyTargetingPort.new()
 	var controller := ResolveSpellControllerClass.new({"targeting_port": targeting})
 
-	var result: Dictionary = controller.execute(null)
+	var result: Dictionary = await controller.execute(null)
 
 	assert_true(targeting.calls.is_empty(), "TargetingPort must never be invoked for a null actor")
 	assert_false(result.get("success"))
@@ -128,7 +128,7 @@ func test_execute_does_not_invoke_targeting_port_when_actor_is_not_casting() -> 
 	var targeting := SpyTargetingPort.new()
 	var controller := ResolveSpellControllerClass.new({"targeting_port": targeting})
 
-	controller.execute(actor)
+	await controller.execute(actor)
 
 	assert_true(targeting.calls.is_empty(), "TargetingPort must never be invoked for an actor who is not mid-cast at all")
 
@@ -140,7 +140,7 @@ func test_execute_does_not_invoke_targeting_port_when_remaining_actions_is_above
 	var targeting := SpyTargetingPort.new()
 	var controller := ResolveSpellControllerClass.new({"spell_catalog_port": catalog, "targeting_port": targeting})
 
-	var result: Dictionary = controller.execute(actor)
+	var result: Dictionary = await controller.execute(actor)
 
 	assert_true(targeting.calls.is_empty(), "TargetingPort must never be invoked while remaining_actions > 0")
 	assert_false(result.get("success"))
@@ -161,7 +161,7 @@ func test_execute_invokes_targeting_port_exactly_once_when_remaining_actions_is_
 		"candidates_fn": func(): return [enemy],
 	})
 
-	var result: Dictionary = controller.execute(actor)
+	var result: Dictionary = await controller.execute(actor)
 
 	assert_eq(targeting.calls.size(), 1, "TargetingPort.request_single_target() must be invoked exactly once when remaining_actions reaches 0")
 	assert_true(result.get("success"))
@@ -188,7 +188,7 @@ func test_out_of_range_targets_are_excluded_from_the_set_handed_to_targeting_por
 		"candidates_fn": func(): return [in_range, out_of_range],
 	})
 
-	controller.execute(actor)
+	await controller.execute(actor)
 
 	assert_eq(targeting.calls.size(), 1)
 	var legal_targets: Array = targeting.calls[0]
@@ -210,7 +210,7 @@ func test_execute_returns_no_valid_target_when_every_candidate_is_out_of_range()
 		"candidates_fn": func(): return [out_of_range],
 	})
 
-	var result: Dictionary = controller.execute(actor)
+	var result: Dictionary = await controller.execute(actor)
 
 	assert_eq(targeting.calls, [[]], "TargetingPort must still be asked, but with an EMPTY legal_targets Array, when every candidate is out of range")
 	assert_true(result.get("success"), "a wasted-action resolve (no valid target) is still a successful resolution step, per api_contracts #2")
@@ -225,7 +225,7 @@ func test_channel_self_target_spell_never_invokes_targeting_port() -> void:
 	var targeting := SpyTargetingPort.new()
 	var controller := ResolveSpellControllerClass.new({"spell_catalog_port": catalog, "targeting_port": targeting})
 
-	var result: Dictionary = controller.execute(actor)
+	var result: Dictionary = await controller.execute(actor)
 
 	assert_true(targeting.calls.is_empty(), "a self/no-target spell (range_ft <= 0, e.g. Channel) must never open targeting at all")
 	assert_true(result.get("success"))
@@ -249,7 +249,7 @@ func test_channel_self_cast_attaches_resolve_cast_result_and_adds_energy_to_the_
 		"energy_pool_fn": func(_c): return pool,
 	})
 
-	var result: Dictionary = controller.execute(actor)
+	var result: Dictionary = await controller.execute(actor)
 
 	assert_true(result.get("success"))
 	assert_true(result.has("resolve_cast_result"), "Channel must route through ResolveCastUseCase, attaching resolve_cast_result")
@@ -264,7 +264,7 @@ func test_channel_self_cast_degrades_safely_with_no_energy_pool_fn_wired() -> vo
 	catalog.spells["channel"] = _channel()
 	var controller := ResolveSpellControllerClass.new({"spell_catalog_port": catalog})
 
-	var result: Dictionary = controller.execute(actor)
+	var result: Dictionary = await controller.execute(actor)
 
 	assert_true(result.get("success"), "an unwired energy_pool_fn must degrade safely, never crash")
 	assert_true(result.has("resolve_cast_result"))
@@ -297,7 +297,7 @@ func test_execute_does_not_invoke_targeting_port_after_cast_is_cancelled() -> vo
 		"candidates_fn": func(): return [enemy],
 	})
 
-	var result: Dictionary = controller.execute(actor)
+	var result: Dictionary = await controller.execute(actor)
 
 	assert_true(targeting.calls.is_empty(), "a cancelled/interrupted cast must NEVER trigger targeting, even though remaining_actions had reached 0 immediately before cancellation")
 	assert_false(result.get("success"))
@@ -310,7 +310,7 @@ func test_execute_does_not_invoke_targeting_port_for_an_actor_that_never_began_a
 	var targeting := SpyTargetingPort.new()
 	var controller := ResolveSpellControllerClass.new({"targeting_port": targeting})
 
-	controller.execute(actor)
+	await controller.execute(actor)
 
 	assert_true(targeting.calls.is_empty(), "an actor who never began a cast at all must never trigger targeting")
 
@@ -325,7 +325,7 @@ func test_execute_fails_safe_with_no_targeting_port_wired() -> void:
 	catalog.spells["fire_bolt"] = _fire_bolt()
 	var controller := ResolveSpellControllerClass.new({"spell_catalog_port": catalog})
 
-	var result: Dictionary = controller.execute(actor)
+	var result: Dictionary = await controller.execute(actor)
 
 	assert_false(result.get("success"))
 	assert_null(result.get("target_id"))
@@ -338,7 +338,7 @@ func test_execute_fails_safe_with_unknown_spell_id() -> void:
 	var targeting := SpyTargetingPort.new()
 	var controller := ResolveSpellControllerClass.new({"spell_catalog_port": catalog, "targeting_port": targeting})
 
-	var result: Dictionary = controller.execute(actor)
+	var result: Dictionary = await controller.execute(actor)
 
 	assert_true(targeting.calls.is_empty(), "an unresolvable spell_id must never reach TargetingPort")
 	assert_false(result.get("success"))
@@ -383,7 +383,7 @@ class SpyResolveSpellController:
 	extends RefCounted
 	var calls: Array = []
 
-	func execute(actor):
+	func execute(actor, _round_num: int = 0):
 		calls.append(actor)
 		return {"success": true, "target_id": null, "error": ErrorCodeClass.NONE}
 
@@ -401,7 +401,7 @@ func test_spell_action_controller_invokes_resolve_spell_controller_when_continue
 	var spy := SpyResolveSpellController.new()
 	var controller := SpellActionControllerClass.new(_deps_with_spy(actor, spy))
 
-	var result: Dictionary = controller.execute()
+	var result: Dictionary = await controller.execute()
 
 	assert_eq(spy.calls.size(), 1, "a continue-cast call that drives remaining_actions to 0 must invoke ResolveSpellController exactly once")
 	assert_same(spy.calls[0], actor, "ResolveSpellController must be handed the SAME live actor instance")
@@ -415,7 +415,7 @@ func test_spell_action_controller_does_not_invoke_resolve_spell_controller_while
 	var spy := SpyResolveSpellController.new()
 	var controller := SpellActionControllerClass.new(_deps_with_spy(actor, spy))
 
-	var result: Dictionary = controller.execute()
+	var result: Dictionary = await controller.execute()
 
 	assert_true(spy.calls.is_empty(), "ResolveSpellController must not be invoked while remaining_actions is still above 0 after continuing")
 	assert_false(result.has("resolve_spell_result"), "the ExecuteResult must not carry resolve_spell_result when the gate is not yet satisfied")
@@ -435,7 +435,7 @@ func test_spell_action_controller_invokes_resolve_spell_controller_on_first_cast
 	deps["spell_catalog_port"] = catalog
 	var controller := SpellActionControllerClass.new(deps)
 
-	var result: Dictionary = controller.execute("channel")
+	var result: Dictionary = await controller.execute("channel")
 
 	assert_true(result.get("success", false), "fixture assumption: the first cast of a known, affordable spell must succeed")
 	assert_eq(spy.calls.size(), 1, "a 1-action spell begun this turn must ALSO trigger ResolveSpellController on the FIRST cast")
@@ -451,7 +451,7 @@ func test_spell_action_controller_does_not_invoke_resolve_spell_controller_on_fi
 	deps["spell_catalog_port"] = catalog
 	var controller := SpellActionControllerClass.new(deps)
 
-	var result: Dictionary = controller.execute("fire_bolt")
+	var result: Dictionary = await controller.execute("fire_bolt")
 
 	assert_true(result.get("success", false), "fixture assumption: the first cast of a known, affordable spell must succeed")
 	assert_true(spy.calls.is_empty(), "Fire Bolt's 2-action cost leaves remaining_actions == 1 after the first cast -- ResolveSpellController must not be invoked yet")

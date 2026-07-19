@@ -280,10 +280,18 @@ func test_fire_bolt_and_channel_cast_end_to_end_through_real_composition_root_ze
 
 	var skeleton_hp_before_resolve: int = skeleton.hp_current
 
-	# ── continuing action -> real TargetingPort (single legal target: the
-	# Skeleton) -> real ResolutionPort roll -> real EffectsApplierPort DAMAGE
-	# application -> real CombatLogPort emission -> casting_state cleared. ──
-	var continue_result: Dictionary = instance._verb_bar_cast_spell_execute()
+	# ── continuing action -> real TargetingPort (player picks Skeleton hex)
+	# -> real ResolutionPort roll -> real EffectsApplierPort DAMAGE application
+	# -> real CombatLogPort emission -> casting_state cleared. ──
+	var _captured_continue := {"done": false, "result": null}
+	var _runner_continue := func():
+		var r = await instance._verb_bar_cast_spell_execute()
+		_captured_continue["done"] = true
+		_captured_continue["result"] = r
+	_runner_continue.call()
+	instance.hex_grid_view.hex_clicked.emit(skeleton.hex_coord)
+	await get_tree().process_frame
+	var continue_result: Dictionary = _captured_continue["result"]
 	assert_true(continue_result.get("success", false), "the continuing CAST_SPELL action must succeed")
 
 	# ── Criterion 2 (continued): remaining_actions correctly reaches 0 and
@@ -297,8 +305,8 @@ func test_fire_bolt_and_channel_cast_end_to_end_through_real_composition_root_ze
 	assert_true(continue_result.has("resolve_spell_result"), "ResolveSpellController must have been reached once remaining_actions hit 0")
 	var combat_log_panel = instance.spell_combat_log_port
 	assert_same(combat_log_panel, instance._verb_deps().get("combat_log_port"), "the combat log read by this test must be the SAME real adapter _verb_deps() itself carries")
-	assert_eq(combat_log_panel.get_entry_count(), 1, "exactly one CAST_RESOLVE entry must be emitted for the Fire Bolt cast")
-	var fire_bolt_entry = combat_log_panel.get_entry(0)
+	assert_eq(combat_log_panel.get_resolve_entry_count(), 1, "exactly one CAST_RESOLVE entry must be emitted for the Fire Bolt cast")
+	var fire_bolt_entry = combat_log_panel.get_resolve_entry(0)
 	assert_true(fire_bolt_entry is CombatLogEntryClass)
 	assert_eq(fire_bolt_entry.event_type, CombatLogEntryClass.EventType.CAST_RESOLVE)
 	assert_eq(fire_bolt_entry.spell_id, "fire_bolt")
@@ -310,7 +318,7 @@ func test_fire_bolt_and_channel_cast_end_to_end_through_real_composition_root_ze
 	assert_eq(skeleton_hp_before_resolve - skeleton.hp_current, fire_bolt_entry.damage_amount, "the hp reduction must equal exactly the logged damage_amount")
 	assert_lt(skeleton.hp_current, skeleton_hp_before_fire_bolt, "the Skeleton's final hp must be strictly below its pre-Fire-Bolt hp")
 
-	var rendered_text: String = combat_log_panel.get_entry_text(0)
+	var rendered_text: String = combat_log_panel.get_resolve_entry_text(0)
 	assert_true(rendered_text.contains("fire_bolt"), "the rendered line must name the spell")
 	assert_true(rendered_text.contains(marigold.display_id()), "the rendered line must name the caster")
 	assert_true(rendered_text.contains(skeleton.display_id()), "the rendered line must name the target")
@@ -340,8 +348,8 @@ func test_fire_bolt_and_channel_cast_end_to_end_through_real_composition_root_ze
 	assert_same(pool_after, pool_before, "get_energy_pool() must return the SAME live EnergyPool instance across calls")
 	assert_eq(pool_after.current, energy_before + 1, "Channel's resolution must add exactly +1 to the caster's own round energy pool via the real energy_pool_fn")
 
-	assert_eq(combat_log_panel.get_entry_count(), 2, "exactly one ADDITIONAL CAST_RESOLVE entry must be emitted for the Channel cast")
-	var channel_entry = combat_log_panel.get_entry(1)
+	assert_eq(combat_log_panel.get_resolve_entry_count(), 2, "exactly one ADDITIONAL CAST_RESOLVE entry must be emitted for the Channel cast")
+	var channel_entry = combat_log_panel.get_resolve_entry(1)
 	assert_true(channel_entry is CombatLogEntryClass)
 	assert_eq(channel_entry.event_type, CombatLogEntryClass.EventType.CAST_RESOLVE)
 	assert_eq(channel_entry.spell_id, "channel")
@@ -351,7 +359,7 @@ func test_fire_bolt_and_channel_cast_end_to_end_through_real_composition_root_ze
 	assert_null(channel_entry.damage_amount, "Channel deals no damage -- damage_amount must be null")
 	assert_eq(channel_entry.energy_delta, 1, "energy_delta must equal the +1 actually applied to the caster's own round energy pool")
 
-	var channel_rendered_text: String = combat_log_panel.get_entry_text(1)
+	var channel_rendered_text: String = combat_log_panel.get_resolve_entry_text(1)
 	assert_true(channel_rendered_text.contains("channel"), "the rendered line must name the spell")
 	assert_true(channel_rendered_text.contains(marigold.display_id()), "the rendered line must name the caster")
 
@@ -404,7 +412,15 @@ func _run_full_scenario() -> Dictionary:
 	_advance_to_marigolds_turn(instance)
 	assert_eq(instance.round_session.current_actor_entity(), marigold, "it must now be Marigold's NEXT live turn")
 
-	var continue_result: Dictionary = instance._verb_bar_cast_spell_execute()
+	var _captured_c := {"done": false, "result": null}
+	var _runner_c := func():
+		var r = await instance._verb_bar_cast_spell_execute()
+		_captured_c["done"] = true
+		_captured_c["result"] = r
+	_runner_c.call()
+	instance.hex_grid_view.hex_clicked.emit(skeleton.hex_coord)
+	await get_tree().process_frame
+	var continue_result: Dictionary = _captured_c["result"]
 	assert_true(continue_result.get("success", false), "the continuing Fire Bolt CAST_SPELL action must succeed")
 	assert_false(marigold.is_casting(), "Fire Bolt must have resolved and cleared casting_state")
 
@@ -419,8 +435,8 @@ func _run_full_scenario() -> Dictionary:
 
 	var combat_log_panel = instance.spell_combat_log_port
 	var log_entries: Array = []
-	for i in range(combat_log_panel.get_entry_count()):
-		log_entries.append(combat_log_panel.get_entry(i).to_dict())
+	for i in range(combat_log_panel.get_resolve_entry_count()):
+		log_entries.append(combat_log_panel.get_resolve_entry(i).to_dict())
 
 	var attack_event_dicts: Array = []
 	for attack_event in _attack_events(instance):

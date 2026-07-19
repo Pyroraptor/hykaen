@@ -221,7 +221,17 @@ func test_continuing_cast_action_also_provokes_the_same_reaction_window() -> voi
 	# with NO selection argument at all (US-006: the actor is already
 	# mid-cast, so no re-selection is possible/needed) -- this is the
 	# CONTINUING-cast branch (ContinueCastUseCase), not BeginCastUseCase. ──
-	var continue_result: Dictionary = instance._verb_bar_cast_spell_execute()
+	# Fire-and-forget: remaining_actions→0 triggers resolution + targeting,
+	# which awaits a hex click from the real PlayerTargetingPort.
+	var _cap := {"done": false, "result": null}
+	var _run := func():
+		var r = await instance._verb_bar_cast_spell_execute()
+		_cap["done"] = true
+		_cap["result"] = r
+	_run.call()
+	instance.hex_grid_view.hex_clicked.emit(skeleton.hex_coord)
+	await get_tree().process_frame
+	var continue_result: Dictionary = _cap["result"]
 
 	assert_true(continue_result.get("success", false), "continuing an in-progress cast with no selection argument must succeed (US-006: no re-selection)")
 	assert_eq(continue_result.get("casting_state", {}).get("remaining_actions"), 0, "the continuing-cast action must drive remaining_actions to 0 (Fire Bolt's 2-action cost)")

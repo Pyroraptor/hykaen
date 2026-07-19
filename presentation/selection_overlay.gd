@@ -311,7 +311,8 @@ func activate(verb_id: String, selection) -> void:
 		return
 	_active_verb_id = verb_id
 	_candidate_hexes = _extract(selection, "candidate_hexes")
-	_target_hex_by_id = _resolve_target_hexes(_extract(selection, "candidate_targets"))
+	var _raw_candidate_targets := _extract(selection, "candidate_targets")
+	_target_hex_by_id = _resolve_target_hexes(_raw_candidate_targets)
 	_candidate_options = _extract_options(selection)
 	_chosen_option = null
 	_resolution_mode = _extract_resolution_mode(selection)
@@ -326,11 +327,13 @@ func activate(verb_id: String, selection) -> void:
 	else:
 		_awaiting_option = false
 		_refresh_highlight()
-		# Auto-resolve when there's nothing to select at all (no options, hexes, or
-		# targets). Handles verbs that return an empty descriptor to signal "just run it"
-		# (e.g. Cast a Spell when the actor is already mid-cast: enter_selection returns
-		# {} so ContinueCastUseCase fires without requiring a hex or target click).
-		if _candidate_hexes.is_empty() and _target_hex_by_id.is_empty():
+		# Auto-resolve only when the descriptor is genuinely empty (no options,
+		# hexes, or targets specified). Handles verbs that return an empty
+		# descriptor to signal "just run it" (e.g. Cast a Spell continuation
+		# where enter_selection returns {} so ContinueCastUseCase fires without
+		# requiring a hex or target click). Must NOT fire when candidate_targets
+		# were specified but couldn't be hex-resolved (e.g. null hex_grid_view).
+		if _candidate_hexes.is_empty() and _target_hex_by_id.is_empty() and _raw_candidate_targets.is_empty():
 			_resolve(null)
 
 

@@ -72,6 +72,7 @@ func test_to_dict_snapshots_every_field() -> void:
 		"damage_amount": 9,
 		"energy_delta": null,
 		"round_number": 2,
+		"roll_total": null,
 	})
 
 

@@ -1637,6 +1637,7 @@ var _spell_picker_panel: Panel = null
 
 func _setup_spell_picker_panel() -> void:
 	_spell_picker_panel = Panel.new()
+	_spell_picker_panel.name = "SpellPickerPanel"
 	_spell_picker_panel.visible = false
 	_spell_picker_panel.custom_minimum_size = Vector2(220, 40)
 
