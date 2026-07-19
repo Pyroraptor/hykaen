@@ -36,6 +36,10 @@
 ## actor already mid-cast never reaches this use case at all (see
 ## SpellActionController's own execute() branch).
 ##
+## FEAT-278 (US-013; FR-014) adds castable_spell_ids() -- the energy-gated
+## PICK LIST counterpart to availability()'s boolean predicate above (see
+## that method's own doc for the full contract).
+##
 ## Domain purity boundary (ADR-001): extends RefCounted only — no
 ## Node/Control/SceneTree inheritance, no engine I/O.
 
@@ -112,3 +116,37 @@ func execute(actor, spell_id: String, spell_catalog_port, round_energy_pool_port
 
 func _fail(error_code: int) -> Dictionary:
 	return {"success": false, "casting_state": null, "error": error_code}
+
+
+## castable_spell_ids(actor, spell_catalog_port, round_energy_pool_port) ->
+## Array — FEAT-278 (US-013; FR-014): the energy-gated spell PICK LIST
+## api_contracts #1's enter_selection() populates its SelectionRequest with
+## ("known_spell_ids filtered by pool balance per US-013") -- every spell_id
+## in `actor.known_spell_ids` whose resolved Spell.energy_cost is affordable
+## against the round energy pool's CURRENT balance (read-only --
+## RoundEnergyPoolPort.balance(), never reserve(), mirroring availability()'s
+## own read-only balance check above). This is the SAME affordability rule
+## availability() already applies to decide "is at least one spell
+## castable?" -- this method is its list-producing counterpart, so a caster
+## who knows Fireball (energy_cost=2, FEAT-278) at a pool balance < 2 never
+## sees "fireball" in the returned list, even though Fire Bolt/Channel
+## (energy_cost=0) remain offered.
+##
+## An unresolvable spell_id (SpellCatalogPort.get_spell() returns null --
+## malformed/missing authored data) is silently excluded rather than
+## crashing the pick list, matching ResourceSpellCatalogAdapter's own
+## "malformed data is treated as unknown" convention. A null actor/
+## spell_catalog_port/round_energy_pool_port fails safe to an empty Array.
+func castable_spell_ids(actor, spell_catalog_port, round_energy_pool_port) -> Array:
+	if actor == null or spell_catalog_port == null or round_energy_pool_port == null:
+		return []
+
+	var caster_id: String = actor.display_id()
+	var balance: int = round_energy_pool_port.balance(caster_id)
+
+	var result: Array = []
+	for spell_id in actor.known_spell_ids:
+		var spell = spell_catalog_port.get_spell(spell_id)
+		if spell != null and spell.energy_cost <= balance:
+			result.append(spell_id)
+	return result

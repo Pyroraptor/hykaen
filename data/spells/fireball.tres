@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="SpellResource" load_steps=2 format=3 uid="uid://c8f1reba11000001"]
+
+[ext_resource type="Script" uid="uid://cspres0urce00001" path="res://core/resources/spell_resource.gd" id="1_fireball"]
+
+[resource]
+script = ExtResource("1_fireball")
+spell_id = "fireball"
+name = "Fireball"
+actions_cost = 2
+energy_cost = 2
+defense = 2
+range_ft = 100
+damage_formula = "3d6+ATTR"
+damage_type = "fire"
+traits = ["Concentrate"]
+effect_type = 0
+effect_params = {
+"formula": "3d6+ATTR",
+"type": "fire",
+"radius_ft": 20
+}

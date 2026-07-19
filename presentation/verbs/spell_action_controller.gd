@@ -174,14 +174,30 @@ func availability() -> bool:
 ## action_controller.gd's default) when the actor is already mid-cast — the
 ## real contract's "If actor.is_casting(): returns null (skip selection,
 ## US-006)" — else a verb_id-tagged candidate-set Dictionary matching every
-## other verb's enter_selection() shape (candidate_hexes/candidate_targets),
-## here always empty since no SpellCatalogPort-backed spell list exists yet
-## to populate candidate_targets with.
+## other verb's enter_selection() shape (candidate_hexes/candidate_targets).
+##
+## FEAT-278 (US-013; FR-014): candidate_targets is now populated with the
+## ENERGY-GATED pick list -- BeginCastUseCase.castable_spell_ids(), i.e.
+## `actor`'s known_spell_ids filtered to those whose Spell.energy_cost is
+## affordable against the round energy pool's current balance (e.g. an L1
+## caster who knows Fireball, energy_cost=2, never sees "fireball" offered
+## while the pool balance is < 2 -- see data/spells/fireball.tres). Degrades
+## to the FEAT-004 skeleton behavior (candidate_targets == []) when the live
+## session cannot yet supply a RoundEnergyPoolPort (see file-level "fail-safe
+## degrade" doc) -- every pre-existing test/caller that never wires a real
+## session-backed pool keeps its FEAT-004 behavior unchanged.
 func enter_selection() -> Dictionary:
 	var actor = current_actor_entity()
 	if actor != null and actor.is_casting():
 		return {}
-	return {"verb_id": "CAST_SPELL", "candidate_hexes": [], "candidate_targets": []}
+
+	var candidate_targets: Array = []
+	if actor != null:
+		var pool_port = _round_energy_pool_port(actor)
+		if pool_port != null:
+			candidate_targets = BeginCastUseCaseClass.new().castable_spell_ids(actor, _spell_catalog_port, pool_port)
+
+	return {"verb_id": "CAST_SPELL", "candidate_hexes": [], "candidate_targets": candidate_targets}
 
 
 ## execute(selection) -> Dictionary — US-004 contract #3, completed by
