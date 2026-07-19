@@ -145,8 +145,15 @@ func _strip_comment_lines(body: String) -> String:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_strike_action_controller_execute_is_a_full_override_untouched_by_shape_dispatch_generalization() -> void:
+	# FEAT-008 (US-008; FR-007; ADR-003) additively threaded a second,
+	# defaulted `no_self_spend_execution: bool = false` parameter into this
+	# signature (see strike_action_controller.gd's own FEAT-008 doc) -- every
+	# PRE-EXISTING caller omits it, so this is a pure signature-level addition,
+	# not a behavior change this static scan needs to guard against; the
+	# search prefix below is updated to match the current signature verbatim
+	# so the function-body extraction still locates the right span.
 	var content: String = _read_file(STRIKE_ACTION_CONTROLLER_PATH)
-	var body: String = _extract_function_body(content, "func execute(selection = null) -> Dictionary:")
+	var body: String = _extract_function_body(content, "func execute(selection = null, no_self_spend_execution: bool = false) -> Dictionary:")
 	var live_code: String = _strip_comment_lines(body)
 
 	assert_false(
