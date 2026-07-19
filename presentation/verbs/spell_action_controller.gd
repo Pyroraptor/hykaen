@@ -64,6 +64,32 @@ extends "res://presentation/action_controller.gd"
 ## which predates this feature and exercises the controller in isolation --
 ## availability()/execute() degrade to their FEAT-004 skeleton behavior
 ## rather than crashing on a missing method.
+##
+## FEAT-279 (US-014; FR-016, ADR-005) wires the REACTION-PROVOKING half of
+## the CAST_SPELL execute() branch design notes' api_contracts #1 always
+## promised ("fires ReactionWindowPort (Concentrate trait)") but FEAT-005/
+## FEAT-006 never actually drove: once EITHER the first-cast
+## (BeginCastUseCase) OR the continuing-cast (ContinueCastUseCase) branch
+## below reports success, `_provoke_reaction_on_cast()` hands `actor` to
+## core/application/use_cases/provoke_reaction_on_cast_use_case.gd's
+## ProvokeReactionOnCastUseCase -- the SAME shared `reaction`
+## ReactionController collaborator (presentation/reaction_controller.gd)
+## presentation/stride_action_controller.gd's own execute() already reads
+## out of this controller's identical `deps` dict (MainScene.gd's ONE
+## memoized `_verb_deps()` Dictionary already carries every key this needs --
+## "reaction"/"action_economy_for"/"current_round_number"/
+## "resolve_action_use_case"/"living_enemy_reactors"/"current_turn_order" --
+## so no composition-root change is required for this feature at all), so
+## Cast-a-Spell opens the identical OpportunisticStrike window a Stride
+## opens, with the caster's own current position standing in for a
+## stationary "mover" (ADR-005: "no new reaction infrastructure" -- see that
+## use case's own file-level doc). The provoked outcome is attached to this
+## controller's own ExecuteResult under the additive "reaction_result" key --
+## every pre-existing key (success/casting_state/error) is byte-for-byte
+## unchanged, so no FEAT-005/FEAT-006/FEAT-008 caller/test regresses.
+## CancelCastUseCase (acting on a lethal Opportunistic Strike outcome here)
+## remains a separate, later feature's scope -- this feature only ever
+## fires the window and reports what happened.
 
 const ErrorCodeClass = preload("res://core/application/ports/errors.gd")
 const BeginCastUseCaseClass = preload("res://core/application/use_cases/begin_cast_use_case.gd")
@@ -71,6 +97,7 @@ const ContinueCastUseCaseClass = preload("res://core/application/use_cases/conti
 const RoundEnergyPoolPortClass = preload("res://core/application/ports/round_energy_pool_port.gd")
 const ResourceSpellCatalogAdapterClass = preload("res://core/adapters/resource_spell_catalog_adapter.gd")
 const ResolveSpellControllerClass = preload("res://presentation/verbs/resolve_spell_controller.gd")
+const ProvokeReactionOnCastUseCaseClass = preload("res://core/application/use_cases/provoke_reaction_on_cast_use_case.gd")
 const CastingStateClass = preload("res://core/domain/casting_state.gd")
 
 ## _spell_catalog_port — FEAT-005: the SpellCatalogPort collaborator every
@@ -96,6 +123,19 @@ var _spell_catalog_port
 ## identical "build the real collaborator here, degrade safely when unwired"
 ## convention.
 var _resolve_spell_controller
+
+## FEAT-279 (US-014): the shared reaction-provoking collaborators, read
+## verbatim out of MainScene.gd's ONE memoized `_verb_deps()` Dictionary --
+## mirrors presentation/stride_action_controller.gd's own `_init()`
+## identically-keyed reads exactly (see that file's own doc), so no
+## composition-root change is required to wire this feature.
+var _reaction
+var _action_economy_fn: Callable
+var _round_number_fn: Callable
+var _resolve_action_use_case
+var _living_enemy_reactors_fn: Callable
+var _turn_order_fn: Callable
+
 
 ## _verb_deps() -> Array[String] — the closed list of application-layer PORTS
 ## (see design notes' architecture section: "declares `_verb_deps()`
@@ -123,6 +163,12 @@ static func _verb_deps() -> Array:
 func _init(deps: Dictionary) -> void:
 	super(deps)
 	_spell_catalog_port = deps.get("spell_catalog_port", ResourceSpellCatalogAdapterClass.new())
+	_reaction = deps.get("reaction", null)
+	_action_economy_fn = deps.get("action_economy_for", Callable())
+	_round_number_fn = deps.get("current_round_number", Callable())
+	_resolve_action_use_case = deps.get("resolve_action_use_case", null)
+	_living_enemy_reactors_fn = deps.get("living_enemy_reactors", Callable())
+	_turn_order_fn = deps.get("current_turn_order", Callable())
 	_resolve_spell_controller = deps.get("resolve_spell_controller", ResolveSpellControllerClass.new({
 		"spell_catalog_port": _spell_catalog_port,
 		"targeting_port": deps.get("targeting_port", null),
@@ -235,6 +281,8 @@ func execute(selection = null) -> Dictionary:
 
 	if actor.is_casting():
 		var continue_result: Dictionary = ContinueCastUseCaseClass.new().execute(actor, current_action_economy())
+		if continue_result.get("success", false):
+			continue_result["reaction_result"] = await _provoke_reaction_on_cast(actor)
 		return _maybe_resolve_cast(actor, continue_result)
 
 	var spell_id: String = _extract_spell_id(selection)
@@ -248,7 +296,47 @@ func execute(selection = null) -> Dictionary:
 	var begin_result: Dictionary = BeginCastUseCaseClass.new().execute(
 		actor, spell_id, _spell_catalog_port, pool_port, current_action_economy()
 	)
+	if begin_result.get("success", false):
+		begin_result["reaction_result"] = await _provoke_reaction_on_cast(actor)
 	return _maybe_resolve_cast(actor, begin_result)
+
+
+## _provoke_reaction_on_cast(actor) -> Dictionary — FEAT-279 (US-014; FR-016,
+## ADR-005): fires the SAME OpportunisticStrike reaction window a player
+## Stride opens (presentation/stride_action_controller.gd's own execute(),
+## byte-for-byte-mirrored Callable wiring below) for `actor`'s Cast-a-Spell
+## action -- a Concentrate-trait action, per this feature's design notes --
+## via core/application/use_cases/provoke_reaction_on_cast_use_case.gd's
+## ProvokeReactionOnCastUseCase. `actor` never relocates while casting, so
+## the candidate reactor pool is every living enemy (mirrors
+## StrideActionController's own player-mover `_living_enemy_reactors_fn`
+## convention exactly -- only party members cast spells in this codebase's
+## current scope), ordered by initiative and reaction-asserted the SAME way.
+## Degrades safely to a no-op outcome (see the use case's own file-level
+## doc) whenever `_reaction` is unwired (e.g. tests/unit/
+## test_spell_action_controller_skeleton.gd's minimal deps dict, which
+## predates this feature) -- never a crash.
+func _provoke_reaction_on_cast(actor) -> Dictionary:
+	if _reaction == null:
+		return {"reactions": [], "mover_downed": false, "stride_should_commit": true}
+
+	var living_reactors: Array = _living_enemy_reactors_fn.call() if _living_enemy_reactors_fn.is_valid() else []
+	var candidate_reactors: Array = _reaction.order_candidate_reactors_by_initiative(living_reactors)
+	if _turn_order_fn.is_valid():
+		var turn_order = _turn_order_fn.call()
+		if turn_order != null:
+			_reaction.assert_candidate_reactors_ordering(candidate_reactors, turn_order)
+
+	var use_case := ProvokeReactionOnCastUseCaseClass.new()
+	return await use_case.execute(
+		actor, candidate_reactors,
+		Callable(_reaction, "is_reactor_reaction_spent"),
+		Callable(_reaction, "resolve_enemy_opportunistic_strike_reaction"),
+		_resolve_action_use_case,
+		_action_economy_fn,
+		_round_number_fn.call() if _round_number_fn.is_valid() else 0,
+		0
+	)
 
 
 ## _maybe_resolve_cast(actor, result) -> Dictionary — FEAT-008 (US-008;
