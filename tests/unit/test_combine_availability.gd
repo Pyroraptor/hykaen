@@ -6,18 +6,21 @@ extends GutTest
 ## the COMBINE verb on preconditions:
 ##   1. actor.stamina >= 1
 ##   2. actor is NOT Dazed
-##   3. live ActionEconomy.can_take_action() — actor has not already used their
+##   3. actor.combinable_actions_available() >= 2 — the live per-turn
+##      combinable-action-slot count sourced from the Combatant entity
+##      (core/domain/combatant.gd's `actions_this_turn`).
+##   4. live ActionEconomy.can_take_action() — actor has not already used their
 ##      action this turn AND is not round-spent (FEAT-008: mirroring the gate
 ##      Strike/Stride already apply via their own availability()).
-## The ">=2 combinable actions available" predicate is deferred to execute()
-## → combine_actions(), which is the authoritative validation site per spec.
 ##
 ## test_criteria covered:
-##   1. availability() true when stamina>=1 and not dazed.
+##   1. availability() true when stamina>=1, not dazed, and >=2 combinable
+##      actions are available.
 ##   2. availability() false when stamina==0.
 ##   3. availability() false when dazed==true.
-##   4. availability() false with no live actor (fail-safe).
-##   5. availability() false when can_take_action() is false (action already used).
+##   4. availability() false when <2 combinable actions are available.
+##   5. availability() false with no live actor (fail-safe).
+##   6. availability() false when can_take_action() is false (action already used).
 
 const CombineActionControllerClass = preload("res://presentation/combine_action_controller.gd")
 const RoundSessionHolderClass      = preload("res://infrastructure/round_session_holder.gd")
@@ -57,16 +60,27 @@ func _deps_with_economy(actor, economy) -> Dictionary:
 	return {"session_holder": holder}
 
 
-func _make_actor(stamina: int, dazed: bool) -> CombatantClass:
+## _make_actor(stamina, dazed, combinable_actions) -> Combatant
+##
+## combinable_actions defaults to 2 -- a fresh turn's Movement + Primary
+## slot count (Combatant's own default) -- so every PRE-EXISTING test below
+## that doesn't care about the ">=2 combinable actions" predicate keeps
+## exercising exactly the stamina/dazed branch its name describes, isolated
+## from this newer predicate.
+func _make_actor(stamina: int, dazed: bool, combinable_actions: int = 2) -> CombatantClass:
 	var actor := CombatantClass.new("player_0", "Titus", "Player", HexCoordClass.new(0, 0))
 	actor.stamina = stamina
 	if dazed:
 		actor.add_condition("Dazed")
+	actor.actions_this_turn = []
+	for i in range(combinable_actions):
+		actor.actions_this_turn.append("SLOT_%d" % i)
 	return actor
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Criterion 1 — availability() is TRUE when stamina >= 1 and not Dazed.
+# Criterion 1 — availability() is TRUE when stamina >= 1, not Dazed, and
+# >=2 combinable actions are available this turn.
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_availability_true_when_stamina_and_not_dazed() -> void:
@@ -75,7 +89,7 @@ func test_availability_true_when_stamina_and_not_dazed() -> void:
 
 	assert_true(
 		controller.availability(),
-		"availability() must be true when stamina>=1 and actor is not Dazed"
+		"availability() must be true when stamina>=1, actor is not Dazed, and >=2 combinable actions are available"
 	)
 
 
@@ -85,7 +99,17 @@ func test_availability_true_with_surplus_stamina() -> void:
 
 	assert_true(
 		controller.availability(),
-		"availability() must be true when stamina comfortably exceeds 1 and actor is not Dazed"
+		"availability() must be true when stamina comfortably exceeds 1, actor is not Dazed, and >=2 combinable actions are available"
+	)
+
+
+func test_availability_true_with_more_than_two_combinable_actions() -> void:
+	var actor := _make_actor(1, false, 3)
+	var controller := CombineActionControllerClass.new(_deps(actor))
+
+	assert_true(
+		controller.availability(),
+		"availability() must be true when combinable actions available exceeds 2"
 	)
 
 
@@ -118,7 +142,32 @@ func test_availability_false_when_dazed() -> void:
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Criterion 4 — fail-safe: no live actor must not crash, must return false.
+# Criterion 4 — availability() is FALSE when fewer than 2 combinable
+# actions are available this turn (Combatant.actions_this_turn-sourced).
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_availability_false_when_only_one_combinable_action_available() -> void:
+	var actor := _make_actor(1, false, 1)
+	var controller := CombineActionControllerClass.new(_deps(actor))
+
+	assert_false(
+		controller.availability(),
+		"availability() must be false when only 1 combinable action is available this turn"
+	)
+
+
+func test_availability_false_when_zero_combinable_actions_available() -> void:
+	var actor := _make_actor(1, false, 0)
+	var controller := CombineActionControllerClass.new(_deps(actor))
+
+	assert_false(
+		controller.availability(),
+		"availability() must be false when 0 combinable actions are available this turn"
+	)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Criterion 5 — fail-safe: no live actor must not crash, must return false.
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_availability_false_with_no_live_session() -> void:
@@ -131,7 +180,7 @@ func test_availability_false_with_no_live_session() -> void:
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Criterion 5 — availability() is FALSE when can_take_action() is false
+# Criterion 6 — availability() is FALSE when can_take_action() is false
 # (FEAT-008: live ActionEconomy gate, mirrors Strike/Stride availability).
 # ══════════════════════════════════════════════════════════════════════════
 

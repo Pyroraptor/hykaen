@@ -171,14 +171,21 @@ func _run_combine_validation(actor, action_a: Dictionary, action_b: Dictionary) 
 
 
 ## availability() -> bool — FEAT-004 (US-004; FR-004): gate the COMBINE verb
-## on the two static preconditions derivable without per-turn wiring:
+## on its three preconditions (the steel thread's entry-point precondition:
+## "offered only when availability() gating passes"):
 ##   1. actor.stamina >= 1 — can afford the Stamina cost.
 ##   2. actor is NOT Dazed — Dazed forbids combining per spec.
-## The ">=2 combinable actions available" predicate is intentionally omitted
-## here: it requires per-turn verb-availability state that has no producer
-## yet. Invalid pairings are caught at execute() → combine_actions() instead,
-## which is the authoritative validation site per the spec ("REUSE that
-## validation; the new controller enforces it, then executes").
+##   3. actor.combinable_actions_available() >= 2 — the live per-turn
+##      combinable-action-slot count (core/domain/combatant.gd's
+##      `actions_this_turn`, e.g. a fresh turn's Movement + Primary slots),
+##      the entity-sourced predicate design notes call for alongside the
+##      live ActionEconomy.can_take_action() check below.
+## Also consults the live ActionEconomy.can_take_action() gate (FEAT-008),
+## mirroring Strike/Stride's own availability(). Invalid PAIRINGS (e.g. two
+## identical non-Repeat verbs) are still caught at execute() →
+## combine_actions() instead -- that remains the authoritative pairing-
+## validation site per the spec ("REUSE that validation; the new controller
+## enforces it, then executes").
 ## Fails closed (false) with no live actor.
 func availability() -> bool:
 	var actor = current_actor_entity()
@@ -186,6 +193,8 @@ func availability() -> bool:
 		return false
 	var ae = current_action_economy()
 	if ae != null and not ae.can_take_action():
+		return false
+	if actor.combinable_actions_available() < 2:
 		return false
 	return _validate_combine(actor).get("ok", false)
 

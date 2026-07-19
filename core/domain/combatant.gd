@@ -138,6 +138,24 @@ var is_enemy: bool = false
 ## in-progress cast survives round boundaries, per the spec.
 var casting_state: Dictionary = {}
 
+## actions_this_turn — FEAT-004 (US-004; FR-004; Iteration N Combinations):
+## the pool of combinable-action slots this combatant still has available
+## THIS turn, consulted by CombineActionController.availability()'s third
+## precondition (">=2 combinable actions available this turn" -- Combine
+## fuses two of them, e.g. Charge's Movement slot + Primary-action slot,
+## into one Stamina-charged meta-verb). Each entry is a lightweight tag
+## String (e.g. "MOVEMENT", "PRIMARY") rather than a full ActionRecord type
+## -- combinable_actions_available()'s COUNT is the only thing
+## availability() reads today; a later feature that tracks real per-turn
+## action consumption (e.g. removing "PRIMARY" once Strike/Cast a Spell
+## resolves standalone this turn) is the producer that shrinks this array
+## further. Defaults to the two slots every fresh turn offers, so a
+## combatant nobody has explicitly configured (CombatantFactory/from_dict()
+## never sets this) still satisfies the ">=2" gate exactly like it did
+## before this predicate existed -- mirrors conditions[]'s "populated
+## array, not a derived flag" convention above.
+var actions_this_turn: Array = ["MOVEMENT", "PRIMARY"]
+
 
 
 func _init(
@@ -240,6 +258,15 @@ func skill(skill_name: String) -> int:
 func attribute(attr_name: String) -> int:
 	var v = get(attr_name)
 	return int(v) if v != null else 0
+
+## combinable_actions_available() -> int — FEAT-004 (US-004; FR-004): the
+## count CombineActionController.availability() gates its third precondition
+## on (">=2 combinable actions available this turn"). A thin, named read of
+## actions_this_turn.size() rather than callers reading the raw Array
+## directly, mirroring skill()/attribute()'s "named accessor over a raw
+## field" convention above.
+func combinable_actions_available() -> int:
+	return actions_this_turn.size()
 
 ## Cast-a-Spell hooks. begin_cast() (below) initializes casting_state for a
 ## first cast (FEAT-005). cancel_cast() is the SOLE mutator that clears
