@@ -61,6 +61,25 @@ var _movement_used: bool = false
 var _action_used: bool = false
 var _dazed: bool = false
 
+## _self_spend_suppressed — FEAT-008 (US-008; FR-007; ADR-003): the
+## no-self-spend execution-mode flag. While true, spend_action() reports its
+## ordinary SUCCESS Result-style Dictionary WITHOUT mutating _budget/
+## _action_used/_movement_used at all — i.e. the caller's own
+## action-economy self-charge becomes a pure no-op, though the caller's own
+## game EFFECT (a Stride's move, a Strike's damage) still proceeds exactly
+## as it would on a genuine spend. This is the seam
+## presentation/combine_action_controller.gd's execute() threads through
+## StrideActionController/StrikeActionController's own execute() calls when
+## resolving them AS Combine sub-actions (never for a standalone verb-bar
+## call), so a queued Stride+Strike Charge applies BOTH sub-actions' effects
+## without EACH also draining the shared per-round budget — Combine's own
+## execute() charges the ONE real action (tagged "Movement" when the queue
+## contained a Stride, applying the Movement-trait lockout exactly once) at
+## the Combine level instead, once its whole sub-action queue has resolved.
+## Defaults to false, so every pre-existing spend_action()/spend_reaction()
+## caller (every verb registered before FEAT-008) is completely unaffected.
+var _self_spend_suppressed: bool = false
+
 
 # ── Turn lifecycle ─────────────────────────────────────────────────────────────
 
@@ -173,6 +192,18 @@ func _reset_round_state() -> void:
 ##                                                   spend_reaction() is
 ##                                                   unaffected by this gate.
 func spend_action(action_metadata: Dictionary) -> Dictionary:
+	if _self_spend_suppressed:
+		# FEAT-008 (US-008; FR-007; ADR-003): the no-self-spend execution
+		# mode — see `_self_spend_suppressed`'s own field-level doc above.
+		# Reports the ordinary success shape (no mutation at all) so the
+		# caller (movement.gd's Stride() / resolve_action_use_case.gd's
+		# _check_preconditions_and_spend()) proceeds to apply its own game
+		# effect exactly as it would on a genuine spend, while the shared
+		# budget/_action_used/_movement_used gates are left completely
+		# untouched — Combine charges the ONE real action separately, once
+		# its whole sub-action queue has resolved.
+		return _spend_success_result()
+
 	if _is_spent:
 		return _already_spent_result()
 
@@ -287,6 +318,35 @@ func mark_movement_used() -> void:
 ## rather than re-deriving the gate's state independently.
 func can_take_movement_action() -> bool:
 	return not _movement_used
+
+
+# ── No-self-spend execution mode (FEAT-008 / US-008; FR-007; ADR-003) ───────────
+
+## begin_self_spend_suppression() — turns on the no-self-spend execution
+## mode: every subsequent spend_action() call reports success WITHOUT
+## mutating budget_remaining/is_spent/can_take_movement_action() state (see
+## `_self_spend_suppressed`'s own field-level doc above). Intended to be
+## paired with a matching end_self_spend_suppression() call bracketing
+## exactly the sub-controller `execute()` call whose self-charge must be
+## suppressed (presentation/stride_action_controller.gd /
+## presentation/strike_action_controller.gd, when invoked as a Combine
+## sub-action). Idempotent: calling it again while already suppressed is a
+## no-op observable from the outside.
+func begin_self_spend_suppression() -> void:
+	_self_spend_suppressed = true
+
+
+## end_self_spend_suppression() — turns the no-self-spend execution mode
+## back off; every subsequent spend_action() call resumes its ordinary,
+## budget-mutating contract. Idempotent.
+func end_self_spend_suppression() -> void:
+	_self_spend_suppressed = false
+
+
+## is_self_spend_suppressed() -> bool — pure query, no side effects; true iff
+## the no-self-spend execution mode is currently active.
+func is_self_spend_suppressed() -> bool:
+	return _self_spend_suppressed
 
 
 # ── Conditions ────────────────────────────────────────────────────────────────

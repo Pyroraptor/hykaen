@@ -71,7 +71,22 @@ func enter_selection() -> Dictionary:
 	return {"verb_id": "STRIKE", "candidate_targets": reachable_target_ids(), "candidate_hexes": []}
 
 
-func execute(selection = null) -> Dictionary:
+## execute(selection, no_self_spend_execution) -> Dictionary
+##
+## no_self_spend_execution — FEAT-008 (US-008; FR-007; ADR-003): the
+## no-self-spend execution-mode flag, mirroring
+## presentation/stride_action_controller.gd's identical parameter (see that
+## file's own FEAT-008 doc for the full rationale). Defaults to false, so
+## every PRE-EXISTING caller (MainScene's own `_verb_bar_strike_execute()`
+## shim, and every standalone/verb-bar Strike) is completely unaffected and
+## still self-charges exactly one action from the actor's live
+## ActionEconomy. presentation/combine_action_controller.gd passes true
+## ONLY when resolving this controller AS a Combine sub-action — this
+## Strike's own game effect (the resolved attack, via
+## `_resolve_action_use_case.resolve_reactive()`) still applies, but the
+## actor's SAME shared per-round action-economy budget/gates are left
+## completely untouched for the duration of that call.
+func execute(selection = null, no_self_spend_execution: bool = false) -> Dictionary:
 	var session = _session()
 	if session == null or _resolve_action_use_case == null:
 		return {"ok": false}
@@ -98,10 +113,19 @@ func execute(selection = null) -> Dictionary:
 	# chronological position even when a killing blow also emits a defeat event.
 	var pending_entry_index: int = _event_log_view.get_entry_count() if _event_log_view != null else -1
 
+	# FEAT-008: brackets ONLY the actual self-charge point inside
+	# resolve_reactive() (_check_preconditions_and_spend()'s own
+	# action_economy.spend_action() call) — the SAME live `action_economy`
+	# instance handed to resolve_reactive() below, so suppressing it here
+	# reaches the exact instance the self-charge would otherwise mutate.
+	if no_self_spend_execution and action_economy != null:
+		action_economy.begin_self_spend_suppression()
 	var result: Dictionary = _resolve_action_use_case.resolve_reactive(
 		actor, action_economy, target, ACTION_NAME_STRIKE, _round_number_fn.call(), 0,
 		target_action_economy, _enemy_reaction_chooser
 	)
+	if no_self_spend_execution and action_economy != null:
+		action_economy.end_self_spend_suppression()
 
 	# Reflect the enemy's own reaction budget spend (if any) on the status panel,
 	# reusing the same on_verb_action_budget_changed() seam a Stride's spend uses.

@@ -62,7 +62,25 @@ func enter_selection() -> Dictionary:
 	return {"verb_id": "STRIDE", "candidate_hexes": _movement_input_controller.get_selectable_stride_hexes(), "candidate_targets": []}
 
 
-func execute(selection = null) -> Dictionary:
+## execute(selection, no_self_spend_execution) -> Dictionary
+##
+## no_self_spend_execution — FEAT-008 (US-008; FR-007; ADR-003): the
+## no-self-spend execution-mode flag. Defaults to false, so every
+## PRE-EXISTING caller (MainScene's own `_verb_bar_stride_execute()` shim,
+## and every standalone/verb-bar Stride) is completely unaffected and still
+## self-charges exactly one action from the actor's live ActionEconomy,
+## exactly as before this feature. presentation/combine_action_controller.gd
+## passes true ONLY when resolving this controller AS a Combine sub-action
+## (see that file's own `_sub_action_resolver()` doc): while true, this
+## Stride's own game effect (the actual move, via
+## `_movement_input_controller.stride_to()`) still applies, but the SAME
+## shared per-round action-economy budget/gates are left completely
+## untouched (core/rules/action_economy.gd's
+## begin_self_spend_suppression()/end_self_spend_suppression() — see that
+## file's own FEAT-008 doc) — Combine charges the ONE real action (and the
+## Movement-trait lockout) once, at the Combine level, after its whole
+## sub-action queue resolves.
+func execute(selection = null, no_self_spend_execution: bool = false) -> Dictionary:
 	# Phase C.3/C.4: the mover is the LIVE actor instance — it is passed straight
 	# into ResolveStrideUseCase.execute(), where an Opportunistic Strike against
 	# the mover applies take_damage() by reference; a to_dict() copy here would
@@ -90,7 +108,19 @@ func execute(selection = null) -> Dictionary:
 		if not opportunistic_result.get("stride_should_commit", true):
 			return {"ok": false, "resolved": false, "error": "ERR_MOVER_DOWNED_BY_OPPORTUNISTIC_STRIKE"}
 
+	# FEAT-008: brackets ONLY the actual self-charge point
+	# (`_movement_input_controller.stride_to()` -> core/rules/movement.gd's
+	# Stride() -> action_economy.spend_action()) — the SAME live actor
+	# ActionEconomy instance `_movement_input_controller` was configure()d
+	# with (session.current_action_economy(), per
+	# presentation/turn_presentation_controller.gd's own
+	# on_active_actor_changed()), so suppressing it here reaches the exact
+	# instance the self-charge would otherwise mutate.
+	if no_self_spend_execution and action_economy != null:
+		action_economy.begin_self_spend_suppression()
 	var result: Dictionary = _movement_input_controller.stride_to(selection)
+	if no_self_spend_execution and action_economy != null:
+		action_economy.end_self_spend_suppression()
 	if result.get("ok", false):
 		_after_successful_move_fn.call()
 		if _status_panel_view != null and actor_id != "" and action_economy != null:

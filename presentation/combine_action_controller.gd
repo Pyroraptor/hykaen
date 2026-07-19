@@ -319,8 +319,34 @@ func execute(selection = null) -> Dictionary:
 			"resolved_verb_ids": resolution.get("resolved_verb_ids", []),
 		}
 
+	var resolved_verb_ids: Array = resolution.get("resolved_verb_ids", [])
+
+	# FEAT-008 (US-008; FR-007; ADR-003) — THE single-charge invariant: every
+	# sub-action above resolved through `_sub_action_resolver()`'s no-self-
+	# spend execution mode (see that method's own doc below), so NONE of them
+	# touched the actor's shared per-round action-economy budget. Charge the
+	# ONE real action here, exactly once, for the whole Combine -- tagged
+	# "Movement" iff the queue contained a Stride, so this SAME spend_action()
+	# call also trips the Movement-trait lockout exactly once (reusing the
+	# identical gate every standalone Stride already trips -- no second/
+	# parallel lockout mechanism is authored here). A Combine that resolved
+	# its whole sub-action queue but could not itself spend the one action it
+	# costs (e.g. the actor's per-round budget is otherwise exhausted) is
+	# reported as a failure and never reaches the Stamina spend below --
+	# mirroring this file's existing "no mutation on failure" discipline.
+	var economy = current_action_economy()
+	if economy != null:
+		var combine_traits: Array = ["Movement"] if resolved_verb_ids.has("STRIDE") else []
+		var combine_spend: Dictionary = economy.spend_action({"name": "COMBINE", "traits": combine_traits})
+		if not combine_spend.get("success", false):
+			return {
+				"ok": false,
+				"reason": combine_spend.get("reason", "ACTION_UNAVAILABLE"),
+				"resolved_verb_ids": resolved_verb_ids,
+			}
+
 	actor.spend_stamina()
-	return {"ok": true, "resolved_verb_ids": resolution.get("resolved_verb_ids", [])}
+	return {"ok": true, "resolved_verb_ids": resolved_verb_ids}
 
 
 ## _controller(verb_id) -> ActionController or null — FEAT-007: the SAME
@@ -337,62 +363,41 @@ func _controller(verb_id: String):
 	return _controller_for_fn.call(verb_id)
 
 
-## _sub_action_resolver(sel) -> Callable — FEAT-007: builds the
-## Callable(entry: SubActionQueueEntry) -> Dictionary resolve_sub_action_queue()
-## expects, closing over `sel` (execute()'s own selection Dictionary). For
-## each queue entry: resolves its controller via `_controller(entry.verb_id)`
-## (never a direct class reference), then awaits that controller's OWN
-## execute(payload) call -- `payload` is `sel[entry.verb_id]` when the caller
-## supplied one, else the entry's own (possibly still-null) targeting_payload.
-## Reports {ok: false, reason: "ERR_CONTROLLER_NOT_FOUND"} for an entry whose
-## verb_id has no resolvable controller, rather than crashing.
+## _sub_action_resolver(sel) -> Callable — FEAT-007 + FEAT-008 (US-008;
+## FR-007; ADR-003). Builds the Callable(entry: SubActionQueueEntry) ->
+## Dictionary resolve_sub_action_queue() expects, closing over `sel`
+## (execute()'s own selection Dictionary). For each queue entry: resolves
+## its controller via `_controller(entry.verb_id)` (never a direct class
+## reference), then awaits that controller's OWN execute(payload,
+## no_self_spend_execution=true) call -- `payload` is `sel[entry.verb_id]`
+## when the caller supplied one, else the entry's own (possibly still-null)
+## targeting_payload. Reports {ok: false, reason: "ERR_CONTROLLER_NOT_FOUND"}
+## for an entry whose verb_id has no resolvable controller, rather than
+## crashing.
 ##
-## Each real sub-controller's OWN execute() (StrideActionController /
-## StrikeActionController, unmodified) still spends its own action from the
-## actor's live core/rules/action_economy.gd ActionEconomy -- a proper
-## no-self-spend execution mode (per-sub-action charges suppressed, exactly
-## ONE action + one Stamina charged at the Combine level via the ledger) is
-## the design notes' longer-term shape and remains a later Iteration N
-## feature (the single-charge invariant, US-008). Without SOME allowance
-## here, though, a queue's SECOND-or-later sub-action would always be
-## rejected with ACTION_ALREADY_USED (ADR-103's real "exactly one
-## spend_action() per turn" gate) the instant the FIRST sub-action (e.g.
-## Stride) legitimately spends the actor's one action -- silently breaking
-## this feature's own exit-point contract (a queued Strike could never
-## resolve after a queued Stride for ANY real actor). `_allow_next_sub_action_spend()`
-## below is the minimal stopgap: it clears ONLY the per-TURN
-## spend_action()-already-used gate (via the SAME public
-## ActionEconomy.start_of_turn() every turn boundary already calls) before
-## each sub-action's own execute(), and ONLY when the actor's per-ROUND
-## budget is not already exhausted (is_spent()) -- so a genuinely
-## budget-exhausted actor still cannot be forced through Combine. This is
-## intentionally narrower than a real no-self-spend mode (it does not yet
-## enforce the "exactly one action" ledger invariant -- a queue's real
-## budget still drops by one per sub-action that spends), which is why it
-## stays scoped to unblocking this feature's own resolution-ordering
-## contract rather than reimplementing US-008 here.
+## `no_self_spend_execution=true` is THE single-charge invariant (US-008):
+## every real sub-controller (StrideActionController/StrikeActionController,
+## unmodified apart from accepting this additive flag) still applies its OWN
+## game effect (the Stride move, the Strike attack) exactly as it would
+## standalone, but its own action-economy self-charge becomes a no-op for
+## the duration of that call (core/rules/action_economy.gd's
+## begin_self_spend_suppression()/end_self_spend_suppression(), which each
+## sub-controller's own execute() now brackets its self-charge point with --
+## see their own FEAT-008 doc). So a queue's SECOND-or-later sub-action is
+## never rejected with ACTION_ALREADY_USED, and the shared per-round budget
+## is never touched by any sub-action at all -- execute() above charges the
+## ONE real action (+ one Stamina) exactly once, at the Combine level, once
+## the whole queue has resolved. This replaces the earlier FEAT-007 stopgap
+## (`_allow_next_sub_action_spend()`, which cleared the per-turn gate between
+## sub-actions and let EACH one genuinely drain the shared budget) with the
+## real no-self-spend mode the design always intended.
 func _sub_action_resolver(sel: Dictionary) -> Callable:
 	return func(entry):
 		var controller = _controller(entry.verb_id)
 		if controller == null:
 			return {"ok": false, "reason": "ERR_CONTROLLER_NOT_FOUND"}
-		_allow_next_sub_action_spend()
 		var payload = sel.get(entry.verb_id, entry.targeting_payload)
-		return await controller.execute(payload)
-
-
-## _allow_next_sub_action_spend() -> void — see `_sub_action_resolver()`'s
-## own doc above for the full rationale. Clears the actor's live
-## ActionEconomy per-turn "already spent an action this turn" gate via the
-## SAME public `start_of_turn()` API every turn boundary already calls --
-## never reaches into ActionEconomy's private fields -- but ONLY when the
-## actor's per-ROUND budget is not already exhausted, so this can never let
-## a genuinely Spent actor take a sub-action. No-op when there is no live
-## action economy (e.g. a test double session that supplies null).
-func _allow_next_sub_action_spend() -> void:
-	var economy = current_action_economy()
-	if economy != null and not economy.is_spent() and not economy.can_take_action():
-		economy.start_of_turn()
+		return await controller.execute(payload, true)
 
 
 ## build_charge_queue() -> Array[SubActionQueueEntry] — FEAT-005 (US-005;
