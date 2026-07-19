@@ -538,10 +538,12 @@ func on_spell_log_entry(entry) -> void:
 			elif entry.hit:
 				var target: String = _format_combat_id(entry.target_ids[0]) if entry.target_ids.size() > 0 else "target"
 				var dmg: int = entry.damage_amount if entry.damage_amount != null else 0
-				text = "Round %d: %s casts %s — Hit %s for %d damage." % [entry.round_number, actor, spell, target, dmg]
+				var roll_suffix: String = " (roll %d)" % entry.roll_total if entry.roll_total != null else ""
+				text = "Round %d: %s casts %s — Hit %s%s for %d damage." % [entry.round_number, actor, spell, target, roll_suffix, dmg]
 			else:
 				var target: String = _format_combat_id(entry.target_ids[0]) if entry.target_ids.size() > 0 else "target"
-				text = "Round %d: %s casts %s — Miss vs %s." % [entry.round_number, actor, spell, target]
+				var roll_suffix: String = " (roll %d)" % entry.roll_total if entry.roll_total != null else ""
+				text = "Round %d: %s casts %s — Miss vs %s%s." % [entry.round_number, actor, spell, target, roll_suffix]
 		3: # CAST_CANCELLED
 			text = "Round %d: %s's %s was cancelled." % [entry.round_number, actor, spell]
 		_:

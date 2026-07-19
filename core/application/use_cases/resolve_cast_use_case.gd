@@ -297,11 +297,14 @@ func _emit_combat_log_entry(caster, spell, results: Array, combat_log_port, roun
 
 	var hit = null
 	var damage_amount = null
+	var roll_total = null
 	if not results.is_empty():
 		var first_result: Dictionary = results[0]
 		var attack_result: Dictionary = first_result.get("attack_result", {})
 		hit = attack_result.get("hit", false)
 		damage_amount = int(first_result.get("damage_applied", 0))
+		if attack_result.has("roll_total"):
+			roll_total = int(attack_result["roll_total"])
 
 	var entry := CombatLogEntryClass.new(
 		CombatLogEntryClass.EventType.CAST_RESOLVE,
@@ -311,7 +314,8 @@ func _emit_combat_log_entry(caster, spell, results: Array, combat_log_port, roun
 		hit,
 		damage_amount,
 		null,
-		round_number
+		round_number,
+		roll_total
 	)
 	combat_log_port.emit(entry)
 

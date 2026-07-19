@@ -76,6 +76,7 @@ var target_ids: Array = []
 var hit = null            ## bool | null
 var damage_amount = null  ## int | null
 var energy_delta = null   ## int | null
+var roll_total = null     ## int | null — attack roll total; null for non-attack spells
 var round_number: int = 0
 
 
@@ -87,7 +88,8 @@ func _init(
 	p_hit = null,
 	p_damage_amount = null,
 	p_energy_delta = null,
-	p_round_number: int = 0
+	p_round_number: int = 0,
+	p_roll_total = null
 ) -> void:
 	event_type = p_event_type
 	actor_id = p_actor_id
@@ -96,6 +98,7 @@ func _init(
 	hit = p_hit
 	damage_amount = p_damage_amount
 	energy_delta = p_energy_delta
+	roll_total = p_roll_total
 	round_number = p_round_number
 
 
@@ -111,5 +114,6 @@ func to_dict() -> Dictionary:
 		"hit": hit,
 		"damage_amount": damage_amount,
 		"energy_delta": energy_delta,
+		"roll_total": roll_total,
 		"round_number": round_number,
 	}
