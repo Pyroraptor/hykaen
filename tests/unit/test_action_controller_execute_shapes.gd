@@ -122,13 +122,23 @@ func test_default_expected_shape_is_scalar_for_an_unoverridden_verb() -> void:
 	assert_eq(base.execute("whatever"), {"ok": false}, "the base class's own execute() default must stay the pre-existing inert {\"ok\": false} for a scalar call")
 
 
-func test_strike_action_controller_execute_signature_is_completely_unchanged() -> void:
+func test_strike_action_controller_execute_signature_is_unchanged_by_the_shape_dispatch_widening() -> void:
 	# Reflection-based regression proof (mirrors tests/regression/
 	# test_seam_public_interfaces_stable.gd's established convention): the
-	# ACTUAL, live execute() signature StrikeActionController exposes -- one
-	# optional positional argument -- is untouched by this feature. Strike
-	# overrides execute() entirely and never reaches the new base dispatch
-	# machinery at all.
+	# ACTUAL, live execute() signature StrikeActionController exposes is
+	# untouched by THIS (FEAT-009) feature's additive base-class shape-
+	# dispatch widening -- Strike overrides execute() entirely and never
+	# reaches the new base dispatch machinery at all.
+	#
+	# FEAT-008 (US-008; FR-007; ADR-003, Iteration N Combinations) later
+	# additively widened Strike's OWN execute() signature with a second
+	# optional positional argument, `no_self_spend_execution: bool = false`
+	# (presentation/strike_action_controller.gd's own FEAT-008 doc) -- an
+	# unrelated, later, sanctioned change, not a regression of THIS feature's
+	# "untouched by shape-dispatch" invariant, which this test still pins:
+	# neither argument is named/shaped like the OPTION_TARGET/TARGET_SET
+	# machinery this feature introduced, and `selection` remains the first
+	# positional argument with its pre-existing default.
 	var strike := StrikeActionControllerClass.new(_deps())
 	var method_info: Dictionary = {}
 	for m in strike.get_method_list():
@@ -137,8 +147,10 @@ func test_strike_action_controller_execute_signature_is_completely_unchanged() -
 			break
 
 	assert_false(method_info.is_empty(), "StrikeActionController must still declare its own execute() override")
-	assert_eq(method_info.get("args", []).size(), 1, "StrikeActionController.execute() must still take exactly one (optional) positional argument, unchanged by the additive base-class widening")
-	assert_eq(method_info["args"][0].get("name", ""), "selection", "StrikeActionController.execute()'s single argument must still be named 'selection', unchanged")
+	var args: Array = method_info.get("args", [])
+	assert_eq(args.size(), 2, "StrikeActionController.execute() must take exactly two (optional) positional arguments: selection, no_self_spend_execution (FEAT-008)")
+	assert_eq(args[0].get("name", ""), "selection", "StrikeActionController.execute()'s first argument must still be named 'selection', unchanged by the FEAT-009 shape-dispatch widening")
+	assert_eq(args[1].get("name", ""), "no_self_spend_execution", "StrikeActionController.execute()'s second argument (FEAT-008) must be named 'no_self_spend_execution'")
 
 
 # ══════════════════════════════════════════════════════════════════════════
