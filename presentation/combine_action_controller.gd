@@ -184,6 +184,9 @@ func availability() -> bool:
 	var actor = current_actor_entity()
 	if actor == null:
 		return false
+	var ae = current_action_economy()
+	if ae != null and not ae.can_take_action():
+		return false
 	return _validate_combine(actor).get("ok", false)
 
 
@@ -311,6 +314,29 @@ func execute(selection = null) -> Dictionary:
 	var sel: Dictionary = selection if selection is Dictionary else {}
 	var queue: Array = sel.get("queue", build_charge_queue())
 
+	# FEAT-008 (US-008; FR-007; ADR-003) — charge FIRST, before any sub-action
+	# effects. If the actor's action economy is already exhausted or _action_used
+	# this turn, spend_action() fails here with zero mutation (no sub-actions have
+	# run yet, so no position/HP changes have occurred). "Movement" trait is tagged
+	# when the queue contains a STRIDE, so the movement lockout trips exactly once
+	# at the Combine level — the SAME gate every standalone Stride trips — rather
+	# than being bypassed or double-tripped.
+	var economy = current_action_economy()
+	if economy != null:
+		var has_stride: bool = false
+		for entry in queue:
+			if entry.verb_id == "STRIDE":
+				has_stride = true
+				break
+		var combine_traits: Array = ["Movement"] if has_stride else []
+		var charge: Dictionary = economy.spend_action({"name": "COMBINE", "traits": combine_traits})
+		if not charge.get("success", false):
+			return {"ok": false, "reason": charge.get("reason", "ACTION_UNAVAILABLE")}
+
+	# Economy charged. Now resolve sub-actions under full suppression — each
+	# sub-controller's own spend_action() becomes a no-op (the budget and
+	# _action_used/_movement_used gates were already set by the charge above),
+	# but its own game effect (the move, the attack) still applies normally.
 	var resolution: Dictionary = await resolve_sub_action_queue(queue, _sub_action_resolver(sel))
 	if not resolution.get("ok", false):
 		return {
@@ -319,34 +345,8 @@ func execute(selection = null) -> Dictionary:
 			"resolved_verb_ids": resolution.get("resolved_verb_ids", []),
 		}
 
-	var resolved_verb_ids: Array = resolution.get("resolved_verb_ids", [])
-
-	# FEAT-008 (US-008; FR-007; ADR-003) — THE single-charge invariant: every
-	# sub-action above resolved through `_sub_action_resolver()`'s no-self-
-	# spend execution mode (see that method's own doc below), so NONE of them
-	# touched the actor's shared per-round action-economy budget. Charge the
-	# ONE real action here, exactly once, for the whole Combine -- tagged
-	# "Movement" iff the queue contained a Stride, so this SAME spend_action()
-	# call also trips the Movement-trait lockout exactly once (reusing the
-	# identical gate every standalone Stride already trips -- no second/
-	# parallel lockout mechanism is authored here). A Combine that resolved
-	# its whole sub-action queue but could not itself spend the one action it
-	# costs (e.g. the actor's per-round budget is otherwise exhausted) is
-	# reported as a failure and never reaches the Stamina spend below --
-	# mirroring this file's existing "no mutation on failure" discipline.
-	var economy = current_action_economy()
-	if economy != null:
-		var combine_traits: Array = ["Movement"] if resolved_verb_ids.has("STRIDE") else []
-		var combine_spend: Dictionary = economy.spend_action({"name": "COMBINE", "traits": combine_traits})
-		if not combine_spend.get("success", false):
-			return {
-				"ok": false,
-				"reason": combine_spend.get("reason", "ACTION_UNAVAILABLE"),
-				"resolved_verb_ids": resolved_verb_ids,
-			}
-
 	actor.spend_stamina()
-	return {"ok": true, "resolved_verb_ids": resolved_verb_ids}
+	return {"ok": true, "resolved_verb_ids": resolution.get("resolved_verb_ids", [])}
 
 
 ## _controller(verb_id) -> ActionController or null — FEAT-007: the SAME

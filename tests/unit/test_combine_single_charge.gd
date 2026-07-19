@@ -238,3 +238,43 @@ func test_strike_with_no_self_spend_execution_true_applies_its_effect_but_never_
 	)
 	assert_true(economy.can_take_action(), "no_self_spend_execution=true must leave can_take_action() untouched (still available)")
 	assert_false(economy.is_self_spend_suppressed(), "the suppression flag must never leak past a single Strike execute() call -- it must be false once execute() returns")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Criterion 3 — FEAT-008 ordering invariant: a Combine execute() called when
+# the actor's action economy is already exhausted fails BEFORE any sub-action
+# effects apply (charge-first contract). The actor must not move and the
+# target must take no damage — zero world mutation on a failed charge.
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_combine_execute_fails_before_effects_when_action_already_used() -> void:
+	var instance = _boot_main_scene()
+	await get_tree().process_frame
+
+	var titus = _titus(instance)
+	var skeleton = _skeleton(instance)
+	var economy = instance.round_session.current_action_economy()
+	assert_not_null(economy, "fixture assumption: live ActionEconomy exists")
+
+	# Exhaust the actor's per-turn action so the Combine-level charge fails.
+	var prior_spend = economy.spend_action({"name": "STRIKE", "traits": []})
+	assert_true(prior_spend.get("success", false), "fixture: prior Strike spend must succeed")
+	assert_false(economy.can_take_action(), "fixture: actor's action must be exhausted before testing")
+
+	var titus_hex_before = titus.hex_coord
+	var skeleton_hp_before: int = skeleton.hp_current
+	var stamina_before: int = titus.stamina
+	var budget_before: int = economy.get_remaining()
+
+	var combine_controller = instance._controller("COMBINE")
+	var result: Dictionary = await combine_controller.execute({
+		"STRIDE": HexCoordClass.new(STRIDE_DESTINATION_HEX_Q, 0),
+		"STRIKE": skeleton.display_id(),
+	})
+
+	assert_false(result.get("ok", false), "execute() must return ok=false when the actor's action is already exhausted")
+	assert_true(titus.hex_coord.equals(titus_hex_before), "Titus must NOT have moved — Stride effect must not apply on a failed Combine charge")
+	assert_eq(skeleton.hp_current, skeleton_hp_before, "Skeleton HP must be unchanged — Strike effect must not apply on a failed Combine charge")
+	assert_eq(titus.stamina, stamina_before, "Stamina must not be spent on a failed Combine charge")
+	assert_eq(economy.get_remaining(), budget_before, "Action budget must be unchanged — the failed Combine must not double-spend")
+	assert_false(economy.is_self_spend_suppressed(), "the suppression flag must never leak past a failed execute() call")
