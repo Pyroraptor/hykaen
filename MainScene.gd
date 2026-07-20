@@ -198,6 +198,26 @@ const ResolveSpellControllerClass      = preload("res://presentation/verbs/resol
 ## lookup rather than a hard-coded reference.
 const CombineActionControllerClass     = preload("res://presentation/combine_action_controller.gd")
 
+## MultiPhaseTargetingControllerClass / CoreCombineActionControllerClass —
+## FEAT-005 (Iteration O "Combine Selection UX"; US-005; FR-004/FR-013;
+## NFR-002/NFR-003; ADR-002): core/application/combine/
+## multi_phase_targeting_controller.gd's MultiPhaseTargetingController (the
+## generalized, length-agnostic N-entry sequential targeting loop) and
+## core/controllers/combine_action_controller.gd's CombineActionController
+## (Iteration O's own DEF-001 re-validation-gated `execute()`, FEAT-004) —
+## a DIFFERENT class from `CombineActionControllerClass` immediately above
+## (presentation/combine_action_controller.gd, the OLDER Iteration N
+## scaffold still registered in VERB_TABLE below), hence the distinct
+## `CoreCombineActionControllerClass` alias here rather than a colliding
+## name. Wired minimally in _ready() (see that method's own FEAT-005 doc)
+## — this feature's OWN scope is the standalone targeting loop itself,
+## proven in isolation with injected fakes by tests/unit/application/
+## combine/test_multi_phase_targeting_controller.gd; hooking this
+## composition-root instance up to a live selection_resolved signal flow is
+## a LATER feature (US-006) layered on top of this same seam.
+const MultiPhaseTargetingControllerClass = preload("res://core/application/combine/multi_phase_targeting_controller.gd")
+const CoreCombineActionControllerClass = preload("res://core/controllers/combine_action_controller.gd")
+
 ## TargetingPortClass — core/application/ports/targeting_port.gd's abstract
 ## base (FEAT-283), extended BY PATH below (_FirstLegalTargetingPort) —
 ## mirrors this project's established preload-typing convention for
@@ -634,6 +654,20 @@ var _reaction_instance = null
 var _controllers: Dictionary = {}
 var _verb_deps_cache = null
 
+## multi_phase_targeting_controller / _core_combine_action_controller —
+## FEAT-005 (US-005; ADR-002): the composition-root-owned
+## MultiPhaseTargetingController instance and its own
+## `combine_action_controller` collaborator (core/controllers/
+## combine_action_controller.gd's CombineActionController — Iteration O's
+## DEF-001-gated `execute()`, FEAT-004), both constructed once in _ready()
+## (see that method's own FEAT-005 doc for the registry this is built
+## with). Exposed as fields — rather than kept as _ready() locals — so
+## tests can verify them directly, mirroring `spell_targeting_port`/
+## `reaction_window`'s identical "constructed here, exposed for
+## verification/injection" precedent.
+var multi_phase_targeting_controller = null
+var _core_combine_action_controller = null
+
 ## _party / _enemies — the live combatant Dictionaries built at boot,
 ## mutated in place by every resolved Strike throughout the interactive
 ## session (Dictionaries are reference types in GDScript). Kept as fields so
@@ -883,6 +917,33 @@ func _ready() -> void:
 	_verb_registry = _build_verb_registry()
 	if verb_bar_view != null:
 		verb_bar_view.configure(_verb_registry)
+
+	# ── FEAT-005 (US-005; FR-004/FR-013; NFR-002/NFR-003; ADR-002): minimal
+	# composition-root wiring for MultiPhaseTargetingController -- this
+	# feature's OWN scope is the standalone N-length sequential targeting
+	# loop itself (proven in isolation, with injected fakes, by
+	# tests/unit/application/combine/test_multi_phase_targeting_controller.gd
+	# -- see that file's own doc), so this wiring purposefully stays
+	# minimal: a real MultiPhaseTargetingController instance, backed by a
+	# verb_id -> controller registry resolved through THIS SAME
+	# `_controller(verb_id)` lookup every other verb already resolves
+	# through (no second/forked controller-resolution path, ADR-002's
+	# "verb_id whitelisting" security note), and the real Iteration O
+	# CombineActionController (core/controllers/combine_action_controller.gd,
+	# FEAT-004's DEF-001 gate) as its `combine_action_controller`
+	# collaborator. Hooking this instance up to a live selection_resolved
+	# signal flow -- so a real Combine's queued sub-actions are actually
+	# driven through it end-to-end -- is explicitly a LATER feature (US-006)
+	# layered on top of this same seam; this composition root neither
+	# invokes nor connects it to anything yet. ──────────────────────────────
+	_core_combine_action_controller = CoreCombineActionControllerClass.new()
+	multi_phase_targeting_controller = MultiPhaseTargetingControllerClass.new({
+		"controller_registry": {
+			"STRIDE": _controller("STRIDE"),
+			"STRIKE": _controller("STRIKE"),
+		},
+		"combine_action_controller": _core_combine_action_controller,
+	})
 
 	# ── FEAT-008 / US-008 (FR-003, ADR-002): wire the generic Layer 2
 	# SelectionOverlay (presentation/selection_overlay.gd) over the SAME
