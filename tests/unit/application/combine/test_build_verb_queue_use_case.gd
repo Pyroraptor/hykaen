@@ -20,11 +20,16 @@ extends GutTest
 ##      Confirm sentinel when the queue length is below the context-specific
 ##      minimum (1, TURN context), and DOES include it alongside remaining
 ##      compatible verbs once the minimum (2, TURN context) is reached.
+##   5. FEAT-008 (US-008; FR-006): candidate_options does NOT include the
+##      Cancel sentinel at an EMPTY queue (nothing in-progress yet to
+##      discard), and DOES include it alongside remaining compatible verbs
+##      and the Confirm sentinel once at least one verb has been picked.
 
 const BuildVerbQueueUseCaseClass = preload("res://core/application/combine/build_verb_queue_use_case.gd")
 const VerbRegistryPortClass = preload("res://core/application/combine/verb_registry_port.gd")
 const VerbQueueEntryClass = preload("res://core/domain/combine/verb_queue_entry.gd")
 const CombineQueueClass = preload("res://core/domain/combine/combine_queue.gd")
+const CancelCombineUseCaseClass = preload("res://core/application/combine/cancel_combine_use_case.gd")
 
 const STRIDE_RESOURCE_PATH: String = "res://data/verbs/stride.tres"
 const STRIKE_RESOURCE_PATH: String = "res://data/verbs/strike.tres"
@@ -171,3 +176,46 @@ func test_enter_selection_offers_confirm_sentinel_alongside_remaining_verbs_at_m
 	assert_false(ids.has("STRIDE"), "STRIDE must remain excluded once queued (no Repeat)")
 	assert_false(ids.has("STRIKE"), "STRIKE must remain excluded once queued (no Repeat)")
 	assert_true(descriptor.ok, "Confirm sentinel alongside remaining verbs must keep ok=true")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Criterion 5 (FEAT-008; US-008; FR-006) — Cancel sentinel gating by queue
+# length (in-progress-or-not), offered alongside Confirm/remaining verbs.
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_enter_selection_excludes_cancel_sentinel_at_empty_queue() -> void:
+	var use_case := BuildVerbQueueUseCaseClass.new()
+	var port := FakeVerbRegistryPort.new(_stride_and_strike_pool())
+
+	var descriptor = use_case.enter_selection([], {"combatant_id": "player_0"}, CombineQueueClass.Context.TURN, port)
+
+	var ids: Array = _option_ids(descriptor.candidate_options)
+	assert_false(ids.has(CancelCombineUseCaseClass.CANCEL_SENTINEL_ID), "Cancel must not be offered at an empty queue -- nothing in-progress yet to discard")
+
+
+func test_enter_selection_offers_cancel_sentinel_once_a_verb_is_queued() -> void:
+	var use_case := BuildVerbQueueUseCaseClass.new()
+	var port := FakeVerbRegistryPort.new(_stride_and_strike_pool())
+	var queue: Array = [VerbQueueEntryClass.new("q1", 0, "STRIDE")]
+
+	var descriptor = use_case.enter_selection(queue, {"combatant_id": "player_0"}, CombineQueueClass.Context.TURN, port)
+
+	var ids: Array = _option_ids(descriptor.candidate_options)
+	assert_true(ids.has(CancelCombineUseCaseClass.CANCEL_SENTINEL_ID), "Cancel must be offered once at least one verb is in-progress")
+	assert_true(ids.has("STRIKE"), "Cancel must be offered ALONGSIDE remaining compatible verbs, never in place of them")
+	assert_true(descriptor.ok, "Cancel sentinel alongside remaining verbs must keep ok=true")
+
+
+func test_enter_selection_offers_cancel_alongside_confirm_at_minimum_queue_length() -> void:
+	var use_case := BuildVerbQueueUseCaseClass.new()
+	var port := FakeVerbRegistryPort.new(_stride_and_strike_pool())
+	var queue: Array = [
+		VerbQueueEntryClass.new("q1", 0, "STRIDE"),
+		VerbQueueEntryClass.new("q1", 1, "STRIKE"),
+	]
+
+	var descriptor = use_case.enter_selection(queue, {"combatant_id": "player_0"}, CombineQueueClass.Context.TURN, port)
+
+	var ids: Array = _option_ids(descriptor.candidate_options)
+	assert_true(ids.has("CONFIRM"), "Confirm must still be offered at the minimum queue length")
+	assert_true(ids.has(CancelCombineUseCaseClass.CANCEL_SENTINEL_ID), "Cancel must ALSO be offered alongside Confirm, not superseded by it")

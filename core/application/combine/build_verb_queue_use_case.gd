@@ -39,6 +39,26 @@
 ## composition rule (design notes' P1-3) remains a later feature layered on
 ## top of this same seam.
 ##
+## FEAT-008 (US-008; FR-006) now ALSO layers a Cancel sentinel onto this
+## SAME seam, without changing its shape: once at least one verb has already
+## been picked (`queue` non-empty -- there is something in-progress to
+## discard), candidate_options also carries a trailing {"id":
+## CancelCombineUseCase.CANCEL_SENTINEL_ID, "label": "Cancel", "kind":
+## "CANCEL"} entry, ALONGSIDE the Confirm sentinel and whatever verbs remain
+## legal -- never in place of them. This use case only ever OFFERS the
+## Cancel sentinel (query-time); the authoritative command-time gate a
+## caller routes a chosen CANCEL_SENTINEL_ID pick through is
+## core/application/combine/cancel_combine_use_case.gd's
+## CancelCombineUseCase, which this use case never itself invokes (mirrors
+## the Confirm sentinel's own query-time/command-time split above). At an
+## EMPTY queue (nothing picked yet -- order_index 0's very first offer) no
+## Cancel option is offered: there is nothing in-progress yet to discard,
+## and this preserves this use case's pre-existing NO_LEGAL_OPTIONS
+## degrade-safely behavior (an empty pool / no actor / no registry at the
+## first pick still reports ok=false with a genuinely empty
+## candidate_options, exactly as FEAT-002 established) rather than a lone
+## Cancel entry silently masking that failure as an ok=true pick set.
+##
 ## Domain purity boundary (ADR-001): extends RefCounted only — no
 ## Node/Control/SceneTree inheritance, no engine I/O.
 
@@ -48,6 +68,7 @@ extends RefCounted
 const CombineActionsClass = preload("res://core/domain/combine/combine_actions.gd")
 const VerbTraitsClass = preload("res://core/domain/combine/verb_traits.gd")
 const CombineQueueClass = preload("res://core/domain/combine/combine_queue.gd")
+const CancelCombineUseCaseClass = preload("res://core/application/combine/cancel_combine_use_case.gd")
 
 ## The Confirm sentinel's candidate_options "id" (FEAT-003; US-003).
 ## Selecting this option is the SelectionOverlay-driven trigger a later
@@ -102,9 +123,14 @@ const SelectionDescriptorScript = preload("res://core/domain/combine/selection_d
 ## is empty — whether because the pool itself was empty, every pooled verb
 ## was excluded by combine_actions(), or `actor`/`verb_registry_port` was
 ## null; the Confirm sentinel alone (with zero legal verbs remaining) still
-## counts as a non-empty, ok=true candidate set. `order_index` mirrors
-## `queue`'s current length (design notes' data_model: "which sub-action
-## within a CombineQueue this descriptor is for").
+## counts as a non-empty, ok=true candidate set. PLUS (FEAT-008; US-008;
+## FR-006) a trailing {"id": CancelCombineUseCase.CANCEL_SENTINEL_ID,
+## "label": "Cancel", "kind": "CANCEL"} entry once `queue` is non-empty (at
+## least one verb already picked -- see file-level doc for why an empty
+## queue offers no Cancel option and why this never masks the pre-existing
+## NO_LEGAL_OPTIONS degrade-safely path). `order_index` mirrors `queue`'s
+## current length (design notes' data_model: "which sub-action within a
+## CombineQueue this descriptor is for").
 func enter_selection(queue: Array, actor, context: int, verb_registry_port) -> Object:
 	var candidate_options: Array = []
 
@@ -130,6 +156,13 @@ func enter_selection(queue: Array, actor, context: int, verb_registry_port) -> O
 			"id": CONFIRM_SENTINEL_ID,
 			"label": "Confirm",
 			"kind": "CONFIRM",
+		})
+
+	if not queue.is_empty():
+		candidate_options.append({
+			"id": CancelCombineUseCaseClass.CANCEL_SENTINEL_ID,
+			"label": "Cancel",
+			"kind": "CANCEL",
 		})
 
 	var ok: bool = not candidate_options.is_empty()

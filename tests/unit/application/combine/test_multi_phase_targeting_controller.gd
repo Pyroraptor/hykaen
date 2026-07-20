@@ -25,11 +25,21 @@ extends GutTest
 ##      phase aborts mid-loop.
 ##   5. ADR-002 contract check: every registered fake controller exposes
 ##      both enter_selection() and execute().
+##   6. FEAT-008 (US-008; FR-006): a resolved_selections entry equal to
+##      CancelCombineUseCase.CANCEL_SENTINEL_ID at ANY phase (order_index 0
+##      or order_index 1) aborts the WHOLE Combine -- that phase's own
+##      enter_selection() is never called, no later phase is reached,
+##      CombineActionController.execute() is never invoked, an injected
+##      CombineQueue aggregate's status is transitioned to CANCELLED, and
+##      `accumulated` is always returned wholesale-empty.
 
 const MultiPhaseTargetingControllerClass = preload("res://core/application/combine/multi_phase_targeting_controller.gd")
 const VerbControllerPortClass = preload("res://core/application/combine/verb_controller_port.gd")
 const VerbQueueEntryClass = preload("res://core/domain/combine/verb_queue_entry.gd")
 const SelectionDescriptorScript = preload("res://core/domain/combine/selection_descriptor.gd")
+const CancelCombineUseCaseClass = preload("res://core/application/combine/cancel_combine_use_case.gd")
+const CombineQueueClass = preload("res://core/domain/combine/combine_queue.gd")
+const ConfirmQueueUseCaseClass = preload("res://core/application/combine/confirm_queue_use_case.gd")
 
 
 ## FakeVerbController — a minimal VerbControllerPort implementation
@@ -274,3 +284,97 @@ func test_fake_controllers_satisfy_adr002_contract() -> void:
 	assert_true(failing.has_method("enter_selection"), "ADR-002: a registered controller must expose enter_selection()")
 	assert_true(failing.has_method("execute"), "ADR-002: a registered controller must expose execute()")
 	assert_true(stride is VerbControllerPortClass, "FakeVerbController must satisfy the VerbControllerPort contract")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Criterion 6 (FEAT-008; US-008; FR-006) — CANCEL_SENTINEL_ID at any phase
+# aborts the WHOLE Combine, not just the current phase.
+# ══════════════════════════════════════════════════════════════════════════
+
+func _queue_with_entries(entry_count: int) -> CombineQueueClass:
+	var queue := CombineQueueClass.new("q1", "player_0", CombineQueueClass.Context.TURN)
+	for i in range(entry_count):
+		queue.add_entry(VerbQueueEntryClass.new("q1", i, ["STRIDE", "STRIKE"][i]))
+	return queue
+
+
+func test_cancel_at_order_index_0_aborts_before_any_phase_is_dispatched() -> void:
+	var stride := FakeVerbController.new("STRIDE", "hex_1")
+	var strike := FakeVerbController.new("STRIKE", "target_1")
+	var combine_action_controller := FakeCombineActionController.new()
+	var controller := MultiPhaseTargetingControllerClass.new({
+		"controller_registry": {"STRIDE": stride, "STRIKE": strike},
+		"combine_action_controller": combine_action_controller,
+	})
+
+	var result: Dictionary = controller.execute(
+		_entries(["STRIDE", "STRIKE"]), "actor_0", CombineQueueClass.Context.TURN,
+		{"STRIDE": CancelCombineUseCaseClass.CANCEL_SENTINEL_ID}
+	)
+
+	assert_false(result.get("ok", true), "a CANCEL_SENTINEL_ID at order_index 0 must report ok:false")
+	assert_eq(result.get("error_code", ""), "CANCELLED")
+	assert_eq(stride.calls.size(), 0, "the cancelled phase's own enter_selection() must never be called")
+	assert_eq(strike.calls.size(), 0, "a LATER phase must never be reached once cancellation short-circuits the loop")
+	assert_eq(combine_action_controller.execute_calls.size(), 0, "cancellation must abort BEFORE CombineActionController.execute() is ever reached")
+	assert_eq(result.get("accumulated", {}), {}, "accumulated must be wholesale-empty on cancellation")
+
+
+func test_cancel_at_order_index_1_aborts_the_whole_combine_after_stride_already_resolved() -> void:
+	var stride := FakeVerbController.new("STRIDE", "hex_1")
+	var strike := FakeVerbController.new("STRIKE", "target_1")
+	var combine_action_controller := FakeCombineActionController.new()
+	var controller := MultiPhaseTargetingControllerClass.new({
+		"controller_registry": {"STRIDE": stride, "STRIKE": strike},
+		"combine_action_controller": combine_action_controller,
+	})
+
+	var result: Dictionary = controller.execute(
+		_entries(["STRIDE", "STRIKE"]), "actor_0", CombineQueueClass.Context.TURN,
+		{"STRIKE": CancelCombineUseCaseClass.CANCEL_SENTINEL_ID}
+	)
+
+	assert_false(result.get("ok", true), "a CANCEL_SENTINEL_ID at order_index 1 must report ok:false")
+	assert_eq(result.get("error_code", ""), "CANCELLED")
+	assert_eq(stride.calls.size(), 1, "an EARLIER phase must still resolve normally before the cancelled phase is reached")
+	assert_eq(strike.calls.size(), 0, "the cancelled phase's own enter_selection() must never be called")
+	assert_eq(combine_action_controller.execute_calls.size(), 0, "cancellation must abort BEFORE CombineActionController.execute() is ever reached")
+	assert_eq(result.get("accumulated", {}), {}, "accumulated must be wholesale-discarded, even though STRIDE had already resolved")
+
+
+func test_cancel_transitions_an_injected_combine_queue_to_cancelled() -> void:
+	var stride := FakeVerbController.new("STRIDE", "hex_1")
+	var strike := FakeVerbController.new("STRIKE", "target_1")
+	var controller := MultiPhaseTargetingControllerClass.new({
+		"controller_registry": {"STRIDE": stride, "STRIKE": strike},
+		"combine_action_controller": FakeCombineActionController.new(),
+	})
+	var queue := _queue_with_entries(2)
+	queue.status = CombineQueueClass.Status.CONFIRMED
+
+	controller.execute(
+		_entries(["STRIDE", "STRIKE"]), "actor_0", CombineQueueClass.Context.TURN,
+		{"STRIKE": CancelCombineUseCaseClass.CANCEL_SENTINEL_ID}, queue
+	)
+
+	assert_eq(queue.status, CombineQueueClass.Status.CANCELLED, "an injected CombineQueue aggregate must be transitioned to CANCELLED on cancellation")
+
+	var confirm_result: Dictionary = ConfirmQueueUseCaseClass.new().execute(queue)
+	assert_false(confirm_result.get("ok", true), "a cancelled CombineQueue must never be reusable by a later ConfirmQueueUseCase call")
+	assert_eq(confirm_result.get("error_code", ""), "INVALID_QUEUE_STATE")
+
+
+func test_cancel_with_no_injected_combine_queue_still_aborts_safely() -> void:
+	var stride := FakeVerbController.new("STRIDE", "hex_1")
+	var controller := MultiPhaseTargetingControllerClass.new({
+		"controller_registry": {"STRIDE": stride},
+		"combine_action_controller": FakeCombineActionController.new(),
+	})
+
+	var result: Dictionary = controller.execute(
+		_entries(["STRIDE"]), "actor_0", CombineQueueClass.Context.TURN,
+		{"STRIDE": CancelCombineUseCaseClass.CANCEL_SENTINEL_ID}
+	)
+
+	assert_false(result.get("ok", true), "cancellation with no injected CombineQueue must still degrade safely, never crash")
+	assert_eq(result.get("error_code", ""), "CANCELLED")

@@ -45,6 +45,26 @@
 ## exhaustion (this feature's own test_criteria), never on a partial/failed
 ## run.
 ##
+## FEAT-008 (US-008; FR-006) — cancellation, at ANY phase, aborts the WHOLE
+## Combine: this feature's own `resolved_selections` seam (a verb_id's
+## already-resolved selection input, forwarded from a real per-phase UI
+## resolution, FEAT-006) is where a CANCEL_SENTINEL pick surfaces. Before
+## dispatching a given phase's controller, `execute()` below checks whether
+## `resolved_selections` carries
+## core/application/combine/cancel_combine_use_case.gd's
+## CancelCombineUseCase.CANCEL_SENTINEL_ID for that phase's own verb_id --
+## if so, the loop short-circuits immediately (that phase's own
+## enter_selection() is NEVER called, no side effect, mirroring the
+## unregistered-verb-id abort's "abort BEFORE dispatch" discipline),
+## invokes CancelCombineUseCase.execute() against the optional injected
+## `combine_queue` aggregate (transitioning its status to CANCELLED so a
+## later ConfirmQueueUseCase.execute() against that SAME instance is
+## rejected -- this feature's own test_criteria), and returns `accumulated`
+## as an EMPTY Dictionary regardless of how many phases had already resolved
+## -- design notes' data_model: "cancellation ... can discard
+## AccumulatedSelectionState wholesale" -- never a partial map a caller
+## might mistake for a resumable in-progress state.
+##
 ## Domain purity boundary (ADR-001): extends RefCounted only — no
 ## Node/Control/SceneTree inheritance, no engine I/O.
 ##
@@ -61,6 +81,7 @@ class_name MultiPhaseTargetingController
 extends RefCounted
 
 const CombineQueueClass = preload("res://core/domain/combine/combine_queue.gd")
+const CancelCombineUseCaseClass = preload("res://core/application/combine/cancel_combine_use_case.gd")
 
 
 ## verb_id -> VerbControllerPort-shaped collaborator (duck-typed — see
@@ -110,7 +131,22 @@ func _init(deps: Dictionary = {}) -> void:
 ##                 injected callback" note); for now it lets a caller (or a
 ##                 test) drive this loop to a genuinely resolved multi-phase
 ##                 outcome without a live UI. Defaults to {} — every
-##                 pre-existing caller is completely unaffected.
+##                 pre-existing caller is completely unaffected. FEAT-008
+##                 (US-008; FR-006): a verb_id mapped to
+##                 CancelCombineUseCase.CANCEL_SENTINEL_ID signals that
+##                 phase's own resolution came back as a Cancel pick,
+##                 short-circuiting the WHOLE loop (see `combine_queue`
+##                 below and file-level doc).
+## combine_queue — FEAT-008 (US-008; FR-006): optional CombineQueue
+##                 aggregate (core/domain/combine/combine_queue.gd) this
+##                 confirmed `queue_entries` belongs to. Forwarded to
+##                 CancelCombineUseCase.execute() ONLY when a
+##                 CANCEL_SENTINEL_ID short-circuit fires, so its `.status`
+##                 is transitioned to CANCELLED and a later
+##                 ConfirmQueueUseCase.execute() call against the SAME
+##                 instance is rejected. Defaults to null — every
+##                 pre-existing caller (none of which ever cancels) is
+##                 completely unaffected.
 ##
 ## Returns:
 ##   {"ok": true, "error_code": "", "accumulated": {<verb_id>: <SelectionDescriptor>, ...},
@@ -129,11 +165,22 @@ func _init(deps: Dictionary = {}) -> void:
 ##       the loop aborts at that phase and CombineActionController.execute()
 ##       is NEVER reached (error_handling: "no sub-action side effects are
 ##       applied until ALL targeting is resolved").
-func execute(queue_entries: Array, actor, context: int = CombineQueueClass.Context.TURN, resolved_selections: Dictionary = {}) -> Dictionary:
+##   {"ok": false, "error_code": "CANCELLED", "accumulated": {}, "execution_result": {}}
+##       — FEAT-008: `resolved_selections` carried CANCEL_SENTINEL_ID for the
+##       CURRENT phase's own verb_id; the loop aborts BEFORE that phase's own
+##       enter_selection() is ever called, `combine_queue` (if given) is
+##       transitioned to CANCELLED via CancelCombineUseCase, and
+##       `accumulated` is WHOLESALE-DISCARDED (always {}, regardless of how
+##       many earlier phases had already resolved) — never a partial map, per
+##       this feature's own "no partial-state leak" guarantee.
+func execute(queue_entries: Array, actor, context: int = CombineQueueClass.Context.TURN, resolved_selections: Dictionary = {}, combine_queue = null) -> Dictionary:
 	var accumulated: Dictionary = {}
 
 	for entry in _sorted_by_order_index(queue_entries):
 		var verb_id: String = _verb_id_of(entry)
+		if _is_cancel_sentinel(resolved_selections.get(verb_id)):
+			return _cancelled_result(combine_queue)
+
 		var controller = _controller_registry.get(verb_id)
 		if controller == null:
 			return _abort_result("UNREGISTERED_VERB", accumulated)
@@ -182,6 +229,45 @@ func _abort_result(error_code: String, accumulated: Dictionary) -> Dictionary:
 		"ok": false,
 		"error_code": error_code,
 		"accumulated": accumulated,
+		"execution_result": {},
+	}
+
+
+## _cancelled_result(combine_queue) -> Dictionary — FEAT-008 (US-008;
+## FR-006): the sole CANCEL_SENTINEL_ID short-circuit result constructor.
+## Routes `combine_queue` (when given) through
+## core/application/combine/cancel_combine_use_case.gd's
+## CancelCombineUseCase.execute() so its `.status` is authoritatively
+## transitioned to CANCELLED (this use case's own return value is
+## intentionally not surfaced here -- a defensive double-cancel rejection
+## from CancelCombineUseCase does not change THIS method's own CANCELLED
+## outcome, since the loop itself is unconditionally aborting either way).
+## `accumulated` is ALWAYS returned empty ({}), never `_abort_result()`'s own
+## "accumulated so far" -- design notes' data_model: cancellation discards
+## AccumulatedSelectionState WHOLESALE, so no earlier phase's resolved value
+## survives into the returned Dictionary a caller might otherwise mistake
+## for a resumable partial state.
+## _is_cancel_sentinel(value) -> bool — true iff `value` (a
+## `resolved_selections[verb_id]` entry, which may legitimately be a hex
+## coordinate Object/String/int or any other verb-specific chosen-value
+## shape — see this file's own `resolved_selections` doc) IS
+## CancelCombineUseCase.CANCEL_SENTINEL_ID. Guards with a `typeof()` check
+## BEFORE the `==` comparison because GDScript 4 raises a runtime script
+## error ("Invalid operands 'Object' and 'String' in operator '=='") when a
+## real resolved value is a non-primitive Object (e.g. a HexCoord) compared
+## directly against a String literal — this file must never crash on an
+## ordinary, non-cancelling resolved selection of ANY shape.
+func _is_cancel_sentinel(value) -> bool:
+	return typeof(value) == TYPE_STRING and value == CancelCombineUseCaseClass.CANCEL_SENTINEL_ID
+
+
+func _cancelled_result(combine_queue) -> Dictionary:
+	if combine_queue != null:
+		CancelCombineUseCaseClass.new().execute(combine_queue)
+	return {
+		"ok": false,
+		"error_code": "CANCELLED",
+		"accumulated": {},
 		"execution_result": {},
 	}
 
