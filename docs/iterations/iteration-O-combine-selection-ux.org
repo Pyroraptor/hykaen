@@ -1,0 +1,239 @@
+#+TITLE: Iteration O — Combine Selection UX (verb queue builder + sequential sub-action targeting)
+#+DATE: 2026-07-20
+#+STATUS: DRAFT for review
+
+* Context (why this sprint exists)
+
+Iteration N shipped the COMBINE verb's rules engine (action-economy charge, Stamina
+gate, sub-action queue, abort-safe execution, Charge content as .tres data) but the
+presentation layer has a critical wiring gap: CombineActionController.enter_selection()
+returns {"ok": true, "queue": [...]} — a queue dict with no candidate_hexes,
+candidate_targets, or candidate_options. SelectionOverlay sees all three as empty and
+auto-resolves immediately, calling execute() with no targeting info. The result: COMBINE
+fires the default Charge queue with null destinations/targets and the enemy reaction
+window opens spuriously.
+
+The correct flow — already described in the spec and design — is TWO LAYERS of selection:
+
+  Layer 2a (queue builder): player picks WHICH verbs to combine, one at a time, in the
+  order they want them to resolve. Any legal combination of available verbs is reachable
+  — the player is not limited to pre-authored combos. The player builds the queue
+  incrementally and confirms when done.
+
+  Layer 2b+N (sequential sub-action targeting): for each verb in the confirmed queue, in
+  order, collect that verb's targeting in its own selection phase. Each sub-action drives
+  its OWN targeting via its own enter_selection() — Stride picks a hex, Strike picks a
+  target, Cast a Spell picks a spell option. Phase count and type are determined by the
+  chosen verbs, not hard-coded.
+
+The steel thread for this sprint is Charge (STRIDE then STRIKE): queue builder →
+player picks STRIDE, then STRIKE → player confirms → stride hex phase → strike target
+phase (reachable from stride destination) → COMBINE.execute() fires.
+
+The queue builder must generalize to combinations of MORE than two verbs, which become
+relevant at higher levels of play. The v0 ruleset caps standard Combines at two
+sub-actions, but the architecture must not hard-code that limit — the same picker and
+targeting loop must handle a 3-entry queue without changes.
+
+CARRY-OVER: DEF-001 (open from Iteration N peer-review) — execute() accepts a
+pre-built SubActionQueueEntry without re-validating the verb pair's Repeat rule. Fixed
+here since the new queue builder makes the entry point explicit and the guard belongs
+there.
+
+* P0 items — Turn-Combine fix (MUST; never drop)
+
+** P0-1: Verb queue builder (Layer 2a) — incremental verb picking
+
+enter_selection() must return a selection descriptor that drives an iterative,
+incremental verb-picking UI rather than a named-combo list. The flow:
+
+  Step 1 — "Pick a verb to add": present all currently available and combinable verbs
+  as candidate_options. Each option carries the verb_id and label of a verb the actor
+  could legally add as the next sub-action (e.g. STRIDE, STRIKE, CAST_SPELL — whatever
+  is registered, available, and passes the Repeat/same-verb rule given what is already
+  queued). The existing _show_spell_picker() / choose_option() path handles this
+  display; reuse it without modification.
+
+  Step 2 — After each pick, add the chosen verb to the partial queue and repeat step 1
+  with the updated candidate_options: remaining compatible verbs, PLUS a "Confirm"
+  sentinel option once the queue has >= 2 entries (the minimum legal Combine). The
+  Confirm option carries the finalized queue.
+
+  Step N — When the player picks Confirm (or the queue reaches any implementation
+  limit), proceed to Layer 2b targeting with the assembled queue.
+
+Validation at each pick: enforce the combine_actions() same-verb/Repeat rule
+incrementally — if the player has already picked STRIDE and STRIDE has no Repeat trait,
+do not offer STRIDE again in the next pick's candidate_options.
+
+This flow must generalize cleanly to queues of 3 or more verbs: the pick/confirm loop
+continues as long as the player keeps adding entries, and the targeting loop below
+handles any queue length.
+
+TESTS: with STRIDE and STRIKE available — candidate_options after pressing COMBINE
+includes both; after picking STRIDE the options include STRIKE but NOT Confirm (queue
+length = 1; minimum is 2 before Confirm is offered); after picking STRIKE the options
+include Confirm (and any other compatible verbs); picking Confirm transitions to
+targeting. Confirm is absent when queue length < 2. Same-verb without Repeat is
+excluded after that verb is already queued.
+
+** P0-2: Sequential sub-action targeting (Layer 2b+N) — MultiPhaseTargetingController
+
+After the player confirms the queue, the system enters a sequential targeting loop.
+Each iteration:
+  1. Pop the next unresolved sub-action entry (by order_index).
+  2. Call _controller(entry.verb_id).enter_selection() to get that verb's descriptor.
+  3. Activate the SelectionOverlay with that descriptor — reusing ALL existing hex
+     highlighting, target highlighting, and option-picker infrastructure unchanged.
+  4. Wait for the player's selection (SelectionOverlay.selection_resolved).
+  5. Store the result keyed by verb_id: accumulated[entry.verb_id] = chosen_value.
+  6. Repeat from step 1 for remaining entries.
+  7. When the queue is exhausted, call COMBINE.execute({"queue": queue, ...accumulated}).
+
+This loop lives in a new, tested MultiPhaseTargetingController injected into the
+MainScene composition root and wired to selection_overlay.selection_resolved. It is NOT
+inline in MainScene — it must be independently unit-testable.
+
+Cancellation: if the player cancels at any phase (queue builder OR any targeting phase),
+abort the entire Combine and return to verb bar (Layer 1). No partial queue or selection
+state leaks.
+
+Sub-action targeting calls each verb's REAL enter_selection() so the same hex/target
+infrastructure that drives standalone Stride and Strike drives the sub-action phases.
+For Charge (STRIDE then STRIKE):
+  - STRIDE phase: enter_selection() returns candidate_hexes — player picks a hex.
+  - STRIKE phase: enter_selection() is called with awareness of the chosen stride
+    destination so reachable targets are evaluated from the post-move position, not the
+    actor's current hex.
+
+The loop must handle any queue length without change — a 3-entry queue runs 3
+targeting phases, a 2-entry queue runs 2, etc.
+
+TESTS (boot-real): Charge flow end-to-end — COMBINE pressed → verb picker shows STRIDE
+and STRIKE → player picks STRIDE → picker shows STRIKE + Confirm (no Confirm yet at 1
+entry; after STRIDE is picked queue length = 1, then STRIKE is picked, queue length =
+2, Confirm appears) → player picks STRIKE → player picks Confirm → stride hex picker
+appears → player picks a hex → strike target picker appears with targets reachable from
+chosen hex → player picks a target → COMBINE.execute() fires → actor moves to hex,
+Strike resolves, exactly 1 action + 1 Stamina spent. Cancellation at each phase aborts
+cleanly with no state leak.
+
+** P0-3: DEF-001 — re-validate verb pair in execute() (carry-over from Iteration N)
+
+execute() currently accepts a pre-built queue without re-checking the Repeat rule.
+Fix: at the top of execute(), before the economy charge, re-derive the verb entries
+from the queue and run combine_actions() validation against the real verb names. Reject
+with VALIDATION_FAILED if the combination is illegal.
+
+TESTS: execute() with a hand-built queue of [STRIDE, STRIDE] (identical, no Repeat
+trait) returns ok=false; with [STRIDE, STRIDE] where STRIDE carries Repeat returns
+ok=true; existing happy-path tests are unaffected.
+
+* Context model (turn vs. reaction)
+
+The queue builder takes a `context` parameter (`:turn` or `:reaction`) that determines
+which verb pool is offered at each pick step. This is the only branching point between
+Turn-Combine and Reaction-Combine; the same pick/confirm loop and targeting loop run
+in both contexts.
+
+Turn context — pool is turn-action verbs only. Reaction verbs (Dodge, Steel, Block,
+Parry, Opportunistic Strike) are never offered here; they are triggered by incoming
+events, not chosen on initiative.
+
+Reaction context — pool is: (a) reaction verbs available in the current trigger
+context (e.g. Block and Parry when an on-hit mitigation trigger fires), PLUS (b) verbs
+carrying the `reaction_follow_up: bool` trait. Strike carries this trait; Stride and
+Step do not. This trait is the mechanism for flagging which turn-action verbs may join
+a reaction combo.
+
+Reaction context has an additional Confirm constraint: the queue must contain at least
+one reaction verb before Confirm is offered. The player may choose any order — Block
+then Strike, or Strike then Block, are both legal Ripostes. The constraint is on
+composition, not sequence.
+
+The `reaction_follow_up` trait lives on the verb definition resource, consistent with
+how Movement, Repeat, and other traits are modelled. It is false by default. Only Strike
+is true in v0; Cast a Spell and other verbs can receive it at higher levels if "Spell
+Riposte" or similar combinations are introduced.
+
+* P0 / MUST — Turn-Combine (sprint drop order: P0 never drops)
+
+(Items P0-1, P0-2, P0-3 above. These fix the live-play blocker where COMBINE fires
+immediately without any selection UI.)
+
+* P1 / SHOULD — Reaction-Combine: Riposte (drops before P0 if sprint is too long)
+
+The confirmed v0 Reaction-Combine scenario is Riposte: the player is hit by an enemy
+Strike, the on-hit mitigation trigger fires (offering Block and/or Parry individually),
+and the player chooses to Combine — adding Strike as a counter-attack in the same
+reaction slot. The steel thread is Block+Strike or Strike+Block (player's choice).
+
+** P1-1: `reaction_follow_up` trait on verb definitions
+
+Add `reaction_follow_up: bool = false` to the verb definition resource (VerbResource or
+equivalent). Set it to true on the STRIKE verb definition. No other verb receives it in
+v0.
+
+TESTS: VerbResource with reaction_follow_up unset defaults to false; Strike's .tres
+has reaction_follow_up = true; Stride's .tres has reaction_follow_up = false.
+
+** P1-2: "Combine" option in reaction_prompt_ui.gd
+
+When the on-hit mitigation trigger fires and the player has at least one `reaction_follow_up`
+verb available (Strike), add "Combine" as an additional entry in the legal_reactions list
+passed to reaction_prompt_ui.gd. Selecting it opens the queue builder in reaction context
+with the current trigger's available reaction verbs plus `reaction_follow_up` verbs as the
+pool.
+
+If no `reaction_follow_up` verb is available (e.g. disarmed, out of range), the Combine
+option is absent from the pop-up. The existing individual reaction options are unaffected.
+
+TESTS: legal_reactions list includes "combine" when Strike is available and an on-hit
+trigger is active; "combine" is absent when Strike is unavailable; individual Dodge/Block/
+Parry options still appear alongside "combine" when eligible.
+
+** P1-3: Queue builder in reaction context + Confirm validation
+
+When the queue builder runs in reaction context:
+- Pool at each step = trigger's reaction verbs + `reaction_follow_up` verbs not already
+  in the queue (subject to the same Repeat/same-verb exclusion as turn context).
+- Confirm is offered only when queue.length >= 2 AND at least one entry is a reaction verb.
+- If the player has only picked reaction_follow_up verbs so far (e.g. only Strike),
+  Confirm is withheld until a reaction verb is added.
+
+Order is player-chosen. Block+Strike and Strike+Block produce the same execute() payload
+with different order_index values; execution respects the chosen order.
+
+TESTS: after picking Strike alone, Confirm is absent (no reaction verb in queue yet);
+after picking Strike then Block, Confirm appears; after picking Block then Strike, Confirm
+appears; queue [Strike, Strike] rejected (no Repeat trait); queue [Block] alone rejected
+(length < 2).
+
+** P1-4: Sequential targeting for Riposte
+
+In the MultiPhaseTargetingController loop, reaction verbs (Block, Parry) have no
+targeting — their enter_selection() returns a descriptor with no candidate selections,
+so the loop auto-advances past them without opening the SelectionOverlay. Strike requires
+a target pick as normal.
+
+This requires no change to MultiPhaseTargetingController — the auto-advance behaviour
+on an empty descriptor is the same logic that handles any verb with no choices.
+
+TESTS (boot-real): on-hit trigger fires → pop-up shows Block + Combine → player picks
+Combine → queue builder opens → player picks Strike then Block → Confirm appears →
+player confirms → Strike target picker appears → player picks a target → Block
+auto-advances → COMBINE.execute() fires in [Strike, Block] order → Strike resolves
+(damage to enemy), Block math applies to incoming hit (damage reduced), exactly 1
+reaction spent. Cancellation at any phase aborts cleanly.
+
+* Follow-on (post-sprint)
+
+- Player-saved shortcuts: after confirming a queue in the builder, a "Save as
+  shortcut" option stores the verb sequence on the character. Shortcuts appear as
+  named options at the top of the verb picker (above the free-compose flow), making
+  common Combines faster to select without removing the ad-hoc path. See
+  hykaen-combine-shortcut-design memory for the data format.
+- >2-verb Combines at higher levels: no code changes needed; the pick/confirm loop
+  and targeting loop already handle any queue length.
+- Spell Riposte and other non-Strike reaction_follow_up verbs: add the trait to Cast a
+  Spell (or a specific spell category) when the design calls for it.
