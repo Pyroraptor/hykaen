@@ -670,6 +670,61 @@ var _verb_deps_cache = null
 var multi_phase_targeting_controller = null
 var _core_combine_action_controller = null
 
+## _combine_controller_registry — FEAT-007 (US-007; NFR-001): the SAME
+## verb_id -> VerbControllerPort registry Dictionary handed to
+## `multi_phase_targeting_controller` above (as its own "controller_registry"
+## dep) AND reused by this composition root's own interactive per-phase
+## Combine targeting loop below (_enter_combine_targeting_phase() /
+## _on_combine_targeting_value_chosen()) — one registry, resolved once in
+## _ready(), never a second/forked verb_id -> controller lookup path
+## (ADR-002's "verb_id whitelisting" security note).
+var _combine_controller_registry: Dictionary = {}
+
+## _combine_targeting_registry_proxy — FEAT-007: the thin presentation-layer
+## adapter (see the private _CombineTargetingRegistryProxy class at the
+## bottom of this file) this composition root hands to
+## `selection_overlay.configure()` for the DURATION of an interactive Combine
+## targeting phase only, standing in for `_verb_registry`. It exposes the
+## exact SAME duck-typed `execute(verb_id, value) -> Dictionary` contract
+## selection_overlay.gd's own `_registry` doc requires — selection_overlay.gd
+## itself is COMPLETELY UNCHANGED by this feature (see this feature's own
+## regression test, tests/regression/combine/test_selection_overlay_unmodified.gd)
+## — but never dispatches to a real ActionController mid-queue: it only
+## captures the resolved value for this composition root's own targeting
+## loop to consume (see _on_combine_targeting_value_chosen()'s own doc
+## below). Constructed once in _ready(); selection_overlay is switched back
+## to `_verb_registry` the instant a Combine targeting sequence
+## finishes/aborts (_reset_combine_targeting_state() below), so every
+## standalone (non-Combine) verb press is completely unaffected by this
+## feature (this feature's own regression test_criteria).
+var _combine_targeting_registry_proxy = null
+
+## _combine_targeting_active / _combine_targeting_entries / _combine_targeting_index /
+## _combine_targeting_actor / _combine_targeting_context / _combine_targeting_accumulated /
+## _combine_targeting_resolved / _combine_targeting_result — FEAT-007 (US-007;
+## NFR-001): this composition root's OWN interactive Combine sub-action
+## targeting loop state. `multi_phase_targeting_controller` itself is left
+## EXACTLY as FEAT-005/FEAT-006 built it — a synchronous, fully-resolved
+## `resolved_selections`-driven replay engine — never modified by this
+## feature; this composition root instead drives ONE phase of that SAME
+## algorithm at a time (looking up each phase's controller through the SAME
+## `_combine_controller_registry` above), pausing between phases for a real
+## player selection via the unmodified SelectionOverlay, and finally replays
+## the whole confirmed queue through `multi_phase_targeting_controller.execute()`
+## once every phase has a real, player-chosen value — see
+## start_combine_targeting()'s own doc below for the full algorithm.
+## Exposed as fields (rather than kept as method locals) so tests can verify
+## the wiring directly, mirroring `hex_choice_resolver`/`reaction_window`'s
+## identical "constructed here, exposed for verification" precedent.
+var _combine_targeting_active: bool = false
+var _combine_targeting_entries: Array = []
+var _combine_targeting_index: int = 0
+var _combine_targeting_actor = null
+var _combine_targeting_context: int = 0
+var _combine_targeting_accumulated: Dictionary = {}
+var _combine_targeting_resolved: Dictionary = {}
+var _combine_targeting_result: Dictionary = {}
+
 ## _party / _enemies — the live combatant Dictionaries built at boot,
 ## mutated in place by every resolved Strike throughout the interactive
 ## session (Dictionaries are reference types in GDScript). Kept as fields so
@@ -939,17 +994,27 @@ func _ready() -> void:
 	# layered on top of this same seam; this composition root neither
 	# invokes nor connects it to anything yet. ──────────────────────────────
 	_core_combine_action_controller = CoreCombineActionControllerClass.new()
+	# FEAT-007 (US-007; NFR-001): built as its own named field
+	# (`_combine_controller_registry`) rather than an inline anonymous dict
+	# literal, so this composition root's OWN interactive per-phase Combine
+	# targeting loop below (_enter_combine_targeting_phase() /
+	# _on_combine_targeting_value_chosen()) can reuse the EXACT SAME verb_id
+	# -> VerbControllerPort instances `multi_phase_targeting_controller` is
+	# constructed with — one registry, resolved once, never a second/forked
+	# lookup (ADR-002's "verb_id whitelisting" security note).
+	_combine_controller_registry = {
+		"STRIDE": CoreStrideActionControllerClass.new({
+			"other_combatants_fn": func(): return _party + _enemies,
+		}),
+		"STRIKE": CoreStrikeActionControllerClass.new({
+			"candidate_targets_fn": Callable(self, "_living_enemy_reactors"),
+		}),
+	}
 	multi_phase_targeting_controller = MultiPhaseTargetingControllerClass.new({
-		"controller_registry": {
-			"STRIDE": CoreStrideActionControllerClass.new({
-				"other_combatants_fn": func(): return _party + _enemies,
-			}),
-			"STRIKE": CoreStrikeActionControllerClass.new({
-				"candidate_targets_fn": Callable(self, "_living_enemy_reactors"),
-			}),
-		},
+		"controller_registry": _combine_controller_registry,
 		"combine_action_controller": _core_combine_action_controller,
 	})
+	_combine_targeting_registry_proxy = _CombineTargetingRegistryProxy.new(self)
 
 	# ── FEAT-008 / US-008 (FR-003, ADR-002): wire the generic Layer 2
 	# SelectionOverlay (presentation/selection_overlay.gd) over the SAME
@@ -1702,7 +1767,25 @@ func _on_verb_bar_selection_entered(verb_id: String, selection) -> void:
 ## _on_active_actor_changed()/_after_successful_move() already call -- a
 ## resolved Strike does not itself move anyone, so nothing else already
 ## re-pushes that highlight after selection_overlay.clear() blanks it.
+##
+## FEAT-007 (US-007; NFR-001): when this composition root's OWN interactive
+## Combine targeting loop is mid-flight (`_combine_targeting_active`) AND
+## this resolution is for the CURRENT targeting phase's own verb_id, this
+## handler routes to `_advance_combine_targeting_phase()` instead -- the
+## resolved value was already captured (via `_combine_targeting_registry_proxy`,
+## installed as selection_overlay's `_registry` for the duration -- see that
+## field's own doc) by `_on_combine_targeting_value_chosen()` BEFORE this
+## signal ever fired, so this branch's ONLY job is advancing the loop, never
+## touching `_verb_registry`/`verb_bar_view`/highlight state a standalone
+## verb resolution would. Every standalone (non-Combine) verb resolution
+## takes the EXACT SAME path below this guard as before this feature
+## (`_combine_targeting_active` is false for the whole of a standalone
+## Strike/Stride flow), which is this feature's own regression test_criteria.
 func _on_selection_overlay_resolved(_verb_id: String, _result) -> void:
+	if _combine_targeting_active and _combine_targeting_index < _combine_targeting_entries.size() \
+			and _verb_id == _combine_verb_id_of(_combine_targeting_entries[_combine_targeting_index]):
+		_advance_combine_targeting_phase()
+		return
 	_hide_spell_picker()
 	if verb_bar_view != null:
 		verb_bar_view.refresh_availability()
@@ -1727,6 +1810,258 @@ func _on_selection_overlay_resolved(_verb_id: String, _result) -> void:
 		if status_panel_view != null:
 			for combatant in _party + _enemies:
 				status_panel_view.update_combatant_hp(combatant.display_id(), combatant.hp_current)
+
+
+# ── FEAT-007 (US-007; NFR-001) — interactive Combine sub-action targeting ───
+#
+# Completes the composition-root wiring iteration-O's own design notes call
+# for (architecture section: "MainScene ... wires selection_overlay.
+# selection_resolved -> targeting-controller callback"): a real, boot-real
+# way to drive `multi_phase_targeting_controller`'s (FEAT-005/FEAT-006,
+# UNCHANGED by this feature) N-length sequential sub-action targeting loop
+# through the SAME, UNMODIFIED SelectionOverlay/choose_option()/
+# _show_spell_picker() path every standalone verb already uses (design
+# notes: "driving SelectionDescriptor display through the existing
+# unmodified SelectionOverlay ... path", ADR-003), one real player selection
+# at a time, rather than requiring every phase's value pre-resolved up
+# front the way multi_phase_targeting_controller.execute()'s own
+# `resolved_selections` parameter alone would.
+#
+# Algorithm (mirrors multi_phase_targeting_controller.execute()'s own
+# per-iteration algorithm, split across the real UI's async boundary):
+#   1. start_combine_targeting(queue_entries, actor, context) sorts the
+#      confirmed queue by order_index and enters phase 0.
+#   2. _enter_combine_targeting_phase() looks the current phase's controller
+#      up via `_combine_controller_registry` (the SAME registry
+#      multi_phase_targeting_controller itself was constructed with -- no
+#      second/forked lookup), calls its REAL enter_selection() for an OFFER
+#      descriptor, and activates selection_overlay with it -- switching
+#      selection_overlay's own `_registry` to `_combine_targeting_registry_proxy`
+#      for the duration (see that field's own doc) so a resolved click never
+#      dispatches to a real ActionController mid-queue.
+#   3. A highlighted hex/target click resolves through selection_overlay's
+#      OWN, UNCHANGED _resolve() -> `_registry.execute(verb_id, value)` ->
+#      _on_combine_targeting_value_chosen() below, which re-invokes that SAME
+#      controller's enter_selection() ONE more time with `value` threaded
+#      onto the context as `selected_hex` (the EXACT generic seam
+#      multi_phase_targeting_controller.execute()'s own `resolved_selections`
+#      parameter already established, FEAT-006) -- recording the RESOLVED
+#      descriptor into `_combine_targeting_accumulated` (so the NEXT phase's
+#      own enter_selection() call observes it, e.g. STRIKE computing
+#      post-move reach from STRIDE's chosen hex) and the raw chosen value
+#      into `_combine_targeting_resolved`.
+#   4. selection_overlay's OWN selection_resolved signal then fires (see
+#      _on_selection_overlay_resolved()'s FEAT-007 doc above), which routes
+#      to _advance_combine_targeting_phase() -- advancing to the next phase,
+#      or, on exhaustion, handing the FULLY populated `_combine_targeting_resolved`
+#      map to `multi_phase_targeting_controller.execute()` (UNCHANGED) for the
+#      authoritative final replay + COMBINE.execute() dispatch (design notes:
+#      "On exhaustion of the loop, the controller invokes
+#      CombineActionController.execute()").
+#   5. Either terminal path (_finish_combine_targeting() / _abort_combine_targeting())
+#      resets ALL loop state and switches selection_overlay back to
+#      `_verb_registry`, so a standalone verb press immediately afterward is
+#      completely unaffected (this feature's own regression test_criteria).
+
+
+## start_combine_targeting(queue_entries, actor, context) -> void — FEAT-007:
+## the interactive counterpart to multi_phase_targeting_controller.execute()
+## (see the section doc above for the full algorithm). `queue_entries` --
+## a CONFIRMED CombineQueue's entries (VerbQueueEntry instances, or
+## equivalent {"verb_id":...,"order_index":...} Dictionaries -- the SAME
+## shapes multi_phase_targeting_controller.execute() itself accepts), sorted
+## by order_index (authoritative, never insertion/array position -- mirrors
+## MultiPhaseTargetingController's own `_sorted_by_order_index()` convention).
+## A no-op or an empty `queue_entries` (`_combine_targeting_active` left
+## false, nothing else mutated).
+func start_combine_targeting(queue_entries: Array, actor, context: int = 0) -> void:
+	if queue_entries.is_empty():
+		return
+
+	_combine_targeting_entries = queue_entries.duplicate()
+	_combine_targeting_entries.sort_custom(func(a, b): return _combine_order_index_of(a) < _combine_order_index_of(b))
+	_combine_targeting_index = 0
+	_combine_targeting_actor = actor
+	_combine_targeting_context = context
+	_combine_targeting_accumulated = {}
+	_combine_targeting_resolved = {}
+	_combine_targeting_result = {}
+	_combine_targeting_active = true
+	_enter_combine_targeting_phase()
+
+
+## _enter_combine_targeting_phase() -> void — FEAT-007: offers the CURRENT
+## phase's (`_combine_targeting_index`) candidates via that verb's REAL
+## enter_selection() (looked up through `_combine_controller_registry`, the
+## SAME registry `multi_phase_targeting_controller` was constructed with --
+## ADR-002 "verb_id whitelisting", no second/forked controller-resolution
+## path), then activates selection_overlay with the resulting descriptor
+## through the EXACT SAME activate() call _on_verb_bar_selection_entered()
+## already uses for a standalone verb (design notes: "driving
+## SelectionDescriptor display through the existing unmodified
+## SelectionOverlay ... path"). selection_overlay is switched to
+## `_combine_targeting_registry_proxy` for the duration (see that field's
+## own doc). An unregistered verb_id, a null descriptor, or an `ok:false`
+## descriptor (no legal options for this phase -- design notes'
+## error_handling: "treated as an abort trigger equivalent to cancellation")
+## aborts the whole Combine targeting sequence immediately via
+## _abort_combine_targeting(), mirroring
+## multi_phase_targeting_controller.execute()'s own abort-result shape.
+func _enter_combine_targeting_phase() -> void:
+	var entry = _combine_targeting_entries[_combine_targeting_index]
+	var verb_id: String = _combine_verb_id_of(entry)
+	var order_index: int = _combine_order_index_of(entry)
+	var controller = _combine_controller_registry.get(verb_id)
+
+	if controller == null:
+		_abort_combine_targeting("UNREGISTERED_VERB")
+		return
+
+	var descriptor = controller.enter_selection({
+		"actor_id": _combine_targeting_actor,
+		"mode": "TARGET_PHASE",
+		"combine_context": _combine_targeting_context,
+		"order_index": order_index,
+		"verb_id": verb_id,
+		"accumulated": _combine_targeting_accumulated,
+	})
+
+	if descriptor == null or not descriptor.ok:
+		var error_code: String = descriptor.meta.get("error_code", "NO_LEGAL_OPTIONS") if descriptor != null else "NO_LEGAL_OPTIONS"
+		_abort_combine_targeting(error_code)
+		return
+
+	if selection_overlay != null:
+		selection_overlay.configure(_combine_targeting_registry_proxy, hex_grid_view)
+		selection_overlay.activate(verb_id, descriptor)
+
+
+## _on_combine_targeting_value_chosen(verb_id, value) -> Dictionary —
+## FEAT-007: `_combine_targeting_registry_proxy`'s sole `execute()` delegate
+## (see that field's own doc), called synchronously from INSIDE
+## selection_overlay's OWN, UNCHANGED _resolve() the instant a highlighted
+## hex/target click resolves the current phase. Re-invokes the SAME
+## controller's enter_selection() ONE more time, now WITH the chosen value
+## threaded onto the context as `selected_hex` -- the EXACT generic seam
+## multi_phase_targeting_controller.execute()'s own `resolved_selections`
+## parameter already established (FEAT-006) -- so the resulting resolved
+## SelectionDescriptor (carrying e.g. STRIDE's own `meta.chosen_hex`) is
+## threaded into `_combine_targeting_accumulated`, keyed by THIS phase's own
+## `verb_id`, for the NEXT phase's own enter_selection() call to read (e.g.
+## STRIKE computing post-move reach) -- exactly mirroring
+## multi_phase_targeting_controller.execute()'s own per-iteration algorithm.
+## `_combine_targeting_resolved[verb_id] = value` additionally records the
+## RAW chosen value, keyed by the SAME verb_id, for the final authoritative
+## replay in _finish_combine_targeting() below (this feature's own
+## test_criteria: "routes the chosen_value into
+## MultiPhaseTargetingController's accumulated state for the correct
+## verb_id").
+func _on_combine_targeting_value_chosen(verb_id: String, value) -> Dictionary:
+	var entry = _combine_targeting_entries[_combine_targeting_index]
+	var order_index: int = _combine_order_index_of(entry)
+	var controller = _combine_controller_registry.get(verb_id)
+
+	_combine_targeting_resolved[verb_id] = value
+
+	if controller != null:
+		var resolved_descriptor = controller.enter_selection({
+			"actor_id": _combine_targeting_actor,
+			"mode": "TARGET_PHASE",
+			"combine_context": _combine_targeting_context,
+			"order_index": order_index,
+			"verb_id": verb_id,
+			"accumulated": _combine_targeting_accumulated,
+			"selected_hex": value,
+		})
+		if resolved_descriptor != null:
+			_combine_targeting_accumulated[verb_id] = resolved_descriptor
+
+	return {"ok": true, "chosen_value": value}
+
+
+## _advance_combine_targeting_phase() -> void — FEAT-007: called from
+## _on_selection_overlay_resolved() once _on_combine_targeting_value_chosen()
+## above has already recorded the just-resolved phase. Moves to the next
+## queued entry, or -- on exhaustion -- hands the FULL, now fully-populated
+## `_combine_targeting_resolved` map to
+## `multi_phase_targeting_controller.execute()` (UNCHANGED, FEAT-005/006's
+## own synchronous replay engine) for the authoritative final resolution +
+## COMBINE.execute() dispatch (design notes: "On exhaustion of the loop, the
+## controller invokes CombineActionController.execute()").
+func _advance_combine_targeting_phase() -> void:
+	_combine_targeting_index += 1
+	if _combine_targeting_index >= _combine_targeting_entries.size():
+		_finish_combine_targeting()
+	else:
+		_enter_combine_targeting_phase()
+
+
+## _finish_combine_targeting() -> void — FEAT-007: the interactive loop's
+## success terminal: replays the whole confirmed queue through
+## `multi_phase_targeting_controller.execute()` (UNCHANGED) with the now
+## fully-populated `_combine_targeting_resolved` map, storing its Dictionary
+## result on `_combine_targeting_result` (exposed for verification), then
+## resets all loop state.
+func _finish_combine_targeting() -> void:
+	_combine_targeting_result = multi_phase_targeting_controller.execute(
+		_combine_targeting_entries, _combine_targeting_actor, _combine_targeting_context, _combine_targeting_resolved
+	)
+	_reset_combine_targeting_state()
+
+
+## _abort_combine_targeting(error_code) -> void — FEAT-007: mirrors
+## multi_phase_targeting_controller.execute()'s own `_abort_result()` shape
+## (`{ok:false, error_code, accumulated, execution_result:{}}`) for a phase
+## that could never even reach the real UI (an unregistered verb_id, or an
+## `ok:false`/no-legal-options descriptor) -- design notes' error_handling:
+## "treated as an abort trigger equivalent to cancellation". Never invokes
+## `_core_combine_action_controller`.
+func _abort_combine_targeting(error_code: String) -> void:
+	_combine_targeting_result = {
+		"ok": false,
+		"error_code": error_code,
+		"accumulated": _combine_targeting_accumulated,
+		"execution_result": {},
+	}
+	_reset_combine_targeting_state()
+
+
+## _reset_combine_targeting_state() -> void — FEAT-007: the SOLE terminal
+## state-reset code path shared by _finish_combine_targeting()/
+## _abort_combine_targeting(), so both terminal outcomes leave IDENTICAL
+## bookkeeping behind: `_combine_targeting_active` false, every loop-local
+## field cleared, and selection_overlay switched back to `_verb_registry` --
+## the SAME registry every standalone verb press already uses -- so a
+## standalone Strike/Stride pressed immediately afterward is completely
+## unaffected (this feature's own regression test_criteria).
+func _reset_combine_targeting_state() -> void:
+	_combine_targeting_active = false
+	_combine_targeting_entries = []
+	_combine_targeting_index = 0
+	_combine_targeting_actor = null
+	_combine_targeting_accumulated = {}
+	_combine_targeting_resolved = {}
+	if selection_overlay != null and _verb_registry != null:
+		selection_overlay.configure(_verb_registry, hex_grid_view)
+
+
+## _combine_verb_id_of(entry) -> String — FEAT-007: duck-typed verb_id
+## accessor mirroring multi_phase_targeting_controller.gd's own
+## `_verb_id_of()` convention, so this composition root's interactive loop
+## accepts the SAME entry shapes (VerbQueueEntry or an equivalent
+## {"verb_id": ...} Dictionary) that controller does.
+func _combine_verb_id_of(entry) -> String:
+	if entry is Dictionary:
+		return entry.get("verb_id", "")
+	return entry.verb_id
+
+
+## _combine_order_index_of(entry) -> int — FEAT-007: duck-typed order_index
+## accessor, mirrors `_combine_verb_id_of()` above.
+func _combine_order_index_of(entry) -> int:
+	if entry is Dictionary:
+		return entry.get("order_index", 0)
+	return entry.order_index
 
 
 # ── Spell picker panel ───────────────────────────────────────────────────────
@@ -2319,3 +2654,27 @@ func _build_party_combatant(character_path: String, hex_coord, combatant_id: Str
 
 func _build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String = "") -> Dictionary:
 	return _combatant_factory.build_enemy_combatant(enemy_path, hex_coord, combatant_id)
+
+
+## _CombineTargetingRegistryProxy — FEAT-007 (US-007; NFR-001): the thin
+## presentation-layer adapter `_combine_targeting_registry_proxy` is an
+## instance of (see that field's own doc, and the "interactive Combine
+## sub-action targeting" section doc above _on_verb_bar_selection_entered()/
+## _on_selection_overlay_resolved()). Exposes the EXACT SAME duck-typed
+## `execute(verb_id, value) -> Dictionary` contract presentation/
+## selection_overlay.gd's own `_registry` doc requires (`_verb_registry`'s
+## `_VerbBarRegistryAdapter` satisfies the identical shape) — selection_overlay.gd
+## itself is COMPLETELY UNCHANGED by this feature. Delegates every call
+## straight back to the owning MainScene's own
+## _on_combine_targeting_value_chosen(), never resolving a real
+## ActionController itself.
+class _CombineTargetingRegistryProxy:
+	extends RefCounted
+
+	var _main_scene
+
+	func _init(main_scene) -> void:
+		_main_scene = main_scene
+
+	func execute(verb_id: String, value) -> Dictionary:
+		return _main_scene._on_combine_targeting_value_chosen(verb_id, value)
