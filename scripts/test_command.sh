@@ -33,13 +33,13 @@
 #      on every run and left the working tree dirty after every test pass.
 #      That means a fresh checkout no longer ships a copy of the file at
 #      all, so it must be regenerated before anything downstream reads it
-#      — notably pytest stage 3's tests/pytest/test_sim_results_provenance.py,
+#      — notably pytest stage 4's tests/pytest/test_sim_results_provenance.py,
 #      which asserts pinned win_rate/avg_rounds/confidence_interval values
 #      against res://sim_results.json on disk. The N=1000 run is
 #      deterministic (pinned seed 12345), so a fresh regen here reproduces
 #      the same pinned metric values as before — only commit_hash/timestamp
 #      differ, and those are gitignored so they never dirty the tree.
-#      Already covered again by stage 9's full-project run below, but
+#      Already covered again by stage 10's full-project run below, but
 #      called out here as its own explicit, clearly-labeled early gate
 #      confirming the aggregate win-rate/outcome distribution stays within
 #      existing tolerance ([0.40, 0.80]) and that no balance-affecting
@@ -47,24 +47,39 @@
 #      to just tests/sim/test_balance_sim.gd, mirroring stage 1's
 #      convention.
 #
-#   3. pytest — the full Python test suite (CI/infra + config assertions
+#   3. FEAT-293 (US-011/US-012, resolves PR-003/PR-004/PR-008/PR-009)
+#      automated clean-tree CI gate (scripts/verify_clean_tree.sh) —
+#      deployment review could not independently confirm the pipeline
+#      itself caught a working tree left dirty by a prior stage; that
+#      confirmation only ever existed as manual `git status` inspection
+#      (see CLAUDE.md's commit-hygiene section). Wired in HERE,
+#      immediately after the simulation stage above, because stage 2 is
+#      historically the stage most likely to leave a generated-but-
+#      uncommitted artifact behind (e.g. the now-gitignored
+#      res://sim_results.json regeneration, FEAT-292) — catching that
+#      class of regression as early as possible, well before the slower
+#      pytest/GUT stages run. See tests/ci/test_verify_clean_tree.py for
+#      the executable proof this gate both passes against a clean fixture
+#      working tree and fails against a deliberately dirtied one.
+#
+#   4. pytest — the full Python test suite (CI/infra + config assertions
 #      under tests/unit/*.py, including this file's own suite). Runs AFTER
 #      stage 2 so res://sim_results.json already exists and is freshly
 #      regenerated (FEAT-292) when tests/pytest/test_sim_results_provenance.py
 #      and tests/ci/test_sim_results_gitignore_feat292.py read it.
 #
-#   4. FEAT-158 (FIND-151) CI pipeline stage-list consistency check
+#   5. FEAT-158 (FIND-151) CI pipeline stage-list consistency check
 #      (scripts/check_ci_pipeline_sync.py) — ci/pipeline.yml's per-stage
 #      `command:` entries are documentation describing the SAME stage list
 #      this script executes; nothing previously stopped the two from
 #      drifting apart. This stage parses both stage lists and fails the
 #      whole pipeline immediately if they diverge, so drift is caught in
 #      CI rather than discovered later by a human reading stale docs.
-#      Already indirectly exercised by stage 3 via pytest test discovery
+#      Already indirectly exercised by stage 4 via pytest test discovery
 #      (tests/ci/test_pipeline_sync.py), but also invoked directly here so
 #      a stage-list divergence produces its own clearly-labeled failure.
 #
-#   5. FEAT-239 (US-009, resolves PR-004; ADR-006) sim_results.json
+#   6. FEAT-239 (US-009, resolves PR-004; ADR-006) sim_results.json
 #      provenance guard (scripts/ci/check_sim_results_provenance.py) — a
 #      standalone gate diffing the current commit against its parent and
 #      failing the build if sim_results.json's tracked metric keys
@@ -77,21 +92,21 @@
 #      COMMITTED git history, not the (now gitignored, FEAT-292)
 #      working-tree file, so it is unaffected by stage 2 running first.
 #
-#   6. FEAT-009 (US-009) domain purity static check
+#   7. FEAT-009 (US-009) domain purity static check
 #      (ci/check_domain_purity.sh) — a standalone, independently-invokable
 #      gate asserting core/ contains zero bare 'extends Node'/'extends
 #      Control' Godot scene-tree inheritance (ADR-001). Extracted from the
 #      inline grep step already embedded in .github/workflows/test.yml so
 #      it can be run/tested on its own (see tests/ci/test_static_checks.gd).
 #
-#   7. FEAT-009 (US-009) no-duplicate-ports/use-cases/seams check
+#   8. FEAT-009 (US-009) no-duplicate-ports/use-cases/seams check
 #      (ci/check_no_duplicate_seams.sh) — a standalone gate confirming
 #      exactly one _movement_used gate implementation and exactly one
 #      concrete AI decision (decide_action)/token-reposition (move_token)
 #      call path exist across core/, presentation/, and infrastructure/
 #      (ADR-002/ADR-006 — no new/duplicate seam introduced).
 #
-#   8. The CONSOLIDATED domain suite via tests/.gutconfig.json — hex
+#   9. The CONSOLIDATED domain suite via tests/.gutconfig.json — hex
 #      distance/adjacency, Combatant hex-coordinate init, melee reach
 #      gating, RoundSession stepwise API, enemy-turn automation, Step/
 #      Stride movement, and Flanking/Off-Guard domain logic under
@@ -107,15 +122,15 @@
 #      1 already does) honors -gconfig= and keeps this stage a genuinely
 #      scoped, fast gate.
 #
-#   9. The FULL project-wide GUT suite (root .gutconfig.json) via
+#   10. The FULL project-wide GUT suite (root .gutconfig.json) via
 #      `godot --headless -- --gut-run-all`. This is the whole-project
 #      regression gate and already includes both
 #      tests/gut/test_smoke_boot.gd (stage 1) and tests/sim/test_balance_sim.gd
 #      (stage 2 above).
 #
-#   10. Steel thread prologue-encounter E2E test
+#   11. Steel thread prologue-encounter E2E test
 #      (tests/e2e/test_full_steel_thread_e2e.gd, FEAT-167) — already
-#      covered by stage 9's full-project run, but called out here as its
+#      covered by stage 10's full-project run, but called out here as its
 #      own explicit, clearly-labeled gate: it headlessly boots the real
 #      MainScene.tscn composition root into prologue_encounter.tres and
 #      drives the COMPLETE steel thread end-to-end (turn-start highlight,
@@ -128,13 +143,13 @@
 #      directly to tests/e2e/test_full_steel_thread_e2e.gd (see
 #      tests/ci/test_pipeline_e2e_stage_config.py). Run via GUT's real
 #      CLI entry point with -gselect= scoped to this one script
-#      (mirroring stage 1/2/8/9's convention of invoking gut_cmdln.gd
+#      (mirroring stage 1/2/9/10's convention of invoking gut_cmdln.gd
 #      directly rather than the -- --gut-run-all/HeadlessRunner path).
 #
-#   11. FEAT-255 (US-004/US-005/US-006/US-012/US-013, resolves PR-004,
+#   12. FEAT-255 (US-004/US-005/US-006/US-012/US-013, resolves PR-004,
 #      RISK-006) pinned-seed baseline-diff regression gate
 #      (tests/regression/test_baseline_diff_regression.gd) — already
-#      covered by stage 9's full-project run, but called out here as its
+#      covered by stage 10's full-project run, but called out here as its
 #      own explicit, clearly-labeled gate: re-drives the Effects Applier
 #      retrofit's player-Strike, enemy-on-hit-reaction, and END_TURN
 #      boot-real scenarios at the pinned seed=42 fixture and asserts
@@ -144,7 +159,7 @@
 #      turning RISK-006's previously-manual "no behavior change" diff
 #      step into a durable, automated, gating artifact. Run via GUT's
 #      real CLI entry point scoped to just this one script (mirrors
-#      stage 1/2/8/9/10's convention).
+#      stage 1/2/9/10/11's convention).
 #
 # FEAT-246 (US-015): tests/e2e/test_steel_thread_strike_full_flow.gd — the
 # steel thread's final end-to-end smoke test, consolidating this
@@ -157,14 +172,26 @@
 # and a fully-resolved AREA target set into execute() without regressing
 # Strike or END_TURN, and a pinned-seed rerun reproduces an identical
 # hp/AttackEvent/log outcome (determinism). This file lives under
-# res://tests/e2e, so it is already picked up automatically by stage 8's
+# res://tests/e2e, so it is already picked up automatically by stage 10's
 # full-project run (the root .gutconfig.json's ("res://tests",
 # include_subdirs=true) scope), exactly like
 # tests/e2e/test_steel_thread_post_remediation_smoke.gd before it; it
-# gains no dedicated numbered stage of its own (unlike FEAT-255's stage 11
+# gains no dedicated numbered stage of its own (unlike FEAT-255's stage 12
 # above, which pins the SAME retrofit's outcome against checked-in fixture
 # snapshots rather than merely reproducing it once, so it stays a distinct,
 # explicit, gating stage).
+#
+# FEAT-287 (US-011/US-012): tests/e2e/test_steel_thread_charge_combine.gd —
+# the project's FINAL end-to-end steel thread smoke test, boot-real driving
+# the COMBINE->Charge verb path (Stride then Strike) through the live
+# VERB_TABLE/_controller("COMBINE") seam, asserting a single action +
+# single Stamina ledger charge and a pinned-seed determinism re-run. This
+# file also lives under res://tests/e2e, so — exactly like FEAT-246's
+# tests/e2e/test_steel_thread_strike_full_flow.gd above — it is already
+# picked up automatically by stage 10's full-project run and gains no
+# dedicated numbered stage of its own. FEAT-293 re-confirms it (plus its
+# same-seed determinism re-run) still passes post FIX-001, as this
+# feature's own final smoke check.
 #
 # Exit code: 0 only if every stage above exits 0. `set -euo pipefail`
 # ensures a single failing assertion anywhere aborts the script
@@ -174,18 +201,28 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-echo "=== [1/11] FEAT-001 / NFR-004 headless launchability smoke test (tests/gut/test_smoke_boot.gd) ==="
+echo "=== [1/12] FEAT-001 / NFR-004 headless launchability smoke test (tests/gut/test_smoke_boot.gd) ==="
 godot --headless -s addons/gut/gut_cmdln.gd -gdir=res://tests/gut -gselect=test_smoke_boot.gd -gexit
 
-echo "=== [2/11] core/sim/simulator.gd N=1000 balance regression (NFR-006 / NFR-008 / NFR-009, tests/sim/test_balance_sim.gd) ==="
+echo "=== [2/12] core/sim/simulator.gd N=1000 balance regression (NFR-006 / NFR-008 / NFR-009, tests/sim/test_balance_sim.gd) ==="
 # FEAT-292 (resolves PR-001/PR-002): run BEFORE pytest so res://sim_results.json
 # (now gitignored — see .gitignore — instead of a committed artifact of
-# record) is freshly regenerated before pytest stage 3 reads it. Deterministic
+# record) is freshly regenerated before pytest stage 4 reads it. Deterministic
 # at the pinned seed (12345), so this reproduces the same pinned metric values
 # every run; only the gitignored commit_hash/timestamp fields differ.
 godot --headless -s addons/gut/gut_cmdln.gd -gdir=res://tests/sim -gselect=test_balance_sim.gd -gexit
 
-echo "=== [3/11] pytest suite ==="
+echo "=== [3/12] FEAT-293 automated clean-tree CI gate (resolves PR-003 / PR-004 / PR-008 / PR-009, scripts/verify_clean_tree.sh) ==="
+# Run immediately after the simulation stage above -- historically the
+# stage most likely to leave a generated-but-uncommitted artifact behind
+# (e.g. the FEAT-292 res://sim_results.json regeneration, now gitignored
+# precisely so it can't trip this gate). Fails the whole pipeline the
+# instant ANY pending change (staged, unstaged, or untracked) is found,
+# turning CLAUDE.md's manual "run git status before finishing" commit-
+# hygiene policy into a real, scripted, blocking CI gate.
+scripts/verify_clean_tree.sh
+
+echo "=== [4/12] pytest suite ==="
 # HYKAEN_TEST_COMMAND_E2E_GUARD=1: the recursive end-to-end meta-tests
 # (tests/unit/test_ci_quality_gate_wiring_feat133.py,
 # tests/unit/test_ci_gut_domain_consolidation_feat004.py) shell out THIS very
@@ -201,28 +238,28 @@ echo "=== [3/11] pytest suite ==="
 # exercise the script end-to-end exactly once.
 HYKAEN_TEST_COMMAND_E2E_GUARD=1 python -m pytest -q --tb=short
 
-echo "=== [4/11] FEAT-158 CI pipeline stage-list consistency check (FIND-151) ==="
+echo "=== [5/12] FEAT-158 CI pipeline stage-list consistency check (FIND-151) ==="
 python scripts/check_ci_pipeline_sync.py
 
-echo "=== [5/11] FEAT-239 sim_results.json provenance guard (PR-004 / ADR-006) ==="
+echo "=== [6/12] FEAT-239 sim_results.json provenance guard (PR-004 / ADR-006) ==="
 python scripts/ci/check_sim_results_provenance.py
 
-echo "=== [6/11] FEAT-009 domain purity static check (ADR-001) ==="
+echo "=== [7/12] FEAT-009 domain purity static check (ADR-001) ==="
 ci/check_domain_purity.sh core
 
-echo "=== [7/11] FEAT-009 no-duplicate-ports/use-cases/seams check (ADR-002/ADR-006) ==="
+echo "=== [8/12] FEAT-009 no-duplicate-ports/use-cases/seams check (ADR-002/ADR-006) ==="
 ci/check_no_duplicate_seams.sh
 
-echo "=== [8/11] GUT consolidated domain suite (tests/.gutconfig.json) ==="
+echo "=== [9/12] GUT consolidated domain suite (tests/.gutconfig.json) ==="
 godot --headless -s addons/gut/gut_cmdln.gd -gconfig=res://tests/.gutconfig.json -gexit
 
-echo "=== [9/11] GUT full project suite (root .gutconfig.json, --gut-run-all regression gate) ==="
+echo "=== [10/12] GUT full project suite (root .gutconfig.json, --gut-run-all regression gate) ==="
 godot --headless -- --gut-run-all
 
-echo "=== [10/11] Steel thread prologue-encounter E2E test (tests/e2e/test_full_steel_thread_e2e.gd) ==="
+echo "=== [11/12] Steel thread prologue-encounter E2E test (tests/e2e/test_full_steel_thread_e2e.gd) ==="
 godot --headless -s addons/gut/gut_cmdln.gd -gselect=test_full_steel_thread_e2e.gd -gdir=res://tests/e2e -gexit
 
-echo "=== [11/11] FEAT-255 pinned-seed baseline-diff regression gate (resolves PR-004 / RISK-006, tests/regression/test_baseline_diff_regression.gd) ==="
+echo "=== [12/12] FEAT-255 pinned-seed baseline-diff regression gate (resolves PR-004 / RISK-006, tests/regression/test_baseline_diff_regression.gd) ==="
 godot --headless -s addons/gut/gut_cmdln.gd -gselect=test_baseline_diff_regression.gd -gdir=res://tests/regression -gexit
 
 echo "=== scripts/test_command.sh: all stages passed ==="

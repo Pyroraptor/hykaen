@@ -124,6 +124,25 @@ stages:
     optional: false
     allow_failure: false
 
+  - id: clean_tree_gate
+    name: Automated clean-tree CI gate (FEAT-293 / US-011 / US-012, resolves PR-003 / PR-004 / PR-008 / PR-009)
+    description: >
+      Standalone, independently-invokable gate (scripts/verify_clean_tree.sh)
+      wrapping `git status --porcelain` and failing the build the instant
+      ANY pending change (staged, unstaged, or untracked) exists in the
+      working tree. Wired in immediately after balance_simulation_n1000,
+      the stage historically most likely to leave a generated-but-
+      uncommitted artifact behind (e.g. the FEAT-292 res://sim_results.json
+      regeneration, now gitignored precisely so it can't trip this gate).
+      Turns CLAUDE.md's manual "run git status before finishing" commit-
+      hygiene policy into a real, scripted, blocking CI gate rather than
+      something only caught by manual reviewer inspection. See
+      tests/ci/test_verify_clean_tree.py.
+    command: scripts/verify_clean_tree.sh
+    required: true
+    optional: false
+    allow_failure: false
+
   - id: consolidated_domain_suite
     name: GUT consolidated domain suite (tests/.gutconfig.json)
     description: >
