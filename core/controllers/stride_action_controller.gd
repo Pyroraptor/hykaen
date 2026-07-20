@@ -111,6 +111,9 @@ func enter_selection(context: Dictionary) -> Object:
 
 	var selected_hex = context.get("selected_hex")
 	if selected_hex != null:
+		var is_legal := destinations.any(func(d): return d.equals(selected_hex))
+		if not is_legal:
+			return _failure(order_index)
 		return SelectionDescriptorClass.new(true, [], destinations, [], order_index, {"chosen_hex": selected_hex})
 
 	if destinations.is_empty():
