@@ -993,7 +993,9 @@ func _ready() -> void:
 	# driven through it end-to-end -- is explicitly a LATER feature (US-006)
 	# layered on top of this same seam; this composition root neither
 	# invokes nor connects it to anything yet. ──────────────────────────────
-	_core_combine_action_controller = CoreCombineActionControllerClass.new()
+	_core_combine_action_controller = CoreCombineActionControllerClass.new({
+		"verb_registry_port": _GdVerbRegistryPort.new(),
+	})
 	# FEAT-007 (US-007; NFR-001): built as its own named field
 	# (`_combine_controller_registry`) rather than an inline anonymous dict
 	# literal, so this composition root's OWN interactive per-phase Combine
@@ -1735,7 +1737,14 @@ func _verb_bar_combine_availability() -> bool:
 
 
 func _verb_bar_combine_enter_selection() -> Dictionary:
-	return _controller("COMBINE").enter_selection()
+	var actor = round_session.current_actor() if round_session != null else null
+	# v0 steel thread: hardcoded STRIDE→STRIKE Charge queue drives the targeting
+	# phases directly; Layer 2a queue-builder UI is wired in a later sprint.
+	start_combine_targeting([
+		{"verb_id": "STRIDE", "order_index": 0},
+		{"verb_id": "STRIKE", "order_index": 1},
+	], actor)
+	return {}  # start_combine_targeting() drives SelectionOverlay directly
 
 
 func _verb_bar_combine_execute(selection = null) -> Dictionary:
@@ -1750,6 +1759,8 @@ func _verb_bar_combine_execute(selection = null) -> Dictionary:
 ## re-derives or re-queries the descriptor itself, and never special-cases
 ## verb_id here (ADR-002/CR-001: no forked Layer 2 wiring per verb).
 func _on_verb_bar_selection_entered(verb_id: String, selection) -> void:
+	if _combine_targeting_active:
+		return  # start_combine_targeting() already drove SelectionOverlay directly
 	selection_overlay.activate(verb_id, selection)
 	if selection_overlay.is_awaiting_option():
 		_show_spell_picker(selection_overlay.get_candidate_options())
@@ -2654,6 +2665,24 @@ func _build_party_combatant(character_path: String, hex_coord, combatant_id: Str
 
 func _build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String = "") -> Dictionary:
 	return _combatant_factory.build_enemy_combatant(enemy_path, hex_coord, combatant_id)
+
+
+## _GdVerbRegistryPort — minimal VerbRegistryPort adapter (FEAT-007): returns
+## the loaded STRIDE and STRIKE VerbResource .tres files as the available verb
+## pool for any actor/context. Sufficient for the v0 Charge steel thread; a
+## full actor/context-aware implementation is a later sprint's scope.
+class _GdVerbRegistryPort:
+	extends VerbRegistryPort
+
+	func get_available_verbs(_actor, _context) -> Array:
+		var verbs: Array = []
+		var stride = load("res://data/verbs/stride.tres")
+		if stride != null:
+			verbs.append(stride)
+		var strike = load("res://data/verbs/strike.tres")
+		if strike != null:
+			verbs.append(strike)
+		return verbs
 
 
 ## _CombineTargetingRegistryProxy — FEAT-007 (US-007; NFR-001): the thin
