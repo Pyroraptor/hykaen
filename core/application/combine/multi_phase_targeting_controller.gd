@@ -81,8 +81,8 @@ func _init(deps: Dictionary = {}) -> void:
 	_combine_action_controller = deps.get("combine_action_controller")
 
 
-## execute(queue_entries, actor, context) -> Dictionary{ok, error_code,
-## accumulated, execution_result}
+## execute(queue_entries, actor, context, resolved_selections) -> Dictionary{ok,
+## error_code, accumulated, execution_result}
 ##
 ## queue_entries — Array of VerbQueueEntry (or equivalent
 ##                 {"verb_id":..., "order_index":...} Dictionaries — see
@@ -99,6 +99,18 @@ func _init(deps: Dictionary = {}) -> void:
 ## context       — one of core/domain/combine/combine_queue.gd's
 ##                 CombineQueue.Context enum members (TURN|REACTION);
 ##                 defaults to TURN when omitted, forwarded verbatim.
+## resolved_selections — FEAT-006 (US-006; FR-005; ADR-006): optional
+##                 Dictionary of verb_id -> already-resolved selection input
+##                 (e.g. {"STRIDE": chosen_hex}), forwarded onto that phase's
+##                 own `enter_selection()` context Dictionary as
+##                 `"selected_hex"` when present for that verb_id. This is
+##                 the seam a future SelectionOverlay-driven UI wiring will
+##                 populate from real player input (see this file's own
+##                 file-level doc's "await the resolved value via an
+##                 injected callback" note); for now it lets a caller (or a
+##                 test) drive this loop to a genuinely resolved multi-phase
+##                 outcome without a live UI. Defaults to {} — every
+##                 pre-existing caller is completely unaffected.
 ##
 ## Returns:
 ##   {"ok": true, "error_code": "", "accumulated": {<verb_id>: <SelectionDescriptor>, ...},
@@ -117,7 +129,7 @@ func _init(deps: Dictionary = {}) -> void:
 ##       the loop aborts at that phase and CombineActionController.execute()
 ##       is NEVER reached (error_handling: "no sub-action side effects are
 ##       applied until ALL targeting is resolved").
-func execute(queue_entries: Array, actor, context: int = CombineQueueClass.Context.TURN) -> Dictionary:
+func execute(queue_entries: Array, actor, context: int = CombineQueueClass.Context.TURN, resolved_selections: Dictionary = {}) -> Dictionary:
 	var accumulated: Dictionary = {}
 
 	for entry in _sorted_by_order_index(queue_entries):
@@ -134,6 +146,8 @@ func execute(queue_entries: Array, actor, context: int = CombineQueueClass.Conte
 			"verb_id": verb_id,
 			"accumulated": accumulated,
 		}
+		if resolved_selections.has(verb_id):
+			selection_context["selected_hex"] = resolved_selections[verb_id]
 		var descriptor = controller.enter_selection(selection_context)
 		if descriptor == null or not descriptor.ok:
 			return _abort_result(_error_code_of(descriptor), accumulated)
