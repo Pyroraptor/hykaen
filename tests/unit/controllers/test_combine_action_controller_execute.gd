@@ -19,6 +19,23 @@ extends GutTest
 ##      execute(), strictly before any action-economy charge -- proven via
 ##      a call-order spy shared between the injected use case and the
 ##      injected action-economy port.
+##
+## FEAT-002 (US-002; FR-001/FR-003) regression coverage — added when
+## enter_selection() was wired: CombineActionController.enter_selection()
+## must delegate to core/application/combine/build_verb_queue_use_case.gd's
+## BuildVerbQueueUseCase and return a REAL SelectionDescriptor (ok,
+## candidate_options, candidate_hexes, candidate_targets, order_index, meta)
+## rather than the original bare {ok, queue}-only Dictionary this
+## controller used to be limited to.
+##   5. enter_selection() at an empty queue (context.queue omitted) offers
+##      both STRIDE and STRIKE in candidate_options, ok=true.
+##   6. enter_selection() excludes STRIDE from candidate_options once
+##      STRIDE is already in the queue (no Repeat trait on the current
+##      data/verbs/stride.tres), routed through the SAME
+##      BuildVerbQueueUseCase this controller now delegates to.
+##   7. The returned Object is a SelectionDescriptor (ok/candidate_options/
+##      candidate_hexes/candidate_targets/order_index/meta), never a bare
+##      {ok, queue} Dictionary.
 
 const CombineActionControllerClass = preload("res://core/controllers/combine_action_controller.gd")
 const ValidateCombineQueueUseCaseClass = preload("res://core/application/combine/validate_combine_queue_use_case.gd")
@@ -245,3 +262,71 @@ func test_validation_gate_runs_before_action_economy_charge_even_when_it_rejects
 
 	assert_false(result.get("ok", true), "an illegal queue must still be rejected with a spy use case wired in")
 	assert_eq(call_log, ["validate"], "a rejected validation must never reach the action-economy charge at all")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# FEAT-002 — enter_selection() delegates to BuildVerbQueueUseCase and
+# returns a real SelectionDescriptor, not a bare {ok, queue} Dictionary.
+# ══════════════════════════════════════════════════════════════════════════
+
+func _option_ids(candidate_options: Array) -> Array:
+	var ids: Array = []
+	for option in candidate_options:
+		ids.append(option.get("id"))
+	return ids
+
+
+func test_enter_selection_at_empty_queue_offers_stride_and_strike() -> void:
+	var port := FakeVerbRegistryPort.new(_stride_and_strike_pool())
+	var actor := _make_actor(1)
+	var controller := CombineActionControllerClass.new({"verb_registry_port": port})
+
+	var descriptor = controller.enter_selection({"actor_id": actor, "mode": "BUILD_QUEUE", "combine_context": CombineQueueClass.Context.TURN})
+
+	assert_true(descriptor.ok, "an empty queue with a live actor + registry must offer at least one legal candidate")
+	var ids: Array = _option_ids(descriptor.candidate_options)
+	assert_true(ids.has("STRIDE"), "candidate_options must include STRIDE at an empty queue")
+	assert_true(ids.has("STRIKE"), "candidate_options must include STRIKE at an empty queue")
+
+
+func test_enter_selection_excludes_stride_once_queued_without_repeat() -> void:
+	var port := FakeVerbRegistryPort.new(_stride_and_strike_pool())
+	var actor := _make_actor(1)
+	var controller := CombineActionControllerClass.new({"verb_registry_port": port})
+	var queue: Array = [VerbQueueEntryClass.new("q1", 0, "STRIDE")]
+
+	var descriptor = controller.enter_selection({
+		"actor_id": actor,
+		"mode": "BUILD_QUEUE",
+		"combine_context": CombineQueueClass.Context.TURN,
+		"queue": queue,
+	})
+
+	var ids: Array = _option_ids(descriptor.candidate_options)
+	assert_false(ids.has("STRIDE"), "STRIDE must be excluded once already queued (no Repeat trait on data/verbs/stride.tres)")
+	assert_true(ids.has("STRIKE"), "STRIKE must still be offered -- a different verb is unaffected by STRIDE's own exclusion")
+	assert_true(descriptor.ok, "STRIKE remaining legal must keep ok=true")
+
+
+func test_enter_selection_returns_a_real_selection_descriptor_not_a_bare_ok_queue_dict() -> void:
+	var port := FakeVerbRegistryPort.new(_stride_and_strike_pool())
+	var actor := _make_actor(1)
+	var controller := CombineActionControllerClass.new({"verb_registry_port": port})
+
+	var descriptor = controller.enter_selection({"actor_id": actor, "mode": "BUILD_QUEUE", "combine_context": CombineQueueClass.Context.TURN})
+
+	assert_false(descriptor is Dictionary, "enter_selection() must return a SelectionDescriptor object, not a bare Dictionary")
+	assert_true(descriptor.ok is bool, "the returned SelectionDescriptor must carry an `ok` field")
+	assert_true(descriptor.candidate_options is Array, "the returned SelectionDescriptor must carry a `candidate_options` field")
+	assert_true(descriptor.candidate_hexes is Array, "the returned SelectionDescriptor must carry a `candidate_hexes` field")
+	assert_true(descriptor.candidate_targets is Array, "the returned SelectionDescriptor must carry a `candidate_targets` field")
+	assert_true(descriptor.meta is Dictionary, "the returned SelectionDescriptor must carry a `meta` field")
+
+
+func test_enter_selection_degrades_safely_with_no_live_actor() -> void:
+	var port := FakeVerbRegistryPort.new(_stride_and_strike_pool())
+	var controller := CombineActionControllerClass.new({"verb_registry_port": port})
+
+	var descriptor = controller.enter_selection({"mode": "BUILD_QUEUE", "combine_context": CombineQueueClass.Context.TURN})
+
+	assert_false(descriptor.ok, "enter_selection() with no live actor must fail closed, not crash")

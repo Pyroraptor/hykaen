@@ -27,8 +27,16 @@
 ## `action_economy_port`, when wired) and one Stamina (via the actor's own
 ## `spend_stamina()`, the SAME sole mutator core/domain/combatant.gd
 ## documents). The full N-length sub-action dispatch (Stride-then-Strike
-## resolution) and enter_selection()'s own queue-builder wiring are LATER
-## features layered on top of this same seam, without changing it.
+## resolution) is a LATER feature layered on top of this same seam,
+## without changing it.
+##
+## FEAT-002 (US-002; FR-001/FR-003) ADDS this controller's other
+## VerbControllerPort half, enter_selection(): delegates to
+## core/application/combine/build_verb_queue_use_case.gd's
+## BuildVerbQueueUseCase to return a REAL SelectionDescriptor (ok/
+## candidate_options/candidate_hexes/candidate_targets/order_index/meta) of
+## legal, combinable next-pick verb candidates — fixing this controller's
+## original bare {ok, queue}-only Dictionary shape.
 ##
 ## Domain purity boundary (ADR-001): extends RefCounted only — no
 ## Node/Control/SceneTree inheritance, no engine I/O.
@@ -36,9 +44,18 @@
 ## Usage:
 ##   var controller := CombineActionController.new({
 ##       "validate_combine_queue_use_case": ValidateCombineQueueUseCase.new(),
+##       "build_verb_queue_use_case": BuildVerbQueueUseCase.new(),
 ##       "verb_registry_port": verb_registry_port,
 ##       "action_economy_port": action_economy_port,
 ##   })
+##   var descriptor: Object = controller.enter_selection({
+##       "actor_id": actor,
+##       "mode": "BUILD_QUEUE",
+##       "combine_context": CombineQueue.Context.TURN,
+##       "queue": [],
+##   })
+##   # descriptor.ok == true; descriptor.candidate_options includes STRIDE/STRIKE
+##
 ##   var result: Dictionary = controller.execute({
 ##       "queue": confirmed_queue.sorted_entries(),
 ##       "actor": actor,
@@ -50,6 +67,7 @@ class_name CombineActionController
 extends RefCounted
 
 const ValidateCombineQueueUseCaseClass = preload("res://core/application/combine/validate_combine_queue_use_case.gd")
+const BuildVerbQueueUseCaseClass = preload("res://core/application/combine/build_verb_queue_use_case.gd")
 const CombineQueueClass = preload("res://core/domain/combine/combine_queue.gd")
 
 ## The APPLICATION-layer use case this controller's execute() routes its
@@ -57,6 +75,13 @@ const CombineQueueClass = preload("res://core/domain/combine/combine_queue.gd")
 ## caller need not always inject one, but a test may substitute its own
 ## (e.g. a spy) via `deps["validate_combine_queue_use_case"]`.
 var _validate_combine_queue_use_case
+
+## The APPLICATION-layer use case this controller's enter_selection()
+## (FEAT-002; US-002; FR-001/FR-003) routes the incremental verb-queue-pick
+## query through. Defaults to a fresh instance so a caller need not always
+## inject one, but a test may substitute its own (e.g. a spy) via
+## `deps["build_verb_queue_use_case"]`.
+var _build_verb_queue_use_case
 
 ## VerbRegistryPort (or an equivalent duck-typed fake) — forwarded verbatim
 ## to `_validate_combine_queue_use_case.execute()` as the SOLE source fresh
@@ -77,8 +102,50 @@ var _action_economy_port
 
 func _init(deps: Dictionary = {}) -> void:
 	_validate_combine_queue_use_case = deps.get("validate_combine_queue_use_case", ValidateCombineQueueUseCaseClass.new())
+	_build_verb_queue_use_case = deps.get("build_verb_queue_use_case", BuildVerbQueueUseCaseClass.new())
 	_verb_registry_port = deps.get("verb_registry_port")
 	_action_economy_port = deps.get("action_economy_port")
+
+
+## enter_selection(context) -> Object (SelectionDescriptor) — (FEAT-002;
+## US-002; FR-001/FR-003; VerbControllerPort contract, api_contracts #1).
+##
+## Drives the queue-builder half of this controller's VerbControllerPort
+## surface (the OTHER half being execute(), above): given the queue picked
+## SO FAR, delegates to core/application/combine/build_verb_queue_use_case.gd's
+## BuildVerbQueueUseCase to ask `_verb_registry_port` for the actor's
+## currently-available verb pool and filter it down to only the LEGAL next
+## picks via core/domain/combine/combine_actions.gd's combine_actions() —
+## the SAME domain service execute()'s DEF-001 gate re-runs, never a second,
+## independently-maintained copy of the same-verb/Repeat rule.
+##
+## Returns a REAL SelectionDescriptor (core/domain/combine/
+## selection_descriptor.gd — ok/candidate_options/candidate_hexes/
+## candidate_targets/order_index/meta) rather than this controller's
+## original bare {ok, queue}-only Dictionary shape.
+##
+## context — Dictionary carrying (design notes' api_contracts #1 request
+##            shape; extra keys such as "mode"/"accumulated" are accepted
+##            and ignored -- this controller's queue-builder step performs
+##            no context-specific branching beyond what it reads below):
+##   "actor_id" — the combatant picking verbs (despite the key name, this
+##                is the actual actor object, not a String id — mirrors
+##                every other verb controller's own `context.get("actor_id")`
+##                convention, e.g. core/controllers/stride_action_controller.gd).
+##                Forwarded verbatim to BuildVerbQueueUseCase; a null actor
+##                degrades safely (see BuildVerbQueueUseCase's own doc)
+##                rather than crashing.
+##   "queue"    — Array of already-picked queue entries (VerbQueueEntry or
+##                equivalent Dictionaries). Defaults to [] for the first
+##                pick of a fresh Combine.
+##   "combine_context" — one of CombineQueue.Context (TURN|REACTION);
+##                defaults to TURN when absent.
+func enter_selection(context: Dictionary = {}) -> Object:
+	var actor = context.get("actor_id")
+	var queue: Array = context.get("queue", [])
+	var combine_context: int = context.get("combine_context", CombineQueueClass.Context.TURN)
+
+	return _build_verb_queue_use_case.enter_selection(queue, actor, combine_context, _verb_registry_port)
 
 
 ## execute(payload) -> Dictionary{ok, error_code, actions_spent, stamina_spent, resolution_log}
