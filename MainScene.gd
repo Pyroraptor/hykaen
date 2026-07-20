@@ -220,6 +220,25 @@ const CoreCombineActionControllerClass = preload("res://core/controllers/combine
 const CoreStrideActionControllerClass = preload("res://core/controllers/stride_action_controller.gd")
 const CoreStrikeActionControllerClass = preload("res://core/controllers/strike_action_controller.gd")
 
+## CombineQueueClass / VerbQueueEntryClass / BuildVerbQueueUseCaseClass /
+## ConfirmQueueUseCaseClass / CancelCombineUseCaseClass — FEAT-296
+## (DEF-NEW-001): the domain/application-layer collaborators the LIVE
+## COMBINE entry point (`_verb_bar_combine_enter_selection()`) now drives
+## directly, via this composition root's own "interactive Combine
+## QUEUE-BUILD pick loop" (see that section's own doc, below
+## `_combine_order_index_of()`), so a real player's COMBINE press builds a
+## genuine incremental CombineQueue instead of the historical hardcoded
+## queue_entries=[STRIDE, STRIKE]. BuildVerbQueueUseCase itself is already
+## reached indirectly via `_core_combine_action_controller.enter_selection()`
+## (FEAT-002) — only Confirm/Cancel's own command-time gates
+## (ConfirmQueueUseCase/CancelCombineUseCase) and the CombineQueue/
+## VerbQueueEntry value objects are newly constructed here.
+const CombineQueueClass = preload("res://core/domain/combine/combine_queue.gd")
+const VerbQueueEntryClass = preload("res://core/domain/combine/verb_queue_entry.gd")
+const BuildVerbQueueUseCaseClass = preload("res://core/application/combine/build_verb_queue_use_case.gd")
+const ConfirmQueueUseCaseClass = preload("res://core/application/combine/confirm_queue_use_case.gd")
+const CancelCombineUseCaseClass = preload("res://core/application/combine/cancel_combine_use_case.gd")
+
 ## TargetingPortClass — core/application/ports/targeting_port.gd's abstract
 ## base (FEAT-283), extended BY PATH below (_FirstLegalTargetingPort) —
 ## mirrors this project's established preload-typing convention for
@@ -725,6 +744,50 @@ var _combine_targeting_accumulated: Dictionary = {}
 var _combine_targeting_resolved: Dictionary = {}
 var _combine_targeting_result: Dictionary = {}
 
+## _combine_targeting_queue — FEAT-296 (DEF-NEW-001): the CONFIRMED
+## CombineQueue instance (core/domain/combine/combine_queue.gd) this
+## targeting run belongs to, when start_combine_targeting() was reached via
+## the real interactive queue-build pick loop below (rather than a direct
+## test call, which may still omit it). Forwarded verbatim as
+## `multi_phase_targeting_controller.execute()`'s own optional
+## `combine_queue` argument (FEAT-008's own CANCEL_SENTINEL-during-targeting
+## seam) so a queue built through the LIVE entry point participates in that
+## SAME cancellation bookkeeping. null for any pre-FEAT-296 caller (default
+## argument), completely unaffected.
+var _combine_targeting_queue = null
+
+## _combine_build_active / _combine_build_queue / _combine_build_actor /
+## _combine_build_context / _combine_build_pending_option — FEAT-296
+## (DEF-NEW-001): this composition root's OWN interactive Combine
+## QUEUE-BUILD pick loop state -- the Layer 2a incremental
+## STRIDE/STRIKE/Confirm/Cancel picker a real COMBINE press now drives
+## BEFORE any targeting phase begins (see the "interactive Combine
+## QUEUE-BUILD pick loop" section doc, below `_combine_order_index_of()`).
+## Mirrors `_combine_targeting_*`'s own "constructed here, exposed for
+## verification" precedent one phase earlier in the flow: this state exists
+## ONLY while the player is still assembling the CombineQueue (via
+## `_core_combine_action_controller`'s BuildVerbQueueUseCase-backed
+## enter_selection(), plus ConfirmQueueUseCase/CancelCombineUseCase below);
+## once Confirm succeeds it is torn down and start_combine_targeting()
+## (UNCHANGED by this feature) takes over exactly as it already did for the
+## historical hardcoded queue.
+var _combine_build_active: bool = false
+var _combine_build_queue = null
+var _combine_build_actor = null
+var _combine_build_context: int = 0
+var _combine_build_pending_option: Dictionary = {}
+
+## _combine_build_registry_proxy — FEAT-296: the thin presentation-layer
+## adapter (see the private _CombineBuildRegistryProxy class near the
+## bottom of this file) this composition root hands to
+## `selection_overlay.configure()` for the DURATION of an interactive
+## Combine QUEUE-BUILD pick only, mirroring
+## `_combine_targeting_registry_proxy`'s own identical role for the
+## targeting phase. Delegates every resolved pick straight back to
+## `_on_combine_build_option_chosen()`, never dispatching to a real
+## ActionController mid-build.
+var _combine_build_registry_proxy = null
+
 ## _party / _enemies — the live combatant Dictionaries built at boot,
 ## mutated in place by every resolved Strike throughout the interactive
 ## session (Dictionaries are reference types in GDScript). Kept as fields so
@@ -1017,6 +1080,10 @@ func _ready() -> void:
 		"combine_action_controller": _core_combine_action_controller,
 	})
 	_combine_targeting_registry_proxy = _CombineTargetingRegistryProxy.new(self)
+	# FEAT-296 (DEF-NEW-001): the SAME "thin, self-only proxy" pattern
+	# `_combine_targeting_registry_proxy` above establishes, one phase
+	# earlier -- see `_combine_build_registry_proxy`'s own field doc.
+	_combine_build_registry_proxy = _CombineBuildRegistryProxy.new(self)
 
 	# ── FEAT-008 / US-008 (FR-003, ADR-002): wire the generic Layer 2
 	# SelectionOverlay (presentation/selection_overlay.gd) over the SAME
@@ -1736,15 +1803,24 @@ func _verb_bar_combine_availability() -> bool:
 	return _controller("COMBINE").availability()
 
 
+## _verb_bar_combine_enter_selection() -> Dictionary — FEAT-296 (DEF-NEW-001):
+## the LIVE entry point VerbBarRegistry actually registers/invokes for a
+## real player's COMBINE press (`_verb_bar_combine_*` mirrors every other
+## verb's own thin `_verb_bar_<verb>_*` shim, see VERB_TABLE's own doc).
+## Delegates to `_start_combine_queue_build()` -- the interactive
+## BuildVerbQueueUseCase/ConfirmQueueUseCase-backed queue-builder loop (see
+## the "interactive Combine QUEUE-BUILD pick loop" section doc, below
+## `_combine_order_index_of()`) -- which drives SelectionOverlay directly,
+## exactly like start_combine_targeting()'s own established precedent for
+## the targeting phase. No verb_id is ever hardcoded here (or anywhere else
+## in this file) -- the real, live candidate pool (STRIDE/STRIKE today; any
+## future combinable verb automatically, with zero change to this
+## function) is asked for fresh on every pick via
+## `_core_combine_action_controller`'s own BuildVerbQueueUseCase seam.
 func _verb_bar_combine_enter_selection() -> Dictionary:
 	var actor = round_session.current_actor() if round_session != null else null
-	# v0 steel thread: hardcoded STRIDE→STRIKE Charge queue drives the targeting
-	# phases directly; Layer 2a queue-builder UI is wired in a later sprint.
-	start_combine_targeting([
-		{"verb_id": "STRIDE", "order_index": 0},
-		{"verb_id": "STRIKE", "order_index": 1},
-	], actor)
-	return {}  # start_combine_targeting() drives SelectionOverlay directly
+	_start_combine_queue_build(actor)
+	return {}  # _start_combine_queue_build() drives SelectionOverlay directly
 
 
 func _verb_bar_combine_execute(selection = null) -> Dictionary:
@@ -1759,8 +1835,8 @@ func _verb_bar_combine_execute(selection = null) -> Dictionary:
 ## re-derives or re-queries the descriptor itself, and never special-cases
 ## verb_id here (ADR-002/CR-001: no forked Layer 2 wiring per verb).
 func _on_verb_bar_selection_entered(verb_id: String, selection) -> void:
-	if _combine_targeting_active:
-		return  # start_combine_targeting() already drove SelectionOverlay directly
+	if _combine_targeting_active or _combine_build_active:
+		return  # start_combine_targeting()/_start_combine_queue_build() already drove SelectionOverlay directly
 	selection_overlay.activate(verb_id, selection)
 	if selection_overlay.is_awaiting_option():
 		_show_spell_picker(selection_overlay.get_candidate_options())
@@ -1793,6 +1869,14 @@ func _on_verb_bar_selection_entered(verb_id: String, selection) -> void:
 ## (`_combine_targeting_active` is false for the whole of a standalone
 ## Strike/Stride flow), which is this feature's own regression test_criteria.
 func _on_selection_overlay_resolved(_verb_id: String, _result) -> void:
+	# FEAT-296 (DEF-NEW-001): mirrors the FEAT-007 targeting-phase branch
+	# immediately below, one phase earlier -- a resolved COMBINE pick while
+	# the interactive queue-BUILD loop is active routes to
+	# _advance_combine_build() instead, never touching `_verb_registry`/
+	# `verb_bar_view`/highlight state a standalone verb resolution would.
+	if _combine_build_active and _verb_id == "COMBINE":
+		_advance_combine_build()
+		return
 	if _combine_targeting_active and _combine_targeting_index < _combine_targeting_entries.size() \
 			and _verb_id == _combine_verb_id_of(_combine_targeting_entries[_combine_targeting_index]):
 		_advance_combine_targeting_phase()
@@ -1885,7 +1969,18 @@ func _on_selection_overlay_resolved(_verb_id: String, _result) -> void:
 ## MultiPhaseTargetingController's own `_sorted_by_order_index()` convention).
 ## A no-op or an empty `queue_entries` (`_combine_targeting_active` left
 ## false, nothing else mutated).
-func start_combine_targeting(queue_entries: Array, actor, context: int = 0) -> void:
+##
+## `combine_queue` — FEAT-296 (DEF-NEW-001): optional CombineQueue instance
+## (core/domain/combine/combine_queue.gd) `queue_entries` belongs to, when
+## known (the interactive queue-build pick loop below always supplies its
+## own freshly-CONFIRMED queue here). Stored on `_combine_targeting_queue`
+## and forwarded verbatim to `multi_phase_targeting_controller.execute()`'s
+## own optional `combine_queue` argument once this run finishes (see
+## `_finish_combine_targeting()`), so a CANCEL_SENTINEL pick during any
+## targeting phase transitions this SAME queue instance to CANCELLED
+## (FEAT-008). Defaults to null -- every pre-FEAT-296 caller (this file's
+## own existing test suite) is completely unaffected.
+func start_combine_targeting(queue_entries: Array, actor, context: int = 0, combine_queue = null) -> void:
 	if queue_entries.is_empty():
 		return
 
@@ -1897,6 +1992,7 @@ func start_combine_targeting(queue_entries: Array, actor, context: int = 0) -> v
 	_combine_targeting_accumulated = {}
 	_combine_targeting_resolved = {}
 	_combine_targeting_result = {}
+	_combine_targeting_queue = combine_queue
 	_combine_targeting_active = true
 	_enter_combine_targeting_phase()
 
@@ -2015,7 +2111,8 @@ func _advance_combine_targeting_phase() -> void:
 ## resets all loop state.
 func _finish_combine_targeting() -> void:
 	_combine_targeting_result = multi_phase_targeting_controller.execute(
-		_combine_targeting_entries, _combine_targeting_actor, _combine_targeting_context, _combine_targeting_resolved
+		_combine_targeting_entries, _combine_targeting_actor, _combine_targeting_context,
+		_combine_targeting_resolved, _combine_targeting_queue
 	)
 	_reset_combine_targeting_state()
 
@@ -2052,6 +2149,7 @@ func _reset_combine_targeting_state() -> void:
 	_combine_targeting_actor = null
 	_combine_targeting_accumulated = {}
 	_combine_targeting_resolved = {}
+	_combine_targeting_queue = null
 	if selection_overlay != null and _verb_registry != null:
 		selection_overlay.configure(_verb_registry, hex_grid_view)
 
@@ -2073,6 +2171,222 @@ func _combine_order_index_of(entry) -> int:
 	if entry is Dictionary:
 		return entry.get("order_index", 0)
 	return entry.order_index
+
+
+# ── FEAT-296 (DEF-NEW-001) — interactive Combine QUEUE-BUILD pick loop ──────
+#
+# Wires the LIVE COMBINE entry point (`_verb_bar_combine_enter_selection()`,
+# the function VerbBarRegistry actually registers/invokes for a real
+# player's COMBINE press) to the REAL Layer 2a queue-builder use cases
+# (BuildVerbQueueUseCase -- reached indirectly via
+# `_core_combine_action_controller.enter_selection()`, FEAT-002 --
+# ConfirmQueueUseCase, FEAT-003/US-003, and CancelCombineUseCase,
+# FEAT-008/US-008) instead of the historical hardcoded
+# queue_entries=[STRIDE, STRIKE] this file used to hand straight to
+# start_combine_targeting(). start_combine_targeting() itself (and
+# everything downstream of it -- the N-length sequential targeting loop,
+# MultiPhaseTargetingController, CombineActionController.execute()) is
+# UNCHANGED by this feature and is reused verbatim below, once a real
+# picked queue is actually CONFIRMED by the player.
+#
+# Algorithm (mirrors the "interactive Combine sub-action targeting" section
+# above, one phase earlier in the flow):
+#   1. _start_combine_queue_build(actor) creates a fresh CombineQueue and
+#      enters the first pick.
+#   2. _enter_combine_build_pick() asks `_core_combine_action_controller`
+#      for the current SelectionDescriptor (candidate_options: legal next
+#      verbs, plus Confirm once the context minimum is met, plus Cancel
+#      once at least one verb is already queued) and activates
+#      selection_overlay with it -- switching selection_overlay's own
+#      `_registry` to `_combine_build_registry_proxy` for the duration, and
+#      driving the SAME Layer-2a `_show_spell_picker()` option panel
+#      CAST_SPELL's own option picker already uses (no forked/parallel
+#      option-picker UI, ADR-002).
+#   3. A button press resolves through selection_overlay's OWN, UNCHANGED
+#      choose_option()/_resolve() -> `_registry.execute("COMBINE", value)`
+#      -> _on_combine_build_option_chosen() below, which records the chosen
+#      option (a VERB pick, the Confirm sentinel, or the Cancel sentinel)
+#      into `_combine_build_pending_option` -- performing NO queue mutation
+#      itself (mirrors _on_combine_targeting_value_chosen()'s own "record
+#      now, act after clear()" discipline: mutating state or re-entering
+#      Layer 2 from INSIDE this call, before selection_overlay's own
+#      _resolve() has run its own clear(), would corrupt that in-flight
+#      resolution).
+#   4. selection_overlay's OWN selection_resolved signal then fires (see
+#      _on_selection_overlay_resolved()'s own FEAT-296 branch above), which
+#      routes to _advance_combine_build() -- dispatching on the pending
+#      option's id:
+#        - a VERB pick appends a new VerbQueueEntry to the in-progress
+#          CombineQueue and re-enters the NEXT pick (back to step 2).
+#        - the Confirm sentinel routes through the REAL ConfirmQueueUseCase;
+#          on success the build loop tears itself down and hands the now-
+#          CONFIRMED queue's sorted entries to start_combine_targeting()
+#          (UNCHANGED) -- the SAME hand-off the historical hardcoded queue
+#          used to reach directly.
+#        - the Cancel sentinel routes through the REAL CancelCombineUseCase
+#          and tears the build loop down with NO further hand-off -- control
+#          returns to Layer 1 with zero queue state retained.
+#   5. Every terminal path funnels through _reset_combine_build_state(),
+#      which resets ALL build-loop state and switches selection_overlay
+#      back to `_verb_registry`, mirroring
+#      `_reset_combine_targeting_state()`'s own identical guarantee.
+
+
+## _start_combine_queue_build(actor) -> void — FEAT-296: entry point for the
+## interactive queue-build pick loop, called from
+## `_verb_bar_combine_enter_selection()`. A null actor degrades safely (no
+## crash): `_enter_combine_build_pick()`'s own descriptor query fails
+## NO_LEGAL_OPTIONS and the build aborts immediately (mirrors
+## BuildVerbQueueUseCase's own null-actor degrade-safely contract).
+func _start_combine_queue_build(actor) -> void:
+	var actor_id: String = actor.display_id() if actor != null else ""
+	_combine_build_queue = CombineQueueClass.new("combine_build", actor_id, CombineQueueClass.Context.TURN)
+	_combine_build_actor = actor
+	_combine_build_context = CombineQueueClass.Context.TURN
+	_combine_build_pending_option = {}
+	_combine_build_active = true
+	_enter_combine_build_pick()
+
+
+## _enter_combine_build_pick() -> void — FEAT-296: offers the CURRENT
+## in-progress CombineQueue's next legal pick via
+## `_core_combine_action_controller.enter_selection()` -- the SAME
+## BuildVerbQueueUseCase-backed seam this project's own boot-real e2e suite
+## (tests/e2e/combine/test_charge_end_to_end.gd) already drove directly,
+## but which the LIVE entry point never reached before this feature (this
+## feature's own gap, DEF-NEW-001) -- then activates selection_overlay with
+## the resulting descriptor through the SAME Layer-2a
+## `_show_spell_picker()` option-panel path CAST_SPELL already uses (design
+## notes: "driving SelectionDescriptor display through the existing
+## unmodified SelectionOverlay ... path"). selection_overlay is switched to
+## `_combine_build_registry_proxy` for the duration (see that field's own
+## doc). A null/failed descriptor (no legal pick remains -- e.g. no live
+## actor, or a genuinely empty verb pool) aborts the whole queue-build
+## immediately via _abort_combine_build(), mirroring
+## _enter_combine_targeting_phase()'s own abort-on-failure discipline.
+func _enter_combine_build_pick() -> void:
+	if _core_combine_action_controller == null:
+		_abort_combine_build()
+		return
+
+	var descriptor = _core_combine_action_controller.enter_selection({
+		"actor_id": _combine_build_actor,
+		"queue": _combine_build_queue.sorted_entries(),
+		"combine_context": _combine_build_context,
+	})
+
+	if descriptor == null or not descriptor.ok:
+		_abort_combine_build()
+		return
+
+	if selection_overlay != null:
+		selection_overlay.configure(_combine_build_registry_proxy, hex_grid_view)
+		selection_overlay.activate("COMBINE", descriptor)
+		if selection_overlay.is_awaiting_option():
+			_show_spell_picker(selection_overlay.get_candidate_options())
+
+
+## _on_combine_build_option_chosen(verb_id, value) -> Dictionary — FEAT-296:
+## `_combine_build_registry_proxy`'s sole `execute()` delegate (see that
+## field's own doc), called synchronously from INSIDE selection_overlay's
+## OWN, UNCHANGED _resolve() the instant a Layer-2a option button press
+## resolves the current pick. Records the chosen option Dictionary ({id,
+## label, kind}) into `_combine_build_pending_option` for
+## _advance_combine_build() (invoked immediately afterward, from
+## _on_selection_overlay_resolved()) to dispatch on. Performs NO queue
+## mutation and NEVER re-enters Layer 2 itself -- see the section doc
+## above for why calling selection_overlay.activate() from inside this
+## call would corrupt selection_overlay's own in-flight _resolve() call.
+func _on_combine_build_option_chosen(_verb_id: String, value) -> Dictionary:
+	var option: Dictionary = {}
+	if value is Dictionary:
+		option = value.get("option", {})
+	_combine_build_pending_option = option
+	return {"ok": true}
+
+
+## _advance_combine_build() -> void — FEAT-296: called from
+## _on_selection_overlay_resolved() once _on_combine_build_option_chosen()
+## above has already recorded the just-picked option. Dispatches on the
+## pending option's `id`:
+##   - the Cancel sentinel (CancelCombineUseCase.CANCEL_SENTINEL_ID) routes
+##     through the REAL CancelCombineUseCase, then tears the build loop
+##     down via _reset_combine_build_state() -- control returns to Layer 1
+##     with no queue state retained (this feature's own test_criteria).
+##   - the Confirm sentinel (BuildVerbQueueUseCase.CONFIRM_SENTINEL_ID)
+##     routes through the REAL ConfirmQueueUseCase; on success, the
+##     now-CONFIRMED queue's sorted entries are handed to
+##     start_combine_targeting() (UNCHANGED by this feature) -- the SAME
+##     hand-off the historical hardcoded queue used to reach directly. A
+##     confirm rejection (defensive -- should not occur, since Confirm is
+##     only ever offered once the minimum is met) aborts the build instead.
+##   - any other option (a VERB pick, e.g. STRIDE/STRIKE) appends a new
+##     VerbQueueEntry to the in-progress CombineQueue and re-enters the
+##     NEXT pick.
+func _advance_combine_build() -> void:
+	_hide_spell_picker()
+	var option: Dictionary = _combine_build_pending_option
+	var option_id: String = option.get("id", "")
+
+	if option_id == CancelCombineUseCaseClass.CANCEL_SENTINEL_ID:
+		CancelCombineUseCaseClass.new().execute(_combine_build_queue)
+		_reset_combine_build_state()
+		return
+
+	if option_id == BuildVerbQueueUseCaseClass.CONFIRM_SENTINEL_ID:
+		var confirm_result: Dictionary = ConfirmQueueUseCaseClass.new().execute(_combine_build_queue)
+		if not confirm_result.get("ok", false):
+			_abort_combine_build()
+			return
+		var entries: Array = _combine_build_queue.sorted_entries()
+		var actor = _combine_build_actor
+		var context: int = _combine_build_context
+		var confirmed_queue = _combine_build_queue
+		_reset_combine_build_state()
+		start_combine_targeting(entries, actor, context, confirmed_queue)
+		return
+
+	if option_id == "":
+		_abort_combine_build()
+		return
+
+	var order_index: int = _combine_build_queue.entries.size()
+	var add_result: Dictionary = _combine_build_queue.add_entry(
+		VerbQueueEntryClass.new(_combine_build_queue.queue_id, order_index, option_id)
+	)
+	if not add_result.get("ok", false):
+		_abort_combine_build()
+		return
+
+	_enter_combine_build_pick()
+
+
+## _abort_combine_build() -> void — FEAT-296: the queue-build loop's
+## failure terminal (a null/failed descriptor, or a defensive
+## add_entry()/ConfirmQueueUseCase rejection) -- resets state with NO
+## hand-off to targeting, mirroring _abort_combine_targeting()'s own "never
+## invokes the next stage" contract.
+func _abort_combine_build() -> void:
+	_reset_combine_build_state()
+
+
+## _reset_combine_build_state() -> void — FEAT-296: the SOLE terminal
+## state-reset code path shared by every _advance_combine_build() exit and
+## _abort_combine_build(), so every terminal outcome leaves IDENTICAL
+## bookkeeping behind: `_combine_build_active` false, every loop-local
+## field cleared, and selection_overlay switched back to `_verb_registry`
+## -- the SAME registry every standalone verb press already uses -- mirroring
+## `_reset_combine_targeting_state()`'s own identical guarantee. A
+## subsequent fresh COMBINE press starts a brand-new CombineQueue with no
+## leaked exclusion/entry from a cancelled or aborted prior attempt (this
+## feature's own test_criteria).
+func _reset_combine_build_state() -> void:
+	_combine_build_active = false
+	_combine_build_queue = null
+	_combine_build_actor = null
+	_combine_build_pending_option = {}
+	if selection_overlay != null and _verb_registry != null:
+		selection_overlay.configure(_verb_registry, hex_grid_view)
 
 
 # ── Spell picker panel ───────────────────────────────────────────────────────
@@ -2707,3 +3021,26 @@ class _CombineTargetingRegistryProxy:
 
 	func execute(verb_id: String, value) -> Dictionary:
 		return _main_scene._on_combine_targeting_value_chosen(verb_id, value)
+
+
+## _CombineBuildRegistryProxy — FEAT-296 (DEF-NEW-001): the thin
+## presentation-layer adapter `_combine_build_registry_proxy` is an
+## instance of (see that field's own doc, and the "interactive Combine
+## QUEUE-BUILD pick loop" section doc above _combine_order_index_of()).
+## Exposes the EXACT SAME duck-typed `execute(verb_id, value) -> Dictionary`
+## contract presentation/selection_overlay.gd's own `_registry` doc
+## requires -- mirrors `_CombineTargetingRegistryProxy`'s identical role,
+## one phase earlier in the flow. selection_overlay.gd itself remains
+## COMPLETELY UNCHANGED. Delegates every call straight back to the owning
+## MainScene's own _on_combine_build_option_chosen(), never resolving a
+## real ActionController itself.
+class _CombineBuildRegistryProxy:
+	extends RefCounted
+
+	var _main_scene
+
+	func _init(main_scene) -> void:
+		_main_scene = main_scene
+
+	func execute(verb_id: String, value) -> Dictionary:
+		return _main_scene._on_combine_build_option_chosen(verb_id, value)
