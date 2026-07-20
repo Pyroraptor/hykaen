@@ -217,6 +217,8 @@ const CombineActionControllerClass     = preload("res://presentation/combine_act
 ## a LATER feature (US-006) layered on top of this same seam.
 const MultiPhaseTargetingControllerClass = preload("res://core/application/combine/multi_phase_targeting_controller.gd")
 const CoreCombineActionControllerClass = preload("res://core/controllers/combine_action_controller.gd")
+const CoreStrideActionControllerClass = preload("res://core/controllers/stride_action_controller.gd")
+const CoreStrikeActionControllerClass = preload("res://core/controllers/strike_action_controller.gd")
 
 ## TargetingPortClass — core/application/ports/targeting_port.gd's abstract
 ## base (FEAT-283), extended BY PATH below (_FirstLegalTargetingPort) —
@@ -939,8 +941,12 @@ func _ready() -> void:
 	_core_combine_action_controller = CoreCombineActionControllerClass.new()
 	multi_phase_targeting_controller = MultiPhaseTargetingControllerClass.new({
 		"controller_registry": {
-			"STRIDE": _controller("STRIDE"),
-			"STRIKE": _controller("STRIKE"),
+			"STRIDE": CoreStrideActionControllerClass.new({
+				"other_combatants_fn": func(): return _party + _enemies,
+			}),
+			"STRIKE": CoreStrikeActionControllerClass.new({
+				"candidate_targets_fn": Callable(self, "_living_enemy_reactors"),
+			}),
 		},
 		"combine_action_controller": _core_combine_action_controller,
 	})
