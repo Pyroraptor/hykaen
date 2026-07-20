@@ -1056,8 +1056,19 @@ func _ready() -> void:
 	# driven through it end-to-end -- is explicitly a LATER feature (US-006)
 	# layered on top of this same seam; this composition root neither
 	# invokes nor connects it to anything yet. ──────────────────────────────
+	# FEAT-297 (resolves DEF-NEW-002): `controller_for` wires the REAL
+	# sub-action dispatch this feature merges into
+	# core/controllers/combine_action_controller.gd's own execute() —
+	# `Callable(self, "_controller")` is the EXACT SAME `_controller(verb_id)`
+	# table lookup every other verb (including STRIDE/STRIKE's own real,
+	# live presentation controllers) is resolved through below, never a
+	# second/forked resolution path. This is what lets the controller
+	# instance actually invoked by the live signal chain
+	# (`multi_phase_targeting_controller`, wired just below) perform real
+	# movement + Strike resolution, not just validate-then-charge.
 	_core_combine_action_controller = CoreCombineActionControllerClass.new({
 		"verb_registry_port": _GdVerbRegistryPort.new(),
+		"controller_for": Callable(self, "_controller"),
 	})
 	# FEAT-007 (US-007; NFR-001): built as its own named field
 	# (`_combine_controller_registry`) rather than an inline anonymous dict

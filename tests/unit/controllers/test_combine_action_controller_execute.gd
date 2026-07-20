@@ -45,9 +45,17 @@ const CombineQueueClass = preload("res://core/domain/combine/combine_queue.gd")
 const VerbResourceClass = preload("res://core/resources/verb_resource.gd")
 const CombatantClass = preload("res://core/domain/combatant.gd")
 const HexCoordClass = preload("res://core/geometry/hex_coord.gd")
+const SelectionDescriptorClass = preload("res://core/domain/combine/selection_descriptor.gd")
 
 const STRIDE_RESOURCE_PATH: String = "res://data/verbs/stride.tres"
 const STRIKE_RESOURCE_PATH: String = "res://data/verbs/strike.tres"
+
+## MAIN_SCENE_PATH / PROLOGUE_SEED — FEAT-297 (resolves DEF-NEW-002): the
+## boot-real fixture this suite's own "single controller instance" criterion
+## (below) drives, mirroring every other boot-real suite's identically-named
+## constants (e.g. tests/integration/test_combine_execute_stride_then_strike.gd).
+const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
+const PROLOGUE_SEED: int = 42
 
 
 class FakeVerbRegistryPort:
@@ -113,6 +121,34 @@ class SpyActionEconomyPort:
 	func spend_action(_action_metadata: Dictionary) -> Dictionary:
 		call_log.append("charge_action_economy")
 		return {"success": true, "ok": true}
+
+
+## FakeSubController — FEAT-297 (resolves DEF-NEW-002): a minimal
+## VerbControllerPort/ActionController-shaped double standing in for
+## presentation/stride_action_controller.gd or
+## presentation/strike_action_controller.gd — the REAL sub-action
+## controllers a live `controller_for` resolver hands back. Records every
+## `execute()` call (verb_id, the selection payload it was dispatched with,
+## and the no_self_spend_execution flag) onto a SHARED `call_log`, so this
+## suite can assert both dispatch ORDER and the exact targeting payload each
+## sub-action received, mirroring
+## tests/integration/test_combine_execute_stride_then_strike.gd's own
+## established "spy wraps the real controller_for" convention -- except this
+## suite's own controller_for is a lightweight fake registry (no live
+## MainScene boot required) for FAST, isolated unit coverage.
+class FakeSubController:
+	var verb_id: String
+	var _call_log: Array
+	var _response: Dictionary
+
+	func _init(p_verb_id: String, call_log: Array, response: Dictionary) -> void:
+		verb_id = p_verb_id
+		_call_log = call_log
+		_response = response
+
+	func execute(selection = null, no_self_spend_execution: bool = false) -> Dictionary:
+		_call_log.append({"verb_id": verb_id, "selection": selection, "no_self_spend_execution": no_self_spend_execution})
+		return _response
 
 
 func _stride_and_strike_pool() -> Array:
@@ -330,3 +366,222 @@ func test_enter_selection_degrades_safely_with_no_live_actor() -> void:
 	var descriptor = controller.enter_selection({"mode": "BUILD_QUEUE", "combine_context": CombineQueueClass.Context.TURN})
 
 	assert_false(descriptor.ok, "enter_selection() with no live actor must fail closed, not crash")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# FEAT-297 (Iteration O; US-004/005/006; resolves DEF-NEW-002) — execute(),
+# after the DEF-001 gate passes, dispatches the REAL Stride-then-Strike
+# sub-action chain and populates resolution_log. This is the fix for
+# DEF-NEW-002: two disconnected CombineActionController classes existed —
+# THIS controller (core/controllers/combine_action_controller.gd, wired live
+# into MultiPhaseTargetingController) only re-validated and charged economy;
+# presentation/combine_action_controller.gd DID dispatch real sub-actions but
+# was never reached by the live interactive flow. The sub-action dispatch is
+# now merged into THIS controller's own execute().
+# ══════════════════════════════════════════════════════════════════════════
+
+func _stride_descriptor(chosen_hex) -> Object:
+	return SelectionDescriptorClass.new(true, [], [chosen_hex], [], 0, {"chosen_hex": chosen_hex})
+
+
+func _strike_descriptor(candidate_targets: Array, origin_hex = null) -> Object:
+	return SelectionDescriptorClass.new(true, [], [], candidate_targets, 1, {"origin_hex": origin_hex})
+
+
+func test_execute_dispatches_stride_then_strike_in_order_index_order_and_populates_resolution_log() -> void:
+	var port := FakeVerbRegistryPort.new(_stride_and_strike_pool())
+	var economy := FakeActionEconomyPort.new()
+	var actor := _make_actor(1)
+	var call_log: Array = []
+	var stride_response := {"ok": true, "resolved": true}
+	var strike_response := {"ok": true, "resolved": true, "damage_final": 5}
+	var registry := {
+		"STRIDE": FakeSubController.new("STRIDE", call_log, stride_response),
+		"STRIKE": FakeSubController.new("STRIKE", call_log, strike_response),
+	}
+	var controller := CombineActionControllerClass.new({
+		"verb_registry_port": port,
+		"action_economy_port": economy,
+		"controller_for": func(verb_id: String): return registry.get(verb_id),
+	})
+	var stride_destination := HexCoordClass.new(2, 0)
+	var queue: Array = [
+		VerbQueueEntryClass.new("q1", 0, "STRIDE"),
+		VerbQueueEntryClass.new("q1", 1, "STRIKE"),
+	]
+	var accumulated: Dictionary = {
+		"STRIDE": _stride_descriptor(stride_destination),
+		"STRIKE": _strike_descriptor(["skeleton_1"], stride_destination),
+	}
+
+	var result: Dictionary = controller.execute({
+		"queue": queue, "actor": actor, "context": CombineQueueClass.Context.TURN, "accumulated": accumulated,
+	})
+
+	assert_true(result.get("ok", false), "a fully-dispatched STRIDE+STRIKE Combine must resolve ok=true (result: %s)" % [result])
+
+	var log: Array = result.get("resolution_log", [])
+	assert_eq(log.size(), 2, "resolution_log must carry exactly one entry per dispatched sub-action")
+	assert_eq(log[0].get("verb_id"), "STRIDE")
+	assert_eq(log[0].get("outcome"), stride_response, "resolution_log's STRIDE entry must carry StrideActionController.execute()'s own real outcome verbatim")
+	assert_eq(log[1].get("verb_id"), "STRIKE")
+	assert_eq(log[1].get("outcome"), strike_response, "resolution_log's STRIKE entry must carry StrikeActionController.execute()'s own real outcome verbatim")
+
+	assert_eq(call_log.size(), 2, "exactly one execute() call per sub-action")
+	assert_eq(call_log[0].get("verb_id"), "STRIDE", "STRIDE must be dispatched BEFORE STRIKE (order_index order)")
+	assert_eq(call_log[1].get("verb_id"), "STRIKE")
+	assert_true(call_log[0].get("selection").equals(stride_destination), "STRIDE must be dispatched with its own resolved chosen_hex")
+	assert_eq(call_log[1].get("selection"), "skeleton_1", "STRIKE must be dispatched with a real, post-move-computed candidate target")
+	assert_eq(call_log[0].get("no_self_spend_execution"), true, "sub-actions must dispatch under no-self-spend execution -- the Combine charges the ONE real action/Stamina, not each sub-action")
+	assert_eq(call_log[1].get("no_self_spend_execution"), true)
+
+	assert_eq(result.get("actions_spent"), 1, "a fully-dispatched Combine must still charge exactly one action")
+	assert_eq(result.get("stamina_spent"), 1, "a fully-dispatched Combine must still charge exactly one Stamina")
+
+
+func test_execute_strike_dispatch_targets_the_first_post_move_computed_candidate_when_no_explicit_pick_was_recorded() -> void:
+	# Iteration O's core StrikeActionController (core/controllers/strike_action_controller.gd)
+	# computes candidate_targets from the accumulated STRIDE's post-move hex
+	# (ADR-006) but does not itself record which candidate a player clicked.
+	# Dispatch must still target a REAL, post-move-reachable candidate --
+	# never a stale pre-move one -- rather than failing to dispatch at all.
+	var port := FakeVerbRegistryPort.new(_stride_and_strike_pool())
+	var economy := FakeActionEconomyPort.new()
+	var actor := _make_actor(1)
+	var call_log: Array = []
+	var registry := {
+		"STRIDE": FakeSubController.new("STRIDE", call_log, {"ok": true}),
+		"STRIKE": FakeSubController.new("STRIKE", call_log, {"ok": true}),
+	}
+	var controller := CombineActionControllerClass.new({
+		"verb_registry_port": port,
+		"action_economy_port": economy,
+		"controller_for": func(verb_id: String): return registry.get(verb_id),
+	})
+	var stride_destination := HexCoordClass.new(2, 0)
+	var queue: Array = [
+		VerbQueueEntryClass.new("q1", 0, "STRIDE"),
+		VerbQueueEntryClass.new("q1", 1, "STRIKE"),
+	]
+	var accumulated: Dictionary = {
+		"STRIDE": _stride_descriptor(stride_destination),
+		"STRIKE": _strike_descriptor(["goblin_2", "goblin_3"], stride_destination),
+	}
+
+	controller.execute({"queue": queue, "actor": actor, "context": CombineQueueClass.Context.TURN, "accumulated": accumulated})
+
+	assert_eq(call_log[1].get("selection"), "goblin_2", "with no explicit chosen target recorded, STRIKE must dispatch against the first real, POST-move-computed reachable candidate")
+
+
+func test_execute_aborts_with_zero_economy_and_no_strike_dispatch_when_stride_sub_action_fails() -> void:
+	var port := FakeVerbRegistryPort.new(_stride_and_strike_pool())
+	var economy := FakeActionEconomyPort.new()
+	var actor := _make_actor(1)
+	var call_log: Array = []
+	var registry := {
+		"STRIDE": FakeSubController.new("STRIDE", call_log, {"ok": false, "error": "ERR_ILLEGAL_SUB_TARGET"}),
+		"STRIKE": FakeSubController.new("STRIKE", call_log, {"ok": true}),
+	}
+	var controller := CombineActionControllerClass.new({
+		"verb_registry_port": port,
+		"action_economy_port": economy,
+		"controller_for": func(verb_id: String): return registry.get(verb_id),
+	})
+	var stride_destination := HexCoordClass.new(2, 0)
+	var queue: Array = [
+		VerbQueueEntryClass.new("q1", 0, "STRIDE"),
+		VerbQueueEntryClass.new("q1", 1, "STRIKE"),
+	]
+	var accumulated: Dictionary = {
+		"STRIDE": _stride_descriptor(stride_destination),
+		"STRIKE": _strike_descriptor(["skeleton_1"], stride_destination),
+	}
+
+	var result: Dictionary = controller.execute({"queue": queue, "actor": actor, "context": CombineQueueClass.Context.TURN, "accumulated": accumulated})
+
+	assert_false(result.get("ok", true), "a failing sub-action must abort the whole Combine")
+	assert_eq(result.get("actions_spent"), 0, "an aborted dispatch must spend zero actions -- no orphaned spend")
+	assert_eq(result.get("stamina_spent"), 0, "an aborted dispatch must spend zero Stamina -- no orphaned spend")
+	assert_eq(economy.spend_action_call_count, 0, "the action-economy port must never be charged once a sub-action fails")
+	assert_eq(actor.spend_stamina_call_count, 0, "Combatant.spend_stamina() must never be reached once a sub-action fails")
+
+	assert_eq(call_log.size(), 1, "STRIKE must NEVER be dispatched once the preceding STRIDE fails")
+	var log: Array = result.get("resolution_log", [])
+	assert_eq(log.size(), 1, "resolution_log must still record the failing STRIDE attempt")
+	assert_eq(log[0].get("verb_id"), "STRIDE")
+	assert_false(log[0].get("outcome").get("ok", true))
+
+
+func test_execute_skips_dispatch_entirely_when_no_controller_for_resolver_is_wired() -> void:
+	# Pre-FEAT-297 degrade path (every criterion-1..4 test in this suite,
+	# above, exercises exactly this): with no `controller_for` resolver
+	# injected, execute() must still validate-then-charge exactly as before,
+	# with an empty (never null) resolution_log.
+	var port := FakeVerbRegistryPort.new(_stride_and_strike_pool())
+	var economy := FakeActionEconomyPort.new()
+	var actor := _make_actor(1)
+	var controller := CombineActionControllerClass.new({"verb_registry_port": port, "action_economy_port": economy})
+	var queue: Array = [
+		VerbQueueEntryClass.new("q1", 0, "STRIDE"),
+		VerbQueueEntryClass.new("q1", 1, "STRIKE"),
+	]
+
+	var result: Dictionary = controller.execute({"queue": queue, "actor": actor, "context": CombineQueueClass.Context.TURN})
+
+	assert_true(result.get("ok", false))
+	assert_eq(result.get("resolution_log"), [], "with no controller_for resolver wired, resolution_log must be an empty Array, not missing/null")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# FEAT-297 test_criteria #4 — presentation/combine_action_controller.gd is no
+# longer independently reachable from the LIVE dispatch seam: a single
+# controller instance (core/controllers/combine_action_controller.gd's
+# CombineActionController) handles both the DEF-001 validation gate AND the
+# real sub-action dispatch for the live COMBINE verb, reached through
+# MultiPhaseTargetingController -- the actual live signal chain
+# selection_overlay.selection_resolved ultimately drives (see MainScene.gd's
+## own start_combine_targeting()/_finish_combine_targeting() doc).
+# ══════════════════════════════════════════════════════════════════════════
+
+func _boot_main_scene():
+	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
+	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
+	var instance = packed.instantiate()
+	instance.seed_override = PROLOGUE_SEED
+	add_child_autofree(instance)
+	return instance
+
+
+func test_live_signal_chain_dispatches_through_a_single_combine_action_controller_instance() -> void:
+	var instance = _boot_main_scene()
+	await get_tree().process_frame
+
+	assert_not_null(instance._core_combine_action_controller, "the composition root must construct a real core CombineActionController")
+	assert_true(instance._core_combine_action_controller is CombineActionControllerClass, "_core_combine_action_controller must be a real core/controllers/combine_action_controller.gd instance")
+
+	# The SAME instance is the one MultiPhaseTargetingController -- the real
+	# object the live selection_resolved signal chain ultimately drives via
+	# start_combine_targeting()/_finish_combine_targeting() -- invokes on
+	# loop exhaustion. Never a second/forked instance.
+	assert_same(
+		instance._core_combine_action_controller,
+		instance.multi_phase_targeting_controller._combine_action_controller,
+		"MultiPhaseTargetingController must dispatch through the EXACT SAME CombineActionController instance this feature wires controller_for onto"
+	)
+
+	# FEAT-297: that SAME instance must now carry a real, live controller_for
+	# resolver -- the wiring that lets it actually dispatch Stride/Strike,
+	# not just validate-then-charge.
+	assert_true(
+		instance._core_combine_action_controller._controller_for_fn.is_valid(),
+		"the live core CombineActionController must carry a real controller_for resolver so it performs real sub-action dispatch (FEAT-297)"
+	)
+
+	# The live sub-action registry MultiPhaseTargetingController resolves
+	# STRIDE/STRIKE through never itself contains a "COMBINE" entry -- a
+	# Combine can never recursively dispatch into a second/independent
+	# COMBINE-handling controller through this seam.
+	assert_false(
+		instance._combine_controller_registry.has("COMBINE"),
+		"the live sub-action registry must never route COMBINE back through a second controller"
+	)

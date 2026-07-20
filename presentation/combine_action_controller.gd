@@ -1,5 +1,27 @@
 extends "res://presentation/action_controller.gd"
 
+## DEPRECATED (FEAT-297, Iteration O; resolves DEF-NEW-002): this class's own
+## `execute()` sub-action dispatch (Stride-then-Strike resolution, FEAT-005/
+## 007/008/010 below) is SUPERSEDED by core/controllers/combine_action_controller.gd's
+## own `execute()`, which now performs the SAME real dispatch and is the ONE
+## instance actually invoked by the live signal chain (MultiPhaseTargetingController,
+## composition-root-wired as MainScene.gd's `_core_combine_action_controller`).
+## DEF-NEW-002's finding: two disconnected CombineActionController classes
+## existed — THIS one performed real dispatch but was never reached by that
+## live chain (VERB_TABLE's own "COMBINE" -> this class mapping is exercised
+## live ONLY for Layer-1 `availability()` gating and the interactive
+## QUEUE-BUILD `enter_selection()` seam — see MainScene.gd's own
+## `_verb_bar_combine_*` shim docs — never for `execute()`'s own sub-action
+## dispatch, since SelectionOverlay's registry is switched to
+## MainScene's own build/targeting proxies for the whole duration of a real
+## Combine, so `execute()` below is provably unreached by any real player
+## input). This class, its VERB_TABLE registration, and its own extensive
+## existing test suite are retained UNCHANGED (a from-scratch removal would
+## regress dozens of pre-existing, independently-valuable regression tests
+## that exercise this file's dispatch logic directly, by design, rather than
+## through the live signal chain) — but new sub-action-dispatch work belongs
+## in core/controllers/combine_action_controller.gd going forward; this file
+## should not gain further real-dispatch responsibilities.
 const ActionEconomyClass = preload("res://core/rules/action_economy.gd")
 const SubActionQueueEntryClass = preload("res://core/rules/sub_action_queue_entry.gd")
 
@@ -330,6 +352,12 @@ func enter_selection(pair: Array = _default_charge_pair()) -> Dictionary:
 	return {"ok": true, "queue": queue}
 
 
+## DEPRECATED as of FEAT-297 (resolves DEF-NEW-002) — see this file's own
+## top-of-file doc. Retained, unchanged, for this file's existing test suite
+## and any direct (non-live-signal-chain) caller; NOT reached by the live
+## interactive Combine flow (core/controllers/combine_action_controller.gd's
+## own execute() is, and now performs the same real dispatch).
+##
 ## execute(selection) -> Dictionary — FEAT-002 (US-002; FR-001) + FEAT-003
 ## (US-003; FR-002; ADR-004) + FEAT-007 (US-007; the steel thread's exit
 ## point) + FEAT-010 (US-010; FR-009; ADR-006, abort-safe execution):
