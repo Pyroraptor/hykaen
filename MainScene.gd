@@ -1066,8 +1066,22 @@ func _ready() -> void:
 	# instance actually invoked by the live signal chain
 	# (`multi_phase_targeting_controller`, wired just below) perform real
 	# movement + Strike resolution, not just validate-then-charge.
+	# FEAT-298 (resolves DEF-NEW-003): `action_economy_port` wires a real
+	# ActionEconomyPort adapter (`_GdCombineActionEconomyPort`, below) so
+	# `_core_combine_action_controller`'s own `_charge_action_economy()`
+	# (core/controllers/combine_action_controller.gd) actually charges the
+	# documented 1-action cost (FR-007) alongside the 1-Stamina cost it
+	# already charged, rather than silently skipping the action charge
+	# because `_action_economy_port` was null (DEF-NEW-003). The adapter
+	# resolves the CURRENT actor's live ActionEconomy lazily, on every
+	# spend_action() call, via `_verb_bar_current_action_economy()` — the
+	# SAME `round_session.current_action_economy()` read every other verb's
+	# own availability gate already uses — rather than capturing a single
+	# ActionEconomy instance up front, so it stays correct across
+	# `rewire_session()`/round-boundary ActionEconomy instance swaps.
 	_core_combine_action_controller = CoreCombineActionControllerClass.new({
 		"verb_registry_port": _GdVerbRegistryPort.new(),
+		"action_economy_port": _GdCombineActionEconomyPort.new(self),
 		"controller_for": Callable(self, "_controller"),
 	})
 	# FEAT-007 (US-007; NFR-001): built as its own named field
@@ -3008,6 +3022,54 @@ class _GdVerbRegistryPort:
 		if strike != null:
 			verbs.append(strike)
 		return verbs
+
+
+## _GdCombineActionEconomyPort — FEAT-298 (resolves DEF-NEW-003): minimal
+## ActionEconomyPort adapter (core/application/ports/action_economy_port.gd)
+## for `_core_combine_action_controller`'s `_charge_action_economy()`
+## (core/controllers/combine_action_controller.gd). Never captures a single
+## ActionEconomy instance at construction time — instead, every call
+## resolves `_owner._verb_bar_current_action_economy()` (the SAME
+## `round_session.current_action_economy()` read every other verb's own
+## availability gate already uses) lazily, so the port stays correct
+## across `rewire_session()`/round-boundary ActionEconomy instance swaps,
+## mirroring `_GdVerbRegistryPort`'s own "thin, lazily-resolving adapter"
+## convention immediately above. When no live ActionEconomy is available
+## (e.g. before the first round is wired), degrades safely: spend_action()/
+## spend_reaction() report failure without mutating anything, is_spent()
+## reports true (nothing left to spend), get_remaining() reports 0 — never
+## a crash.
+class _GdCombineActionEconomyPort:
+	extends ActionEconomyPort
+
+	var _owner  # MainScene — untyped to avoid a cyclic self-reference.
+
+	func _init(owner) -> void:
+		_owner = owner
+
+	func spend_action(action_metadata: Dictionary) -> Dictionary:
+		var economy = _owner._verb_bar_current_action_economy()
+		if economy == null:
+			return {"success": false, "ok": false}
+		return economy.spend_action(action_metadata)
+
+	func spend_reaction() -> Dictionary:
+		var economy = _owner._verb_bar_current_action_economy()
+		if economy == null:
+			return {"success": false, "ok": false}
+		return economy.spend_reaction()
+
+	func is_spent() -> bool:
+		var economy = _owner._verb_bar_current_action_economy()
+		if economy == null:
+			return true
+		return economy.is_spent()
+
+	func get_remaining() -> int:
+		var economy = _owner._verb_bar_current_action_economy()
+		if economy == null:
+			return 0
+		return economy.get_remaining()
 
 
 ## _CombineTargetingRegistryProxy — FEAT-007 (US-007; NFR-001): the thin

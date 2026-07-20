@@ -585,3 +585,118 @@ func test_live_signal_chain_dispatches_through_a_single_combine_action_controlle
 		instance._combine_controller_registry.has("COMBINE"),
 		"the live sub-action registry must never route COMBINE back through a second controller"
 	)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# FEAT-298 (resolves DEF-NEW-003) — MainScene.gd's composition root must
+# inject a real, non-null `action_economy_port` into `_core_combine_action_
+# controller` so a successful live-wired execute() actually charges the
+# documented 1-action cost (FR-007) alongside the 1-Stamina cost, rather
+# than `_charge_action_economy()` silently skipping the action charge
+# because `_action_economy_port` was null.
+# ══════════════════════════════════════════════════════════════════════════
+
+## SKELETON_REPOSITIONED_HEX_Q / STRIDE_DESTINATION_HEX_Q — mirrors
+## tests/e2e/combine/test_charge_end_to_end.gd's own established fixture
+## geometry: repositions the Skeleton (test-fixture-only) out of Titus's
+## melee reach but adjacent to a hex already within his real, boot-time-
+## computed legal Stride destination set, so a real Charge (Stride then
+## Strike) genuinely succeeds end-to-end.
+const SKELETON_REPOSITIONED_HEX_Q: int = 3
+const STRIDE_DESTINATION_HEX_Q: int = 2
+
+
+func test_main_scene_constructs_core_combine_action_controller_with_a_non_null_action_economy_port() -> void:
+	var instance = _boot_main_scene()
+	await get_tree().process_frame
+
+	assert_not_null(instance._core_combine_action_controller, "the composition root must construct a real core CombineActionController")
+	assert_not_null(
+		instance._core_combine_action_controller._action_economy_port,
+		"DEF-NEW-003: MainScene.gd's composition root must inject a non-null action_economy_port into _core_combine_action_controller"
+	)
+
+
+func test_live_wired_controller_charges_one_action_and_one_stamina_on_successful_execute() -> void:
+	var instance = _boot_main_scene()
+	await get_tree().process_frame
+
+	var titus = instance._party[0]
+	var skeleton = instance._enemies[0]
+	skeleton.hex_coord = HexCoordClass.new(SKELETON_REPOSITIONED_HEX_Q, 0)
+	var stride_destination := HexCoordClass.new(STRIDE_DESTINATION_HEX_Q, 0)
+
+	var stride_controller = instance._combine_controller_registry["STRIDE"]
+	var strike_controller = instance._combine_controller_registry["STRIKE"]
+
+	var stride_offer = stride_controller.enter_selection({"actor_id": titus, "order_index": 0})
+	assert_true(stride_offer.ok, "fixture assumption: Titus has at least one legal Stride destination at boot")
+	var chosen_hex = null
+	for h in stride_offer.candidate_hexes:
+		if h.equals(stride_destination):
+			chosen_hex = h
+			break
+	assert_not_null(chosen_hex, "fixture assumption: the intended Stride destination must be a legal candidate")
+
+	var resolved_stride = stride_controller.enter_selection({"actor_id": titus, "order_index": 0, "selected_hex": chosen_hex})
+	assert_true(resolved_stride.ok)
+
+	var strike_offer = strike_controller.enter_selection({
+		"actor_id": titus, "order_index": 1, "accumulated": {"STRIDE": resolved_stride},
+	})
+	assert_true(strike_offer.ok, "fixture assumption: the repositioned Skeleton must be reachable from the chosen Stride hex")
+	assert_true(strike_offer.candidate_targets.has(skeleton.display_id()))
+
+	var economy = instance._verb_bar_current_action_economy()
+	assert_not_null(economy, "fixture assumption: Titus must have a live ActionEconomy at boot")
+	var actions_before: int = economy.get_remaining()
+	var stamina_before: int = titus.stamina
+	assert_true(stamina_before > 0)
+
+	var queue: Array = [
+		VerbQueueEntryClass.new("q1", 0, "STRIDE"),
+		VerbQueueEntryClass.new("q1", 1, "STRIKE"),
+	]
+	var accumulated: Dictionary = {"STRIDE": resolved_stride, "STRIKE": strike_offer}
+
+	var result: Dictionary = instance._core_combine_action_controller.execute({
+		"queue": queue, "actor": titus, "context": CombineQueueClass.Context.TURN, "accumulated": accumulated,
+	})
+
+	assert_true(result.get("ok", false), "a valid, real COMBINE Charge dispatched through the live-wired controller must succeed (result: %s)" % [result])
+	assert_eq(result.get("actions_spent"), 1, "execute()'s own Dictionary must report exactly one action spent")
+	assert_eq(result.get("stamina_spent"), 1, "execute()'s own Dictionary must report exactly one Stamina spent")
+
+	# The REAL, live ActionEconomy — not just execute()'s reported Dictionary
+	# — must reflect exactly one action spent (DEF-NEW-003's own regression:
+	# before this feature, actions_spent stayed 0 because the injected
+	# action_economy_port was null and _charge_action_economy() silently
+	# skipped the charge).
+	assert_eq(actions_before - economy.get_remaining(), 1, "the live ActionEconomy.get_remaining() must reflect exactly one action spent, not zero")
+	assert_eq(stamina_before - titus.stamina, 1, "the live actor's Stamina must reflect exactly one Stamina spent")
+
+
+func test_live_wired_controller_validation_failed_path_still_charges_zero_actions_and_stamina() -> void:
+	var instance = _boot_main_scene()
+	await get_tree().process_frame
+
+	var titus = instance._party[0]
+	var economy = instance._verb_bar_current_action_economy()
+	assert_not_null(economy, "fixture assumption: Titus must have a live ActionEconomy at boot")
+	var actions_before: int = economy.get_remaining()
+	var stamina_before: int = titus.stamina
+
+	# [STRIDE, STRIDE] with no Repeat trait on the current data/verbs/stride.tres
+	# is illegal (DEF-001) -- the ValidateCombineQueueUseCase gate must reject
+	# it BEFORE _charge_action_economy() is ever reached, through the SAME
+	# live-wired instance FEAT-298 injects a real action_economy_port into.
+	var result: Dictionary = instance._core_combine_action_controller.execute({
+		"queue": _double_stride_queue(), "actor": titus, "context": CombineQueueClass.Context.TURN,
+	})
+
+	assert_false(result.get("ok", true), "an illegal [STRIDE, STRIDE] combo must still report ok=false through the live-wired controller")
+	assert_eq(result.get("error_code"), "VALIDATION_FAILED")
+	assert_eq(result.get("actions_spent"), 0, "a rejected live-wired execute() call must spend zero actions")
+	assert_eq(result.get("stamina_spent"), 0, "a rejected live-wired execute() call must spend zero Stamina")
+	assert_eq(economy.get_remaining(), actions_before, "the live ActionEconomy must be completely untouched by a rejected execute() call")
+	assert_eq(titus.stamina, stamina_before, "the live actor's Stamina must be completely untouched by a rejected execute() call")
