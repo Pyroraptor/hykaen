@@ -112,3 +112,32 @@ func sorted_entries() -> Array:
 	var ordered: Array = entries.duplicate()
 	ordered.sort_custom(func(a, b): return a.order_index < b.order_index)
 	return ordered
+
+
+## Minimum entries required before the Confirm sentinel may legally be
+## offered/accepted for a TURN-context queue (FEAT-003; US-003, FR-002;
+## design notes' data_model: "Confirm only offered per context rule ->=2
+## entries for TURN"). REACTION context's fuller ">=2 entries AND >=1
+## reaction verb" composition rule is a later feature (P1-3) layered on top
+## of this same seam — until then REACTION shares this SAME baseline rather
+## than silently permitting Confirm at a lower bar.
+const MIN_ENTRIES_TO_CONFIRM_TURN: int = 2
+
+
+## meets_confirm_minimum(context, entry_count) -> bool — true when
+## `entry_count` already-picked entries satisfy the context-specific
+## Confirm-eligibility minimum. THE single source of truth both
+## BuildVerbQueueUseCase (query-time: gating the Confirm sentinel out of
+## candidate_options) and ConfirmQueueUseCase (command-time: the
+## authoritative confirm-eligibility gate) route through — mirrors
+## core/domain/combine/combine_actions.gd's own "one pure function called
+## twice, not two implementations" convention for the same-verb/Repeat
+## rule.
+static func meets_confirm_minimum(context: int, entry_count: int) -> bool:
+	match context:
+		Context.TURN:
+			return entry_count >= MIN_ENTRIES_TO_CONFIRM_TURN
+		Context.REACTION:
+			return entry_count >= MIN_ENTRIES_TO_CONFIRM_TURN
+		_:
+			return entry_count >= MIN_ENTRIES_TO_CONFIRM_TURN

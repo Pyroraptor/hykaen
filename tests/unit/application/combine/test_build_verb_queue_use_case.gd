@@ -16,6 +16,10 @@ extends GutTest
 ##      Repeat exclusion rule, never re-derived here.
 ##   3. enter_selection() degrades safely (ok=false, no crash) with no live
 ##      actor or no wired VerbRegistryPort.
+##   4. FEAT-003 (US-003; FR-002): candidate_options does NOT include the
+##      Confirm sentinel when the queue length is below the context-specific
+##      minimum (1, TURN context), and DOES include it alongside remaining
+##      compatible verbs once the minimum (2, TURN context) is reached.
 
 const BuildVerbQueueUseCaseClass = preload("res://core/application/combine/build_verb_queue_use_case.gd")
 const VerbRegistryPortClass = preload("res://core/application/combine/verb_registry_port.gd")
@@ -130,3 +134,40 @@ func test_enter_selection_degrades_safely_with_no_actor() -> void:
 	var descriptor = use_case.enter_selection([], null, CombineQueueClass.Context.TURN, port)
 
 	assert_false(descriptor.ok, "a null actor must degrade safely to ok=false, never crash")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Criterion 4 (FEAT-003) — Confirm sentinel gating by queue length.
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_enter_selection_excludes_confirm_sentinel_below_minimum_queue_length() -> void:
+	var use_case := BuildVerbQueueUseCaseClass.new()
+	var port := FakeVerbRegistryPort.new(_stride_and_strike_pool())
+	var queue: Array = [VerbQueueEntryClass.new("q1", 0, "STRIDE")]
+
+	var descriptor = use_case.enter_selection(queue, {"combatant_id": "player_0"}, CombineQueueClass.Context.TURN, port)
+
+	var ids: Array = _option_ids(descriptor.candidate_options)
+	assert_false(ids.has("CONFIRM"), "Confirm sentinel must not be offered below the TURN minimum queue length (2)")
+
+
+func test_enter_selection_offers_confirm_sentinel_alongside_remaining_verbs_at_minimum_queue_length() -> void:
+	var use_case := BuildVerbQueueUseCaseClass.new()
+	var third_verb := VerbResource.new()
+	third_verb.verb_id = "PARRY"
+	third_verb.label = "Parry"
+	third_verb.combinable = true
+	var port := FakeVerbRegistryPort.new(_stride_and_strike_pool() + [third_verb])
+	var queue: Array = [
+		VerbQueueEntryClass.new("q1", 0, "STRIDE"),
+		VerbQueueEntryClass.new("q1", 1, "STRIKE"),
+	]
+
+	var descriptor = use_case.enter_selection(queue, {"combatant_id": "player_0"}, CombineQueueClass.Context.TURN, port)
+
+	var ids: Array = _option_ids(descriptor.candidate_options)
+	assert_true(ids.has("CONFIRM"), "Confirm sentinel must be offered once the TURN minimum queue length (2) is reached")
+	assert_true(ids.has("PARRY"), "remaining compatible verbs must still be offered alongside Confirm")
+	assert_false(ids.has("STRIDE"), "STRIDE must remain excluded once queued (no Repeat)")
+	assert_false(ids.has("STRIKE"), "STRIKE must remain excluded once queued (no Repeat)")
+	assert_true(descriptor.ok, "Confirm sentinel alongside remaining verbs must keep ok=true")
