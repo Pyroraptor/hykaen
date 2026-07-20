@@ -1,72 +1,91 @@
 extends GutTest
-## tests/e2e/combine/test_charge_end_to_end.gd — FEAT-009 (Iteration O
-## "Combine Selection UX"; US-009; the steel thread's exit-point
-## validation).
+## tests/e2e/combine/test_charge_end_to_end.gd — FEAT-299 (Iteration O
+## "Combine Selection UX"; US-009; resolves DEF-NEW-004; closes the NFR-004
+## gap).
 ##
 ## Boots the REAL, shipped res://MainScene.tscn composition root (NO mocks
-## or doubles on any controller or on presentation/selection_overlay.gd's
-## SelectionOverlay anywhere in this suite) at a pinned RNG seed, and drives
-## the FULL Iteration O Combine steel thread end-to-end:
+## or doubles on any controller, or on presentation/selection_overlay.gd's
+## SelectionOverlay, or on presentation/hex_grid_view.gd's HexGridView,
+## anywhere in this suite) at a pinned RNG seed, and drives the FULL
+## Iteration O Combine steel thread end-to-end EXCLUSIVELY through the
+## PRODUCTION signal chain a real player's mouse actually drives:
 ##
-##   COMBINE offered -> picker offers STRIDE/STRIKE -> STRIDE picked ->
-##   STRIKE picked -> Confirm appears and is picked -> hex pick for Stride
-##   -> post-move-aware target pick for Strike -> execute() resolves both
-##   sub-actions sequentially, spending 1 action + 1 Stamina, with the actor
-##   visibly moved and the target struck.
+##   VerbBarView.press("COMBINE") -> _verb_registry.enter_selection("COMBINE")
+##   -> _verb_bar_combine_enter_selection() -> the real interactive
+##   queue-build pick loop (BuildVerbQueueUseCase, via
+##   `_core_combine_action_controller`) -> SelectionOverlay.choose_option()
+##   (STRIDE, then STRIKE, then Confirm) -> selection_overlay.selection_resolved
+##   -> ConfirmQueueUseCase -> start_combine_targeting() (UNCHANGED) -> the
+##   real targeting phases, resolved via hex_grid_view.hex_clicked (Stride
+##   hex-pick, then Strike target-pick) -> selection_overlay.selection_resolved
+##   -> _finish_combine_targeting() -> multi_phase_targeting_controller.execute()
+##   (UNCHANGED) -> the REAL, live-wired core/controllers/
+##   combine_action_controller.gd CombineActionController.execute()
+##   (`_core_combine_action_controller`, FEAT-297/298) -- which re-validates
+##   (DEF-001), dispatches STRIDE then STRIKE through the SAME real
+##   presentation/stride_action_controller.gd / strike_action_controller.gd
+##   instances every standalone Stride/Strike press already resolves through
+##   (`_controller(verb_id)`), and charges exactly 1 action + 1 Stamina.
 ##
-## Also covers cancellation at the queue-build step and at each of the two
-## targeting phases, run against the same real-stack harness.
-##
-## A NOTE ON WHICH "CombineActionController" PERFORMS THE FINAL DISPATCH:
-## this codebase currently carries TWO independent, real, shipped Combine
-## controllers:
-##   - core/controllers/combine_action_controller.gd's CombineActionController
-##     (Iteration O, this feature's own family) — its enter_selection() is
-##     the REAL, SelectionDescriptor-producing picker (BuildVerbQueueUseCase)
-##     this suite drives for the STRIDE/STRIKE/Confirm pick loop below.
-##     Per that file's OWN doc (FEAT-004), its execute() intentionally does
-##     NOT yet dispatch sub-action resolution ("a LATER feature layered on
-##     top of this same seam, without changing it") -- MainScene.gd's own
-##     composition-root wiring for it likewise only charges Stamina.
-##   - presentation/combine_action_controller.gd's CombineActionController
-##     (the ALREADY-SHIPPED, already boot-real-tested -- see
-##     tests/e2e/test_steel_thread_charge_combine.gd -- Combine executor
-##     MainScene.VERB_TABLE["COMBINE"] resolves a live player's COMBINE
-##     execute() through today, via `_controller("COMBINE")`) -- this is the
-##     REAL production dispatcher that actually moves the actor and resolves
-##     the Strike, sequentially, off the SAME resolved hex/target values a
-##     real player's clicks would produce.
-## This suite therefore uses the Iteration O controller for every real,
-## unmocked SELECTION step (the picker, Confirm, and -- via
-## core/controllers/stride_action_controller.gd / strike_action_controller.gd
-## -- the post-move-aware targeting query, all reached through the REAL,
-## composition-root-instantiated singletons `instance._core_combine_action_
-## controller` / `instance._combine_controller_registry`, exactly like
-## tests/integration/combine/test_composition_root_wiring.gd's own
-## established convention of reaching into these composition-root fields
-## directly), and hands the REAL resolved hex/target -- captured off REAL
-## SelectionOverlay + HexGridView click resolution -- to the ALREADY-real,
-## ALREADY-dispatching presentation controller for the actual commit. No
-## step in this chain is faked, stubbed, or mocked; every collaborator is
-## the exact production instance the booted MainScene itself owns.
+## THIS FEATURE'S OWN FIX (DEF-NEW-004): before this feature, this suite
+## manually re-invoked a SECOND, disconnected CombineActionController
+## instance (presentation/combine_action_controller.gd's own, never reached
+## by the live interactive signal chain) with a hand-built
+## {"queue":..., "STRIDE":..., "STRIKE":...} selection Dictionary passed
+## straight to its own execute() -- exercising a code path a real player's
+## mouse can NEVER reach, which is exactly why DEF-NEW-002/DEF-NEW-003
+## shipped undetected by this suite. FEAT-297/298 (this feature's own
+## depends_on) consolidated the REAL sub-action dispatch and a real
+## ActionEconomyPort into `_core_combine_action_controller` -- the ONE
+## instance both `multi_phase_targeting_controller` (the live signal chain's
+## own terminal collaborator) and MainScene.gd's `_controller("COMBINE")`
+## table lookup now resolve to -- so there is no longer any "second,
+## disconnected" controller for this suite to accidentally exercise instead
+## of the real one. This suite now NEVER calls `.execute()` on any
+## CombineActionController directly, and NEVER hand-builds a selection
+## Dictionary passed straight to it -- the entire resolve-and-charge chain
+## fires automatically, from inside production code, the instant the final
+## real hex_grid_view.hex_clicked signal for the Strike target-pick is
+## emitted.
 ##
 ## test_criteria covered:
 ##   1. test_combine_press_offers_real_selection_descriptor_with_stride_and_strike()
-##   2-4. test_full_happy_path_combine_stride_strike_confirm_hex_pick_target_pick_execute()
-##   5. test_cancel_during_queue_build_step_leaves_state_unchanged_and_returns_to_layer1(),
+##   2-6. test_full_happy_path_combine_stride_strike_confirm_hex_pick_target_pick_execute()
+##   7. test_cancel_during_queue_build_step_leaves_state_unchanged_and_returns_to_layer1(),
 ##      test_cancel_during_stride_targeting_phase_aborts_entire_combine_with_no_state_leak(),
 ##      test_cancel_during_strike_targeting_phase_aborts_entire_combine_with_no_state_leak()
-##   6. verified by running this suite alongside the pre-existing Iteration N
+##   8. verified by running this suite alongside the pre-existing Iteration N
 ##      standalone Stride/Strike boot-real suites in the SAME gut run (see
 ##      this project's CI gate) -- this file introduces no shared mutable
 ##      state and modifies no production file.
+##
+## A NOTE ON TARGETING-PHASE CANCELLATION (test_criteria 7, the two
+## `..._targeting_phase_aborts_entire_combine...` tests below): this
+## codebase's real, shipped UI currently offers NO Layer-2b hex/target-click
+## affordance that resolves to CancelCombineUseCase.CANCEL_SENTINEL_ID during
+## a Stride/Strike TARGETING phase (core/controllers/stride_action_controller.gd
+## / strike_action_controller.gd never populate `candidate_options` for a
+## TARGET_PHASE descriptor, so SelectionOverlay never re-enters its Layer-2a
+## option-pick step there -- Esc/right-click, presentation/cancel_controller.gd's
+## OWN cancel affordance, is wired only to SelectionOverlay.cancel(), which is
+## NOT connected to CancelCombineUseCase/the Combine loop's own bookkeeping at
+## all). Introducing that real UI affordance is production code, out of this
+## feature's own files_to_modify scope. This suite therefore drives
+## `instance.multi_phase_targeting_controller` -- the EXACT SAME real,
+## composition-root-owned singleton instance `_finish_combine_targeting()`
+## itself invokes on every real hex-pick resolution above, never a
+## second/forked instance -- directly with a `resolved_selections` Dictionary
+## carrying CANCEL_SENTINEL_ID for the cancelled phase: this is the identical
+## seam design notes' error_handling section documents ("CANCEL_SENTINEL on
+## selection_resolved routes to CancelCombineUseCase") as the future landing
+## point for that real UI affordance, exercised today at the one real,
+## production object that seam already terminates in.
 
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 
-const CombineActionControllerClass = preload("res://presentation/combine_action_controller.gd")
+const BuildVerbQueueUseCaseClass   = preload("res://core/application/combine/build_verb_queue_use_case.gd")
 const CombineQueueClass            = preload("res://core/domain/combine/combine_queue.gd")
 const VerbQueueEntryClass          = preload("res://core/domain/combine/verb_queue_entry.gd")
-const ConfirmQueueUseCaseClass     = preload("res://core/application/combine/confirm_queue_use_case.gd")
 const CancelCombineUseCaseClass    = preload("res://core/application/combine/cancel_combine_use_case.gd")
 const HexCoordClass                = preload("res://core/geometry/hex_coord.gd")
 const HexMathClass                 = preload("res://core/geometry/hex_math.gd")
@@ -85,25 +104,6 @@ const PROLOGUE_SEED: int = 42
 ## boot-time-computed legal Stride destination set.
 const SKELETON_REPOSITIONED_HEX_Q: int = 3
 const STRIDE_DESTINATION_HEX_Q: int = 2
-
-
-## _TargetingRegistryProxy -- a thin, test-local presentation-layer glue
-## object mirroring MainScene.gd's OWN `_CombineTargetingRegistryProxy`
-## (see that class's own field-level doc): the SAME duck-typed
-## `execute(verb_id, value) -> Dictionary` contract presentation/
-## selection_overlay.gd's own `_registry` seam requires. This carries ZERO
-## business logic of its own -- no targeting rule, no legality check, no
-## game-state mutation -- it only records whichever value the REAL,
-## unmodified SelectionOverlay resolved a REAL hex/target click to, exactly
-## mirroring the production proxy's own "thin pass-through" role. This is
-## not a mock of a controller or of SelectionOverlay -- both remain the
-## genuine, unmodified production classes throughout this suite.
-class _TargetingRegistryProxy:
-	extends RefCounted
-	var captured: Dictionary = {}
-	func execute(verb_id: String, value) -> Dictionary:
-		captured[verb_id] = value
-		return {"ok": true, "chosen_value": value}
 
 
 func _boot_main_scene():
@@ -136,6 +136,28 @@ func _option_ids(candidate_options: Array) -> Array:
 	return ids
 
 
+## _find_option(options, id) -> Dictionary or null -- picks a specific option
+## Dictionary by id out of selection_overlay.get_candidate_options(), the SAME
+## set a real player would be choosing a button from.
+func _find_option(options: Array, id: String):
+	for option in options:
+		if option.get("id") == id:
+			return option
+	return null
+
+
+## _press_combine(instance) -> void -- the LIVE entry point this whole suite's
+## happy-path/build-cancel tests exercise: a real VerbBarView.press("COMBINE")
+## call, routed through the real, booted `_verb_registry`
+## (VerbBarRegistryAdapter) exactly like a real player's mouse click on the
+## Layer 1 verb bar -- never a direct call to
+## `instance._verb_bar_combine_enter_selection()` or
+## `_core_combine_action_controller.enter_selection()`.
+func _press_combine(instance) -> void:
+	assert_true(instance._verb_registry.is_available("COMBINE"), "COMBINE must be offered on the live verb bar before it can be pressed")
+	instance.verb_bar_view.press("COMBINE")
+
+
 ## _reposition_skeleton_for_charge() -- test-fixture-only repositioning
 ## (mirrors tests/e2e/test_steel_thread_charge_combine.gd's identical
 ## fixture) so the Skeleton starts out of Titus's melee reach but adjacent
@@ -161,12 +183,10 @@ func _reposition_skeleton_for_charge(titus, skeleton) -> Dictionary:
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Criterion 1 -- booting the real MainScene, COMBINE's real, composition-
-# root-owned Iteration O controller offers a real SelectionDescriptor
-# naming STRIDE and STRIKE as legal first picks. No mocks anywhere in this
-# call chain: the real VerbBarRegistry's own live availability gate, the
-# real CombineActionController singleton, and the real VerbRegistryPort
-# adapter it was constructed with.
+# Criterion 1 -- pressing COMBINE via the REAL VerbBarView/VerbBarRegistry
+# offers a real, incremental verb picker (Layer-2a option pick) naming STRIDE
+# and STRIKE, never a hardcoded/pre-built queue or a direct call into any
+# internal use case.
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_combine_press_offers_real_selection_descriptor_with_stride_and_strike() -> void:
@@ -177,27 +197,30 @@ func test_combine_press_offers_real_selection_descriptor_with_stride_and_strike(
 	assert_true(titus.stamina > 0, "fixture assumption: Titus starts with positive Stamina")
 	assert_false(titus.has_condition("Dazed"), "fixture assumption: Titus must not be Dazed")
 
-	assert_true(instance._verb_registry.is_available("COMBINE"), "the real, booted Layer 1 verb bar must offer COMBINE for an eligible actor")
+	_press_combine(instance)
 
-	var descriptor = instance._core_combine_action_controller.enter_selection({
-		"actor_id": titus,
-		"queue": [],
-		"combine_context": CombineQueueClass.Context.TURN,
-	})
-	assert_true(descriptor.ok, "the real, composition-root-owned Iteration O CombineActionController must offer a legal first pick")
-	var ids: Array = _option_ids(descriptor.candidate_options)
-	assert_true(ids.has("STRIDE"), "the picker's very first offer must include STRIDE")
-	assert_true(ids.has("STRIKE"), "the picker's very first offer must include STRIKE")
+	assert_true(instance._combine_build_active, "pressing COMBINE via the real VerbBarView must engage the real interactive queue-build pick loop")
+	assert_true(instance.selection_overlay.is_active(), "pressing COMBINE via the real VerbBarView must activate the REAL SelectionOverlay")
+	assert_eq(instance.selection_overlay.get_active_verb_id(), "COMBINE")
+	assert_true(instance.selection_overlay.is_awaiting_option(), "the very first pick must be a real Layer-2a option pick, never an immediate hex/target highlight")
+
+	var ids: Array = _option_ids(instance.selection_overlay.get_candidate_options())
+	assert_true(ids.has("STRIDE"), "the real picker's very first offer must include STRIDE")
+	assert_true(ids.has("STRIKE"), "the real picker's very first offer must include STRIKE")
 
 	assert_no_new_orphans("driving the real picker must leave zero orphaned nodes")
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Criteria 2, 3, 4 -- the full happy path: COMBINE -> STRIDE -> STRIKE ->
-# Confirm -> hex pick -> target pick -> execute(). resolution_log records
-# STRIDE before STRIKE; actor.position ends at the chosen Stride hex;
-# target.health reflects Strike damage applied from the post-move position;
-# exactly 1 action + 1 Stamina spent.
+# Criteria 2-6 -- the full happy path, driven end to end purely through real
+# production signal emissions: COMBINE press -> STRIDE pick -> STRIKE pick ->
+# Confirm pick (each via selection_overlay.selection_resolved, fired by
+# choose_option() -- the EXACT call a real Layer-2a button press makes) ->
+# Stride hex-pick -> Strike target-pick (each via a real
+# hex_grid_view.hex_clicked emission). The resolve-validate-dispatch-charge
+# chain fires AUTOMATICALLY from inside production code the instant the
+# final hex_clicked signal is emitted -- this test never calls .execute() on
+# any controller itself.
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_full_happy_path_combine_stride_strike_confirm_hex_pick_target_pick_execute() -> void:
@@ -209,104 +232,84 @@ func test_full_happy_path_combine_stride_strike_confirm_hex_pick_target_pick_exe
 	var geo: Dictionary = _reposition_skeleton_for_charge(titus, skeleton)
 	var stride_destination = geo["stride_destination"]
 
-	# ── picker offers STRIDE/STRIKE -- STRIDE picked -- STRIKE picked --
-	# Confirm appears -- via the REAL BuildVerbQueueUseCase-backed picker. ──
-	var build_ctrl = instance._core_combine_action_controller
+	watch_signals(instance.selection_overlay)
 
-	var d0 = build_ctrl.enter_selection({"actor_id": titus, "queue": [], "combine_context": CombineQueueClass.Context.TURN})
-	assert_true(d0.ok)
-	assert_true(_option_ids(d0.candidate_options).has("STRIDE"))
-	assert_true(_option_ids(d0.candidate_options).has("STRIKE"))
-	assert_false(_option_ids(d0.candidate_options).has("CONFIRM"), "Confirm must not be offered before the TURN-context minimum of 2 entries is met")
+	# ── COMBINE pressed via the real VerbBarView/VerbBarRegistry. ───────────
+	_press_combine(instance)
+	assert_true(instance._combine_build_active)
+	assert_true(instance.selection_overlay.is_awaiting_option())
 
-	var picked_stride := VerbQueueEntryClass.new("q1", 0, "STRIDE")
-	var d1 = build_ctrl.enter_selection({"actor_id": titus, "queue": [picked_stride], "combine_context": CombineQueueClass.Context.TURN})
-	assert_true(d1.ok)
-	assert_false(_option_ids(d1.candidate_options).has("STRIDE"), "STRIDE must be excluded once already queued (no Repeat trait)")
-	assert_true(_option_ids(d1.candidate_options).has("STRIKE"), "STRIKE must remain legal (a different verb from STRIDE)")
-	assert_true(_option_ids(d1.candidate_options).has(CancelCombineUseCaseClass.CANCEL_SENTINEL_ID), "an in-progress pick must offer Cancel")
+	var first_ids: Array = _option_ids(instance.selection_overlay.get_candidate_options())
+	assert_true(first_ids.has("STRIDE"))
+	assert_true(first_ids.has("STRIKE"))
+	assert_false(first_ids.has(BuildVerbQueueUseCaseClass.CONFIRM_SENTINEL_ID), "Confirm must not be offered before the TURN-context minimum of 2 entries is met")
 
-	var picked_strike := VerbQueueEntryClass.new("q1", 1, "STRIKE")
-	var d2 = build_ctrl.enter_selection({"actor_id": titus, "queue": [picked_stride, picked_strike], "combine_context": CombineQueueClass.Context.TURN})
-	assert_true(d2.ok)
-	assert_true(_option_ids(d2.candidate_options).has("CONFIRM"), "Confirm must be offered once the TURN-context minimum of 2 entries is met")
+	# ── STRIDE picked -- a real Layer-2a button press, via choose_option(),
+	# resolved purely through the real selection_overlay.selection_resolved
+	# signal. ─────────────────────────────────────────────────────────────
+	var stride_option = _find_option(instance.selection_overlay.get_candidate_options(), "STRIDE")
+	assert_not_null(stride_option, "fixture assumption: STRIDE must be a legal first pick")
+	instance.selection_overlay.choose_option(stride_option)
 
-	# ── Confirm is picked -- the REAL ConfirmQueueUseCase finalizes the queue. ──
-	var combine_queue := CombineQueueClass.new("q1", titus.display_id(), CombineQueueClass.Context.TURN)
-	assert_true(combine_queue.add_entry(picked_stride).get("ok", false))
-	assert_true(combine_queue.add_entry(picked_strike).get("ok", false))
-	var confirm_result: Dictionary = ConfirmQueueUseCaseClass.new().execute(combine_queue)
-	assert_true(confirm_result.get("ok", false), "a queue meeting the confirm minimum must confirm successfully")
-	assert_eq(combine_queue.status, CombineQueueClass.Status.CONFIRMED)
-	var confirmed_entries: Array = combine_queue.sorted_entries()
-	assert_eq(confirmed_entries.size(), 2)
-	assert_eq(confirmed_entries[0].verb_id, "STRIDE")
-	assert_eq(confirmed_entries[1].verb_id, "STRIKE")
+	assert_true(instance._combine_build_active, "the queue-build loop must still be active after a single VERB pick")
+	var second_ids: Array = _option_ids(instance.selection_overlay.get_candidate_options())
+	assert_false(second_ids.has("STRIDE"), "STRIDE must be excluded from the next pick after being chosen -- it carries no Repeat trait")
+	assert_true(second_ids.has("STRIKE"), "STRIKE (a different verb) must remain legal")
+	assert_false(second_ids.has(BuildVerbQueueUseCaseClass.CONFIRM_SENTINEL_ID), "Confirm must be ABSENT once queue length is 1 (TURN context requires >= 2 entries)")
 
-	# ── hex pick for Stride, through the REAL, unmodified SelectionOverlay +
+	# ── STRIKE picked. ───────────────────────────────────────────────────
+	var strike_option = _find_option(instance.selection_overlay.get_candidate_options(), "STRIKE")
+	assert_not_null(strike_option)
+	instance.selection_overlay.choose_option(strike_option)
+
+	var third_ids: Array = _option_ids(instance.selection_overlay.get_candidate_options())
+	assert_true(third_ids.has(BuildVerbQueueUseCaseClass.CONFIRM_SENTINEL_ID), "Confirm must be PRESENT once queue length reaches 2 (the TURN-context minimum)")
+
+	# ── Confirm picked -- the REAL ConfirmQueueUseCase finalizes the queue
+	# and hands off to the UNCHANGED real targeting phase (start_combine_targeting())
+	# automatically, from inside production code. ──────────────────────────
+	var confirm_option = _find_option(instance.selection_overlay.get_candidate_options(), BuildVerbQueueUseCaseClass.CONFIRM_SENTINEL_ID)
+	assert_not_null(confirm_option)
+	instance.selection_overlay.choose_option(confirm_option)
+
+	assert_false(instance._combine_build_active, "the queue-build loop must be torn down once Confirm succeeds")
+	assert_true(instance._combine_targeting_active, "Confirm must hand off into the real interactive Combine sub-action TARGETING loop")
+	assert_true(instance.selection_overlay.is_active(), "the targeting phase must immediately activate SelectionOverlay for the first sub-action")
+	assert_eq(instance.selection_overlay.get_active_verb_id(), "STRIDE", "the confirmed queue's first sub-action (order_index 0) must be STRIDE")
+	assert_false(instance.selection_overlay.is_awaiting_option(), "the targeting phase highlights hexes/targets directly -- it is not a Layer-2a option pick")
+
+	# ── Stride hex-pick, through the REAL, unmodified SelectionOverlay +
 	# HexGridView, offered by the REAL Iteration O StrideActionController. ──
-	var stride_controller = instance._combine_controller_registry["STRIDE"]
-	var strike_controller = instance._combine_controller_registry["STRIKE"]
-	var proxy := _TargetingRegistryProxy.new()
-
-	var stride_offer = stride_controller.enter_selection({"actor_id": titus, "order_index": 0})
-	assert_true(stride_offer.ok, "fixture assumption: Titus has at least one legal Stride destination at boot")
+	var candidate_hexes: Array = instance.selection_overlay.get_highlighted_hexes()
+	assert_true(candidate_hexes.size() > 0, "fixture assumption: Titus has at least one legal Stride destination at boot")
 	var chosen_hex = null
-	for h in stride_offer.candidate_hexes:
+	for h in candidate_hexes:
 		if h.equals(stride_destination):
 			chosen_hex = h
 			break
 	assert_not_null(chosen_hex, "fixture assumption: the intended Stride destination must be a legal candidate")
 
-	instance.selection_overlay.configure(proxy, instance.hex_grid_view)
-	instance.selection_overlay.activate("STRIDE", stride_offer)
-	assert_true(instance.selection_overlay.is_active(), "the REAL SelectionOverlay must enter Layer 2 for the STRIDE phase")
-	assert_eq(instance.selection_overlay.get_active_verb_id(), "STRIDE")
-
-	instance.hex_grid_view.hex_clicked.emit(chosen_hex)
-	assert_true(proxy.captured.has("STRIDE"), "the REAL SelectionOverlay must resolve the clicked hex for the STRIDE phase")
-	assert_true(proxy.captured["STRIDE"].equals(chosen_hex))
-	assert_false(instance.selection_overlay.is_active(), "SelectionOverlay must return to inactive once the STRIDE phase resolves")
-
 	# Picking (querying) a Stride destination must never itself move the actor.
 	assert_true(titus.hex_coord.equals(geo["titus_start_hex"]), "picking a Stride destination must never itself move the actor")
 
-	# ── post-move-aware target pick for Strike, computed from the
-	# HYPOTHETICAL Stride destination (ADR-006), via the REAL Iteration O
-	# StrikeActionController. ────────────────────────────────────────────────
-	var resolved_stride = stride_controller.enter_selection({
-		"actor_id": titus, "order_index": 0, "selected_hex": chosen_hex,
-	})
-	assert_true(resolved_stride.ok)
-	assert_true(resolved_stride.meta.get("chosen_hex").equals(chosen_hex))
+	instance.hex_grid_view.hex_clicked.emit(chosen_hex)
 
-	var strike_offer = strike_controller.enter_selection({
-		"actor_id": titus, "order_index": 1, "accumulated": {"STRIDE": resolved_stride},
-	})
-	assert_true(strike_offer.ok, "post-move-aware Strike targeting must find the Skeleton reachable from the chosen Stride hex")
-	assert_true(strike_offer.candidate_targets.has(skeleton.display_id()))
-	assert_true(strike_offer.meta.get("origin_hex").equals(chosen_hex), "Strike's own reach must be computed from the HYPOTHETICAL post-move hex, never Titus's current (pre-Charge) position")
-
-	instance.selection_overlay.activate("STRIKE", strike_offer)
-	assert_true(instance.selection_overlay.is_active(), "the REAL SelectionOverlay must enter Layer 2 for the STRIKE phase")
-	assert_eq(instance.selection_overlay.get_active_verb_id(), "STRIKE")
-	assert_true(instance.selection_overlay.get_highlighted_target_ids().has(skeleton.display_id()))
-
-	var skeleton_token = instance.hex_grid_view.get_token(skeleton.combatant_id)
-	assert_not_null(skeleton_token, "fixture assumption: the Skeleton has a rendered HexGridView token")
-	instance.hex_grid_view.hex_clicked.emit(skeleton_token.hex_coord)
-	assert_eq(proxy.captured.get("STRIKE"), skeleton.display_id(), "the REAL SelectionOverlay must resolve the clicked target for the STRIKE phase")
-	assert_false(instance.selection_overlay.is_active())
-
-	# Neither phase's own query-only pick has moved or damaged anyone yet.
+	# Picking the hex still must not itself move the actor -- resolution is
+	# deferred until the WHOLE queue's targeting is complete and execute()
+	# actually runs (design notes' error_handling: "no sub-action side
+	# effects are applied until ALL targeting is resolved").
 	assert_true(titus.hex_coord.equals(geo["titus_start_hex"]))
+
+	# ── The loop must have auto-advanced into the STRIKE phase, computing
+	# post-move-aware reach from the HYPOTHETICAL Stride destination (ADR-006),
+	# via the REAL Iteration O StrikeActionController. ──────────────────────
+	assert_true(instance._combine_targeting_active, "the loop must still be active -- STRIKE's own phase has not resolved yet")
+	assert_true(instance.selection_overlay.is_active(), "the loop must advance into the STRIKE phase, not terminate")
+	assert_eq(instance.selection_overlay.get_active_verb_id(), "STRIKE")
+	assert_true(instance.selection_overlay.get_highlighted_target_ids().has(skeleton.display_id()), "STRIKE's own phase must offer the Skeleton as reachable from the chosen post-move hex")
+
 	var skeleton_hp_before_execute: int = skeleton.hp_current
 
-	# ── execute() resolves both sub-actions sequentially against real
-	# actor/target state -- via the SAME real, live CombineActionController
-	# MainScene.VERB_TABLE["COMBINE"] resolves a real player's execute()
-	# through (`_controller("COMBINE")`, see this file's own header doc for
-	# why the FINAL dispatch is reached through this concrete instance). ──
 	var economy = instance.round_session.current_action_economy()
 	assert_not_null(economy, "fixture assumption: Titus must have a live ActionEconomy at boot")
 	var actions_remaining_before: int = economy.get_remaining()
@@ -314,24 +317,51 @@ func test_full_happy_path_combine_stride_strike_confirm_hex_pick_target_pick_exe
 	var stamina_before: int = titus.stamina
 	assert_true(stamina_before > 0)
 
-	var combine_controller = instance._controller("COMBINE")
-	assert_true(combine_controller is CombineActionControllerClass, "_controller(\"COMBINE\") must resolve a real CombineActionController")
+	# ── Strike target-pick, through the REAL, unmodified SelectionOverlay +
+	# HexGridView. This is the LAST real signal this test emits -- the entire
+	# resolve-validate-dispatch-charge chain (_advance_combine_targeting_phase()
+	# -> _finish_combine_targeting() -> multi_phase_targeting_controller.execute()
+	# -> the REAL, live-wired core CombineActionController.execute(), FEAT-297/298)
+	# fires AUTOMATICALLY from inside production code, synchronously, as part
+	# of this single signal emission. No manual .execute() call, on any
+	# controller, anywhere in this test. ─────────────────────────────────────
+	var skeleton_token = instance.hex_grid_view.get_token(skeleton.combatant_id)
+	assert_not_null(skeleton_token, "fixture assumption: the Skeleton has a rendered HexGridView token")
+	instance.hex_grid_view.hex_clicked.emit(skeleton_token.hex_coord)
 
-	var selection: Dictionary = {
-		"queue": combine_controller.build_charge_queue(),
-		"STRIDE": proxy.captured["STRIDE"],
-		"STRIKE": proxy.captured["STRIKE"],
-	}
-	var result: Dictionary = await combine_controller.execute(selection)
+	# ── Criteria 2/3 -- exactly five real selection_resolved emissions drove
+	# the ENTIRE flow (STRIDE pick, STRIKE pick, Confirm, Stride hex-pick,
+	# Strike target-pick) -- proving this test never bypassed the production
+	# signal chain for any phase. ────────────────────────────────────────────
+	assert_eq(
+		get_signal_emit_count(instance.selection_overlay, "selection_resolved"), 5,
+		"the whole Combine (3 queue-build picks + 2 targeting-phase picks) must resolve through exactly five real selection_overlay.selection_resolved emissions"
+	)
 
-	assert_true(result.get("ok", false), "a valid, real COMBINE->Charge execute() must resolve ok=true (result: %s)" % [result])
+	assert_false(instance.selection_overlay.is_active(), "selection_overlay must return to Layer 1 once both targeting phases resolve and execute() has run")
+	assert_false(instance._combine_targeting_active, "the interactive targeting loop must have finished")
 
-	# ── Criterion 3 -- the resolution log (this production system's
-	# `resolved_verb_ids`) records STRIDE resolving before STRIKE, in that
-	# order. ──────────────────────────────────────────────────────────────
-	assert_eq(result.get("resolved_verb_ids", []), ["STRIDE", "STRIKE"], "the resolution log must record STRIDE resolving before STRIKE")
+	var loop_result: Dictionary = instance._combine_targeting_result
+	assert_true(loop_result.get("ok", false), "the real interactive targeting loop must report ok:true once both phases resolve (result: %s)" % [loop_result])
 
-	# ── Criterion 2 -- exactly 1 action and 1 Stamina spent for the WHOLE
+	var execution_result: Dictionary = loop_result.get("execution_result", {})
+	assert_true(execution_result.get("ok", false), "the REAL, live-wired core CombineActionController.execute() must resolve ok=true (result: %s)" % [execution_result])
+
+	# ── The resolution log records STRIDE resolving before STRIKE, in that
+	# order (FEAT-297's real sub-action dispatch, strictly order_index-ordered). ──
+	var resolution_log: Array = execution_result.get("resolution_log", [])
+	assert_eq(resolution_log.size(), 2, "resolution_log must carry exactly one entry per dispatched sub-action")
+	assert_eq(resolution_log[0].get("verb_id"), "STRIDE", "the resolution log must record STRIDE resolving before STRIKE")
+	assert_eq(resolution_log[1].get("verb_id"), "STRIKE")
+
+	# ── Criterion 4 -- actor.hex_coord equals the chosen Stride hex. ────────
+	assert_true(titus.hex_coord.equals(chosen_hex), "actor.hex_coord must equal the chosen Stride destination")
+
+	# ── Criterion 5 -- target.hp_current reflects the Strike damage applied
+	# from the post-move position. ───────────────────────────────────────────
+	assert_true(skeleton.hp_current < skeleton_hp_before_execute, "target.hp_current must reflect the Strike damage applied from the post-move position")
+
+	# ── Criterion 6 -- exactly 1 action and 1 Stamina spent for the WHOLE
 	# Combine (the live ActionEconomy/Combatant.stamina ledger is this
 	# project's established authoritative per-actor ledger). ────────────────
 	var actions_spent: int = actions_remaining_before - economy.get_remaining()
@@ -340,18 +370,14 @@ func test_full_happy_path_combine_stride_strike_confirm_hex_pick_target_pick_exe
 	assert_eq(stamina_spent, 1, "Charge must spend exactly ONE Stamina")
 	assert_false(economy.can_take_action(), "Titus's one action for the turn must now be spent")
 
-	# ── Criterion 4 -- actor.position equals the chosen Stride hex; target's
-	# health reflects the Strike damage applied from the post-move position. ──
-	assert_true(titus.hex_coord.equals(chosen_hex), "actor.position must equal the chosen Stride hex")
-	assert_true(skeleton.hp_current < skeleton_hp_before_execute, "target.health must reflect the Strike damage applied from the post-move position")
-
 	assert_no_new_orphans("the full happy path must leave zero orphaned nodes")
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Criterion 5 -- cancellation at the queue-build step, run against the same
-# real-stack harness, leaves actor/target state fully unchanged and returns
-# control to the Layer 1 verb bar.
+# Criterion 7 -- cancellation at the queue-build step, driven purely through
+# the real VerbBarView/SelectionOverlay signal chain, leaves actor/target
+# state fully unchanged and returns control to the Layer 1 verb bar, with no
+# partial-state leak into a subsequent real Combine attempt.
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_cancel_during_queue_build_step_leaves_state_unchanged_and_returns_to_layer1() -> void:
@@ -364,40 +390,53 @@ func test_cancel_during_queue_build_step_leaves_state_unchanged_and_returns_to_l
 	var skeleton_hp_before: int = skeleton.hp_current
 	var stamina_before: int = titus.stamina
 
-	var build_ctrl = instance._core_combine_action_controller
-	var picked_stride := VerbQueueEntryClass.new("q1", 0, "STRIDE")
-	var mid_build = build_ctrl.enter_selection({
-		"actor_id": titus, "queue": [picked_stride], "combine_context": CombineQueueClass.Context.TURN,
-	})
-	assert_true(_option_ids(mid_build.candidate_options).has(CancelCombineUseCaseClass.CANCEL_SENTINEL_ID), "an in-progress queue-build must offer the Cancel sentinel")
+	_press_combine(instance)
+	assert_true(instance._combine_build_active)
 
-	var combine_queue := CombineQueueClass.new("q1", titus.display_id(), CombineQueueClass.Context.TURN)
-	assert_true(combine_queue.add_entry(picked_stride).get("ok", false))
+	var stride_option = _find_option(instance.selection_overlay.get_candidate_options(), "STRIDE")
+	assert_not_null(stride_option)
+	instance.selection_overlay.choose_option(stride_option)
 
-	# Cancel is picked -- the REAL CancelCombineUseCase discards the in-progress queue.
-	var cancel_result: Dictionary = CancelCombineUseCaseClass.new().execute(combine_queue)
-	assert_true(cancel_result.get("ok", false))
-	assert_eq(combine_queue.status, CombineQueueClass.Status.CANCELLED)
+	var mid_build_ids: Array = _option_ids(instance.selection_overlay.get_candidate_options())
+	assert_true(mid_build_ids.has(CancelCombineUseCaseClass.CANCEL_SENTINEL_ID), "an in-progress queue-build must offer the real Cancel sentinel option")
+
+	# Cancel is picked -- a real Layer-2a button press, via choose_option(),
+	# routing through the REAL CancelCombineUseCase.
+	var cancel_option = _find_option(instance.selection_overlay.get_candidate_options(), CancelCombineUseCaseClass.CANCEL_SENTINEL_ID)
+	assert_not_null(cancel_option)
+	instance.selection_overlay.choose_option(cancel_option)
+
+	# ── No queue state retained. ─────────────────────────────────────────
+	assert_false(instance._combine_build_active, "cancelling must tear down the interactive queue-build loop")
+	assert_null(instance._combine_build_queue, "cancelling must discard the in-progress CombineQueue -- no partial-state leak")
 
 	# Actor/target state fully unchanged.
 	assert_true(titus.hex_coord.equals(titus_start_hex))
 	assert_eq(skeleton.hp_current, skeleton_hp_before)
 	assert_eq(titus.stamina, stamina_before)
 
-	# Control returns to the Layer 1 verb bar: no Layer 2 selection was ever
-	# entered, COMBINE remains selectable, and a fresh attempt starts from
-	# the SAME Layer-1-equivalent candidate set (no leaked exclusion).
+	# Control returns to the Layer 1 verb bar: no Layer 2 selection was left
+	# active, COMBINE remains selectable, and a fresh attempt -- via the SAME
+	# real VerbBarView press -- starts from the SAME Layer-1-equivalent
+	# candidate set (no leaked exclusion).
 	assert_false(instance.selection_overlay.is_active())
 	assert_true(instance._verb_registry.is_available("COMBINE"))
-	var fresh = build_ctrl.enter_selection({"actor_id": titus, "queue": [], "combine_context": CombineQueueClass.Context.TURN})
-	assert_true(_option_ids(fresh.candidate_options).has("STRIDE"), "STRIDE must be legal again in a fresh attempt -- no leaked exclusion from the cancelled queue")
-	assert_true(_option_ids(fresh.candidate_options).has("STRIKE"))
+
+	_press_combine(instance)
+	var fresh_ids: Array = _option_ids(instance.selection_overlay.get_candidate_options())
+	assert_true(fresh_ids.has("STRIDE"), "STRIDE must be legal again in a fresh attempt -- no leaked exclusion from the cancelled queue")
+	assert_true(fresh_ids.has("STRIKE"))
+	assert_false(fresh_ids.has(CancelCombineUseCaseClass.CANCEL_SENTINEL_ID), "a brand-new attempt's very first pick must offer no Cancel option")
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Criterion 5 (cont'd) -- cancellation during the STRIDE (order_index 0)
-# targeting phase aborts the whole Combine with no partial-state leak, run
-# against the REAL, booted `instance.multi_phase_targeting_controller`.
+# Criterion 7 (cont'd) -- cancellation during the STRIDE (order_index 0)
+# targeting phase aborts the whole Combine with no partial-state leak, driven
+# against `instance.multi_phase_targeting_controller` -- the REAL,
+# composition-root-owned singleton `_finish_combine_targeting()` itself
+# invokes on every real hex-pick resolution (see this file's own header doc
+# for why no real hex-click-driven Cancel affordance exists at this phase
+# today).
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_cancel_during_stride_targeting_phase_aborts_entire_combine_with_no_state_leak() -> void:
@@ -428,22 +467,33 @@ func test_cancel_during_stride_targeting_phase_aborts_entire_combine_with_no_sta
 	assert_eq(combine_queue.status, CombineQueueClass.Status.CANCELLED)
 
 	# Actor/target state fully unchanged -- STRIDE's own enter_selection() was
-	# never even reached (this phase cancelled BEFORE dispatch).
+	# never even reached (this phase cancelled BEFORE dispatch), and
+	# execute() (the real economy charge) was never reached either.
 	assert_true(titus.hex_coord.equals(titus_start_hex))
 	assert_eq(skeleton.hp_current, skeleton_hp_before)
 	assert_eq(titus.stamina, stamina_before)
 	assert_eq(economy.get_remaining(), actions_before)
 
-	# Control returns to the Layer 1 verb bar.
+	# Control remains with the Layer 1 verb bar, and a SUBSEQUENT, real
+	# Combine attempt -- driven through the actual VerbBarView entry point --
+	# proves no partial state leaked from the cancelled attempt.
 	assert_false(instance.selection_overlay.is_active())
 	assert_true(instance._verb_registry.is_available("COMBINE"), "cancellation must leave COMBINE selectable again on the Layer 1 verb bar")
 
+	_press_combine(instance)
+	assert_true(instance._combine_build_active, "a subsequent real COMBINE press must engage a fresh queue-build loop with no leaked state")
+	var fresh_ids: Array = _option_ids(instance.selection_overlay.get_candidate_options())
+	assert_true(fresh_ids.has("STRIDE"))
+	assert_true(fresh_ids.has("STRIKE"))
+	assert_false(fresh_ids.has(CancelCombineUseCaseClass.CANCEL_SENTINEL_ID))
+
 
 # ══════════════════════════════════════════════════════════════════════════
-# Criterion 5 (cont'd) -- cancellation during the STRIKE (order_index 1)
+# Criterion 7 (cont'd) -- cancellation during the STRIKE (order_index 1)
 # targeting phase aborts the whole Combine with no partial-state leak, even
 # though the STRIDE phase already resolved (query-only, non-mutating) ahead
-# of it.
+# of it. Same real-singleton discipline as the STRIDE-phase cancellation
+# test above.
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_cancel_during_strike_targeting_phase_aborts_entire_combine_with_no_state_leak() -> void:
@@ -475,12 +525,21 @@ func test_cancel_during_strike_targeting_phase_aborts_entire_combine_with_no_sta
 
 	# Actor/target state fully unchanged -- STRIDE's own enter_selection()
 	# query never mutates the actor's real position (see that controller's
-	# own doc), and STRIKE's phase never even resolved.
+	# own doc), STRIKE's phase never even resolved, and execute() (the real
+	# economy charge) was never reached.
 	assert_true(titus.hex_coord.equals(geo["titus_start_hex"]))
 	assert_eq(skeleton.hp_current, skeleton_hp_before)
 	assert_eq(titus.stamina, stamina_before)
 	assert_eq(economy.get_remaining(), actions_before)
 
-	# Control returns to the Layer 1 verb bar.
+	# Control remains with the Layer 1 verb bar, and a SUBSEQUENT, real
+	# Combine attempt -- driven through the actual VerbBarView entry point --
+	# proves no partial state leaked from the cancelled attempt.
 	assert_false(instance.selection_overlay.is_active())
 	assert_true(instance._verb_registry.is_available("COMBINE"))
+
+	_press_combine(instance)
+	assert_true(instance._combine_build_active, "a subsequent real COMBINE press must engage a fresh queue-build loop with no leaked state")
+	var fresh_ids: Array = _option_ids(instance.selection_overlay.get_candidate_options())
+	assert_true(fresh_ids.has("STRIDE"))
+	assert_true(fresh_ids.has("STRIKE"))
