@@ -75,7 +75,16 @@ func _init(
 ## previously-cached copy — the seam a future combine_actions() domain
 ## service uses to re-derive traits at validation time (DEF-001).
 static func from_verb_resource(verb_resource):
-	return VerbTraits.new(
+	# NOTE: deliberately uses runtime load() rather than a bare
+	# `VerbTraits.new(...)` self-reference — referencing a script's own
+	# class_name from within one of its *static* methods fails to resolve
+	# ("Identifier not found") during Godot 4.3's own-file compilation
+	# pass, since the global class-name table entry for this very script
+	# isn't registered yet at the point this method's body is parsed.
+	# load() sidesteps that by resolving the script as a plain runtime
+	# Resource load instead of a compile-time identifier lookup.
+	var verb_traits_script: GDScript = load("res://core/domain/combine/verb_traits.gd")
+	return verb_traits_script.new(
 		verb_resource.repeat,
 		verb_resource.reaction_follow_up,
 		verb_resource.movement,

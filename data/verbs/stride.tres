@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="VerbResource" load_steps=2 format=3 uid="uid://vrbstride0001"]
+
+[ext_resource type="Script" uid="uid://vrbres0urce00001" path="res://core/resources/verb_resource.gd" id="1_stride"]
+
+[resource]
+script = ExtResource("1_stride")
+verb_id = "STRIDE"
+label = "Stride"
+action_cost = 1
+stamina_cost = 0
+movement = true
+repeat = false
+reaction_follow_up = false
+combinable = true
