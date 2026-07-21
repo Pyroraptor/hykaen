@@ -1099,6 +1099,9 @@ func _ready() -> void:
 		"STRIKE": CoreStrikeActionControllerClass.new({
 			"candidate_targets_fn": Callable(self, "_living_enemy_reactors"),
 		}),
+		"CAST_SPELL": _CoreCastSpellAdapter.new({
+			"get_ctrl_fn": func(): return _controller("CAST_SPELL"),
+		}),
 	}
 	multi_phase_targeting_controller = MultiPhaseTargetingControllerClass.new({
 		"controller_registry": _combine_controller_registry,
@@ -3027,6 +3030,52 @@ func _build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String 
 ## the loaded STRIDE and STRIKE VerbResource .tres files as the available verb
 ## pool for any actor/context. Sufficient for the v0 Charge steel thread; a
 ## full actor/context-aware implementation is a later sprint's scope.
+## _CoreCastSpellAdapter — thin VerbControllerPort adapter that enables
+## CAST_SPELL as a combination sub-action in the MPTC targeting loop.
+##
+## Offer phase (no selected_hex in context): delegates to the presentation
+## SpellActionController's 0-arg enter_selection() to get the actor's
+## available spells as candidate_options. SelectionOverlay then handles the
+## two-step spell-picker → target flow internally as a single activate() call.
+##
+## Resolution phase (selected_hex present in context): the value is the
+## {"option": chosen_spell, "target": target_id} dict SelectionOverlay's
+## _resolve() builds after both spell and target are chosen. Stored verbatim
+## in meta["chosen_target"] so CombineActionController._targeting_payload_for()
+## returns it unchanged to execute() — the exact OPTION_TARGET shape
+## SpellActionController.execute() already expects.
+class _CoreCastSpellAdapter:
+	extends "res://core/application/combine/verb_controller_port.gd"
+
+	const SelectionDescriptorClass = preload("res://core/domain/combine/selection_descriptor.gd")
+
+	var _get_ctrl_fn: Callable
+
+	func _init(deps: Dictionary = {}) -> void:
+		_get_ctrl_fn = deps.get("get_ctrl_fn", Callable())
+
+	func enter_selection(context: Dictionary) -> Object:
+		var order_index: int = context.get("order_index", 0)
+		var selected = context.get("selected_hex")
+		if selected != null:
+			return SelectionDescriptorClass.new(true, [], [], [], order_index,
+				{"chosen_target": selected})
+		if not _get_ctrl_fn.is_valid():
+			return _sd_failure(order_index)
+		var pres_ctrl = _get_ctrl_fn.call()
+		if pres_ctrl == null:
+			return _sd_failure(order_index)
+		var pres_result = pres_ctrl.enter_selection()
+		var candidate_options: Array = pres_result.get("candidate_options", [])
+		if candidate_options.is_empty():
+			return _sd_failure(order_index)
+		return SelectionDescriptorClass.new(true, candidate_options, [], [], order_index, {})
+
+	func _sd_failure(order_index: int) -> Object:
+		return SelectionDescriptorClass.new(false, [], [], [], order_index,
+			{"error_code": "NO_LEGAL_OPTIONS"})
+
+
 class _GdVerbRegistryPort:
 	extends VerbRegistryPort
 
@@ -3038,6 +3087,9 @@ class _GdVerbRegistryPort:
 		var strike = load("res://data/verbs/strike.tres")
 		if strike != null:
 			verbs.append(strike)
+		var cast_spell = load("res://data/verbs/cast_spell.tres")
+		if cast_spell != null:
+			verbs.append(cast_spell)
 		return verbs
 
 

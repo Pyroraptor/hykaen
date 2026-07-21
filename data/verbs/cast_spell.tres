@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="VerbResource" load_steps=2 format=3 uid="uid://vrbcastspell001"]
+
+[ext_resource type="Script" uid="uid://vrbres0urce00001" path="res://core/resources/verb_resource.gd" id="1_cast_spell"]
+
+[resource]
+script = ExtResource("1_cast_spell")
+verb_id = "CAST_SPELL"
+label = "Cast a Spell"
+action_cost = 1
+stamina_cost = 0
+movement = false
+repeat = false
+reaction_follow_up = false
+combinable = true
