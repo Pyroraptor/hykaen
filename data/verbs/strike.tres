@@ -9,6 +9,6 @@ label = "Strike"
 action_cost = 1
 stamina_cost = 0
 movement = false
-repeat = false
+repeat = true
 reaction_follow_up = false
 combinable = true

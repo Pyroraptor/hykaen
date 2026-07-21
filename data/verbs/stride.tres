@@ -9,6 +9,6 @@ label = "Stride"
 action_cost = 1
 stamina_cost = 0
 movement = true
-repeat = false
+repeat = true
 reaction_follow_up = false
 combinable = true

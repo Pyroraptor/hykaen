@@ -2140,6 +2140,23 @@ func _finish_combine_targeting() -> void:
 		_combine_targeting_resolved, _combine_targeting_queue
 	)
 	_reset_combine_targeting_state()
+	# Mirror the post-verb refresh _on_selection_overlay_resolved() performs for
+	# standalone verbs: re-gate availability (locks out Step after Stride),
+	# re-highlight legal moves, and push updated stamina/action budget to UI.
+	if verb_bar_view != null:
+		verb_bar_view.refresh_availability()
+	if round_session != null:
+		var actor = round_session.current_actor_entity()
+		if actor != null:
+			_turn_presentation().highlight_legal_moves(actor, actor.display_id())
+			var ae = round_session.current_action_economy()
+			if ae != null and status_panel_view != null:
+				status_panel_view.on_verb_action_budget_changed(
+					actor.display_id(), ae.get_remaining(), ae.is_spent()
+				)
+		if status_panel_view != null:
+			for combatant in _party + _enemies:
+				status_panel_view.update_combatant_hp(combatant.display_id(), combatant.hp_current)
 
 
 ## _abort_combine_targeting(error_code) -> void — FEAT-007: mirrors
