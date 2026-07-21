@@ -59,6 +59,18 @@ extends GutTest
 ##      this project's CI gate) -- this file introduces no shared mutable
 ##      state and modifies no production file.
 ##
+## FEAT-304 (US-009; CHECKLIST-3/4/5) note: tests/smoke/
+## test_release_readiness_smoke.gd -- the release-readiness capstone smoke
+## test closing this fix cycle's deployment blockers -- preloads THIS
+## script directly and reuses its PROLOGUE_SEED / SKELETON_REPOSITIONED_HEX_Q
+## / STRIDE_DESTINATION_HEX_Q fixture consts verbatim (rather than
+## re-declaring a second, potentially divergent copy), and re-drives this
+## same happy-path signal chain plus this file's own build-step Cancel
+## regression (test_criteria 7) as its single executable checkpoint that
+## the Charge steel thread and the US-008 cancellation guarantee are both
+## unaffected by this iteration's FIX-001/FIX-002/FIX-003 changes. This
+## file's own tests are otherwise unchanged.
+##
 ## A NOTE ON TARGETING-PHASE CANCELLATION (test_criteria 7, the two
 ## `..._targeting_phase_aborts_entire_combine...` tests below): this
 ## codebase's real, shipped UI currently offers NO Layer-2b hex/target-click
