@@ -352,16 +352,22 @@ func enter_selection() -> Dictionary:
 ## returns the SAME FEAT-004 inert stub shape byte-for-byte --
 ## ResolveCastUseCase/CancelCastUseCase remain a separate, later feature's
 ## scope.
-func execute(selection = null) -> Dictionary:
+func execute(selection = null, no_self_spend_execution: bool = false) -> Dictionary:
 	var actor = current_actor_entity()
 	if actor == null:
 		return _inert_result()
+
+	var action_economy = current_action_economy()
 
 	if actor.is_casting():
 		# When the overlay provides a pre-chosen target (remaining_actions==1
 		# path in enter_selection()), selection is the target's display_id.
 		var pre_chosen_target_id: String = selection if selection is String and selection != "" else ""
-		var continue_result: Dictionary = ContinueCastUseCaseClass.new().execute(actor, current_action_economy())
+		if no_self_spend_execution and action_economy != null:
+			action_economy.begin_self_spend_suppression()
+		var continue_result: Dictionary = ContinueCastUseCaseClass.new().execute(actor, action_economy)
+		if no_self_spend_execution and action_economy != null:
+			action_economy.end_self_spend_suppression()
 		if continue_result.get("success", false):
 			var continue_reaction_result: Dictionary = await _provoke_reaction_on_cast(actor)
 			continue_result["reaction_result"] = continue_reaction_result
@@ -381,9 +387,13 @@ func execute(selection = null) -> Dictionary:
 	if pool_port == null:
 		return _inert_result()
 
+	if no_self_spend_execution and action_economy != null:
+		action_economy.begin_self_spend_suppression()
 	var begin_result: Dictionary = BeginCastUseCaseClass.new().execute(
-		actor, spell_id, _spell_catalog_port, pool_port, current_action_economy()
+		actor, spell_id, _spell_catalog_port, pool_port, action_economy
 	)
+	if no_self_spend_execution and action_economy != null:
+		action_economy.end_self_spend_suppression()
 	if begin_result.get("success", false):
 		_emit_cast_begin_log(actor)
 		var begin_reaction_result: Dictionary = await _provoke_reaction_on_cast(actor)
