@@ -126,3 +126,60 @@ func test_sorted_entries_does_not_mutate_the_queues_own_entries_array() -> void:
 
 	assert_eq(q.entries[0], second, "sorted_entries() must never mutate the queue's own entries Array in place")
 	assert_eq(q.entries[1], first)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# FIND-306: add_entry() rejects a non-contiguous order_index sequence
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_add_entry_rejects_gapped_order_index_0_and_99() -> void:
+	var q := CombineQueueClass.new("q1", "player_0")
+	q.add_entry(VerbQueueEntryClass.new("q1", 0, "STRIDE"))
+
+	var result: Dictionary = q.add_entry(VerbQueueEntryClass.new("q1", 99, "STRIKE"))
+
+	assert_false(result.get("ok", true), "add_entry() must reject a gapped order_index sequence {0, 99}")
+	assert_eq(result.get("reason", ""), "NON_CONTIGUOUS_ORDER_INDEX")
+
+
+func test_add_entry_rejects_gapped_order_index_does_not_mutate_the_queue() -> void:
+	var q := CombineQueueClass.new("q1", "player_0")
+	q.add_entry(VerbQueueEntryClass.new("q1", 0, "STRIDE"))
+
+	q.add_entry(VerbQueueEntryClass.new("q1", 99, "STRIKE"))
+
+	assert_eq(q.entries.size(), 1, "a rejected non-contiguous add_entry() call must leave the queue's entries unchanged")
+
+
+func test_add_entry_rejects_order_index_not_starting_at_zero() -> void:
+	var q := CombineQueueClass.new("q1", "player_0")
+	q.add_entry(VerbQueueEntryClass.new("q1", -1, "STRIDE"))
+
+	var result: Dictionary = q.add_entry(VerbQueueEntryClass.new("q1", 3, "STRIKE"))
+
+	assert_false(result.get("ok", true), "add_entry() must reject an order_index sequence {-1, 3} that does not start at 0")
+	assert_eq(result.get("reason", ""), "NON_CONTIGUOUS_ORDER_INDEX")
+
+
+func test_add_entry_accepts_contiguous_two_entry_sequence() -> void:
+	var q := CombineQueueClass.new("q1", "player_0")
+
+	var r0: Dictionary = q.add_entry(VerbQueueEntryClass.new("q1", 0, "STRIDE"))
+	var r1: Dictionary = q.add_entry(VerbQueueEntryClass.new("q1", 1, "STRIKE"))
+
+	assert_true(r0.get("ok", false), "{0} must be accepted as a contiguous sequence")
+	assert_true(r1.get("ok", false), "{0,1} must be accepted as a contiguous sequence")
+	assert_eq(q.entries.size(), 2)
+
+
+func test_add_entry_accepts_contiguous_three_entry_sequence() -> void:
+	var q := CombineQueueClass.new("q1", "player_0")
+
+	var r0: Dictionary = q.add_entry(VerbQueueEntryClass.new("q1", 0, "STRIDE"))
+	var r1: Dictionary = q.add_entry(VerbQueueEntryClass.new("q1", 1, "STRIKE"))
+	var r2: Dictionary = q.add_entry(VerbQueueEntryClass.new("q1", 2, "STRIDE"))
+
+	assert_true(r0.get("ok", false), "{0} must be accepted as a contiguous sequence")
+	assert_true(r1.get("ok", false), "{0,1} must be accepted as a contiguous sequence")
+	assert_true(r2.get("ok", false), "{0,1,2} must be accepted as a contiguous sequence")
+	assert_eq(q.entries.size(), 3)

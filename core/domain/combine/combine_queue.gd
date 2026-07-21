@@ -81,25 +81,42 @@ func _init(
 
 ## add_entry(entry) -> Dictionary {ok, reason} — appends `entry`
 ## (VerbQueueEntry) to this queue's entries, REJECTING it (no mutation)
-## when doing so would violate order_index uniqueness across the
-## resulting entry set. Routes through
-## VerbQueueEntry.validate_unique_order_index() — the SOLE
-## duplicate-order_index check, never re-derived here.
+## when doing so would violate order_index uniqueness OR contiguity
+## across the resulting entry set. Routes through
+## VerbQueueEntry.validate_unique_order_index() and
+## VerbQueueEntry.validate_contiguous_order_index() — the SOLE
+## duplicate-order_index / non-contiguous-order_index checks, never
+## re-derived here (FIND-306: build-time defense mirroring
+## ValidateCombineQueueUseCase's execute()-time authoritative gate).
+## Uniqueness is checked FIRST so a duplicate index (e.g. {0,0}) reports
+## as DUPLICATE_ORDER_INDEX rather than NON_CONTIGUOUS_ORDER_INDEX.
 ##
 ## Returns:
 ##   {"ok": true}                                        — entry appended
 ##   {"ok": false, "reason": "DUPLICATE_ORDER_INDEX", "error": <msg>}
 ##                                                         — entry rejected
+##   {"ok": false, "reason": "NON_CONTIGUOUS_ORDER_INDEX", "error": <msg>}
+##                                                         — entry rejected
 func add_entry(entry: VerbQueueEntryClass) -> Dictionary:
 	var candidate_entries: Array = entries.duplicate()
 	candidate_entries.append(entry)
-	var validation_error: String = VerbQueueEntryClass.validate_unique_order_index(candidate_entries)
-	if validation_error != "":
+
+	var duplicate_error: String = VerbQueueEntryClass.validate_unique_order_index(candidate_entries)
+	if duplicate_error != "":
 		return {
 			"ok": false,
 			"reason": "DUPLICATE_ORDER_INDEX",
-			"error": validation_error,
+			"error": duplicate_error,
 		}
+
+	var contiguity_error: String = VerbQueueEntryClass.validate_contiguous_order_index(candidate_entries)
+	if contiguity_error != "":
+		return {
+			"ok": false,
+			"reason": "NON_CONTIGUOUS_ORDER_INDEX",
+			"error": contiguity_error,
+		}
+
 	entries = candidate_entries
 	return {"ok": true}
 

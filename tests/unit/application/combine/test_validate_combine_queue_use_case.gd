@@ -160,3 +160,55 @@ func test_reorders_entries_by_order_index_before_re_checking() -> void:
 	var result: Dictionary = use_case.execute(queue, {"combatant_id": "player_0"}, CombineQueueClass.Context.TURN, port)
 
 	assert_true(result.get("ok", false), "order_index reordering must not spuriously reject a legal [STRIDE, STRIKE] queue")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# FIND-306 — a queue bypassing add_entry() (e.g. entries assigned directly
+# onto CombineQueue.entries) that carries a gapped/non-zero-start
+# order_index sequence must be rejected BEFORE any economy charge, even
+# though its verb_ids are otherwise perfectly legal (two DIFFERENT verbs).
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_gapped_order_index_queue_is_rejected_before_combine_actions_check() -> void:
+	var use_case := ValidateCombineQueueUseCaseClass.new()
+	var port := FakeVerbRegistryPort.new(_stride_and_strike_pool())
+	# Bypasses CombineQueue.add_entry() entirely -- constructed directly as
+	# a raw Array, mirroring how a stale/tampered/hand-built queue might
+	# reach execute() (design notes' security section).
+	var queue: Array = [
+		VerbQueueEntryClass.new("q1", 0, "STRIDE"),
+		VerbQueueEntryClass.new("q1", 99, "STRIKE"),
+	]
+
+	var result: Dictionary = use_case.execute(queue, {"combatant_id": "player_0"}, CombineQueueClass.Context.TURN, port)
+
+	assert_false(result.get("ok", true), "{0, 99} order_index must be rejected as non-contiguous, even for two legal verbs")
+	assert_eq(result.get("error_code"), "VALIDATION_FAILED")
+
+
+func test_non_zero_start_order_index_queue_is_rejected() -> void:
+	var use_case := ValidateCombineQueueUseCaseClass.new()
+	var port := FakeVerbRegistryPort.new(_stride_and_strike_pool())
+	var queue: Array = [
+		VerbQueueEntryClass.new("q1", -1, "STRIDE"),
+		VerbQueueEntryClass.new("q1", 3, "STRIKE"),
+	]
+
+	var result: Dictionary = use_case.execute(queue, {"combatant_id": "player_0"}, CombineQueueClass.Context.TURN, port)
+
+	assert_false(result.get("ok", true), "{-1, 3} order_index must be rejected as not starting at 0")
+	assert_eq(result.get("error_code"), "VALIDATION_FAILED")
+
+
+func test_contiguous_order_index_queue_still_passes_alongside_new_check() -> void:
+	var use_case := ValidateCombineQueueUseCaseClass.new()
+	var port := FakeVerbRegistryPort.new(_stride_and_strike_pool())
+	var queue: Array = [
+		VerbQueueEntryClass.new("q1", 0, "STRIDE"),
+		VerbQueueEntryClass.new("q1", 1, "STRIKE"),
+	]
+
+	var result: Dictionary = use_case.execute(queue, {"combatant_id": "player_0"}, CombineQueueClass.Context.TURN, port)
+
+	assert_true(result.get("ok", false), "a proper {0,1} contiguous sequence must still be legal after adding the contiguity gate")
+	assert_eq(result.get("error_code"), "")

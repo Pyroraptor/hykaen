@@ -41,6 +41,7 @@ extends RefCounted
 
 const CombineActionsClass = preload("res://core/domain/combine/combine_actions.gd")
 const VerbTraitsClass = preload("res://core/domain/combine/verb_traits.gd")
+const VerbQueueEntryClass = preload("res://core/domain/combine/verb_queue_entry.gd")
 
 
 ## execute(queue_entries, actor, context, verb_registry_port) -> Dictionary{ok, error_code}
@@ -73,6 +74,16 @@ const VerbTraitsClass = preload("res://core/domain/combine/verb_traits.gd")
 ##       OR `actor`/`verb_registry_port` was null.
 func execute(queue_entries: Array, actor, context: int, verb_registry_port) -> Dictionary:
 	if actor == null or verb_registry_port == null:
+		return {"ok": false, "error_code": "VALIDATION_FAILED"}
+
+	# FIND-306: authoritative order_index contiguity re-check, mirroring
+	# CombineQueue.add_entry()'s build-time defense. A queue built without
+	# routing through add_entry() (e.g. a programmatically-constructed
+	# CombineQueue.entries Array) could otherwise carry a gapped or
+	# non-zero-start order_index sequence into the sequential resolution
+	# loop; this gate runs BEFORE any economy charge, same as the
+	# combine_actions() re-validation below.
+	if VerbQueueEntryClass.validate_contiguous_order_index(queue_entries) != "":
 		return {"ok": false, "error_code": "VALIDATION_FAILED"}
 
 	var traits_by_verb_id: Dictionary = {}

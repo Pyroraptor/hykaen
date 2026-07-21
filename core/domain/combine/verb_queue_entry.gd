@@ -96,3 +96,58 @@ static func validate_unique_order_index(entries: Array) -> String:
 			return "duplicate order_index %d within queue" % entry.order_index
 		seen[entry.order_index] = true
 	return ""
+
+
+## has_non_contiguous_order_index(entries) -> bool — true when `entries`
+## (an Array of VerbQueueEntry) does NOT form an exact contiguous 0..N-1
+## order_index sequence. Sibling primitive to has_duplicate_order_index()
+## above, following the SAME "one static validator, reused everywhere it
+## applies" convention (FIND-306): uniqueness alone does not rule out
+## gapped ({0,99}) or non-zero-start ({-1,3}) index sets, which would
+## silently corrupt a sequential order_index-driven resolution loop
+## (design notes' security section: "order_index bounds checking").
+static func has_non_contiguous_order_index(entries: Array) -> bool:
+	return validate_contiguous_order_index(entries) != ""
+
+
+## validate_contiguous_order_index(entries) -> String — "" when `entries`
+## (an Array of VerbQueueEntry) has EXACTLY N entries whose order_index
+## values are the set {0, 1, ..., N-1} (N = entries.size()); otherwise a
+## human-readable reason naming the first missing index in that expected
+## range. An empty `entries` Array is trivially contiguous ("").
+##
+## This check is independent of (and complementary to)
+## validate_unique_order_index() above: a set with duplicates (e.g.
+## {0,0}) is also flagged here as non-contiguous (it is missing 1), but
+## callers should typically check uniqueness FIRST so a duplicate-index
+## rejection reports as DUPLICATE_ORDER_INDEX rather than
+## NON_CONTIGUOUS_ORDER_INDEX (see CombineQueue.add_entry()).
+static func validate_contiguous_order_index(entries: Array) -> String:
+	var expected_count: int = entries.size()
+	if expected_count == 0:
+		return ""
+
+	var seen: Dictionary = {}
+	for entry in entries:
+		seen[_order_index_of(entry)] = true
+
+	for expected_index in range(expected_count):
+		if not seen.has(expected_index):
+			return (
+				"order_index sequence must be contiguous 0..%d; missing %d"
+				% [expected_count - 1, expected_index]
+			)
+	return ""
+
+
+## _order_index_of(entry) -> int — duck-typed order_index accessor: accepts
+## either a VerbQueueEntry instance (production shape) or an equivalent
+## {"order_index": ...} Dictionary, mirroring
+## core/domain/combine/combine_actions.gd's own _verb_id_of() convention
+## for accepting either shape. Used only by validate_contiguous_order_index()
+## above so it stays safely callable from ValidateCombineQueueUseCase, which
+## also accepts Dictionary-shaped queue entries.
+static func _order_index_of(entry) -> int:
+	if entry is Dictionary:
+		return entry.get("order_index", 0)
+	return entry.order_index
