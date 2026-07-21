@@ -87,12 +87,24 @@ class SpyCombatant:
 ## FakeActionEconomyPort — a minimal duck-typed collaborator matching
 ## core/application/ports/action_economy_port.gd's spend_action() contract,
 ## always reporting success and counting how many times it was called.
+##
+## FEAT-307 (US-004; resolves FIND-305) ADDS `action_available` (default
+## true) and `has_action_available()` -- the SAME non-mutating economy-
+## availability query name core/rules/action_economy.gd's FEAT-307 alias
+## exposes -- so this suite can configure a port that reports "no action
+## available" (e.g. mirroring an already-used-action combatant) without ever
+## touching spend_action() itself, proving execute()'s new preflight gate
+## consults this query rather than (mutatively) spending first.
 class FakeActionEconomyPort:
 	var spend_action_call_count: int = 0
+	var action_available: bool = true
 
 	func spend_action(_action_metadata: Dictionary) -> Dictionary:
 		spend_action_call_count += 1
 		return {"success": true, "ok": true}
+
+	func has_action_available() -> bool:
+		return action_available
 
 
 ## SpyValidateUseCase / SpyActionEconomyPort — share a single `call_log`
@@ -121,6 +133,14 @@ class SpyActionEconomyPort:
 	func spend_action(_action_metadata: Dictionary) -> Dictionary:
 		call_log.append("charge_action_economy")
 		return {"success": true, "ok": true}
+
+	## has_action_available() — FEAT-307: logs "preflight_check" so this
+	## suite's call-order criterion can additionally assert the new
+	## non-mutating preflight gate runs strictly between "validate" and
+	## "charge_action_economy" -- never after the charge, never skipped.
+	func has_action_available() -> bool:
+		call_log.append("preflight_check")
+		return true
 
 
 ## FakeSubController — FEAT-297 (resolves DEF-NEW-002): a minimal
@@ -279,7 +299,10 @@ func test_validation_gate_runs_before_action_economy_charge() -> void:
 	var result: Dictionary = controller.execute({"queue": queue, "actor": actor, "context": CombineQueueClass.Context.TURN})
 
 	assert_true(result.get("ok", false), "the legal queue backing this call-order check must itself succeed")
-	assert_eq(call_log, ["validate", "charge_action_economy"], "ValidateCombineQueueUseCase must run strictly before the action-economy charge")
+	assert_eq(
+		call_log, ["validate", "preflight_check", "charge_action_economy"],
+		"ValidateCombineQueueUseCase must run first, then the FEAT-307 non-mutating preflight, then (only once both pass) the action-economy charge"
+	)
 
 
 func test_validation_gate_runs_before_action_economy_charge_even_when_it_rejects() -> void:
@@ -298,6 +321,167 @@ func test_validation_gate_runs_before_action_economy_charge_even_when_it_rejects
 
 	assert_false(result.get("ok", true), "an illegal queue must still be rejected with a spy use case wired in")
 	assert_eq(call_log, ["validate"], "a rejected validation must never reach the action-economy charge at all")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# FEAT-307 (US-004; resolves FIND-305, critical) — a non-mutating preflight
+# economy/Stamina gate runs strictly between the DEF-001 validation gate
+# above and `_dispatch_sub_actions()` -- the real Stride move / real Strike
+# damage -- guaranteeing ZERO world mutation when the actor cannot actually
+# afford the Combine.
+# ══════════════════════════════════════════════════════════════════════════
+
+func _wired_sub_action_registry(call_log: Array) -> Dictionary:
+	return {
+		"STRIDE": FakeSubController.new("STRIDE", call_log, {"ok": true}),
+		"STRIKE": FakeSubController.new("STRIKE", call_log, {"ok": true}),
+	}
+
+
+func test_execute_rejects_when_action_economy_reports_no_action_available() -> void:
+	var port := FakeVerbRegistryPort.new(_stride_and_strike_pool())
+	var economy := FakeActionEconomyPort.new()
+	economy.action_available = false  # e.g. the actor already used their one action this turn
+	var actor := _make_actor(1)
+	var controller := CombineActionControllerClass.new({
+		"verb_registry_port": port,
+		"action_economy_port": economy,
+	})
+	var queue: Array = [
+		VerbQueueEntryClass.new("q1", 0, "STRIDE"),
+		VerbQueueEntryClass.new("q1", 1, "STRIKE"),
+	]
+
+	var result: Dictionary = controller.execute({"queue": queue, "actor": actor, "context": CombineQueueClass.Context.TURN})
+
+	assert_false(result.get("ok", true), "execute() must reject when the action-economy port reports no action available")
+	assert_eq(result.get("error_code"), "INSUFFICIENT_RESOURCES")
+	assert_eq(result.get("actions_spent"), 0, "a preflight-rejected execute() call must spend zero actions")
+	assert_eq(result.get("stamina_spent"), 0, "a preflight-rejected execute() call must spend zero Stamina")
+	assert_eq(economy.spend_action_call_count, 0, "the preflight gate must reject BEFORE the action-economy port is ever CHARGED (spend_action())")
+	assert_eq(actor.stamina, 1, "a preflight-rejected execute() call must leave the actor's Stamina untouched")
+	assert_eq(actor.spend_stamina_call_count, 0, "a preflight-rejected execute() call must never reach Combatant.spend_stamina()")
+
+
+func test_execute_rejects_when_actor_stamina_is_zero() -> void:
+	var port := FakeVerbRegistryPort.new(_stride_and_strike_pool())
+	var economy := FakeActionEconomyPort.new()  # action economy otherwise available (action_available defaults true)
+	var actor := _make_actor(0)
+	var controller := CombineActionControllerClass.new({
+		"verb_registry_port": port,
+		"action_economy_port": economy,
+	})
+	var queue: Array = [
+		VerbQueueEntryClass.new("q1", 0, "STRIDE"),
+		VerbQueueEntryClass.new("q1", 1, "STRIKE"),
+	]
+
+	var result: Dictionary = controller.execute({"queue": queue, "actor": actor, "context": CombineQueueClass.Context.TURN})
+
+	assert_false(result.get("ok", true), "execute() must reject when the actor's Stamina is 0")
+	assert_eq(result.get("error_code"), "INSUFFICIENT_RESOURCES")
+	assert_eq(result.get("actions_spent"), 0, "a preflight-rejected execute() call must spend zero actions")
+	assert_eq(result.get("stamina_spent"), 0, "a preflight-rejected execute() call must spend zero Stamina")
+	assert_eq(economy.spend_action_call_count, 0, "the action-economy port must never be charged once the preflight Stamina check rejects")
+	assert_eq(actor.stamina, 0, "a preflight-rejected execute() call must leave the actor's (already-zero) Stamina untouched")
+	assert_eq(actor.spend_stamina_call_count, 0, "a preflight-rejected execute() call must never reach Combatant.spend_stamina()")
+
+
+func test_execute_preflight_action_unavailable_never_dispatches_sub_actions_or_mutates_actor_position() -> void:
+	# Criteria 3 + 5: no world mutation occurs on the preflight-failure path --
+	# proven via a spy on `_dispatch_sub_actions()`'s own sub-controllers
+	# (FakeSubController) showing ZERO invocations, and the actor's own
+	# hex_coord (Stride's would-be mutation target) staying byte-for-byte
+	# unchanged.
+	var port := FakeVerbRegistryPort.new(_stride_and_strike_pool())
+	var economy := FakeActionEconomyPort.new()
+	economy.action_available = false
+	var actor := _make_actor(1)
+	var starting_hex := actor.hex_coord
+	var call_log: Array = []
+	var registry := _wired_sub_action_registry(call_log)
+	var controller := CombineActionControllerClass.new({
+		"verb_registry_port": port,
+		"action_economy_port": economy,
+		"controller_for": func(verb_id: String): return registry.get(verb_id),
+	})
+	var stride_destination := HexCoordClass.new(2, 0)
+	var queue: Array = [
+		VerbQueueEntryClass.new("q1", 0, "STRIDE"),
+		VerbQueueEntryClass.new("q1", 1, "STRIKE"),
+	]
+	var accumulated: Dictionary = {
+		"STRIDE": _stride_descriptor(stride_destination),
+		"STRIKE": _strike_descriptor(["skeleton_1"], stride_destination),
+	}
+
+	var result: Dictionary = controller.execute({
+		"queue": queue, "actor": actor, "context": CombineQueueClass.Context.TURN, "accumulated": accumulated,
+	})
+
+	assert_false(result.get("ok", true), "a preflight rejection must still report ok=false with the real controller_for resolver wired")
+	assert_eq(result.get("error_code"), "INSUFFICIENT_RESOURCES")
+	assert_eq(result.get("resolution_log"), [], "resolution_log must stay empty -- _dispatch_sub_actions() must never even begin")
+	assert_eq(call_log.size(), 0, "neither STRIDE nor STRIKE's sub-controller may ever be dispatched once the preflight gate rejects")
+	assert_true(actor.hex_coord.equals(starting_hex), "the actor's position must be completely unchanged -- Stride's own effect never dispatched")
+
+
+func test_execute_preflight_zero_stamina_never_dispatches_sub_actions_or_mutates_actor_position() -> void:
+	var port := FakeVerbRegistryPort.new(_stride_and_strike_pool())
+	var economy := FakeActionEconomyPort.new()
+	var actor := _make_actor(0)
+	var starting_hex := actor.hex_coord
+	var call_log: Array = []
+	var registry := _wired_sub_action_registry(call_log)
+	var controller := CombineActionControllerClass.new({
+		"verb_registry_port": port,
+		"action_economy_port": economy,
+		"controller_for": func(verb_id: String): return registry.get(verb_id),
+	})
+	var stride_destination := HexCoordClass.new(2, 0)
+	var queue: Array = [
+		VerbQueueEntryClass.new("q1", 0, "STRIDE"),
+		VerbQueueEntryClass.new("q1", 1, "STRIKE"),
+	]
+	var accumulated: Dictionary = {
+		"STRIDE": _stride_descriptor(stride_destination),
+		"STRIKE": _strike_descriptor(["skeleton_1"], stride_destination),
+	}
+
+	var result: Dictionary = controller.execute({
+		"queue": queue, "actor": actor, "context": CombineQueueClass.Context.TURN, "accumulated": accumulated,
+	})
+
+	assert_false(result.get("ok", true), "a preflight rejection must still report ok=false with the real controller_for resolver wired")
+	assert_eq(result.get("error_code"), "INSUFFICIENT_RESOURCES")
+	assert_eq(result.get("resolution_log"), [], "resolution_log must stay empty -- _dispatch_sub_actions() must never even begin")
+	assert_eq(call_log.size(), 0, "neither STRIDE nor STRIKE's sub-controller may ever be dispatched once the preflight Stamina check rejects")
+	assert_true(actor.hex_coord.equals(starting_hex), "the actor's position must be completely unchanged -- Stride's own effect never dispatched")
+
+
+func test_execute_happy_path_unaffected_by_preflight_gate_when_resources_are_sufficient() -> void:
+	# Regression guard (test_criteria #4): sufficient action + Stamina still
+	# succeeds and still dispatches/charges exactly as before -- the FEAT-307
+	# gate is additive, never a behavior change to the legal/affordable path.
+	var port := FakeVerbRegistryPort.new(_stride_and_strike_pool())
+	var economy := FakeActionEconomyPort.new()
+	var actor := _make_actor(1)
+	var controller := CombineActionControllerClass.new({
+		"verb_registry_port": port,
+		"action_economy_port": economy,
+	})
+	var queue: Array = [
+		VerbQueueEntryClass.new("q1", 0, "STRIDE"),
+		VerbQueueEntryClass.new("q1", 1, "STRIKE"),
+	]
+
+	var result: Dictionary = controller.execute({"queue": queue, "actor": actor, "context": CombineQueueClass.Context.TURN})
+
+	assert_true(result.get("ok", false), "sufficient action + Stamina must still succeed with the FEAT-307 preflight gate in place")
+	assert_eq(result.get("actions_spent"), 1)
+	assert_eq(result.get("stamina_spent"), 1)
+	assert_eq(economy.spend_action_call_count, 1)
+	assert_eq(actor.stamina, 0)
 
 
 # ══════════════════════════════════════════════════════════════════════════

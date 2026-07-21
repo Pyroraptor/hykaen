@@ -63,6 +63,23 @@
 ## threading is authored here, exactly mirroring
 ## presentation/combine_action_controller.gd's own established rationale.
 ##
+## FEAT-307 (Iteration O; US-004; resolves FIND-305, critical) ADDS a
+## non-mutating economy/Stamina PREFLIGHT gate, run strictly between the
+## DEF-001 validation gate above and `_dispatch_sub_actions()` below. Before
+## this feature, `_dispatch_sub_actions()` (real Stride move, real Strike
+## damage) ran BEFORE `_charge_action_economy()` ever checked sufficiency,
+## and `_charge_action_economy()` itself called `actor.spend_stamina()`
+## unconditionally with no sufficiency check at all — so an actor with an
+## already-used action or zero Stamina could still have a queued Combine's
+## sub-actions genuinely mutate the live world. `_preflight_resource_check()`
+## (below) mirrors the deprecated presentation/combine_action_controller.gd's
+## own `_preflight_charge_check()`: a PURE, non-mutating read of
+## action-economy availability (via the injected `_action_economy_port`) and
+## `actor.stamina >= REQUIRED_STAMINA_COST`. On failure, execute() returns
+## {ok:false, error_code:"INSUFFICIENT_RESOURCES", actions_spent:0,
+## stamina_spent:0} and `_dispatch_sub_actions()` is NEVER invoked —
+## guaranteeing zero world mutation on this path.
+##
 ## `_dispatch_sub_actions()`/`_controller()` call each resolved sub-
 ## controller's `execute()` via `Callable(controller, "execute").call(...)`
 ## rather than `await controller.execute(...)`: the REAL Stride/Strike
@@ -119,6 +136,14 @@ extends RefCounted
 const ValidateCombineQueueUseCaseClass = preload("res://core/application/combine/validate_combine_queue_use_case.gd")
 const BuildVerbQueueUseCaseClass = preload("res://core/application/combine/build_verb_queue_use_case.gd")
 const CombineQueueClass = preload("res://core/domain/combine/combine_queue.gd")
+
+## REQUIRED_STAMINA_COST — FEAT-307 (US-004; resolves FIND-305): the flat
+## Stamina cost `_preflight_resource_check()` (below) compares `actor.stamina`
+## against, matching the SAME flat 1-Stamina charge `_charge_action_economy()`
+## has always applied on a legal execute() call. Kept as a single named
+## constant so the preflight PEEK and the actual charge can never drift out
+## of sync with each other.
+const REQUIRED_STAMINA_COST: int = 1
 
 ## The APPLICATION-layer use case this controller's execute() routes its
 ## DEF-001 re-validation gate through. Defaults to a fresh instance so a
@@ -248,6 +273,20 @@ func execute(payload: Dictionary = {}) -> Dictionary:
 	if not validation.get("ok", false):
 		return _rejection_result(validation.get("error_code", "VALIDATION_FAILED"))
 
+	# FEAT-307 (US-004; resolves FIND-305, critical) — a non-mutating
+	# economy/Stamina PREFLIGHT, run strictly BEFORE `_dispatch_sub_actions()`
+	# (the real Stride move / real Strike damage) is ever reached. Before this
+	# feature, `_dispatch_sub_actions()` ran, mutating the live world, BEFORE
+	# `_charge_action_economy()` ever checked sufficiency -- an actor with an
+	# already-used action or zero Stamina could still have their Combine's
+	# sub-actions genuinely applied. This gate guarantees ZERO world mutation
+	# on either failure path: neither `_action_economy_port` nor
+	# `actor.spend_stamina()` is ever consulted for a MUTATING call here (see
+	# `_preflight_resource_check()`'s own doc), and returning here means
+	# `_dispatch_sub_actions()` below is never invoked at all.
+	if not _preflight_resource_check(actor):
+		return _rejection_result("INSUFFICIENT_RESOURCES")
+
 	# FEAT-297 (resolves DEF-NEW-002) — the real Stride-then-Strike (or any
 	# N-length, order_index-ordered) sub-action dispatch, now merged into
 	# THIS controller (the one the live signal chain actually invokes). Runs
@@ -299,6 +338,62 @@ func _charge_action_economy(actor) -> Dictionary:
 		"stamina_spent": stamina_spent,
 		"resolution_log": [],
 	}
+
+
+## _preflight_resource_check(actor) -> bool — FEAT-307 (US-004; resolves
+## FIND-305, critical): a PURE, non-mutating read-only peek at whether this
+## Combine could actually afford its action-economy + Stamina cost, run
+## strictly BEFORE `_dispatch_sub_actions()` (mirrors the deprecated
+## presentation/combine_action_controller.gd's own `_preflight_charge_check()`
+## -- same non-mutating-peek-before-any-effect shape, just consulting the
+## injected `_action_economy_port` collaborator here rather than a directly
+## held ActionEconomy instance).
+##
+## Consults, in order (every read is a pure query -- nothing here ever spends
+## an action, a Stamina point, or mutates `_action_economy_port` in any way):
+##   1. `_action_economy_port.has_action_available()` (core/rules/
+##      action_economy.gd's FEAT-307 query -- an alias of can_take_action())
+##      when the injected port duck-types that method.
+##   2. `_action_economy_port.can_take_action()` when the port instead
+##      duck-types THAT method directly (e.g. a bare ActionEconomy handed in
+##      as the port).
+##   3. `_action_economy_port.is_spent()` -- already part of every concrete
+##      ActionEconomyPort adapter's contract (core/application/ports/
+##      action_economy_port.gd) -- so even a port exposing none of the above
+##      two still gets SOME non-mutating economy-availability signal.
+## Any port lacking ALL three methods (e.g. a minimal test double that only
+## implements spend_action()) is treated as "economy availability unknown -->
+## assume available", so this feature never regresses a pre-existing caller
+## that never wired one of these queries.
+##
+## Then checks `actor.stamina >= REQUIRED_STAMINA_COST` -- via `actor.get(
+## "stamina")` (a safe, non-crashing Object property read that returns null,
+## rather than erroring, for an actor double with no `stamina` property at
+## all -- such an actor skips this half of the check rather than crashing,
+## preserving every existing test double in this suite that never modelled
+## Stamina). A real Combatant (core/domain/combatant.gd) always exposes a
+## real `stamina` int, so the live-wired path always gets this check applied.
+##
+## Returns true iff the Combine could afford its cost right now (dispatch may
+## proceed); false means execute() must reject with INSUFFICIENT_RESOURCES
+## WITHOUT ever reaching `_dispatch_sub_actions()` or `_charge_action_economy()`.
+func _preflight_resource_check(actor) -> bool:
+	if _action_economy_port != null:
+		if _action_economy_port.has_method("has_action_available"):
+			if not _action_economy_port.has_action_available():
+				return false
+		elif _action_economy_port.has_method("can_take_action"):
+			if not _action_economy_port.can_take_action():
+				return false
+		elif _action_economy_port.has_method("is_spent"):
+			if _action_economy_port.is_spent():
+				return false
+
+	var stamina_value = actor.get("stamina") if actor != null else null
+	if stamina_value != null and stamina_value < REQUIRED_STAMINA_COST:
+		return false
+
+	return true
 
 
 ## _rejection_result(error_code, resolution_log) -> Dictionary — the SOLE

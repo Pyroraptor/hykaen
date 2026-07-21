@@ -470,3 +470,20 @@ func is_spent() -> bool:
 ## can_take_movement_action()'s role for the Movement-only gate.
 func can_take_action() -> bool:
 	return not _action_used and not is_spent()
+
+
+## has_action_available() → bool — FEAT-307 (US-004; resolves FIND-305):
+## a non-mutating economy-availability query exposed under the vocabulary an
+## ActionEconomyPort-shaped collaborator can duck-type against, so
+## core/controllers/combine_action_controller.gd's execute() can run a
+## PREFLIGHT check (BEFORE any sub-action dispatch/world mutation) that
+## mirrors the deprecated presentation/combine_action_controller.gd's own
+## `_preflight_charge_check()` precondition-peek pattern, without ever
+## mutating _budget/_action_used/_is_spent itself. Pure alias of
+## can_take_action() -- identical truth table, identical semantics -- kept as
+## a separate, additively-named method (rather than renaming
+## can_take_action()) so every existing can_take_action() call site in this
+## codebase (verb-bar availability gating, AI decision logic, etc.) is
+## completely unaffected by this feature.
+func has_action_available() -> bool:
+	return can_take_action()
