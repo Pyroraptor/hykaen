@@ -265,8 +265,8 @@ func test_full_happy_path_combine_stride_strike_confirm_hex_pick_target_pick_exe
 
 	assert_true(instance._combine_build_active, "the queue-build loop must still be active after a single VERB pick")
 	var second_ids: Array = _option_ids(instance.selection_overlay.get_candidate_options())
-	assert_false(second_ids.has("STRIDE"), "STRIDE must be excluded from the next pick after being chosen -- it carries no Repeat trait")
-	assert_true(second_ids.has("STRIKE"), "STRIKE (a different verb) must remain legal")
+	assert_true(second_ids.has("STRIDE"), "STRIDE (repeat=true) must remain offered after being chosen once")
+	assert_true(second_ids.has("STRIKE"), "STRIKE must remain legal")
 	assert_false(second_ids.has(BuildVerbQueueUseCaseClass.CONFIRM_SENTINEL_ID), "Confirm must be ABSENT once queue length is 1 (TURN context requires >= 2 entries)")
 
 	# ── STRIKE picked. ───────────────────────────────────────────────────

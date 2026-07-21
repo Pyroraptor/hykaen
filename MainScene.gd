@@ -2069,6 +2069,8 @@ func _enter_combine_targeting_phase() -> void:
 	if selection_overlay != null:
 		selection_overlay.configure(_combine_targeting_registry_proxy, hex_grid_view)
 		selection_overlay.activate(verb_id, descriptor)
+		if selection_overlay.is_awaiting_option():
+			_show_spell_picker(selection_overlay.get_candidate_options())
 
 
 ## _on_combine_targeting_value_chosen(verb_id, value) -> Dictionary —
@@ -2160,6 +2162,7 @@ func _finish_combine_targeting() -> void:
 		if status_panel_view != null:
 			for combatant in _party + _enemies:
 				status_panel_view.update_combatant_hp(combatant.display_id(), combatant.hp_current)
+				status_panel_view.update_combatant_stamina(combatant.display_id(), combatant.stamina)
 
 
 ## _abort_combine_targeting(error_code) -> void — FEAT-007: mirrors

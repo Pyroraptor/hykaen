@@ -49,6 +49,7 @@ const SelectionDescriptorClass = preload("res://core/domain/combine/selection_de
 
 const STRIDE_RESOURCE_PATH: String = "res://data/verbs/stride.tres"
 const STRIKE_RESOURCE_PATH: String = "res://data/verbs/strike.tres"
+const CAST_SPELL_RESOURCE_PATH: String = "res://data/verbs/cast_spell.tres"
 
 ## MAIN_SCENE_PATH / PROLOGUE_SEED — FEAT-297 (resolves DEF-NEW-002): the
 ## boot-real fixture this suite's own "single controller instance" criterion
@@ -187,6 +188,25 @@ func _repeatable_stride_resource():
 	return stride
 
 
+func _non_repeat_stride_resource():
+	var stride: VerbResource = VerbResourceClass.new()
+	stride.verb_id = "STRIDE"
+	stride.label = "Stride"
+	stride.action_cost = 1
+	stride.stamina_cost = 0
+	stride.movement = true
+	stride.repeat = false
+	stride.combinable = true
+	return stride
+
+
+func _double_cast_spell_queue() -> Array:
+	return [
+		VerbQueueEntryClass.new("q1", 0, "CAST_SPELL"),
+		VerbQueueEntryClass.new("q1", 1, "CAST_SPELL"),
+	]
+
+
 func _make_actor(starting_stamina: int = 1) -> SpyCombatant:
 	var actor := SpyCombatant.new("player_0", "Titus", "Player", HexCoordClass.new(0, 0))
 	actor.stamina = starting_stamina
@@ -206,7 +226,9 @@ func _double_stride_queue() -> Array:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_execute_rejects_duplicate_stride_without_repeat_with_zero_economy_spent() -> void:
-	var port := FakeVerbRegistryPort.new(_stride_and_strike_pool())
+	# Synthetic non-repeat STRIDE so this test is independent of the shipped
+	# data/verbs/stride.tres (which carries repeat=true as of fa7eacc).
+	var port := FakeVerbRegistryPort.new([_non_repeat_stride_resource()])
 	var economy := FakeActionEconomyPort.new()
 	var actor := _make_actor(1)
 	var controller := CombineActionControllerClass.new({
@@ -317,7 +339,9 @@ func test_validation_gate_runs_before_action_economy_charge_even_when_it_rejects
 		"action_economy_port": spy_economy,
 	})
 
-	var result: Dictionary = controller.execute({"queue": _double_stride_queue(), "actor": actor, "context": CombineQueueClass.Context.TURN})
+	# CAST_SPELL has repeat=false, so [CAST_SPELL, CAST_SPELL] is illegal and
+	# must be rejected at the validation step -- never reaching economy charge.
+	var result: Dictionary = controller.execute({"queue": _double_cast_spell_queue(), "actor": actor, "context": CombineQueueClass.Context.TURN})
 
 	assert_false(result.get("ok", true), "an illegal queue must still be rejected with a spy use case wired in")
 	assert_eq(call_log, ["validate"], "a rejected validation must never reach the action-economy charge at all")
@@ -509,7 +533,10 @@ func test_enter_selection_at_empty_queue_offers_stride_and_strike() -> void:
 	assert_true(ids.has("STRIKE"), "candidate_options must include STRIKE at an empty queue")
 
 
-func test_enter_selection_excludes_stride_once_queued_without_repeat() -> void:
+func test_enter_selection_stride_remains_offered_once_queued_with_repeat() -> void:
+	# data/verbs/stride.tres carries repeat=true, so STRIDE must remain offered
+	# even after being queued once. The no-Repeat exclusion rule is still
+	# exercised via CAST_SPELL (repeat=false) in the separate non-repeat test.
 	var port := FakeVerbRegistryPort.new(_stride_and_strike_pool())
 	var actor := _make_actor(1)
 	var controller := CombineActionControllerClass.new({"verb_registry_port": port})
@@ -523,9 +550,9 @@ func test_enter_selection_excludes_stride_once_queued_without_repeat() -> void:
 	})
 
 	var ids: Array = _option_ids(descriptor.candidate_options)
-	assert_false(ids.has("STRIDE"), "STRIDE must be excluded once already queued (no Repeat trait on data/verbs/stride.tres)")
-	assert_true(ids.has("STRIKE"), "STRIKE must still be offered -- a different verb is unaffected by STRIDE's own exclusion")
-	assert_true(descriptor.ok, "STRIKE remaining legal must keep ok=true")
+	assert_true(ids.has("STRIDE"), "STRIDE (repeat=true) must remain offered after being queued once")
+	assert_true(ids.has("STRIKE"), "STRIKE must still be offered")
+	assert_true(descriptor.ok, "ok must remain true with legal options remaining")
 
 
 func test_enter_selection_returns_a_real_selection_descriptor_not_a_bare_ok_queue_dict() -> void:
@@ -870,15 +897,16 @@ func test_live_wired_controller_validation_failed_path_still_charges_zero_action
 	var actions_before: int = economy.get_remaining()
 	var stamina_before: int = titus.stamina
 
-	# [STRIDE, STRIDE] with no Repeat trait on the current data/verbs/stride.tres
-	# is illegal (DEF-001) -- the ValidateCombineQueueUseCase gate must reject
-	# it BEFORE _charge_action_economy() is ever reached, through the SAME
-	# live-wired instance FEAT-298 injects a real action_economy_port into.
+	# [CAST_SPELL, CAST_SPELL] is illegal (DEF-001, repeat=false on cast_spell.tres)
+	# -- the ValidateCombineQueueUseCase gate must reject it BEFORE
+	# _charge_action_economy() is ever reached, through the SAME live-wired
+	# instance FEAT-298 injects a real action_economy_port into.
+	# (stride.tres carries repeat=true so [STRIDE, STRIDE] is now a valid combo.)
 	var result: Dictionary = instance._core_combine_action_controller.execute({
-		"queue": _double_stride_queue(), "actor": titus, "context": CombineQueueClass.Context.TURN,
+		"queue": _double_cast_spell_queue(), "actor": titus, "context": CombineQueueClass.Context.TURN,
 	})
 
-	assert_false(result.get("ok", true), "an illegal [STRIDE, STRIDE] combo must still report ok=false through the live-wired controller")
+	assert_false(result.get("ok", true), "an illegal [CAST_SPELL, CAST_SPELL] combo must still report ok=false through the live-wired controller")
 	assert_eq(result.get("error_code"), "VALIDATION_FAILED")
 	assert_eq(result.get("actions_spent"), 0, "a rejected live-wired execute() call must spend zero actions")
 	assert_eq(result.get("stamina_spent"), 0, "a rejected live-wired execute() call must spend zero Stamina")

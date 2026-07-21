@@ -59,6 +59,18 @@ func _repeatable_stride_resource():
 	return stride
 
 
+func _non_repeat_stride_resource():
+	var stride: VerbResource = VerbResourceClass.new()
+	stride.verb_id = "STRIDE"
+	stride.label = "Stride"
+	stride.action_cost = 1
+	stride.stamina_cost = 0
+	stride.movement = true
+	stride.repeat = false
+	stride.combinable = true
+	return stride
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # Criterion 1 — two different verbs are legal.
 # ══════════════════════════════════════════════════════════════════════════
@@ -78,12 +90,14 @@ func test_stride_then_strike_queue_is_legal() -> void:
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Criterion 2 — duplicate STRIDE without Repeat is rejected.
+# Criterion 2 — duplicate verb without Repeat is rejected.
+# Uses a synthetic non-repeat STRIDE so the test is independent of the
+# shipped data/verbs/stride.tres (which carries repeat=true).
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_duplicate_stride_without_repeat_is_rejected() -> void:
 	var use_case := ValidateCombineQueueUseCaseClass.new()
-	var port := FakeVerbRegistryPort.new(_stride_and_strike_pool())
+	var port := FakeVerbRegistryPort.new([_non_repeat_stride_resource()])
 	var queue: Array = [
 		VerbQueueEntryClass.new("q1", 0, "STRIDE"),
 		VerbQueueEntryClass.new("q1", 1, "STRIDE"),

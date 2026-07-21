@@ -10,10 +10,12 @@ extends GutTest
 ##      containing both STRIDE and STRIKE (the two combinable VerbResources
 ##      a FakeVerbRegistryPort offers, mirroring data/verbs/stride.tres /
 ##      data/verbs/strike.tres's real authored shape).
-##   2. enter_selection() excludes STRIDE from candidate_options once STRIDE
-##      is already in the queue (STRIDE carries no Repeat trait) -- routed
-##      through core/domain/combine/combine_actions.gd's SOLE same-verb/
-##      Repeat exclusion rule, never re-derived here.
+##   2. enter_selection() excludes CAST_SPELL from candidate_options once
+##      CAST_SPELL is already in the queue (CAST_SPELL carries no Repeat
+##      trait) -- routed through core/domain/combine/combine_actions.gd's
+##      SOLE same-verb/Repeat exclusion rule, never re-derived here.
+##      (STRIDE and STRIKE carry repeat=true so they remain offered after
+##      being queued; CAST_SPELL is the canonical non-Repeat verb in data/.)
 ##   3. enter_selection() degrades safely (ok=false, no crash) with no live
 ##      actor or no wired VerbRegistryPort.
 ##   4. FEAT-003 (US-003; FR-002): candidate_options does NOT include the
@@ -33,6 +35,7 @@ const CancelCombineUseCaseClass = preload("res://core/application/combine/cancel
 
 const STRIDE_RESOURCE_PATH: String = "res://data/verbs/stride.tres"
 const STRIKE_RESOURCE_PATH: String = "res://data/verbs/strike.tres"
+const CAST_SPELL_RESOURCE_PATH: String = "res://data/verbs/cast_spell.tres"
 const VerbResourceClass = preload("res://core/resources/verb_resource.gd")
 
 
@@ -77,20 +80,26 @@ func test_enter_selection_at_empty_queue_offers_stride_and_strike() -> void:
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Criterion 2 — STRIDE already queued excludes STRIDE (no Repeat trait).
+# Criterion 2 — a verb without Repeat already queued is excluded.
+# CAST_SPELL (repeat=false) is the canonical non-Repeat verb in data/.
+# STRIDE and STRIKE both carry repeat=true so they remain offered after
+# being queued -- tested by the criterion 4 test below.
 # ══════════════════════════════════════════════════════════════════════════
 
-func test_enter_selection_excludes_stride_once_queued_without_repeat() -> void:
+func test_enter_selection_excludes_verb_without_repeat_once_queued() -> void:
 	var use_case := BuildVerbQueueUseCaseClass.new()
-	var port := FakeVerbRegistryPort.new(_stride_and_strike_pool())
-	var queue: Array = [VerbQueueEntryClass.new("q1", 0, "STRIDE")]
+	var port := FakeVerbRegistryPort.new([
+		ResourceLoader.load(STRIDE_RESOURCE_PATH),
+		ResourceLoader.load(CAST_SPELL_RESOURCE_PATH),
+	])
+	var queue: Array = [VerbQueueEntryClass.new("q1", 0, "CAST_SPELL")]
 
 	var descriptor = use_case.enter_selection(queue, {"combatant_id": "player_0"}, CombineQueueClass.Context.TURN, port)
 
 	var ids: Array = _option_ids(descriptor.candidate_options)
-	assert_false(ids.has("STRIDE"), "STRIDE must be excluded once already queued (no Repeat trait on data/verbs/stride.tres)")
-	assert_true(ids.has("STRIKE"), "STRIKE must still be offered -- a different verb is unaffected by STRIDE's own exclusion")
-	assert_true(descriptor.ok, "STRIKE remaining legal must keep ok=true")
+	assert_false(ids.has("CAST_SPELL"), "CAST_SPELL must be excluded once already queued (no Repeat trait on data/verbs/cast_spell.tres)")
+	assert_true(ids.has("STRIDE"), "STRIDE must still be offered -- it has Repeat=true and is a different verb")
+	assert_true(descriptor.ok, "STRIDE remaining legal must keep ok=true")
 	assert_eq(descriptor.order_index, 1, "order_index must mirror the queue's current length")
 
 
@@ -173,8 +182,8 @@ func test_enter_selection_offers_confirm_sentinel_alongside_remaining_verbs_at_m
 	var ids: Array = _option_ids(descriptor.candidate_options)
 	assert_true(ids.has("CONFIRM"), "Confirm sentinel must be offered once the TURN minimum queue length (2) is reached")
 	assert_true(ids.has("PARRY"), "remaining compatible verbs must still be offered alongside Confirm")
-	assert_false(ids.has("STRIDE"), "STRIDE must remain excluded once queued (no Repeat)")
-	assert_false(ids.has("STRIKE"), "STRIKE must remain excluded once queued (no Repeat)")
+	assert_true(ids.has("STRIDE"), "STRIDE (repeat=true) must remain offered even after being queued")
+	assert_true(ids.has("STRIKE"), "STRIKE (repeat=true) must remain offered even after being queued")
 	assert_true(descriptor.ok, "Confirm sentinel alongside remaining verbs must keep ok=true")
 
 

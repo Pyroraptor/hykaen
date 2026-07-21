@@ -78,8 +78,16 @@ func _queue_entries() -> Array:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_us004_stride_stride_without_repeat_rejected_before_any_economy_charge() -> void:
-	# data/verbs/stride.tres carries repeat=false (the real, shipped trait).
-	var port := FakeVerbRegistryPort.new([ResourceLoader.load(STRIDE_RESOURCE_PATH)])
+	# Use a synthetic non-repeat STRIDE to test the DEF-001 gate independently
+	# of the shipped data/verbs/stride.tres (which carries repeat=true so that
+	# STRIDE+STRIDE is a valid authored combo). The rule under test is universal:
+	# any [VERB, VERB] pair where VERB lacks the Repeat trait must be rejected.
+	var non_repeat_stride := VerbResourceClass.new()
+	non_repeat_stride.verb_id = "STRIDE"
+	non_repeat_stride.label = "Stride"
+	non_repeat_stride.combinable = true
+	non_repeat_stride.repeat = false
+	var port := FakeVerbRegistryPort.new([non_repeat_stride])
 	var action_economy_port := FakeActionEconomyPort.new()
 	var actor := FakeActor.new()
 	var controller := CombineActionControllerClass.new({

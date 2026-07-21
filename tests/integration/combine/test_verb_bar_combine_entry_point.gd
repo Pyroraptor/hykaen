@@ -155,10 +155,10 @@ func test_confirm_sentinel_absent_at_queue_length_1_and_present_at_length_2_via_
 	var second_ids: Array = _option_ids(instance.selection_overlay.get_candidate_options())
 	assert_false(second_ids.has(BuildVerbQueueUseCaseClass.CONFIRM_SENTINEL_ID), "Confirm must be ABSENT once queue length is 1 (TURN context requires >= 2 entries)")
 
-	# ── Criterion 3 -- STRIDE (no Repeat trait) must be excluded from the
-	# very next pick's candidate_options once it has already been chosen. ──
-	assert_false(second_ids.has("STRIDE"), "STRIDE must be excluded from the next pick after being chosen -- it carries no Repeat trait")
-	assert_true(second_ids.has("STRIKE"), "STRIKE (a different verb) must remain legal")
+	# ── Criterion 3 -- STRIDE (Repeat=true) must remain offered after being
+	# chosen once, enabling STRIDE+STRIDE combinations. ──
+	assert_true(second_ids.has("STRIDE"), "STRIDE (repeat=true) must remain offered after being chosen once")
+	assert_true(second_ids.has("STRIKE"), "STRIKE must remain legal")
 	assert_true(second_ids.has(CancelCombineUseCaseClass.CANCEL_SENTINEL_ID), "Cancel must be offered once at least one verb is in-progress")
 
 	# Pick STRIKE (queue length 2) -- Confirm must now be PRESENT.

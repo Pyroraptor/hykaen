@@ -123,7 +123,7 @@ func test_cancel_during_queue_build_discards_in_progress_queue_and_next_attempt_
 	var mid_build_descriptor = build_use_case.enter_selection(in_progress_queue.sorted_entries(), actor, CombineQueueClass.Context.TURN, port)
 	var mid_build_ids: Array = _option_ids(mid_build_descriptor.candidate_options)
 	assert_true(mid_build_ids.has(CancelCombineUseCaseClass.CANCEL_SENTINEL_ID), "an in-progress queue-build must offer the Cancel sentinel")
-	assert_false(mid_build_ids.has("STRIDE"), "STRIDE must be excluded from the in-progress descriptor (already queued, no Repeat)")
+	assert_true(mid_build_ids.has("STRIDE"), "STRIDE (repeat=true) must remain offered even after being queued once")
 
 	# The player picks Cancel: CancelCombineUseCase discards the in-progress queue.
 	var cancel_result: Dictionary = cancel_use_case.execute(in_progress_queue)

@@ -150,6 +150,18 @@ func update_combatant_hp(combatant_id: String, hp: int) -> void:
 	_create_or_update_label(combatant_id)
 
 
+## update_combatant_stamina(combatant_id, stamina) → void — directly sets the
+## displayed stamina for a combatant row. Called after a Combination spends
+## stamina via actor.spend_stamina(), which mutates the domain object but
+## never emits an event the panel already listens to. A combatant_id with no
+## loaded row is a silent no-op.
+func update_combatant_stamina(combatant_id: String, stamina: int) -> void:
+	if not _rows.has(combatant_id):
+		return
+	_rows[combatant_id]["stamina_current"] = stamina
+	_create_or_update_label(combatant_id)
+
+
 ## set_off_guard(combatant_id, is_off_guard) → void — FEAT-015 (US-015 /
 ## FR-016): toggles FlankingClass.OFF_GUARD_CONDITION ("Off-Guard") in the
 ## given combatant's displayed conditions list and refreshes its rendered

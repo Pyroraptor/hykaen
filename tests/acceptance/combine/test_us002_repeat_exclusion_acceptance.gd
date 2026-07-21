@@ -95,15 +95,17 @@ func test_us002_different_verb_is_always_legal() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_us002_build_verb_queue_use_case_excludes_already_queued_verb_from_candidates() -> void:
+	# CAST_SPELL carries repeat=false (unlike stride/strike which carry repeat=true);
+	# queue it first and verify BuildVerbQueueUseCase excludes it from the next offer.
 	var use_case := BuildVerbQueueUseCaseClass.new()
 	var port := FakeVerbRegistryPort.new([
 		ResourceLoader.load(STRIDE_RESOURCE_PATH),
-		ResourceLoader.load(STRIKE_RESOURCE_PATH),
+		ResourceLoader.load("res://data/verbs/cast_spell.tres"),
 	])
-	var queue: Array = [VerbQueueEntryClass.new("q1", 0, "STRIDE")]
+	var queue: Array = [VerbQueueEntryClass.new("q1", 0, "CAST_SPELL")]
 
 	var descriptor = use_case.enter_selection(queue, {"combatant_id": "player_0"}, CombineQueueClass.Context.TURN, port)
 
 	var ids: Array = _option_ids(descriptor.candidate_options)
-	assert_false(ids.has("STRIDE"), "US-002: an already-queued verb (STRIDE, no Repeat trait) must not be offered again as a candidate")
-	assert_true(ids.has("STRIKE"), "US-002: a different, still-legal verb must remain offered")
+	assert_false(ids.has("CAST_SPELL"), "US-002: an already-queued verb without Repeat (CAST_SPELL) must not be offered again as a candidate")
+	assert_true(ids.has("STRIDE"), "US-002: a different verb with Repeat must remain offered")
