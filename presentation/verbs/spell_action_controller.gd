@@ -369,10 +369,26 @@ func execute(selection = null, no_self_spend_execution: bool = false) -> Diction
 		if no_self_spend_execution and action_economy != null:
 			action_economy.end_self_spend_suppression()
 		if continue_result.get("success", false):
-			var continue_reaction_result: Dictionary = await _provoke_reaction_on_cast(actor)
+			# In combine dispatch (no_self_spend_execution=true) the sub-action
+			# is called via Callable.call() without await, so this path must
+			# complete synchronously.  Skipping _provoke_reaction_on_cast() here
+			# avoids the Signal-based await inside ProvokeReactionOnCastUseCase
+			# that would suspend the coroutine and cause Callable.call() to
+			# return a GDScriptFunctionState instead of a Dictionary, making the
+			# dispatch treat the sub-action as failed.
+			var continue_reaction_result: Dictionary
+			if no_self_spend_execution:
+				continue_reaction_result = {"reactions": [], "mover_downed": false, "stride_should_commit": true}
+			else:
+				continue_reaction_result = await _provoke_reaction_on_cast(actor)
 			continue_result["reaction_result"] = continue_reaction_result
 			continue_result = _maybe_cancel_cast(actor, continue_result, continue_reaction_result)
-		return await _maybe_resolve_cast(actor, continue_result, pre_chosen_target_id)
+		var result_c: Dictionary = await _maybe_resolve_cast(actor, continue_result, pre_chosen_target_id)
+		# _dispatch_sub_actions() checks "ok", but BeginCast/ContinueCast return
+		# "success".  Normalise so combine dispatch can read the outcome correctly.
+		if not result_c.has("ok"):
+			result_c["ok"] = result_c.get("success", false)
+		return result_c
 
 	# Unwrap OPTION_TARGET shape {"option": {id, label, ...}, "target": enemy_id}
 	# emitted by SelectionOverlay when a spell is picked via the Layer-2a picker.
@@ -396,10 +412,17 @@ func execute(selection = null, no_self_spend_execution: bool = false) -> Diction
 		action_economy.end_self_spend_suppression()
 	if begin_result.get("success", false):
 		_emit_cast_begin_log(actor)
-		var begin_reaction_result: Dictionary = await _provoke_reaction_on_cast(actor)
+		var begin_reaction_result: Dictionary
+		if no_self_spend_execution:
+			begin_reaction_result = {"reactions": [], "mover_downed": false, "stride_should_commit": true}
+		else:
+			begin_reaction_result = await _provoke_reaction_on_cast(actor)
 		begin_result["reaction_result"] = begin_reaction_result
 		begin_result = _maybe_cancel_cast(actor, begin_result, begin_reaction_result)
-	return await _maybe_resolve_cast(actor, begin_result)
+	var result_b: Dictionary = await _maybe_resolve_cast(actor, begin_result)
+	if not result_b.has("ok"):
+		result_b["ok"] = result_b.get("success", false)
+	return result_b
 
 
 ## _provoke_reaction_on_cast(actor) -> Dictionary — FEAT-279 (US-014; FR-016,
