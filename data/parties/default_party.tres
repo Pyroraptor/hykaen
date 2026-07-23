@@ -1,0 +1,7 @@
+[gd_resource type="Resource" script_class="PartyResource" load_steps=2 format=3 uid="uid://dfltprty001a"]
+
+[ext_resource type="Script" path="res://data/characters/party_resource.gd" id="1_prtyres"]
+
+[resource]
+script = ExtResource("1_prtyres")
+character_resource_paths = ["res://data/characters/titus.tres", "res://data/characters/marigold.tres"]

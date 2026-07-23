@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="ScenarioResource" load_steps=6 format=3 uid="uid://prlgscnro001a"]
+
+[ext_resource type="Script" path="res://data/scenarios/scenario_resource.gd" id="1_scnres"]
+[ext_resource type="Script" path="res://data/scenarios/scenario_encounter_entry_resource.gd" id="2_entry"]
+[ext_resource type="Resource" path="res://data/parties/default_party.tres" id="3_party"]
+[ext_resource type="Resource" path="res://data/encounters/prologue_encounter.tres" id="4_enc"]
+
+[sub_resource type="Resource" id="Resource_prlgentry"]
+script = ExtResource("2_entry")
+encounter_id = "prologue"
+encounter = ExtResource("4_enc")
+
+[resource]
+script = ExtResource("1_scnres")
+scenario_id = "prologue"
+display_name = "The Hollow Prologue"
+party = ExtResource("3_party")
+encounter_entries = [SubResource("Resource_prlgentry")]
