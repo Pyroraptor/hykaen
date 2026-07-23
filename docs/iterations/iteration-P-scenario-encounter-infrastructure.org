@@ -1,0 +1,325 @@
+#+TITLE: Iteration P — Scenario & Encounter Infrastructure (data-driven multi-encounter locales)
+#+DATE: 2026-07-23
+#+STATUS: DRAFT for review
+
+* Context (why this sprint exists)
+
+The game currently boots by hard-loading one fixed encounter from a constant path
+(~MainScene.gd:372 PROLOGUE_ENCOUNTER_PATH = "res://data/encounters/prologue_encounter.tres"~).
+That works for a single test fight, but the vignette design requires a *locale* — a
+dungeon floor or region that contains multiple distinct encounters, a persistent party
+that travels between them, and a trigger system that determines when each fight activates.
+
+This iteration adds the data layer that makes that possible: a ~ScenarioResource~ that
+groups encounters into a locale, a ~PartyResource~ that persists the player's party
+across those encounters, a ~HexTileDataResource~ that gives each encounter an explicit
+terrain layout, a ~TriggerResource~ hierarchy for encounter activation, and a
+~LoadScenarioEncounterUseCase~ that assembles the selected encounter for MainScene.
+
+The steel thread is a ~prologue_scenario.tres~ that wraps the existing
+~prologue_encounter.tres~ in a single-encounter scenario, loaded via the new use case
+from a new ~MainScene.load_encounter_from_scenario()~ hook — proving the full
+data-driven pipeline while leaving the existing hardcoded boot path intact as a fallback.
+
+*IMPORTANT — do not recreate existing infrastructure:*
+- ~CharacterResource~ already exists at ~core/model/character_resource.gd~. Do not
+  duplicate or replace it.
+- ~EncounterResource~ already exists at ~data/encounters/encounter_resource.gd~. Extend
+  it minimally; do not replace it. Existing ~prologue_encounter.tres~ must load without
+  modification.
+- ~CombatantFactory~ already exists at ~infrastructure/combatant_factory.gd~. The new
+  use case delegates to it for Combatant hydration; it is not re-implemented here.
+- ~data/characters/marigold.tres~, ~data/characters/titus.tres~,
+  ~data/enemies/skeleton.tres~ already exist and are the steel-thread data assets.
+
+* P0 items — Scenario infrastructure (MUST; never drop)
+
+** P0-1: HexTileDataResource — per-tile terrain definition
+
+New file: ~data/tiles/hex_tile_data_resource.gd~
+
+A pure data container (extends Resource, zero business logic, ADR-104 pattern) encoding
+one hex tile's position and terrain properties.
+
+#+BEGIN_SRC gdscript
+class_name HexTileDataResource
+extends Resource
+
+@export var q: int = 0           ## axial column coordinate
+@export var r: int = 0           ## axial row coordinate
+@export var passable: bool = true
+@export var difficult: bool = false
+@export var terrain_type: String = "floor"  ## "floor" | "wall" | "water" | etc.
+                                              ## extensible string; no enum — future
+                                              ## terrain types never require code changes
+#+END_SRC
+
+TESTS: a HexTileDataResource with default values has passable=true, difficult=false,
+terrain_type="floor"; setting all fields via @export round-trips through
+ResourceLoader.save/load cleanly (no field loss).
+
+** P0-2: Extend EncounterResource with tile layout field
+
+Modify ~data/encounters/encounter_resource.gd~ to add one new optional field:
+
+#+BEGIN_SRC gdscript
+## Array of HexTileDataResource sub-resources defining this encounter's terrain.
+## Empty = no explicit tile constraints (backward-compatible with all existing .tres).
+@export var tiles: Array = []
+#+END_SRC
+
+This field is optional and defaults to empty, so ~prologue_encounter.tres~ loads
+unchanged with no tile layout. No other fields on EncounterResource are modified.
+
+TESTS: loading the existing ~prologue_encounter.tres~ after this change produces a
+resource with ~tiles == []~ and all prior fields intact; a new .tres with tiles
+populated round-trips correctly.
+
+** P0-3: TriggerResource hierarchy — encounter activation conditions
+
+New files in ~data/scenarios/~:
+
+~trigger_resource.gd~ — base class:
+#+BEGIN_SRC gdscript
+class_name TriggerResource
+extends Resource
+
+## "AUTO" | "PROXIMITY" | "DIALOGUE" | "ACTION"
+@export var trigger_type: String = "AUTO"
+#+END_SRC
+
+~proximity_trigger_resource.gd~ — extends TriggerResource:
+#+BEGIN_SRC gdscript
+class_name ProximityTriggerResource
+extends TriggerResource
+
+## Axial hex coords (as {"q": int, "r": int} Dicts) that activate this encounter
+## when any party member enters one. Evaluated by the exploration layer (Iteration Q+).
+@export var trigger_hexes: Array = []
+#+END_SRC
+
+~dialogue_trigger_resource.gd~ — extends TriggerResource (stub for Iteration Q+):
+#+BEGIN_SRC gdscript
+class_name DialogueTriggerResource
+extends TriggerResource
+
+@export var npc_id: String = ""
+@export var dialogue_node: String = ""
+#+END_SRC
+
+~action_trigger_resource.gd~ — extends TriggerResource (stub for Iteration Q+):
+#+BEGIN_SRC gdscript
+class_name ActionTriggerResource
+extends TriggerResource
+
+@export var interactable_id: String = ""
+#+END_SRC
+
+TriggerResource evaluation logic (checking if a trigger fires) is OUT OF SCOPE for
+this iteration — that belongs to the exploration layer. Only the data schema is added
+here. The use case (P0-6) reads trigger_type but does not evaluate it.
+
+TESTS: TriggerResource default trigger_type is "AUTO"; ProximityTriggerResource
+trigger_type is "PROXIMITY" (set in _init or via default); trigger subclass instances
+load correctly from ResourceLoader.
+
+** P0-4: ScenarioEncounterEntryResource — places an encounter in a scenario
+
+New file: ~data/scenarios/scenario_encounter_entry_resource.gd~
+
+Wraps one EncounterResource with its trigger and a stable identifier. Separates WHAT
+a fight is (EncounterResource) from WHEN it fires within a scenario (TriggerResource).
+
+#+BEGIN_SRC gdscript
+class_name ScenarioEncounterEntryResource
+extends Resource
+
+## Stable string key used to address this encounter within its scenario.
+@export var encounter_id: String = ""
+
+## The encounter definition (hex layout, enemies, start positions).
+@export var encounter: EncounterResource = null
+
+## What activates this encounter. null or trigger_type=="AUTO" → fires on scenario load
+## or when explicitly selected. ProximityTriggerResource → fires on hex entry (Iter Q+).
+@export var trigger: TriggerResource = null
+#+END_SRC
+
+TESTS: ScenarioEncounterEntryResource round-trips encounter and trigger sub-resources
+correctly; encounter_id is preserved; null trigger is accepted without crash.
+
+** P0-5: PartyResource — persistent party definition
+
+New file: ~data/characters/party_resource.gd~
+
+A stable list of CharacterResource paths representing the player's party as it travels
+across encounters in a scenario. Parallels the existing ~EncounterResource.
+party_resource_paths~ field but lives at the scenario level so the same party
+definition is not repeated inside every encounter.
+
+#+BEGIN_SRC gdscript
+class_name PartyResource
+extends Resource
+
+## res:// paths to CharacterResource .tres files, in display/initiative order.
+@export var character_resource_paths: Array = []
+#+END_SRC
+
+TESTS: character_resource_paths round-trips correctly; empty array is valid; loading
+a PartyResource that references the real marigold.tres and titus.tres succeeds without
+errors.
+
+** P0-6: ScenarioResource — locale definition
+
+New file: ~data/scenarios/scenario_resource.gd~
+
+The top-level locale container: one PartyResource + an ordered list of
+ScenarioEncounterEntryResource entries.
+
+#+BEGIN_SRC gdscript
+class_name ScenarioResource
+extends Resource
+
+@export var scenario_id: String = ""
+@export var display_name: String = ""
+
+## The persistent party for every encounter in this scenario.
+@export var party: PartyResource = null
+
+## Ordered list of encounters in this locale. Order is authoring order only —
+## runtime activation is governed by each entry's trigger, not array position.
+@export var encounter_entries: Array = []  # Array[ScenarioEncounterEntryResource]
+#+END_SRC
+
+TESTS: scenario_id and display_name round-trip; party sub-resource loads; encounter_entries
+array with one ScenarioEncounterEntryResource loads correctly; empty encounter_entries
+is valid (degrade safely, not crash).
+
+** P0-7: LoadScenarioEncounterUseCase — assembles a selected encounter
+
+New file: ~core/application/use_cases/load_scenario_encounter_use_case.gd~
+
+Core use case (no Presentation imports, no Node/Control). Accepts a ScenarioResource
+and an encounter_id string, finds the matching ScenarioEncounterEntryResource, then
+delegates to CombatantFactory to hydrate party and enemy Combatants, and returns an
+assembled encounter payload ready for MainScene's existing initialization path.
+
+#+BEGIN_SRC
+execute(scenario: ScenarioResource, encounter_id: String) -> Dictionary
+#+END_SRC
+
+Return shape on success:
+#+BEGIN_SRC gdscript
+{
+  "ok": true,
+  "encounter_resource": EncounterResource,   ## the raw resource (for seed, tiles, etc.)
+  "party_combatants": Array,                 ## Combatant instances (via CombatantFactory)
+  "enemy_combatants": Array,                 ## Combatant instances (via CombatantFactory)
+  "party_start_positions": Array,            ## Array of {"q": int, "r": int} Dicts
+  "enemy_start_positions": Array,            ## Array of {"q": int, "r": int} Dicts
+  "tiles": Array,                            ## Array of HexTileDataResource (may be empty)
+}
+#+END_SRC
+
+Return shape on failure (null scenario, unknown encounter_id, CombatantFactory error):
+#+BEGIN_SRC gdscript
+{"ok": false, "error_code": String}
+#+END_SRC
+
+The use case reads ~scenario.party.character_resource_paths~ for the party (overriding
+any ~party_resource_paths~ on the EncounterResource itself — scenario-level party wins).
+It reads ~entry.encounter.party_hex_positions~ and ~entry.encounter.enemy_hex_positions~
+for starting coordinates, and ~entry.encounter.tiles~ for terrain layout.
+
+The use case does NOT evaluate triggers (that is the exploration layer's job, Iter Q+).
+It does NOT touch MainScene, the hex grid, or any Presentation layer object.
+
+CombatantFactory is injected via constructor (~deps~ dict under key ~"combatant_factory"~)
+so tests can double it. Falls back to a real ~CombatantFactory.new()~ when the key is
+absent, following the established ~deps.get("key", RealImpl.new())~ pattern.
+
+TESTS:
+- Happy path: valid scenario + matching encounter_id → ok=true, party_combatants and
+  enemy_combatants populated, tiles forwarded correctly.
+- Unknown encounter_id → ok=false, error_code="ENCOUNTER_NOT_FOUND".
+- Null scenario → ok=false, error_code="NULL_SCENARIO".
+- Empty encounter_entries → ok=false, error_code="ENCOUNTER_NOT_FOUND".
+- CombatantFactory build failure (injected double returns error dict) → ok=false,
+  error_code="COMBATANT_BUILD_FAILED".
+- Tiles from encounter.tiles forwarded verbatim into result.
+
+** P0-8: MainScene hook — scenario-driven boot path
+
+Add to MainScene.gd:
+
+#+BEGIN_SRC gdscript
+## load_encounter_from_scenario(scenario, encounter_id) — alternative boot entry
+## point for scenario-driven launches. Calls LoadScenarioEncounterUseCase, then
+## hands the assembled payload to the existing encounter-setup path (reusing
+## _party/_enemies assignment, EncounterClass.new(), status panel wiring, etc.).
+## Returns true on success, false on failure (push_error logged).
+func load_encounter_from_scenario(scenario: ScenarioResource, encounter_id: String) -> bool
+#+END_SRC
+
+The existing ~_ready()~ → ~PROLOGUE_ENCOUNTER_PATH~ path is untouched and remains the
+default. ~load_encounter_from_scenario~ is an additive public method only — it does not
+change any existing behaviour when not called. No existing test breaks.
+
+The method must reuse the SAME ~_party~ / ~_enemies~ assignment and ~EncounterClass.new()~
+/ ~encounter.initialize()~ call that the current ~_ready()~ path uses, so the rest of
+the combat pipeline (round_session, verb bar, status panel, etc.) is unaffected.
+
+TESTS (integration, boot-real): call ~load_encounter_from_scenario~ with
+~prologue_scenario.tres~ + encounter_id "prologue" → returns true; ~_party~ contains
+Marigold and Titus as Combatant instances; ~_enemies~ contains one Skeleton Combatant;
+combat is in a runnable state (EncounterClass.initialize() was called).
+
+** P0-9: Steel-thread data files
+
+Create the following .tres files to exercise the full pipeline end-to-end.
+
+~data/parties/default_party.tres~ — PartyResource:
+#+BEGIN_SRC
+character_resource_paths = [
+  "res://data/characters/titus.tres",
+  "res://data/characters/marigold.tres"
+]
+#+END_SRC
+
+~data/scenarios/prologue_scenario.tres~ — ScenarioResource:
+- scenario_id = "prologue"
+- display_name = "Prologue"
+- party → default_party.tres
+- encounter_entries: one ScenarioEncounterEntryResource:
+  - encounter_id = "prologue"
+  - encounter → ~res://data/encounters/prologue_encounter.tres~
+  - trigger → AutoTriggerResource (trigger_type = "AUTO")
+
+Note: ~prologue_encounter.tres~ has an EMPTY ~tiles~ array (the new field defaults to
+[]), so no tile layout is required for the steel thread. A tile layout can be added
+to prologue_encounter.tres as a follow-on authoring task without code changes.
+
+TESTS: ResourceLoader.load("res://data/scenarios/prologue_scenario.tres") returns a
+non-null ScenarioResource with scenario_id="prologue", party non-null,
+encounter_entries.size()==1, encounter_entries[0].encounter_id=="prologue".
+
+* Out of scope for this iteration
+
+- Trigger evaluation at runtime (proximity detection, dialogue hooks, action hooks).
+  TriggerResource data schema is added; evaluation logic is Iteration Q+ work.
+- Hex tile rendering — existing flat-top hex grid renderer is unchanged; tile layout
+  data is stored but not yet visualised.
+- Large-map exploration movement (Iteration Q+).
+- Isometric visual upgrade (pending artist collaboration).
+- Talent trees, equipment slots beyond what CharacterResource already carries.
+- Any change to the combat flow after encounter initialisation.
+- Any change to the existing ~_ready()~ / ~PROLOGUE_ENCOUNTER_PATH~ boot path.
+
+* Follow-on (post-sprint)
+
+- Iteration Q: exploration movement on the large hex grid; trigger evaluation
+  (proximity, dialogue, action); scenario session state (which encounters are complete).
+- Author tile layouts for prologue_encounter.tres and subsequent encounters.
+- Author additional scenario files for vignette locales.
+- Integrate ~load_encounter_from_scenario~ as the primary boot path once exploration
+  layer is live; retire the hardcoded ~PROLOGUE_ENCOUNTER_PATH~ constant.
