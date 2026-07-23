@@ -172,6 +172,14 @@ const EncounterClass                   = preload("res://core/combat/encounter.gd
 const RNGClass                         = preload("res://core/rules/rng.gd")
 const CombatantFactoryClass            = preload("res://infrastructure/combatant_factory.gd")
 const CombatantClass                   = preload("res://core/domain/combatant.gd")
+
+## LoadScenarioEncounterUseCaseClass — FEAT-010 (US-009 / FR-008, NFR-001):
+## core/application/use_cases/load_scenario_encounter_use_case.gd's
+## LoadScenarioEncounterUseCase (FEAT-008/FEAT-009), driven by the new
+## load_encounter_from_scenario() method below. Preloaded alongside every
+## other use case/adapter this composition root wires (ADR-006) — this is
+## the ONLY new const this feature adds to MainScene.gd.
+const LoadScenarioEncounterUseCaseClass = preload("res://core/application/use_cases/load_scenario_encounter_use_case.gd")
 const ViewModelBuilderClass            = preload("res://presentation/view_model_builder.gd")
 const RoundSessionHolderClass          = preload("res://infrastructure/round_session_holder.gd")
 const TurnPresentationControllerClass  = preload("res://presentation/turn_presentation_controller.gd")
@@ -1154,6 +1162,67 @@ func _ready() -> void:
 	# immediately visible in headless-boot logs, mirroring the ADR-003
 	# rationale already established for `resolved_seed`. ───────────────────
 	print("DEBUG: viewport_centering centering_offset=" + str(centering_offset))
+
+
+## load_encounter_from_scenario(scenario, encounter_id) -> bool — FEAT-010
+## (US-009 / FR-008, NFR-001; ADR-005/RISK-004 mitigation).
+##
+## The new, strictly ADDITIVE public entry point that drives
+## LoadScenarioEncounterUseCase (core/application/use_cases/
+## load_scenario_encounter_use_case.gd, FEAT-008/FEAT-009) for a caller that
+## already holds an in-memory ScenarioResource (e.g. a future menu/
+## scenario-select flow) — a parallel, coexisting code path alongside this
+## file's existing hardcoded _ready()/PROLOGUE_ENCOUNTER_PATH boot logic
+## (strangler-fig coexistence, design notes' architecture section). Per
+## RISK-004, _ready() above is completely UNTOUCHED by this feature — it is
+## never called from within _ready(), and _ready()'s own regression suite
+## (tests/unit/test_main_scene_entry_point.gd,
+## tests/unit/test_main_scene_interactive_wiring.gd) is a blocking
+## pre-check proving this diff introduced zero edits to that method.
+##
+## On success (result.ok == true): lifts the use case's
+## party_combatants/enemy_combatants Dictionaries onto live Combatant
+## instances via CombatantClass.from_dict() — mirroring EXACTLY how
+## _ready() above lifts _build_party_combatant()/_build_enemy_combatant()'s
+## own Dictionaries — assigns them into this composition root's `_party`/
+## `_enemies` fields (the SAME fields _ready() populates), constructs and
+## initialize()s a fresh EncounterClass around them with the SAME
+## EncounterClass.new()/initialize() call _ready() makes (reused verbatim,
+## ADR-006 — no second/forked encounter-construction path), and returns
+## true.
+##
+## On failure (result.ok == false): push_error()s the use case's
+## error_code and returns false WITHOUT mutating `_party`/`_enemies`/
+## `encounter` at all — a caller may safely retry or fall back to the
+## legacy _ready() path (design notes' api_contracts section; this
+## feature's own "no partial mutation on failure" test_criterion).
+func load_encounter_from_scenario(scenario, encounter_id: String) -> bool:
+	var use_case := LoadScenarioEncounterUseCaseClass.new()
+	var result: Dictionary = use_case.execute(scenario, encounter_id)
+
+	if not result.get("ok", false):
+		push_error(
+			"MainScene.load_encounter_from_scenario: failed to load encounter_id '%s' (%s)"
+			% [encounter_id, result.get("error_code", "UNKNOWN_ERROR")]
+		)
+		return false
+
+	var new_party: Array = []
+	for party_combatant_dict in result.get("party_combatants", []):
+		new_party.append(CombatantClass.from_dict(party_combatant_dict))
+
+	var new_enemies: Array = []
+	for enemy_combatant_dict in result.get("enemy_combatants", []):
+		new_enemies.append(CombatantClass.from_dict(enemy_combatant_dict))
+
+	_party = new_party
+	_enemies = new_enemies
+
+	var rng := RNGClass.new(resolved_seed)
+	encounter = EncounterClass.new(_party, _enemies, rng)
+	encounter.initialize()
+
+	return true
 
 
 ## resolve_hex_choice(legal_hexes) -> HexCoord | null — FEAT-001 (US-004,
