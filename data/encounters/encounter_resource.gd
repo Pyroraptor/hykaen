@@ -9,7 +9,9 @@
 ##   It carries ZERO business logic; it is a pure typed data container.
 ##   Domain purity: no SQLAlchemy, FastAPI, or Godot Node/Control imports.
 ##
-## Fields (FEAT-089 / FR-012; hex position fields added FEAT-001 / US-001):
+## Fields (FEAT-089 / FR-012; hex position fields added FEAT-001 / US-001;
+## tiles field added FEAT-004 / US-002, FR-002 — additive-only, no prior
+## field renamed/removed/altered):
 ##   party_resource_paths  — Array of res:// paths to CharacterResource .tres files
 ##                           for party members (e.g. ["res://data/characters/titus.tres"])
 ##   enemy_resource_paths  — Array of res:// paths to EnemyResource .tres files
@@ -23,6 +25,13 @@
 ##                           starting flat-top axial hex position.
 ##   seed                  — Non-negative int; RNG seed for deterministic encounter
 ##                           replay. Tests pin this value for reproducible outcomes.
+##   tiles                 — Array[HexTileDataResource]; optional hex battlefield
+##                           layout for this encounter (FEAT-004 / US-002).
+##                           Defaults to [] so pre-existing .tres fixtures that
+##                           omit this field (e.g. prologue_encounter.tres) load
+##                           unchanged. Each entry is keyed by its own (q, r);
+##                           duplicate (q, r) pairs are not yet validated (future
+##                           extension point).
 ##
 ## Usage:
 ##   var enc = ResourceLoader.load("res://data/encounters/prologue_encounter.tres")
@@ -31,6 +40,7 @@
 ##   print(enc.party_hex_positions)    # [{"q": 0, "r": 0}]
 ##   print(enc.enemy_hex_positions)    # [{"q": 1, "r": 0}]
 ##   print(enc.seed)                   # 42
+##   print(enc.tiles)                  # [] (unless a tiles layout was authored)
 
 class_name EncounterResource
 extends Resource
@@ -55,3 +65,9 @@ extends Resource
 ## Injected into core/rules/rng.gd (ADR-002) at encounter construction time.
 ## Same seed always produces the same sequence of rolls and outcome.
 @export var seed: int = 0
+
+## Optional hex battlefield layout for this encounter (FEAT-004 / US-002,
+## FR-002). Additive field: defaults to [] so pre-existing .tres fixtures
+## that predate this field (e.g. prologue_encounter.tres) continue to load
+## with an empty tiles array and every other field unchanged (RISK-003).
+@export var tiles: Array[HexTileDataResource] = []
