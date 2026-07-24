@@ -181,6 +181,17 @@ const RNGClass                         = preload("res://core/rules/rng.gd")
 const CombatantFactoryClass            = preload("res://infrastructure/combatant_factory.gd")
 const CombatantClass                   = preload("res://core/domain/combatant.gd")
 
+## CombatSessionFactoryClass / GdResourceLoaderAdapterClass — FEAT-003
+## (US-001 / FR-008, ADR-004): core/application/combat_session_factory.gd's
+## CombatSessionFactory.build(deps) now assembles hex_combatants/party/
+## enemies from PROLOGUE_ENCOUNTER_PATH — the composition root's former
+## inline init block below — via the injected GdResourceLoaderAdapter (the
+## sole load()/ResourceLoader caller for that seam, ADR-005; a fake
+## CombatResourceLoaderPort is injected instead under GUT, see
+## tests/gut/test_combat_session_factory.gd).
+const CombatSessionFactoryClass        = preload("res://core/application/combat_session_factory.gd")
+const GdResourceLoaderAdapterClass     = preload("res://presentation/adapters/gd_resource_loader_adapter.gd")
+
 ## ScenarioSessionClass / ExplorationControllerClass — FEAT-006 (US-005 /
 ## FR-004): core/application/scenario_session.gd's ScenarioSession
 ## (FEAT-003) and core/application/exploration_controller.gd's
@@ -931,7 +942,32 @@ var spell_combat_log_port = null
 
 func _ready() -> void:
 	encounter_repository = ResourceEncounterRepositoryClass.new()
-	var hex_combatants: Array = encounter_repository.load_combatants(PROLOGUE_ENCOUNTER_PATH)
+
+	# ── FEAT-003 (US-001 / FR-008, ADR-004): delegate hex_combatants/party/
+	# enemies assembly to CombatSessionFactory.build(deps) -- the ONE seam
+	# this composition root's former inline resource-loading + party/enemy
+	# construction init block now flows through. `resource_loader` is a
+	# GdResourceLoaderAdapter (the sole load()/ResourceLoader caller for the
+	# encounter resource, ADR-005) so GUT can inject a fake
+	# CombatResourceLoaderPort in isolation; `encounter_repository`/
+	# `_combatant_factory` are the SAME collaborator instances this
+	# composition root always used, simply handed to the factory instead of
+	# read as bare fields/consts inline below. On failure (missing/invalid
+	# resource path, or a fail-fast enemy-build error) build() push_error()s
+	# and returns an empty Dictionary (ADR-005: no exceptions) -- mirrored
+	# here with the required `.is_empty()` check + early return. ──────────
+	var session: Dictionary = CombatSessionFactoryClass.build({
+		"resource_loader": GdResourceLoaderAdapterClass.new(),
+		"encounter_repository": encounter_repository,
+		"combatant_factory": _combatant_factory,
+		"encounter_path": PROLOGUE_ENCOUNTER_PATH,
+	})
+	if session.is_empty():
+		return
+
+	var hex_combatants: Array = session.get("hex_combatants", [])
+	_party = session.get("party", [])
+	_enemies = session.get("enemies", [])
 
 	# ── FEAT-002 / US-002 / FR-012 (ADR-003): derive the ONE shared
 	# viewport-centering offset from the grid's own rendered extent corners
@@ -957,11 +993,6 @@ func _ready() -> void:
 	# duplicated encounter definition), so no second token-loading call is
 	# needed here. See _boot_exploration_mode()'s own doc below. ───────────
 	_boot_exploration_mode(hex_combatants)
-
-	var encounter_resource = ResourceLoader.load(PROLOGUE_ENCOUNTER_PATH)
-	if encounter_resource == null:
-		push_error("MainScene: failed to load " + PROLOGUE_ENCOUNTER_PATH)
-		return
 
 	# ── FEAT-002/003 / US-002/003: separate the real-play seed from the
 	# fixture seed baked into prologue_encounter.tres (42), via
@@ -991,41 +1022,9 @@ func _ready() -> void:
 	if event_log_view != null:
 		spell_combat_log_port.configure(event_log_view)
 
-	_party = []
-	for i in range(encounter_resource.party_resource_paths.size()):
-		var party_hex = hex_combatants[i].hex_coord if i < hex_combatants.size() else null
-		var party_id: String = hex_combatants[i].combatant_id if i < hex_combatants.size() else ""
-		# Combatant migration Phase C.3: the container now holds Combatant
-		# INSTANCES, not dicts — the same reference threads through
-		# round_session/resolve so a Strike's take_damage() lands on the live
-		# entity. The factory still authors a canonical dict; from_dict() lifts
-		# it onto the entity at the composition-root boundary.
-		_party.append(CombatantClass.from_dict(_build_party_combatant(encounter_resource.party_resource_paths[i], party_hex, party_id)))
-
-	var party_count: int = encounter_resource.party_resource_paths.size()
-	_enemies = []
-	for j in range(encounter_resource.enemy_resource_paths.size()):
-		var idx: int = party_count + j
-		var enemy_hex = hex_combatants[idx].hex_coord if idx < hex_combatants.size() else null
-		var enemy_id: String = hex_combatants[idx].combatant_id if idx < hex_combatants.size() else ""
-		# FEAT-227 (resolves FIND-223): honour CombatantFactory.build_enemy_combatant()'s
-		# fail-fast contract at the ONE real composition-root call site. On a missing/
-		# unresolvable EnemyResource or malformed weapon data it returns
-		# {"error": <ERR_ code>, "enemy_path": ...} instead of a playable combatant; appending
-		# that blind makes it a silent "dead on arrival" combatant in EncounterClass.new()/
-		# initialize()/the view-model builders (which read hp_current/ac/weapon via .get()).
-		# Mirror the boot loader's own push_error()+return idiom above (encounter_resource
-		# null-check) so a bad enemy aborts encounter setup loudly at boot rather than
-		# silently corrupting live combat state.
-		var enemy_combatant: Dictionary = _build_enemy_combatant(encounter_resource.enemy_resource_paths[j], enemy_hex, enemy_id)
-		if enemy_combatant.has("error"):
-			push_error("MainScene: aborting encounter setup — enemy build failed for '%s' (%s)" % [encounter_resource.enemy_resource_paths[j], enemy_combatant["error"]])
-			return
-		# Phase C.3: lift the validated enemy dict onto a Combatant instance
-		# (the error-path dict above is checked FIRST, so from_dict() only ever
-		# sees a well-formed combatant here).
-		_enemies.append(CombatantClass.from_dict(enemy_combatant))
-
+	# ── FEAT-003 (US-001 / FR-008): `_party`/`_enemies` (Combatant instances)
+	# and `hex_combatants` were already assembled above by
+	# CombatSessionFactory.build() -- see this method's own FEAT-003 doc.
 	var rng := RNGClass.new(resolved_seed)
 	encounter = EncounterClass.new(_party, _enemies, rng)
 	encounter.initialize()

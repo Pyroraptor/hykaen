@@ -14,8 +14,14 @@
 ## pool for any actor/context. Sufficient for the v0 Charge steel thread; a
 ## full actor/context-aware implementation is a later sprint's scope.
 
+## Extends by path (not by bare global class_name) deliberately: this
+## adapter must parse correctly even before Godot's global script class
+## cache (.godot/global_script_class_cache.cfg, gitignored/environment-
+## local) has been rebuilt to include VerbRegistryPort — mirroring
+## presentation/adapters/core_cast_spell_adapter.gd's own
+## `extends "res://...port.gd"` convention (FEAT-003 hardening).
 class_name GdVerbRegistryPort
-extends VerbRegistryPort
+extends "res://core/application/combine/verb_registry_port.gd"
 
 
 func get_available_verbs(_actor, _context) -> Array:

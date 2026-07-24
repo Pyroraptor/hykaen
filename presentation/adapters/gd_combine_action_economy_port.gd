@@ -23,8 +23,14 @@
 ## report failure without mutating anything, is_spent() reports true
 ## (nothing left to spend), get_remaining() reports 0 — never a crash.
 
+## Extends by path (not by bare global class_name) deliberately: this
+## adapter must parse correctly even before Godot's global script class
+## cache (.godot/global_script_class_cache.cfg, gitignored/environment-
+## local) has been rebuilt to include ActionEconomyPort — mirroring
+## presentation/adapters/core_cast_spell_adapter.gd's own
+## `extends "res://...port.gd"` convention (FEAT-003 hardening).
 class_name GdCombineActionEconomyPort
-extends ActionEconomyPort
+extends "res://core/application/ports/action_economy_port.gd"
 
 var _owner  # MainScene — untyped to avoid a cyclic self-reference.
 

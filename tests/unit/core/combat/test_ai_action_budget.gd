@@ -387,10 +387,23 @@ func test_application_layer_contains_no_new_port_or_use_case_class() -> void:
 	# RefCounted use-case object depending only on ScenarioSession + DOMAIN
 	# HexCoord/HexMath/TriggerType, whitelisted here purely because this
 	# check's dir.list_dir_begin() scan is name-based, not type-based.
+	#
+	# FEAT-003 (US-001 / FR-008, ADR-004, composition-root de-bloat steel
+	# thread) deliberately extends this whitelist by ONE more file:
+	# core/application/combat_session_factory.gd (CombatSessionFactory) --
+	# the entry-point-adjacent factory MainScene._ready() now delegates its
+	# hex_combatants/party/enemies assembly to, per that feature's own
+	# explicit files_to_create. Its companion port,
+	# core/application/ports/combat_resource_loader_port.gd
+	# (CombatResourceLoaderPort), lives under the ports/ subdirectory this
+	# flat, non-recursive dir.list_dir_begin() scan never descends into (see
+	# the FEAT-009 note above) so it never appears in actual_files and needs
+	# no whitelist entry of its own.
 	var expected_files: Array = [
 		"_build_defense_context.gd",
 		"ai_decision_port.gd",
 		"apply_on_hit_defense_uc.gd",
+		"combat_session_factory.gd",
 		"determine_outcome_use_case.gd",
 		"event_sink_port.gd",
 		"exploration_controller.gd",
