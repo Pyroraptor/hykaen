@@ -225,7 +225,7 @@ func test_combine_press_offers_real_selection_descriptor_with_stride_and_strike(
 
 	_press_combine(instance)
 
-	assert_true(instance._combine_build_active, "pressing COMBINE via the real VerbBarView must engage the real interactive queue-build pick loop")
+	assert_true(instance.combine_queue_build_session.is_active(), "pressing COMBINE via the real VerbBarView must engage the real interactive queue-build pick loop")
 	assert_true(instance.selection_overlay.is_active(), "pressing COMBINE via the real VerbBarView must activate the REAL SelectionOverlay")
 	assert_eq(instance.selection_overlay.get_active_verb_id(), "COMBINE")
 	assert_true(instance.selection_overlay.is_awaiting_option(), "the very first pick must be a real Layer-2a option pick, never an immediate hex/target highlight")
@@ -262,7 +262,7 @@ func test_full_happy_path_combine_stride_strike_confirm_hex_pick_target_pick_exe
 
 	# ── COMBINE pressed via the real VerbBarView/VerbBarRegistry. ───────────
 	_press_combine(instance)
-	assert_true(instance._combine_build_active)
+	assert_true(instance.combine_queue_build_session.is_active())
 	assert_true(instance.selection_overlay.is_awaiting_option())
 
 	var first_ids: Array = _option_ids(instance.selection_overlay.get_candidate_options())
@@ -277,7 +277,7 @@ func test_full_happy_path_combine_stride_strike_confirm_hex_pick_target_pick_exe
 	assert_not_null(stride_option, "fixture assumption: STRIDE must be a legal first pick")
 	instance.selection_overlay.choose_option(stride_option)
 
-	assert_true(instance._combine_build_active, "the queue-build loop must still be active after a single VERB pick")
+	assert_true(instance.combine_queue_build_session.is_active(), "the queue-build loop must still be active after a single VERB pick")
 	var second_ids: Array = _option_ids(instance.selection_overlay.get_candidate_options())
 	assert_true(second_ids.has("STRIDE"), "STRIDE (repeat=true) must remain offered after being chosen once")
 	assert_true(second_ids.has("STRIKE"), "STRIKE must remain legal")
@@ -298,7 +298,7 @@ func test_full_happy_path_combine_stride_strike_confirm_hex_pick_target_pick_exe
 	assert_not_null(confirm_option)
 	instance.selection_overlay.choose_option(confirm_option)
 
-	assert_false(instance._combine_build_active, "the queue-build loop must be torn down once Confirm succeeds")
+	assert_false(instance.combine_queue_build_session.is_active(), "the queue-build loop must be torn down once Confirm succeeds")
 	assert_true(instance._combine_targeting_active, "Confirm must hand off into the real interactive Combine sub-action TARGETING loop")
 	assert_true(instance.selection_overlay.is_active(), "the targeting phase must immediately activate SelectionOverlay for the first sub-action")
 	assert_eq(instance.selection_overlay.get_active_verb_id(), "STRIDE", "the confirmed queue's first sub-action (order_index 0) must be STRIDE")
@@ -417,7 +417,7 @@ func test_cancel_during_queue_build_step_leaves_state_unchanged_and_returns_to_l
 	var stamina_before: int = titus.stamina
 
 	_press_combine(instance)
-	assert_true(instance._combine_build_active)
+	assert_true(instance.combine_queue_build_session.is_active())
 
 	var stride_option = _find_option(instance.selection_overlay.get_candidate_options(), "STRIDE")
 	assert_not_null(stride_option)
@@ -433,8 +433,8 @@ func test_cancel_during_queue_build_step_leaves_state_unchanged_and_returns_to_l
 	instance.selection_overlay.choose_option(cancel_option)
 
 	# ── No queue state retained. ─────────────────────────────────────────
-	assert_false(instance._combine_build_active, "cancelling must tear down the interactive queue-build loop")
-	assert_null(instance._combine_build_queue, "cancelling must discard the in-progress CombineQueue -- no partial-state leak")
+	assert_false(instance.combine_queue_build_session.is_active(), "cancelling must tear down the interactive queue-build loop")
+	assert_null(instance.combine_queue_build_session.get_queue(), "cancelling must discard the in-progress CombineQueue -- no partial-state leak")
 
 	# Actor/target state fully unchanged.
 	assert_true(titus.hex_coord.equals(titus_start_hex))
@@ -507,7 +507,7 @@ func test_cancel_during_stride_targeting_phase_aborts_entire_combine_with_no_sta
 	assert_true(instance._verb_registry.is_available("COMBINE"), "cancellation must leave COMBINE selectable again on the Layer 1 verb bar")
 
 	_press_combine(instance)
-	assert_true(instance._combine_build_active, "a subsequent real COMBINE press must engage a fresh queue-build loop with no leaked state")
+	assert_true(instance.combine_queue_build_session.is_active(), "a subsequent real COMBINE press must engage a fresh queue-build loop with no leaked state")
 	var fresh_ids: Array = _option_ids(instance.selection_overlay.get_candidate_options())
 	assert_true(fresh_ids.has("STRIDE"))
 	assert_true(fresh_ids.has("STRIKE"))
@@ -565,7 +565,7 @@ func test_cancel_during_strike_targeting_phase_aborts_entire_combine_with_no_sta
 	assert_true(instance._verb_registry.is_available("COMBINE"))
 
 	_press_combine(instance)
-	assert_true(instance._combine_build_active, "a subsequent real COMBINE press must engage a fresh queue-build loop with no leaked state")
+	assert_true(instance.combine_queue_build_session.is_active(), "a subsequent real COMBINE press must engage a fresh queue-build loop with no leaked state")
 	var fresh_ids: Array = _option_ids(instance.selection_overlay.get_candidate_options())
 	assert_true(fresh_ids.has("STRIDE"))
 	assert_true(fresh_ids.has("STRIKE"))

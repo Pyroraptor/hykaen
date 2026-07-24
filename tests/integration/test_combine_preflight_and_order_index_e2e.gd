@@ -156,7 +156,7 @@ func _press_combine(instance) -> void:
 ## a caller to drive the Stride hex-pick / Strike target-pick itself.
 func _drive_queue_build_and_confirm(instance) -> void:
 	_press_combine(instance)
-	assert_true(instance._combine_build_active, "pressing COMBINE must engage the real interactive queue-build pick loop")
+	assert_true(instance.combine_queue_build_session.is_active(), "pressing COMBINE must engage the real interactive queue-build pick loop")
 
 	var stride_option = _find_option(instance.selection_overlay.get_candidate_options(), "STRIDE")
 	assert_not_null(stride_option, "fixture assumption: STRIDE must be a legal first pick")

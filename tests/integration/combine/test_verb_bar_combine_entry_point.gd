@@ -121,7 +121,7 @@ func test_pressing_combine_via_live_entry_point_invokes_build_verb_queue_use_cas
 
 	_press_combine(instance)
 
-	assert_true(instance._combine_build_active, "the live COMBINE press must engage the interactive queue-build pick loop")
+	assert_true(instance.combine_queue_build_session.is_active(), "the live COMBINE press must engage the interactive queue-build pick loop")
 	assert_true(instance.selection_overlay.is_active(), "the live COMBINE press must activate the REAL SelectionOverlay")
 	assert_eq(instance.selection_overlay.get_active_verb_id(), "COMBINE")
 	assert_true(instance.selection_overlay.is_awaiting_option(), "the very first pick must be a Layer-2a option pick (candidate_options), never an immediate hex/target highlight")
@@ -164,7 +164,7 @@ func test_confirm_sentinel_absent_at_queue_length_1_and_present_at_length_2_via_
 	instance.selection_overlay.choose_option(stride_option)
 
 	# The loop must have auto-advanced into the SECOND pick (queue length 1).
-	assert_true(instance._combine_build_active, "the queue-build loop must still be active after a single VERB pick")
+	assert_true(instance.combine_queue_build_session.is_active(), "the queue-build loop must still be active after a single VERB pick")
 	assert_true(instance.selection_overlay.is_active(), "the loop must re-enter Layer 2a for the NEXT pick, not terminate")
 	assert_true(instance.selection_overlay.is_awaiting_option())
 	var second_ids: Array = _option_ids(instance.selection_overlay.get_candidate_options())
@@ -181,7 +181,7 @@ func test_confirm_sentinel_absent_at_queue_length_1_and_present_at_length_2_via_
 	assert_not_null(strike_option)
 	instance.selection_overlay.choose_option(strike_option)
 
-	assert_true(instance._combine_build_active, "the queue-build loop must still be active -- the player has not yet confirmed")
+	assert_true(instance.combine_queue_build_session.is_active(), "the queue-build loop must still be active -- the player has not yet confirmed")
 	var third_ids: Array = _option_ids(instance.selection_overlay.get_candidate_options())
 	assert_true(third_ids.has(BuildVerbQueueUseCaseClass.CONFIRM_SENTINEL_ID), "Confirm must be PRESENT once queue length reaches 2 (the TURN-context minimum)")
 
@@ -220,9 +220,9 @@ func test_cancelling_at_queue_build_step_via_live_entry_point_returns_to_verb_ba
 	instance.selection_overlay.choose_option(cancel_option)
 
 	# ── No queue state retained: the build loop is fully torn down. ─────────
-	assert_false(instance._combine_build_active, "cancelling must tear down the interactive queue-build loop")
-	assert_null(instance._combine_build_queue, "cancelling must discard the in-progress CombineQueue -- no partial-state leak")
-	assert_eq(instance._combine_build_pending_option, {}, "cancelling must clear any pending option")
+	assert_false(instance.combine_queue_build_session.is_active(), "cancelling must tear down the interactive queue-build loop")
+	assert_null(instance.combine_queue_build_session.get_queue(), "cancelling must discard the in-progress CombineQueue -- no partial-state leak")
+	assert_eq(instance.combine_queue_build_session.get_pending_option(), {}, "cancelling must clear any pending option")
 
 	# ── Control returns to the Layer 1 verb bar. ─────────────────────────────
 	assert_false(instance.selection_overlay.is_active(), "cancelling must leave NO Layer 2 selection active")
@@ -300,8 +300,8 @@ func test_confirming_a_full_queue_via_live_entry_point_hands_off_to_the_unchange
 	# UNCHANGED targeting phase -- start_combine_targeting()'s own
 	# established, already-tested behavior (see
 	# tests/integration/combine/test_composition_root_wiring.gd). ──────────
-	assert_false(instance._combine_build_active, "the queue-build loop must be torn down once Confirm succeeds")
-	assert_null(instance._combine_build_queue)
+	assert_false(instance.combine_queue_build_session.is_active(), "the queue-build loop must be torn down once Confirm succeeds")
+	assert_null(instance.combine_queue_build_session.get_queue())
 	assert_true(instance._combine_targeting_active, "Confirm must hand off into the interactive Combine sub-action TARGETING loop")
 	assert_true(instance.selection_overlay.is_active(), "the targeting phase must immediately activate SelectionOverlay for the first sub-action")
 	assert_eq(instance.selection_overlay.get_active_verb_id(), "STRIDE", "the confirmed queue's first sub-action (order_index 0) must be STRIDE")

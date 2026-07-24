@@ -185,7 +185,7 @@ func test_real_charge_steel_thread_executes_with_one_action_one_stamina_and_post
 
 	# ── COMBINE pressed via the real VerbBarView/VerbBarRegistry. ───────────
 	_press_combine(instance)
-	assert_true(instance._combine_build_active, "pressing COMBINE must engage the real interactive queue-build pick loop")
+	assert_true(instance.combine_queue_build_session.is_active(), "pressing COMBINE must engage the real interactive queue-build pick loop")
 
 	var stride_option = _find_option(instance.selection_overlay.get_candidate_options(), "STRIDE")
 	assert_not_null(stride_option, "fixture assumption: STRIDE must be a legal first pick")
@@ -339,7 +339,7 @@ func test_cancel_during_queue_build_step_regression_still_passes() -> void:
 	var stamina_before: int = titus.stamina
 
 	_press_combine(instance)
-	assert_true(instance._combine_build_active)
+	assert_true(instance.combine_queue_build_session.is_active())
 
 	var stride_option = _find_option(instance.selection_overlay.get_candidate_options(), "STRIDE")
 	assert_not_null(stride_option)
@@ -352,8 +352,8 @@ func test_cancel_during_queue_build_step_regression_still_passes() -> void:
 	assert_not_null(cancel_option)
 	instance.selection_overlay.choose_option(cancel_option)
 
-	assert_false(instance._combine_build_active, "cancelling must tear down the interactive queue-build loop")
-	assert_null(instance._combine_build_queue, "cancelling must discard the in-progress CombineQueue -- no partial-state leak")
+	assert_false(instance.combine_queue_build_session.is_active(), "cancelling must tear down the interactive queue-build loop")
+	assert_null(instance.combine_queue_build_session.get_queue(), "cancelling must discard the in-progress CombineQueue -- no partial-state leak")
 
 	assert_true(titus.hex_coord.equals(titus_start_hex))
 	assert_eq(skeleton.hp_current, skeleton_hp_before)
