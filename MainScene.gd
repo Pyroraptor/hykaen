@@ -322,6 +322,17 @@ const CombineTargetingSessionClass = preload("res://presentation/combine_targeti
 ## second, parallel `RunRoundUseCase.begin_round()` call site.
 const RoundFlowControllerClass = preload("res://presentation/round_flow_controller.gd")
 
+
+## SpellPickerPanelControllerClass — FEAT-008 (US-007 / FR-002): the
+## extracted leaf UI controller for the floating spell-picker panel
+## (presentation/spell_picker_panel_controller.gd), formerly this file's own
+## `_setup_spell_picker_panel()` / `_show_spell_picker()` /
+## `_on_spell_option_pressed()` / `_hide_spell_picker()` quartet. This
+## composition root still creates/add_child()s the underlying Panel node
+## itself (scene-tree wiring stays here — see `_spell_picker` field's own
+## doc) but owns none of the populate/show/hide UI logic anymore.
+const SpellPickerPanelControllerClass = preload("res://presentation/spell_picker_panel_controller.gd")
+
 ## TargetingPortClass — core/application/ports/targeting_port.gd's abstract
 ## base (FEAT-283), extended BY PATH below (_FirstLegalTargetingPort) —
 ## mirrors this project's established preload-typing convention for
@@ -887,6 +898,19 @@ var combine_queue_build_session = null
 ## "constructed here, exposed for verification" precedent.
 var round_flow_controller = RoundFlowControllerClass.new()
 
+## _spell_picker — FEAT-008 (US-007 / FR-002): the composition-root-owned
+## SpellPickerPanelController instance (presentation/
+## spell_picker_panel_controller.gd). `.new()`d here; `.setup(panel_node)`-
+## wired once in _ready() against a Panel node this composition root still
+## creates/add_child()s itself (the ONE piece of spell-picker scene-tree
+## wiring left in this file — see test_infrastructure/
+## test_presentation_stack_wiring.gd's "SpellPickerPanel" child-node
+## invariant, unaffected by this extraction). This composition root drives
+## it purely through its own setup(panel_node)/show(options, on_selected)/
+## hide() surface — see spell_picker_panel_controller.gd's own file-level
+## doc for the full before/after mapping of what moved out of this file.
+var _spell_picker = SpellPickerPanelControllerClass.new()
+
 ## _party / _enemies — the live combatant Dictionaries built at boot,
 ## mutated in place by every resolved Strike throughout the interactive
 ## session (Dictionaries are reference types in GDScript). Kept as fields so
@@ -1228,8 +1252,18 @@ func _ready() -> void:
 		"selection_overlay": selection_overlay,
 		"hex_grid_view": hex_grid_view,
 		"verb_registry": _verb_registry,
-		"show_spell_picker_fn": Callable(self, "_show_spell_picker"),
-		"hide_spell_picker_fn": Callable(self, "_hide_spell_picker"),
+		# FEAT-008 (US-007 / FR-002): these Callables now point at the
+		# extracted SpellPickerPanelController's own show(options, on_selected)/
+		# hide() methods (formerly this file's own private
+		# _show_spell_picker()/_hide_spell_picker() wrapper methods).
+		# show_spell_picker_fn is invoked here as `.call(options)` (see
+		# combine_queue_build_session.gd's own call site) -- `.bind(...)`
+		# appends the pre-bound on_selected Callable AFTER that call-time
+		# `options` argument, so the actual invocation is
+		# `_spell_picker.show(options, on_selected)`, matching
+		# SpellPickerPanelController's public signature exactly.
+		"show_spell_picker_fn": Callable(_spell_picker, "show").bind(Callable(selection_overlay, "choose_option")),
+		"hide_spell_picker_fn": Callable(_spell_picker, "hide"),
 	})
 	combine_queue_build_session.queue_built.connect(_on_combine_queue_built)
 
@@ -1254,7 +1288,12 @@ func _ready() -> void:
 		"selection_overlay": selection_overlay,
 		"hex_grid_view": hex_grid_view,
 		"verb_registry": _verb_registry,
-		"show_spell_picker_fn": Callable(self, "_show_spell_picker"),
+		# FEAT-008 (US-007 / FR-002): see the identical comment on
+		# combine_queue_build_session.setup()'s own "show_spell_picker_fn" key
+		# immediately above for why `.bind(...)` here yields the exact
+		# `_spell_picker.show(options, on_selected)` call this session's own
+		# `.call(options)` call site expects.
+		"show_spell_picker_fn": Callable(_spell_picker, "show").bind(Callable(selection_overlay, "choose_option")),
 	})
 	combine_targeting_session.targeting_complete.connect(_on_combine_targeting_complete)
 
@@ -1311,7 +1350,32 @@ func _ready() -> void:
 	if verb_bar_view != null:
 		verb_bar_view.verb_selection_entered.connect(_on_verb_bar_selection_entered)
 	selection_overlay.selection_resolved.connect(_on_selection_overlay_resolved)
-	_setup_spell_picker_panel()
+
+	# FEAT-008 (US-007 / FR-002): this composition root still creates/
+	# add_child()s the "SpellPickerPanel" Panel node itself (scene-tree
+	# wiring stays here -- see tests/infrastructure/
+	# test_presentation_stack_wiring.gd's own "SpellPickerPanel" child-node
+	# invariant, unaffected by this extraction) then hands it to
+	# `_spell_picker.setup(panel_node)`, which owns everything else (the
+	# "SpellList" VBoxContainer child + every populate/show/hide concern --
+	# see presentation/spell_picker_panel_controller.gd's own file-level
+	# doc). UNCHANGED node shape/anchors from the pre-extraction
+	# `_setup_spell_picker_panel()`.
+	var spell_picker_panel := Panel.new()
+	spell_picker_panel.name = "SpellPickerPanel"
+	spell_picker_panel.visible = false
+	spell_picker_panel.custom_minimum_size = Vector2(220, 40)
+	spell_picker_panel.anchor_left = 0.5
+	spell_picker_panel.anchor_right = 0.5
+	spell_picker_panel.anchor_top = 1.0
+	spell_picker_panel.anchor_bottom = 1.0
+	spell_picker_panel.offset_left = -110
+	spell_picker_panel.offset_right = 110
+	spell_picker_panel.offset_top = -220
+	spell_picker_panel.offset_bottom = -100
+	add_child(spell_picker_panel)
+	_spell_picker.setup(spell_picker_panel)
+	selection_overlay.selection_cancelled.connect(func(_v): _spell_picker.hide())
 
 	# ── FEAT-176 / US-012 (FR-007, ADR-005): wire the generic Layer 2 cancel/
 	# back affordance (Esc/right-click/Cancel button) over the SAME
@@ -2335,7 +2399,7 @@ func _on_verb_bar_selection_entered(verb_id: String, selection) -> void:
 		return  # combine_targeting_session.start()/combine_queue_build_session.start() already drove SelectionOverlay directly
 	selection_overlay.activate(verb_id, selection)
 	if selection_overlay.is_awaiting_option():
-		_show_spell_picker(selection_overlay.get_candidate_options())
+		_spell_picker.show(selection_overlay.get_candidate_options(), Callable(selection_overlay, "choose_option"))
 
 
 ## _on_selection_overlay_resolved(_verb_id, _result) -> void — FEAT-008 /
@@ -2377,7 +2441,7 @@ func _on_selection_overlay_resolved(_verb_id: String, _result) -> void:
 		return
 	if combine_targeting_session.try_advance(_verb_id):
 		return
-	_hide_spell_picker()
+	_spell_picker.hide()
 	if verb_bar_view != null:
 		verb_bar_view.refresh_availability()
 	if round_session != null:
@@ -2476,63 +2540,14 @@ func _on_combine_targeting_complete(_result: Dictionary) -> void:
 
 
 # ── Spell picker panel ───────────────────────────────────────────────────────
-# A simple floating panel shown during Layer-2a spell selection (when
-# selection_overlay.is_awaiting_option() is true). Populated with one button
-# per candidate_option; clicking a button calls choose_option() and hides the
-# panel. For ranged spells (e.g. Fire Bolt) the overlay then enters Layer-2b
-# and highlights enemy targets; for self-cast spells (e.g. Channel) it
-# auto-resolves immediately (no targets to pick).
-
-var _spell_picker_panel: Panel = null
-
-func _setup_spell_picker_panel() -> void:
-	_spell_picker_panel = Panel.new()
-	_spell_picker_panel.name = "SpellPickerPanel"
-	_spell_picker_panel.visible = false
-	_spell_picker_panel.custom_minimum_size = Vector2(220, 40)
-
-	var vbox := VBoxContainer.new()
-	vbox.name = "SpellList"
-	vbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT, Control.PRESET_MODE_MINSIZE, 8)
-	_spell_picker_panel.add_child(vbox)
-
-	# Anchor bottom-center above the verb bar area.
-	_spell_picker_panel.anchor_left = 0.5
-	_spell_picker_panel.anchor_right = 0.5
-	_spell_picker_panel.anchor_top = 1.0
-	_spell_picker_panel.anchor_bottom = 1.0
-	_spell_picker_panel.offset_left = -110
-	_spell_picker_panel.offset_right = 110
-	_spell_picker_panel.offset_top = -220
-	_spell_picker_panel.offset_bottom = -100
-
-	add_child(_spell_picker_panel)
-
-	selection_overlay.selection_cancelled.connect(func(_v): _hide_spell_picker())
-
-
-func _show_spell_picker(options: Array) -> void:
-	if _spell_picker_panel == null:
-		return
-	var vbox: VBoxContainer = _spell_picker_panel.get_node("SpellList")
-	for child in vbox.get_children():
-		child.queue_free()
-	for option in options:
-		var btn := Button.new()
-		btn.text = option.get("label", option.get("id", "?"))
-		btn.pressed.connect(_on_spell_option_pressed.bind(option))
-		vbox.add_child(btn)
-	_spell_picker_panel.visible = true
-
-
-func _on_spell_option_pressed(option: Dictionary) -> void:
-	_hide_spell_picker()
-	selection_overlay.choose_option(option)
-
-
-func _hide_spell_picker() -> void:
-	if _spell_picker_panel != null:
-		_spell_picker_panel.visible = false
+# FEAT-008 (US-007 / FR-002): the former `_setup_spell_picker_panel()` /
+# `_show_spell_picker()` / `_on_spell_option_pressed()` / `_hide_spell_picker()`
+# quartet that used to live here has been extracted into
+# presentation/spell_picker_panel_controller.gd's SpellPickerPanelController
+# (see that file's own file-level doc). This composition root now owns only
+# the `_spell_picker` field (declared near `round_flow_controller`, above)
+# and the `_spell_picker.setup(spell_picker_panel)` call inside `_ready()` —
+# every populate/show/hide concern lives in the extracted controller.
 
 
 ## _turn_presentation() — lazily builds (once) and returns the extracted
