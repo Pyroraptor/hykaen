@@ -1,18 +1,61 @@
-[gd_resource type="Resource" script_class="ScenarioResource" load_steps=6 format=3 uid="uid://prlgscnro001a"]
+[gd_resource type="Resource" script_class="ScenarioResource" load_steps=8 format=3]
 
 [ext_resource type="Script" path="res://data/scenarios/scenario_resource.gd" id="1_scnres"]
 [ext_resource type="Script" path="res://data/scenarios/scenario_encounter_entry_resource.gd" id="2_entry"]
+[ext_resource type="Script" path="res://data/triggers/proximity_trigger_resource.gd" id="3_8l0xv"]
 [ext_resource type="Resource" path="res://data/parties/default_party.tres" id="3_party"]
 [ext_resource type="Resource" path="res://data/encounters/prologue_encounter.tres" id="4_enc"]
+
+[sub_resource type="Resource" id="Resource_6xmhc"]
+script = ExtResource("3_8l0xv")
+trigger_hexes = [{
+"q": -1,
+"r": 0
+}, {
+"q": -1,
+"r": 1
+}, {
+"q": -1,
+"r": 2
+}, {
+"q": 0,
+"r": -1
+}, {
+"q": 0,
+"r": 2
+}, {
+"q": 1,
+"r": -2
+}, {
+"q": 1,
+"r": 2
+}, {
+"q": 2,
+"r": -2
+}, {
+"q": 2,
+"r": 1
+}, {
+"q": 3,
+"r": -2
+}, {
+"q": 3,
+"r": -1
+}, {
+"q": 3,
+"r": 0
+}]
+trigger_type = "PROXIMITY"
 
 [sub_resource type="Resource" id="Resource_prlgentry"]
 script = ExtResource("2_entry")
 encounter_id = "prologue"
 encounter = ExtResource("4_enc")
+trigger = SubResource("Resource_6xmhc")
 
 [resource]
 script = ExtResource("1_scnres")
 scenario_id = "prologue"
 display_name = "The Hollow Prologue"
 party = ExtResource("3_party")
-encounter_entries = [SubResource("Resource_prlgentry")]
+encounter_entries = Array[ExtResource("2_entry")]([SubResource("Resource_prlgentry")])
