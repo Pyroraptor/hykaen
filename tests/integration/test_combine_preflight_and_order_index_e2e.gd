@@ -295,6 +295,15 @@ func test_boot_real_abort_when_action_economy_exhausted_leaves_state_byte_for_by
 	var instance = _boot_main_scene()
 	await get_tree().process_frame
 
+	# FEAT-316 (resolves DEF-001/PR-001): round_session/verb bar/selection
+	# overlay only become live once a real combat trigger fires (see
+	# MainScene.gd's own FEAT-316 doc) -- drive the same real handoff here so
+	# the live COMBINE queue-build/targeting loop below can be driven exactly
+	# as it was before this feature.
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	var titus = _titus(instance)
 	var skeleton = _skeleton(instance)
 	var geo: Dictionary = _reposition_skeleton_for_charge(titus, skeleton)
@@ -344,6 +353,11 @@ func test_boot_real_abort_when_action_economy_exhausted_leaves_state_byte_for_by
 
 func test_boot_real_abort_when_stamina_zero_leaves_state_byte_for_byte_unchanged() -> void:
 	var instance = _boot_main_scene()
+	await get_tree().process_frame
+
+	# FEAT-316: see the identical doc on the action-economy-exhausted test above.
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
 	await get_tree().process_frame
 
 	var titus = _titus(instance)

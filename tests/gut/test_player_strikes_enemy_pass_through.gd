@@ -73,12 +73,26 @@ func _read_file(res_path: String) -> String:
 	return contents
 
 
+## FEAT-316 (resolves DEF-001/PR-001): MainScene now boots into
+## GameMode.EXPLORATION with the legacy combat pipeline (round_session, etc.)
+## gated behind a real _on_combat_triggered() handoff -- see MainScene.gd's
+## own FEAT-316 doc. This suite drives real Strikes directly against the real
+## verb bar/registry, so this helper now also drives that SAME real handoff
+## (mirrors tests/boot/test_first_cast_firebolt.gd's established
+## `_boot_main_scene()` convention), landing the instance in GameMode.COMBAT
+## with a live round_session before returning.
 func _boot_main_scene_with_seed(seed_value: int):
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = seed_value
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -124,7 +138,7 @@ func test_main_scene_strike_call_site_calls_resolve_reactive_not_resolve() -> vo
 
 
 func test_main_scene_wires_a_real_ai_reaction_policy_instance_for_the_enemy() -> void:
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	assert_not_null(instance.enemy_reaction_chooser, "MainScene.gd must construct a real enemy_reaction_chooser in _ready()")
@@ -150,7 +164,7 @@ func test_main_scene_wires_a_real_ai_reaction_policy_instance_for_the_enemy() ->
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_player_strike_never_opens_a_reaction_window_or_prompt_for_the_enemy() -> void:
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	assert_false(instance.reaction_prompt_ui.is_open(), "sanity: the reaction pop-up must be closed before any Strike happens")
@@ -184,7 +198,7 @@ func test_player_strike_never_opens_a_reaction_window_or_prompt_for_the_enemy() 
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_player_strike_still_emits_exactly_one_attack_event_and_costs_one_action() -> void:
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	var actor_id: String = instance.round_session.current_actor().display_id()

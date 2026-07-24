@@ -66,12 +66,32 @@ const END_TURN: String = "END_TURN"
 ## _resolve_reaction() doc), never a new production behavior; the REAL
 ## PlayerReactionChooser is still what MainScene.gd wires for an actual
 ## player session.
+## FEAT-316 (resolves DEF-001/PR-001): MainScene now boots into
+## GameMode.EXPLORATION with the legacy combat pipeline (round_session,
+## verb_bar_view/selection_overlay configuration, turn_controller signal
+## wiring) gated behind a real _on_combat_triggered() handoff -- see
+## MainScene.gd's own FEAT-316 doc. This suite drives real End Turn presses
+## directly against `round_session`/the real rendered verb bar, so this
+## helper now also drives that SAME real handoff (mirrors
+## tests/boot/test_first_cast_firebolt.gd's established `_boot_main_scene()`
+## convention), landing the instance in GameMode.COMBAT with a live
+## round_session before the AutoReactionChooser override below.
+## turn_controller/reaction_window are constructed unconditionally in
+## _ready() (unaffected by FEAT-316), so configure_reactions() can be applied
+## either before or after the handoff -- applied after here so it always
+## overrides whatever rewire_session() itself wired.
 func _boot_main_scene_with_seed(seed_value: int):
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = seed_value
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	if instance.turn_controller != null and instance.reaction_window != null:
 		instance.turn_controller.configure_reactions(instance.reaction_window, AutoReactionChooserClass.new("pass"))
 	return instance
@@ -84,7 +104,7 @@ func _boot_main_scene_with_seed(seed_value: int):
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_pressing_end_turn_never_activates_selection_overlay_or_enters_layer2() -> void:
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	assert_true(
@@ -106,7 +126,7 @@ func test_pressing_end_turn_never_activates_selection_overlay_or_enters_layer2()
 
 
 func test_the_real_rendered_end_turn_button_press_never_activates_selection_overlay() -> void:
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	var button: Button = instance.verb_bar_view.get_button(END_TURN)
@@ -126,7 +146,7 @@ func test_the_real_rendered_end_turn_button_press_never_activates_selection_over
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_clicking_end_turn_advances_the_turn_cursor_through_the_real_turn_port() -> void:
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	var first_actor_name: String = instance.round_session.current_actor().name
@@ -184,7 +204,7 @@ func test_clicking_end_turn_advances_the_turn_cursor_through_the_real_turn_port(
 
 
 func test_clicking_end_turn_settles_the_ui_back_at_layer1_verb_select() -> void:
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	instance.verb_bar_view.press(END_TURN)
@@ -215,7 +235,7 @@ func test_clicking_end_turn_settles_the_ui_back_at_layer1_verb_select() -> void:
 
 
 func test_pressing_end_turn_twice_in_a_row_keeps_advancing_through_the_real_turn_port() -> void:
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	var first_result = instance.verb_bar_view.press(END_TURN)

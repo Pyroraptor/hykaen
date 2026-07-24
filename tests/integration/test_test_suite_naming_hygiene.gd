@@ -109,7 +109,16 @@ extends GutTest
 ## boots res://MainScene.tscn (via the SAME `_boot_main_scene()` convention
 ## every other allow-listed suite uses).
 ##
-## Satisfies: DEF-005, US-011, FEAT-141, FEAT-159, FEAT-001, FEAT-180, FEAT-010, FEAT-220, FEAT-246, FEAT-282, FEAT-287.
+## FEAT-310 (US-010, DEF-005 continuation): tests/integration/
+## test_steel_thread_scenario_boot_e2e.gd was added to this allow-list for
+## the same reason — it is the scenario-boot slice's own final steel-thread
+## smoke test (MainScene.load_encounter_from_scenario(prologue_scenario.tres,
+## 'prologue') driven against a fully-composed, live combat pipeline), and
+## it, too, genuinely instantiates/boots res://MainScene.tscn (via the SAME
+## `_boot_main_scene_with_seed()` convention every other allow-listed suite
+## uses).
+##
+## Satisfies: DEF-005, US-011, FEAT-141, FEAT-159, FEAT-001, FEAT-180, FEAT-010, FEAT-220, FEAT-246, FEAT-282, FEAT-287, FEAT-310.
 ##
 ## ══════════════════════════════════════════════════════════════════════════
 ## FEAT-171 (DEF-003): the guard above only ever inspected FILENAMES. That
@@ -145,6 +154,7 @@ const ALLOWED_STEEL_THREAD_PATHS: Array = [
 	"res://tests/e2e/test_steel_thread_strike_full_flow.gd",
 	"res://tests/e2e/test_steel_thread_cast_a_spell.gd",
 	"res://tests/e2e/test_steel_thread_charge_combine.gd",
+	"res://tests/integration/test_steel_thread_scenario_boot_e2e.gd",
 ]
 
 ## Path-fragment/identifier substrings from the removed duplicate

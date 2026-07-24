@@ -109,12 +109,26 @@ class ScriptedHexChoiceResolver:
 ## composition root, pinning seed_override=42 for a deterministic boot
 ## (Titus vs the Skeleton, prologue encounter) — this codebase's
 ## established convention.
+## FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): MainScene now
+## boots into EXPLORATION mode with round_session/verb_bar_view/
+## selection_overlay/turn_controller signal wiring gated behind a real
+## _on_combat_triggered() handoff (see MainScene.gd's own FEAT-316 doc). This
+## suite drives round_session/hex_grid_view/event_log_view directly, so this
+## helper now also drives the SAME real handoff tests/boot/
+## test_exploration_to_combat_handoff_trigger.gd exercises directly, landing
+## the instance in GameMode.COMBAT with a live round_session before returning.
 func _boot_main_scene():
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = 42
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -191,7 +205,7 @@ func _assert_seams_are_the_real_composition_root_bindings(instance) -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_smoke_full_steel_thread_dodge_step_relocation_and_rich_log() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	assert_eq(instance.event_log_view.get_entry_count(), 0, "sanity: the log must start empty before any Strike is scripted")

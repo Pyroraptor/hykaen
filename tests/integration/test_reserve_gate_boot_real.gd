@@ -95,12 +95,28 @@ const OVERWHELMING_MITIGATION_STAT: int = 9999
 const SURVIVABLE_HP: int = 40
 
 
+## FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): round_session/
+## the Layer 1 verb bar/Layer 2 selection overlay/turn_controller signal
+## wiring are no longer live unconditionally at boot -- they now stay
+## dormant until a real combat trigger fires (see MainScene.gd's own
+## FEAT-316 doc). This suite drives the STRIKE verb directly against the
+## real composition root, so _boot_main_scene() now also drives the SAME
+## real handoff tests/boot/test_exploration_to_combat_handoff_trigger.gd
+## exercises directly (mirrors tests/boot/test_first_cast_firebolt.gd's
+## established convention), landing the instance in GameMode.COMBAT with a
+## live round_session before returning.
 func _boot_main_scene():
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = PROLOGUE_SEED
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -213,7 +229,7 @@ func _parry_attack_bonus(combatant) -> int:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_skeleton_at_one_action_passes_reaction_on_real_boot() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	var skeleton = _skeleton(instance)
@@ -275,7 +291,7 @@ func test_skeleton_at_one_action_passes_reaction_on_real_boot() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_no_action_budget_drop_and_unmitigated_hit_at_reserve_floor() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	var skeleton = _skeleton(instance)

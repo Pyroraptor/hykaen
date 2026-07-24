@@ -178,6 +178,20 @@ func test_main_scene_instantiated_boots_prologue_encounter_without_auto_resolvin
 		return
 
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	# FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): round_session
+	# is no longer live immediately on boot -- it stays null throughout
+	# EXPLORATION mode until a real combat trigger's _on_combat_triggered()
+	# calls rewire_session() (see MainScene.gd's own FEAT-316 doc; the gating
+	# itself is covered end-to-end by tests/boot/
+	# test_combat_pipeline_gated_by_game_mode.gd). Drive the SAME real handoff
+	# here so this criterion's "a real, interactive RoundSession, without
+	# auto-resolving the whole encounter" assertion still exercises a live
+	# RoundSession.
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
 
 	assert_eq(
 		instance.outcome, "",

@@ -43,12 +43,26 @@ const HexMathClass           = preload("res://core/geometry/hex_math.gd")
 ## res://MainScene.tscn composition root, pinned to seed=42 (the prologue
 ## fixture's known-good seed, matching this codebase's established
 ## convention -- tests/gut/test_strike_layer2_integration.gd).
+## FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): MainScene now
+## boots into EXPLORATION mode with round_session/verb_bar_view/
+## selection_overlay/turn_controller signal wiring gated behind a real
+## _on_combat_triggered() handoff (see MainScene.gd's own FEAT-316 doc). This
+## suite drives verb_bar_view/selection_overlay/round_session directly, so
+## this helper now also drives the SAME real handoff tests/boot/
+## test_exploration_to_combat_handoff_trigger.gd exercises directly, landing
+## the instance in GameMode.COMBAT with a live round_session before returning.
 func _boot_main_scene_with_seed(seed_value: int):
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = seed_value
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -85,7 +99,7 @@ func _occupied_hexes(instance) -> Dictionary:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_step_enter_selection_highlights_only_legal_adjacent_unoccupied_hexes() -> void:
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	assert_true(
@@ -152,7 +166,7 @@ func test_step_enter_selection_highlights_only_legal_adjacent_unoccupied_hexes()
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_clicking_a_highlighted_hex_moves_the_token_to_that_exact_axial_coordinate_with_no_action_spent() -> void:
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	var actor_id: String = instance.round_session.current_actor().display_id()
@@ -215,7 +229,7 @@ func test_clicking_a_highlighted_hex_moves_the_token_to_that_exact_axial_coordin
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_highlighted_hexes_render_at_positions_consistent_with_the_shared_transform_used_by_the_click_handler() -> void:
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	instance.verb_bar_view.press("STEP")

@@ -76,6 +76,11 @@ const ReactionResolvedEventClass = preload("res://core/log/reaction_resolved_eve
 
 const SEED: int = 42
 
+## PROLOGUE_ENCOUNTER_ID -- this project's established fixture encounter id
+## (mirrors tests/boot/test_first_cast_firebolt.gd's identically-named/valued
+## constant).
+const PROLOGUE_ENCOUNTER_ID: String = "prologue"
+
 ## _reaction_event_seq — monotonic id suffix for the structured
 ## ReactionResolvedEvent records this suite manually constructs (see
 ## _record_correlated_reaction() below) — harmless to share across this
@@ -89,6 +94,14 @@ var _reaction_event_seq: int = 0
 # Shared fixture / helpers
 # ══════════════════════════════════════════════════════════════════════════
 
+## FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): MainScene now
+## boots into EXPLORATION mode with the legacy combat pipeline (round_session,
+## $VerbBarView/$SelectionOverlay configuration, turn_controller signal
+## wiring) gated behind a real _on_combat_triggered() handoff -- see
+## MainScene.gd's own FEAT-316 doc. This helper drives that SAME real handoff
+## (mirrors tests/boot/test_first_cast_firebolt.gd's established convention)
+## so this suite's round_session/event_log_view/reaction-pop-up assertions
+## observe genuine live combat, not the dormant EXPLORATION-mode boot state.
 func _boot_main_scene_with_seed(seed_value: int):
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn (the real project.godot run/main_scene target) must load as a PackedScene")
@@ -102,6 +115,12 @@ func _boot_main_scene_with_seed(seed_value: int):
 	# Null the resolver so MainScene.resolve_hex_choice() returns null → the
 	# Dodge-Step is a clean no-op here (the Dodge itself still negates the hit).
 	instance.hex_choice_resolver = null
+	await get_tree().process_frame
+
+	instance._on_combat_triggered(PROLOGUE_ENCOUNTER_ID)
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -242,7 +261,7 @@ func _fixture_titus_and_skeleton(instance) -> Dictionary:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_scenario_dodge_success_short_circuits_the_strike_with_no_onhit_window() -> void:
-	var instance = _boot_main_scene_with_seed(SEED)
+	var instance = await _boot_main_scene_with_seed(SEED)
 	await get_tree().process_frame
 
 	var fixture: Dictionary = _fixture_titus_and_skeleton(instance)
@@ -336,7 +355,7 @@ func test_scenario_dodge_success_short_circuits_the_strike_with_no_onhit_window(
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_scenario_miss_never_opens_the_onhit_mitigation_window() -> void:
-	var instance = _boot_main_scene_with_seed(SEED)
+	var instance = await _boot_main_scene_with_seed(SEED)
 	await get_tree().process_frame
 
 	var fixture: Dictionary = _fixture_titus_and_skeleton(instance)
@@ -518,7 +537,7 @@ func _run_dodge_declined_hit_scenario(instance, onhit_choice: String) -> Diction
 
 
 func test_scenario_dodge_declined_hit_then_parry_chosen_at_onhit_window() -> void:
-	var instance = _boot_main_scene_with_seed(SEED)
+	var instance = await _boot_main_scene_with_seed(SEED)
 	await get_tree().process_frame
 
 	var outcome: Dictionary = await _run_dodge_declined_hit_scenario(instance, "parry")
@@ -556,7 +575,7 @@ func test_scenario_dodge_declined_hit_then_parry_chosen_at_onhit_window() -> voi
 
 
 func test_scenario_dodge_declined_hit_then_block_chosen_at_onhit_window() -> void:
-	var instance = _boot_main_scene_with_seed(SEED)
+	var instance = await _boot_main_scene_with_seed(SEED)
 	await get_tree().process_frame
 
 	var outcome: Dictionary = await _run_dodge_declined_hit_scenario(instance, "block")
@@ -600,7 +619,7 @@ func test_scenario_dodge_declined_hit_then_block_chosen_at_onhit_window() -> voi
 
 
 func test_scenario_dodge_declined_hit_then_no_reaction_chosen_at_onhit_window() -> void:
-	var instance = _boot_main_scene_with_seed(SEED)
+	var instance = await _boot_main_scene_with_seed(SEED)
 	await get_tree().process_frame
 
 	var outcome: Dictionary = await _run_dodge_declined_hit_scenario(instance, "none")

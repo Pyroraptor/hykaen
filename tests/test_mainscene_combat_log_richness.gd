@@ -36,6 +36,11 @@ extends GutTest
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 const ReactionResolvedEventClass = preload("res://core/log/reaction_resolved_event.gd")
 
+## PROLOGUE_ENCOUNTER_ID -- this project's established fixture encounter id
+## (mirrors tests/boot/test_first_cast_firebolt.gd's identically-named/valued
+## constant).
+const PROLOGUE_ENCOUNTER_ID: String = "prologue"
+
 
 ## _ScriptedDodgeResolver -- a synchronous ReactionResolverPort double
 ## (mirrors tests/gut/test_enemy_strike_reaction_window.gd's established
@@ -59,6 +64,14 @@ class _ScriptedDodgeResolver:
 ## test_mainscene_reaction_resolver_wiring.gd) so Titus is reliably the
 ## first actor and the prologue encounter's Titus-vs-Skeleton layout is
 ## reproducible.
+## FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): MainScene now
+## boots into EXPLORATION mode with the legacy combat pipeline (round_session,
+## $VerbBarView/$SelectionOverlay configuration, turn_controller signal
+## wiring) gated behind a real _on_combat_triggered() handoff -- see
+## MainScene.gd's own FEAT-316 doc. This helper drives that SAME real handoff
+## (mirrors tests/boot/test_first_cast_firebolt.gd's established convention)
+## so this suite's round_session/event_log_view wiring assertions observe
+## genuine live combat, not the dormant EXPLORATION-mode boot state.
 func _boot_main_scene():
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
@@ -72,6 +85,12 @@ func _boot_main_scene():
 	# MainScene.resolve_hex_choice() returns null → Dodge-Step no-ops here
 	# (the Dodge itself, and its "Defense: dodge" log segment, are unaffected).
 	instance.hex_choice_resolver = null
+	await get_tree().process_frame
+
+	instance._on_combat_triggered(PROLOGUE_ENCOUNTER_ID)
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -82,7 +101,7 @@ func _boot_main_scene():
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_boot_real_mainscene_scripted_enemy_strike_and_reaction_produces_rich_log_entry() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 
 	assert_not_null(instance.round_session, "MainScene.round_session must be a real RoundSession after boot")
 	assert_not_null(instance.event_log_view, "MainScene.event_log_view must be a real EventLogView after boot")
@@ -225,7 +244,7 @@ func test_boot_real_mainscene_scripted_enemy_strike_and_reaction_produces_rich_l
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_real_booted_event_log_view_accessors_are_safe_for_an_unrecorded_attack_event_id() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 
 	assert_null(instance.event_log_view.get_structured_attack("does-not-exist"))
 	assert_eq(instance.event_log_view.get_active_defense_outcome_string("does-not-exist"), "none")

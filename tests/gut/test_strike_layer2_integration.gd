@@ -33,12 +33,26 @@ const HexCoordClass          = preload("res://core/geometry/hex_coord.gd")
 ## res://MainScene.tscn composition root, pinned to seed=42 (the prologue
 ## fixture's known-good seed, matching this codebase's established
 ## convention -- tests/integration/test_movement_affordance_integration.gd).
+## FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): MainScene now
+## boots into EXPLORATION mode with round_session/verb_bar_view/
+## selection_overlay/turn_controller signal wiring gated behind a real
+## _on_combat_triggered() handoff (see MainScene.gd's own FEAT-316 doc). This
+## suite drives verb_bar_view/selection_overlay/round_session directly, so
+## this helper now also drives the SAME real handoff tests/boot/
+## test_exploration_to_combat_handoff_trigger.gd exercises directly, landing
+## the instance in GameMode.COMBAT with a live round_session before returning.
 func _boot_main_scene_with_seed(seed_value: int):
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = seed_value
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -66,7 +80,7 @@ func _far_unoccupied_hex(instance):
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_strike_enter_selection_highlights_only_in_reach_enemy_targets() -> void:
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	assert_true(
@@ -124,7 +138,7 @@ func test_strike_enter_selection_highlights_only_in_reach_enemy_targets() -> voi
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_clicking_a_highlighted_target_resolves_through_select_target_and_updates_board_and_status_bar() -> void:
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	var actor_id: String = instance.round_session.current_actor().display_id()
@@ -183,7 +197,7 @@ func test_clicking_a_highlighted_target_resolves_through_select_target_and_updat
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_clicking_a_non_highlighted_out_of_reach_location_produces_no_resolution() -> void:
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	var actor_id: String = instance.round_session.current_actor().display_id()

@@ -60,13 +60,31 @@ const PROLOGUE_SEED: int = 42
 ## against it" convention.
 const PINNED_SELECTION_OVERLAY_SHA256: String = "9c8e0993dc305db3bc81ca4c87e5dc65ba2ec93477ec3da94552485e6c631030"
 
+const PROLOGUE_ENCOUNTER_ID: String = "prologue"
 
+
+## FEAT-316 (resolves DEF-001/PR-001): MainScene now boots into EXPLORATION
+## mode with the legacy combat pipeline (round_session, $VerbBarView/
+## $SelectionOverlay configuration, turn_controller signal wiring) gated
+## behind a real _on_combat_triggered() handoff -- see MainScene.gd's own
+## FEAT-316 doc. Every standalone-verb flow this suite drives depends on that
+## pipeline being live, so this helper now also drives the SAME real handoff
+## tests/boot/test_exploration_to_combat_handoff_trigger.gd exercises
+## directly, landing the instance in GameMode.COMBAT with a live
+## round_session before returning (mirrors tests/boot/
+## test_first_cast_firebolt.gd's established idiom).
 func _boot_main_scene():
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn (the real project.godot run/main_scene target) must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = PROLOGUE_SEED
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered(PROLOGUE_ENCOUNTER_ID)
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -100,7 +118,7 @@ func _find_combatant_by_id(instance, combatant_id: String):
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_standalone_stride_enter_selection_selection_overlay_resolved_flow_is_unaffected() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	assert_false(instance._combine_targeting_active, "the new interactive Combine targeting loop must never be active before a standalone verb press")
@@ -147,7 +165,7 @@ func test_standalone_stride_enter_selection_selection_overlay_resolved_flow_is_u
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_standalone_strike_enter_selection_selection_overlay_resolved_flow_is_unaffected() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	assert_false(instance._combine_targeting_active, "the new interactive Combine targeting loop must never be active before a standalone verb press")

@@ -145,6 +145,15 @@ func test_forced_skeleton_dodge_relocates_hex_coord_and_token_on_real_boot() -> 
 	var instance = _boot_main_scene()
 	await get_tree().process_frame
 
+	# FEAT-316 (resolves DEF-001/PR-001): round_session/verb bar/selection
+	# overlay only become live once a real combat trigger fires (see
+	# MainScene.gd's own FEAT-316 doc) -- this test drives a real player
+	# Strike via verb_bar_view.press("STRIKE"), so it needs the same real
+	# handoff here.
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	assert_true(instance._enemies.size() > 0, "fixture assumption: the prologue encounter has at least one enemy")
 	var skeleton = instance._enemies[0]
 	assert_eq(skeleton.name, "Skeleton", "fixture assumption: the sole enemy is the Skeleton")

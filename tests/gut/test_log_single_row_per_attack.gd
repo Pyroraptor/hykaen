@@ -69,12 +69,26 @@ class _ScriptedPassResolver:
 		return {"choice": "none"}
 
 
+## FEAT-316 (resolves DEF-001/PR-001): MainScene now boots into
+## GameMode.EXPLORATION with the legacy combat pipeline (round_session, etc.)
+## gated behind a real _on_combat_triggered() handoff -- see MainScene.gd's
+## own FEAT-316 doc. This suite drives real Strikes directly against
+## `round_session`/the real verb bar, so this helper now also drives that
+## SAME real handoff (mirrors tests/boot/test_first_cast_firebolt.gd's
+## established `_boot_main_scene()` convention), landing the instance in
+## GameMode.COMBAT with a live round_session before returning.
 func _boot_main_scene_with_seed(seed_value: int):
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = seed_value
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -144,7 +158,7 @@ func _attack_row_indices(instance) -> Array:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_one_player_attack_and_one_enemy_attack_each_produce_exactly_one_row() -> void:
-	var instance = _boot_main_scene_with_seed(1)
+	var instance = await _boot_main_scene_with_seed(1)
 	await get_tree().process_frame
 
 	assert_eq(instance.event_log_view.get_entry_count(), 0, "sanity: the log must start empty before any Strike is scripted")
@@ -215,7 +229,7 @@ func test_one_player_attack_and_one_enemy_attack_each_produce_exactly_one_row() 
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_non_visible_status_panel_consumer_is_unaffected_by_log_row_suppression() -> void:
-	var instance = _boot_main_scene_with_seed(1)
+	var instance = await _boot_main_scene_with_seed(1)
 	await get_tree().process_frame
 
 	assert_not_null(instance.status_panel_view, "MainScene.status_panel_view must be wired after boot")

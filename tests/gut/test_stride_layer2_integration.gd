@@ -56,12 +56,26 @@ const MovementClass          = preload("res://core/rules/movement.gd")
 ## fixture's known-good seed, matching this codebase's established
 ## convention -- tests/gut/test_strike_layer2_integration.gd /
 ## tests/gut/test_step_layer2_integration.gd).
+## FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): MainScene now
+## boots into EXPLORATION mode with round_session/verb_bar_view/
+## selection_overlay/turn_controller signal wiring gated behind a real
+## _on_combat_triggered() handoff (see MainScene.gd's own FEAT-316 doc). This
+## suite drives verb_bar_view/selection_overlay/round_session directly, so
+## this helper now also drives the SAME real handoff tests/boot/
+## test_exploration_to_combat_handoff_trigger.gd exercises directly, landing
+## the instance in GameMode.COMBAT with a live round_session before returning.
 func _boot_main_scene_with_seed(seed_value: int):
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = seed_value
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -116,7 +130,7 @@ func _far_beyond_speed_hex(instance, actor_hex):
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_stride_enter_selection_highlights_only_legal_speed_bounded_unoccupied_hexes() -> void:
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	assert_true(
@@ -181,7 +195,7 @@ func test_stride_enter_selection_highlights_only_legal_speed_bounded_unoccupied_
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_clicking_a_highlighted_destination_moves_the_token_and_spends_one_action() -> void:
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	var actor_id: String = instance.round_session.current_actor().display_id()
@@ -252,7 +266,7 @@ func test_clicking_a_highlighted_destination_moves_the_token_and_spends_one_acti
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_a_hex_beyond_speed_is_never_offered_as_a_candidate_and_a_click_there_produces_no_resolution() -> void:
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	var actor = instance.round_session.current_actor()

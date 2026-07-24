@@ -106,6 +106,33 @@ func test_happy_path_returns_ok_true_with_full_payload_shape() -> void:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Regression (FEAT-008): party/enemy combatants must carry a stable,
+# non-empty combatant_id, mirroring infrastructure/resource_encounter_repository.gd's
+# "player_%d"/"enemy_%d" convention -- WITHOUT this, every scenario-assembled
+# combatant collapsed onto CombatantFactory's "" default id, breaking any
+# later caller's ability to correlate a combatant back to its already-
+# rendered HexGridView token (e.g. MainScene's exploration-to-combat handoff).
+# ══════════════════════════════════════════════════════════════════════════════
+
+func test_party_and_enemy_combatants_carry_stable_combatant_ids() -> void:
+	var scenario := _build_prologue_shaped_scenario()
+	var use_case := LoadScenarioEncounterUseCaseClass.new()
+
+	var result: Dictionary = use_case.execute(scenario, ENCOUNTER_ID)
+	assert_true(result.get("ok", false), "execute() must succeed for this fixture")
+
+	var party_combatants: Array = result.get("party_combatants", [])
+	assert_eq(party_combatants.size(), 1, "fixture assumption: 1 party member (Marigold)")
+	if party_combatants.size() == 1:
+		assert_eq(party_combatants[0].get("combatant_id", ""), "player_0", "the first party combatant must be assigned combatant_id 'player_0'")
+
+	var enemy_combatants: Array = result.get("enemy_combatants", [])
+	assert_eq(enemy_combatants.size(), 1, "fixture assumption: 1 enemy (skeleton)")
+	if enemy_combatants.size() == 1:
+		assert_eq(enemy_combatants[0].get("combatant_id", ""), "enemy_0", "the first enemy combatant must be assigned combatant_id 'enemy_0'")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Criterion 2: party_combatants resolved from scenario.party, overriding
 # the matched EncounterResource's own (different) party_resource_paths
 # ══════════════════════════════════════════════════════════════════════════════

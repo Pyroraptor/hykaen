@@ -31,15 +31,32 @@ const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 ## this codebase's established integration/E2E test convention.
 const SEED: int = 42
 
+const PROLOGUE_ENCOUNTER_ID: String = "prologue"
+
 
 ## _boot_main_scene_with_seed(seed_value) -> Node -- instantiates the REAL
 ## res://MainScene.tscn composition root, pinned to a deterministic seed.
+##
+## FEAT-316 (resolves DEF-001/PR-001): MainScene now boots into EXPLORATION
+## mode with the legacy combat pipeline ($VerbBarView configuration among it)
+## gated behind a real _on_combat_triggered() handoff -- see MainScene.gd's
+## own FEAT-316 doc. This suite drives `_verb_registry`/`round_session`
+## availability directly, so this helper now also drives that SAME real
+## handoff (mirroring tests/boot/test_first_cast_firebolt.gd's established
+## convention), landing the instance in GameMode.COMBAT with a live
+## round_session before returning.
 func _boot_main_scene_with_seed(seed_value: int):
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = seed_value
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered(PROLOGUE_ENCOUNTER_ID)
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -50,7 +67,7 @@ func _boot_main_scene_with_seed(seed_value: int):
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_step_is_disabled_after_a_stride_while_hexes_and_action_points_remain() -> void:
-	var instance = _boot_main_scene_with_seed(SEED)
+	var instance = await _boot_main_scene_with_seed(SEED)
 	await get_tree().process_frame
 
 	assert_true(instance._verb_registry.is_available("STEP"), "fixture assumption: STEP is available at seed=42 before any Movement-trait action")
@@ -97,7 +114,7 @@ func test_step_is_disabled_after_a_stride_while_hexes_and_action_points_remain()
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_step_is_disabled_after_a_step_self_lockout() -> void:
-	var instance = _boot_main_scene_with_seed(SEED)
+	var instance = await _boot_main_scene_with_seed(SEED)
 	await get_tree().process_frame
 
 	assert_true(instance._verb_registry.is_available("STEP"), "fixture assumption: STEP is available at seed=42 before any Movement-trait action")
@@ -128,7 +145,7 @@ func test_step_is_disabled_after_a_step_self_lockout() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_stride_is_disabled_after_a_step() -> void:
-	var instance = _boot_main_scene_with_seed(SEED)
+	var instance = await _boot_main_scene_with_seed(SEED)
 	await get_tree().process_frame
 
 	assert_true(instance._verb_registry.is_available("STEP"), "fixture assumption: STEP is available at seed=42 before any Movement-trait action")
@@ -162,7 +179,7 @@ func test_stride_is_disabled_after_a_step() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_strike_availability_is_unaffected_by_the_movement_lockout() -> void:
-	var instance = _boot_main_scene_with_seed(SEED)
+	var instance = await _boot_main_scene_with_seed(SEED)
 	await get_tree().process_frame
 
 	var strike_available_before: bool = instance._verb_registry.is_available("STRIKE")

@@ -78,7 +78,16 @@ from typing import Optional
 
 import pytest
 
-MAIN_SCENE_BOOT_MARKER = "Hykaen MainScene booted into the prologue encounter"
+# FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): MainScene.gd's
+# _ready() print() line changed from "...booted into the prologue encounter
+# (interactive)..." to "...booted into EXPLORATION mode..." because the
+# legacy combat pipeline (round_session/verb bar/selection overlay/turn
+# controller signals) is no longer wired unconditionally at boot -- it now
+# stays dormant until a real _on_combat_triggered() handoff fires. A bare,
+# zero-manual-setup headless boot genuinely reaches EXPLORATION mode, not an
+# interactive combat round, so this marker is updated to match (mirrors
+# tests/integration/test_headless_boot.gd's identical FEAT-316 fix).
+MAIN_SCENE_BOOT_MARKER = "Hykaen MainScene booted into EXPLORATION mode"
 
 VIEWPORT_CENTERING_TEST_FILE = "test_viewport_centering.gd"
 VIEWPORT_CENTERING_TEST_DIR = "res://tests/gut"
@@ -297,11 +306,17 @@ class TestHeadlessBootZeroErrorAndWarningOutput:
         -- guard against that degenerate pass by also confirming
         MainScene.gd's own real _ready() boot-confirmation print (see
         MainScene.gd's `print("INFO: Hykaen MainScene booted...")` call)
-        actually appears in this SAME real subprocess's output."""
+        actually appears in this SAME real subprocess's output.
+
+        FEAT-316 (resolves DEF-001/PR-001): a bare, zero-manual-setup boot
+        now genuinely reaches GameMode.EXPLORATION (round_session/verb bar/
+        turn-controller wiring stay dormant until a real combat trigger
+        fires), not an interactive combat round -- see MAIN_SCENE_BOOT_MARKER's
+        own doc above."""
         combined_output = bare_headless_boot.stdout + bare_headless_boot.stderr
         assert MAIN_SCENE_BOOT_MARKER in combined_output, (
             "the real MainScene.tscn composition root must actually reach its "
-            "interactive, input-awaiting boot state within "
+            "EXPLORATION-mode boot state within "
             f"{_QUIT_AFTER_FRAMES} frames -- its own boot-confirmation log line was "
             f"not observed.\nFull STDOUT:\n{bare_headless_boot.stdout}\n"
             f"Full STDERR:\n{bare_headless_boot.stderr}"

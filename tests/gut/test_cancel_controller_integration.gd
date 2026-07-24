@@ -42,12 +42,28 @@ const CancelControllerClass  = preload("res://presentation/cancel_controller.gd"
 ## fixture's known-good seed, matching this codebase's established
 ## convention -- tests/gut/test_strike_layer2_integration.gd /
 ## test_step_layer2_integration.gd / test_stride_layer2_integration.gd).
+##
+## FEAT-316 (resolves DEF-001/PR-001): MainScene now boots into
+## GameMode.EXPLORATION with the legacy combat pipeline (round_session,
+## verb_bar_view/selection_overlay configuration) gated behind a real
+## _on_combat_triggered() handoff -- see MainScene.gd's own FEAT-316 doc. This
+## suite drives Layer 2 selection/cancel directly against `round_session`/the
+## verb registry, so this helper now also drives that SAME real handoff
+## (mirrors tests/boot/test_first_cast_firebolt.gd's established
+## `_boot_main_scene()` convention), landing the instance in GameMode.COMBAT
+## with a live round_session before returning.
 func _boot_main_scene_with_seed(seed_value: int):
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = seed_value
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -192,7 +208,7 @@ func test_cancel_with_no_active_selection_is_a_true_no_op() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_cancel_button_returns_strike_selection_to_layer1_with_zero_mutation() -> void:
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	assert_true(
@@ -229,7 +245,7 @@ func test_cancel_button_returns_strike_selection_to_layer1_with_zero_mutation() 
 
 
 func test_esc_key_returns_step_selection_to_layer1_with_zero_mutation() -> void:
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	assert_true(instance._verb_registry.is_available("STEP"), "fixture assumption: STEP is available at seed=42")
@@ -263,7 +279,7 @@ func test_esc_key_returns_step_selection_to_layer1_with_zero_mutation() -> void:
 
 
 func test_right_click_returns_stride_selection_to_layer1_with_zero_mutation() -> void:
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	assert_true(instance._verb_registry.is_available("STRIDE"), "fixture assumption: STRIDE is available at seed=42")
@@ -301,7 +317,7 @@ func test_right_click_returns_stride_selection_to_layer1_with_zero_mutation() ->
 ## fully usable afterward (the SAME verb can be re-entered and re-cancelled,
 ## proving cancel never leaves Layer 2/the verb bar in a stuck state).
 func test_cancel_affordance_present_and_functional_in_every_layer2_mode() -> void:
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	for verb_id in ["STRIKE", "STEP", "STRIDE"]:

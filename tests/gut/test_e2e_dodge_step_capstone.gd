@@ -114,12 +114,27 @@ class ScriptedHexChoiceResolver:
 ## composition root (this codebase's established convention), pinning
 ## seed_override=42 for a deterministic boot (Titus vs the Skeleton, prologue
 ## encounter).
+##
+## FEAT-316 (resolves DEF-001/PR-001): MainScene now boots into
+## GameMode.EXPLORATION with the legacy combat pipeline (round_session, etc.)
+## gated behind a real _on_combat_triggered() handoff — see MainScene.gd's
+## own FEAT-316 doc. This suite drives the whole Dodge-Step steel thread
+## directly against `round_session`, so this helper now also drives that SAME
+## real handoff (mirrors tests/boot/test_first_cast_firebolt.gd's established
+## `_boot_main_scene()` convention), landing the instance in GameMode.COMBAT
+## with a live round_session before returning.
 func _boot_main_scene():
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = 42
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -208,7 +223,7 @@ func _assert_seams_are_the_real_composition_root_bindings(instance) -> void:
 
 
 func test_capstone_successful_dodge_relocates_defender_and_renders_single_rich_log_row_with_dodge_defense_segment() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	assert_eq(instance.event_log_view.get_entry_count(), 0, "sanity: the log must start empty before any Strike is scripted")

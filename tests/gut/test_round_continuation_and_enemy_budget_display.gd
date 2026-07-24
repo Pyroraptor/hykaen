@@ -35,12 +35,26 @@ const END_TURN: String = "END_TURN"
 ## _boot_main_scene_with_seed(seed_value) -> Node — instantiates the REAL
 ## res://MainScene.tscn composition root, pinned to the prologue's known-good
 ## seed (matching tests/gut/test_end_turn_integration.gd).
+## FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): MainScene now
+## boots into EXPLORATION mode with round_session/verb_bar_view/
+## selection_overlay/turn_controller signal wiring gated behind a real
+## _on_combat_triggered() handoff (see MainScene.gd's own FEAT-316 doc). Both
+## tests below drive `round_session`/`verb_bar_view` directly, so this helper
+## now also drives the SAME real handoff tests/boot/
+## test_exploration_to_combat_handoff_trigger.gd exercises directly, landing
+## the instance in GameMode.COMBAT with a live round_session before returning.
 func _boot_main_scene_with_seed(seed_value: int):
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = seed_value
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -101,7 +115,7 @@ func _snapshot_remaining(instance, combatant_id: String) -> int:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_ending_turn_with_all_actors_spent_begins_the_next_round() -> void:
-	var instance = _boot_main_scene_with_seed(PLAYER_SEED)
+	var instance = await _boot_main_scene_with_seed(PLAYER_SEED)
 	await get_tree().process_frame
 
 	assert_eq(instance.ROUND_NUMBER, 1, "fixture assumption: the encounter opens in round 1")
@@ -154,7 +168,7 @@ func test_ending_turn_with_all_actors_spent_begins_the_next_round() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_no_event_enemy_spend_is_synced_to_the_status_row_on_settle() -> void:
-	var instance = _boot_main_scene_with_seed(PLAYER_SEED)
+	var instance = await _boot_main_scene_with_seed(PLAYER_SEED)
 	await get_tree().process_frame
 
 	var enemy_index: int = _enemy_index(instance)

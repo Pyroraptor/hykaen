@@ -60,12 +60,29 @@ const TurnControllerClass          = preload("res://presentation/turn_controller
 # report at runtime.
 # ══════════════════════════════════════════════════════════════════════════
 
+## FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): round_session/
+## the Layer 1 verb bar/Layer 2 selection overlay/turn_controller signal
+## wiring (including movement_input_controller's own turn_started-driven
+## highlight refresh) are no longer live unconditionally at boot -- they now
+## stay dormant until a real combat trigger fires (see MainScene.gd's own
+## FEAT-316 doc). This suite drives the real movement affordance stack, so
+## _boot_main_scene_with_seed() now also drives the SAME real handoff
+## tests/boot/test_exploration_to_combat_handoff_trigger.gd exercises
+## directly (mirrors tests/boot/test_first_cast_firebolt.gd's established
+## convention), landing the instance in GameMode.COMBAT with a live
+## round_session before returning.
 func _boot_main_scene_with_seed(seed_value: int):
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = seed_value
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -104,7 +121,7 @@ func _as_key_set(hexes: Array) -> Dictionary:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_real_mainscene_boots_headlessly_with_the_real_movement_affordance_stack() -> void:
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	assert_not_null(instance.round_session, "MainScene must obtain a real RoundSession via RunRoundUseCase.begin_round()")
@@ -143,7 +160,7 @@ func test_real_mainscene_boots_headlessly_with_the_real_movement_affordance_stac
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_highlighted_hexes_on_turn_started_match_the_controllers_legal_step_stride_union() -> void:
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	assert_false(
@@ -192,7 +209,7 @@ func test_highlighted_hexes_on_turn_started_match_the_controllers_legal_step_str
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_step_verb_execute_moves_the_combatant_and_resyncs_the_hex_grid_view_token() -> void:
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	var actor: Dictionary = instance.round_session.current_actor()

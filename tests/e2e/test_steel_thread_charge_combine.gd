@@ -81,12 +81,26 @@ const SKELETON_REPOSITIONED_HEX_Q: int = 3
 const STRIDE_DESTINATION_HEX_Q: int = 2
 
 
+## FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): MainScene now
+## boots into EXPLORATION mode with the legacy combat pipeline (round_session,
+## $VerbBarView/$SelectionOverlay configuration, turn_controller signal
+## wiring) gated behind a real _on_combat_triggered() handoff -- see
+## MainScene.gd's own FEAT-316 doc. This suite drives COMBINE directly
+## against `round_session`/`_controller("COMBINE")`, so `_boot_main_scene()`
+## now also drives the SAME real handoff, landing the instance in
+## GameMode.COMBAT with a live round_session before returning.
 func _boot_main_scene():
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = PROLOGUE_SEED
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -121,7 +135,7 @@ func test_boots_headlessly_with_pinned_seed_and_no_gate_failing_errors_or_warnin
 		"VERB_TABLE['COMBINE'] must point at presentation/combine_action_controller.gd's CombineActionController"
 	)
 
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	assert_not_null(instance, "MainScene.tscn must instantiate with no manual setup")
@@ -154,7 +168,7 @@ func test_boots_headlessly_with_pinned_seed_and_no_gate_failing_errors_or_warnin
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_combine_charge_offered_with_stamina_and_withheld_at_zero_stamina() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	var titus = _titus(instance)
@@ -181,7 +195,7 @@ func test_combine_charge_offered_with_stamina_and_withheld_at_zero_stamina() -> 
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_charge_combine_full_run_moves_token_resolves_strike_with_single_action_stamina_ledger() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	assert_false(
@@ -300,7 +314,7 @@ func test_charge_combine_full_run_moves_token_resolves_strike_with_single_action
 ## spell.gd's own established "two independent boots, snapshot + diff"
 ## convention).
 func _run_charge_scenario() -> Dictionary:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	var titus = _titus(instance)

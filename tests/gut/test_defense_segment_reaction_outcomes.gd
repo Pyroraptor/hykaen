@@ -69,12 +69,26 @@ class _ScriptedHexChoiceResolver:
 		return chosen_hex
 
 
+## FEAT-316 (resolves DEF-001/PR-001): MainScene now boots into
+## GameMode.EXPLORATION with the legacy combat pipeline (round_session, etc.)
+## gated behind a real _on_combat_triggered() handoff -- see MainScene.gd's
+## own FEAT-316 doc. This suite drives real Strikes/reactions directly
+## against `round_session`, so this helper now also drives that SAME real
+## handoff (mirrors tests/boot/test_first_cast_firebolt.gd's established
+## `_boot_main_scene()` convention), landing the instance in GameMode.COMBAT
+## with a live round_session before the hex_choice_resolver override below.
 func _boot_main_scene_with_seed(seed_value: int):
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = seed_value
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	# This suite asserts the Defense-segment outcome, not the Dodge-Step follow-up.
 	# A successful Dodge now fires the live Dodge-Step hex prompt inside
 	# advance_ai_turn(); the REAL _UIHexChoiceResolver would block awaiting a
@@ -169,7 +183,7 @@ func _row0_attack_event_id(instance):
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_dodge_reaction_renders_the_dodge_succeeded_defense_segment() -> void:
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	_force_guaranteed_dodge_success(instance)
@@ -195,7 +209,7 @@ func test_dodge_reaction_renders_the_dodge_succeeded_defense_segment() -> void:
 # REAL enemy Strike that Titus Dodges and asserts the live path moved him.
 # ══════════════════════════════════════════════════════════════════════════
 func test_successful_dodge_through_advance_ai_turn_relocates_defender_via_live_wiring() -> void:
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	var titus = instance._party[0]
@@ -221,7 +235,7 @@ func test_successful_dodge_through_advance_ai_turn_relocates_defender_via_live_w
 
 
 func test_parry_reaction_renders_the_parry_succeeded_defense_segment() -> void:
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	_force_guaranteed_hit(instance)
@@ -240,7 +254,7 @@ func test_parry_reaction_renders_the_parry_succeeded_defense_segment() -> void:
 
 
 func test_block_reaction_renders_the_block_reduced_by_n_defense_segment() -> void:
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	_force_guaranteed_hit(instance)
@@ -259,7 +273,7 @@ func test_block_reaction_renders_the_block_reduced_by_n_defense_segment() -> voi
 
 
 func test_none_reaction_renders_the_none_defense_segment() -> void:
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	_resolve_one_real_enemy_strike(instance, "none", "none")
@@ -274,7 +288,7 @@ func test_none_reaction_renders_the_none_defense_segment() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_attack_event_with_no_paired_reaction_renders_defense_none() -> void:
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	const AttackEventClass = preload("res://core/log/attack_event.gd")

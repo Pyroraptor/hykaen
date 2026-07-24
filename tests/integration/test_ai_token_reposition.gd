@@ -234,6 +234,14 @@ func test_mainscene_wires_the_ai_stride_reposition_hook_to_the_same_hex_grid_vie
 	add_child_autofree(instance)
 	await get_tree().process_frame
 
+	# FEAT-316 (resolves DEF-001/PR-001): round_session stays null until a
+	# real combat trigger's _on_combat_triggered() calls rewire_session()
+	# (see MainScene.gd's own FEAT-316 doc) -- drive the same real handoff
+	# here.
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	assert_not_null(instance.round_session, "MainScene must obtain a real RoundSession via RunRoundUseCase.begin_round()")
 
 	var reposition_fn: Callable = instance.round_session._token_reposition_fn

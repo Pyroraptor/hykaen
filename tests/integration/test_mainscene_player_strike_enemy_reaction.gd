@@ -100,12 +100,28 @@ const OVERWHELMING_MITIGATION_STAT: int = 9999
 const SURVIVABLE_HP: int = 40
 
 
+## FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): round_session/
+## the Layer 1 verb bar/Layer 2 selection overlay/turn_controller signal
+## wiring are no longer live unconditionally at boot -- they now stay
+## dormant until a real combat trigger fires (see MainScene.gd's own
+## FEAT-316 doc). This suite drives the STRIKE verb directly against the
+## real composition root, so _boot_main_scene() now also drives the SAME
+## real handoff tests/boot/test_exploration_to_combat_handoff_trigger.gd
+## exercises directly (mirrors tests/boot/test_first_cast_firebolt.gd's
+## established convention), landing the instance in GameMode.COMBAT with a
+## live round_session before returning.
 func _boot_main_scene():
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = PROLOGUE_SEED
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -163,7 +179,7 @@ func _sole_attack_event(instance):
 
 func test_forced_parry_success_yields_higher_skeleton_hp_current_vs_unmitigated() -> void:
 	# ── Run A: forced-successful Parry ──────────────────────────────────────
-	var mitigated_instance = _boot_main_scene()
+	var mitigated_instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	var mitigated_skeleton = _skeleton(mitigated_instance)
@@ -191,7 +207,7 @@ func test_forced_parry_success_yields_higher_skeleton_hp_current_vs_unmitigated(
 	# ── Run B: an otherwise-identical, unmitigated baseline (parry_bonus AND
 	# block_value both zeroed, so is_parry_eligible()/is_block_eligible()
 	# gate BOTH reactions out entirely -- no reaction is even offered). ─────
-	var baseline_instance = _boot_main_scene()
+	var baseline_instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	var baseline_skeleton = _skeleton(baseline_instance)
@@ -225,7 +241,7 @@ func test_forced_parry_success_yields_higher_skeleton_hp_current_vs_unmitigated(
 
 func test_forced_block_yields_higher_skeleton_hp_current_vs_unmitigated() -> void:
 	# ── Run A: forced-successful Block (Parry gated out entirely) ──────────
-	var mitigated_instance = _boot_main_scene()
+	var mitigated_instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	var mitigated_skeleton = _skeleton(mitigated_instance)
@@ -252,7 +268,7 @@ func test_forced_block_yields_higher_skeleton_hp_current_vs_unmitigated() -> voi
 	)
 
 	# ── Run B: an otherwise-identical, unmitigated baseline ─────────────────
-	var baseline_instance = _boot_main_scene()
+	var baseline_instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	var baseline_skeleton = _skeleton(baseline_instance)

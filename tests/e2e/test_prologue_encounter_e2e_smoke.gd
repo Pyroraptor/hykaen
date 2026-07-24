@@ -70,6 +70,15 @@ const _MAX_TURN_EXCHANGES: int = 30
 ## pins that known-good seed explicitly via the in-process `seed_override`
 ## composition-root contract instead of relying on MainScene's randomized
 ## default.
+## FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): MainScene now
+## boots into EXPLORATION mode with the legacy combat pipeline (round_session,
+## $VerbBarView/$SelectionOverlay configuration, turn_controller signal
+## wiring) gated behind a real _on_combat_triggered() handoff -- see
+## MainScene.gd's own FEAT-316 doc. This suite drives the whole interactive
+## steel thread directly against `round_session`/`strike_action_control`/
+## `end_turn_control`, so `_boot_main_scene()` now also drives the SAME real
+## handoff, landing the instance in GameMode.COMBAT with a live round_session
+## before returning.
 func _boot_main_scene():
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(
@@ -79,6 +88,12 @@ func _boot_main_scene():
 	var instance = packed.instantiate()
 	instance.seed_override = 42
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -90,7 +105,7 @@ func _boot_main_scene():
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_boot_reaches_interactive_state_not_already_concluded_on_first_frame() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 
 	# Let a real process frame elapse so this genuinely checks "first frame
 	# processed", matching tests/smoke/test_main_scene_headless_boot.gd's
@@ -129,7 +144,7 @@ func test_boot_reaches_interactive_state_not_already_concluded_on_first_frame() 
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_strike_via_real_control_produces_attack_event_visible_in_event_log() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	var target_ids: Array = instance.strike_action_control.get_selectable_target_ids()
@@ -174,7 +189,7 @@ func test_strike_via_real_control_produces_attack_event_visible_in_event_log() -
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_end_turn_drives_ai_turn_through_same_pipeline_and_concludes_encounter() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	assert_eq(instance._enemies.size(), 1, "fixture assumption: the prologue encounter has exactly one enemy")

@@ -270,6 +270,47 @@ func load_combatants(combatants: Array) -> void:
 		_tokens[combatant.combatant_id] = token
 
 
+## add_combatants(combatants) → void — FEAT-008 (US-007 / FR-006): places one
+## CombatantTokenView per entry in `combatants` WITHOUT clearing any
+## previously-instantiated tokens (unlike load_combatants(), which resets the
+## whole battlefield first). Used for an incremental token placement such as
+## an exploration-to-combat handoff, where party tokens already rendered at
+## their exploration positions must be preserved untouched (ADR-001) while
+## enemy tokens for the newly-assembled encounter are added alongside them on
+## the SAME, unreset grid. If a token already exists for a given
+## combatant.combatant_id, it is refreshed/repositioned in place
+## (set_combatant()) rather than duplicated — mirrors load_combatants()'s own
+## "never leak duplicate children" contract.
+func add_combatants(combatants: Array) -> void:
+	for combatant in combatants:
+		var existing = _tokens.get(combatant.combatant_id, null)
+		if existing != null:
+			existing.set_combatant(combatant, _origin_offset)
+			continue
+		var token = CombatantTokenViewScene.instantiate()
+		add_child(token)
+		token.set_combatant(combatant, _origin_offset)
+		_tokens[combatant.combatant_id] = token
+
+
+## remove_combatants(combatant_ids) → void — FEAT-009 (US-008 / FR-007):
+## frees and forgets the CombatantTokenView instances for every id in
+## `combatant_ids`, WITHOUT touching any other on-screen token (the mirror
+## operation to add_combatants(), used by the post-combat
+## exploration-return handoff to strip a just-won encounter's enemy tokens
+## off the SAME, unreset battlefield the surviving party tokens remain
+## rendered on -- ADR-001). Silently skips any id with no on-screen token on
+## record (never crashes on a stale/unknown id, matching this view's
+## established "never raises/throws" convention -- see move_token()'s own
+## doc).
+func remove_combatants(combatant_ids: Array) -> void:
+	for combatant_id in combatant_ids:
+		var token = _tokens.get(combatant_id, null)
+		if token != null:
+			token.queue_free()
+			_tokens.erase(combatant_id)
+
+
 ## get_token(combatant_id) → CombatantTokenView or null — test/inspection helper.
 func get_token(combatant_id: String):
 	return _tokens.get(combatant_id, null)

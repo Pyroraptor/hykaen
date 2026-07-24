@@ -76,6 +76,11 @@ const END_TURN: String = "END_TURN"
 const AC_GUARANTEED_HIT: int = -100
 const AC_GUARANTEED_MISS: int = 9999
 
+## PROLOGUE_ENCOUNTER_ID -- this project's established fixture encounter id
+## (mirrors tests/boot/test_first_cast_firebolt.gd's identically-named/valued
+## constant).
+const PROLOGUE_ENCOUNTER_ID: String = "prologue"
+
 
 ## _boot_main_scene() -> Node — instantiates the REAL res://MainScene.tscn
 ## composition root, pinning seed_override=PROLOGUE_SEED so every scenario
@@ -83,12 +88,26 @@ const AC_GUARANTEED_MISS: int = 9999
 ## layout (test_criteria #1: "boots real MainScene.tscn, not a hand-built
 ## fixture" — mirrors tests/gut/test_mainscene_reaction_resolver_wiring.gd's
 ## identically-named helper).
+## FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): MainScene now
+## boots into EXPLORATION mode with the legacy combat pipeline (round_session,
+## $VerbBarView/$SelectionOverlay configuration, turn_controller signal
+## wiring) gated behind a real _on_combat_triggered() handoff -- see
+## MainScene.gd's own FEAT-316 doc. This helper drives that SAME real handoff
+## (mirrors tests/boot/test_first_cast_firebolt.gd's established convention)
+## so this suite's reaction-pop-up assertions observe genuine live combat,
+## not the dormant EXPLORATION-mode boot state.
 func _boot_main_scene():
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = PROLOGUE_SEED
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered(PROLOGUE_ENCOUNTER_ID)
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -162,7 +181,7 @@ func _titus_action_budget_remaining(instance) -> int:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_passed_dodge_then_hit_opens_prehit_then_onhit_in_order() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	instance._party[0]["ac"] = AC_GUARANTEED_HIT
 
 	_press_end_turn_and_drive_enemy_strike(instance)
@@ -213,7 +232,7 @@ func test_passed_dodge_then_hit_opens_prehit_then_onhit_in_order() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_miss_never_opens_onhit_mitigation() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	instance._party[0]["ac"] = AC_GUARANTEED_MISS
 
 	_press_end_turn_and_drive_enemy_strike(instance)
@@ -241,7 +260,7 @@ func test_miss_never_opens_onhit_mitigation() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_dodge_attempted_skips_onhit_mitigation_and_spends_at_most_one_reaction() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	# AC is irrelevant once Dodge substitutes the Mobility check for it
 	# (resolution.gd's resolve_to_hit() doc) -- pinned to the guaranteed-hit
 	# value purely so this scenario is not accidentally coupled to the

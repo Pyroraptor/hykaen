@@ -115,6 +115,14 @@ extends Node
 ##      the round is over — TurnController itself has no live-target data of
 ##      its own to re-derive that from (see presentation/turn_controller.gd's
 ##      documented division of responsibility).
+##      FEAT-316 (resolves DEF-001/PR-001): steps 8-9's rewire_session() call
+##      and this active_actor_changed/round_over subscription -- along with
+##      step 11's verb_bar_view.configure()/selection_overlay.configure()
+##      below -- no longer happen unconditionally here in _ready(). They now
+##      happen ONLY inside _on_combat_triggered() (see its own FEAT-316 doc),
+##      once a real exploration trigger commits `_game_mode` to
+##      GameMode.COMBAT, so the legacy combat pipeline this whole numbered
+##      list describes stays entirely dormant throughout EXPLORATION mode.
 ##  10. $EndTurnControl's own turn_ended signal (emitted after its press()
 ##      forwards directly to RoundSession.end_current_turn(), US-010) is
 ##      subscribed here so this composition root can re-invoke
@@ -172,6 +180,17 @@ const EncounterClass                   = preload("res://core/combat/encounter.gd
 const RNGClass                         = preload("res://core/rules/rng.gd")
 const CombatantFactoryClass            = preload("res://infrastructure/combatant_factory.gd")
 const CombatantClass                   = preload("res://core/domain/combatant.gd")
+
+## ScenarioSessionClass / ExplorationControllerClass — FEAT-006 (US-005 /
+## FR-004): core/application/scenario_session.gd's ScenarioSession
+## (FEAT-003) and core/application/exploration_controller.gd's
+## ExplorationController (FEAT-005), the two Application-layer collaborators
+## this composition root wires so the game boots into an exploration-mode
+## state instead of the pre-existing hardcoded combat setup below. Preloaded
+## alongside every other use case/adapter this composition root wires
+## (ADR-006).
+const ScenarioSessionClass             = preload("res://core/application/scenario_session.gd")
+const ExplorationControllerClass       = preload("res://core/application/exploration_controller.gd")
 
 ## LoadScenarioEncounterUseCaseClass — FEAT-010 (US-009 / FR-008, NFR-001):
 ## core/application/use_cases/load_scenario_encounter_use_case.gd's
@@ -379,6 +398,14 @@ const AIReactionPolicyClass            = preload("res://infrastructure/ai_reacti
 ## The steel-thread's entry_point: the one encounter this composition root boots into.
 const PROLOGUE_ENCOUNTER_PATH: String = "res://data/encounters/prologue_encounter.tres"
 
+## PROLOGUE_SCENARIO_PATH — FEAT-006 (US-005 / FR-004): the ScenarioResource
+## (data/scenarios/scenario_resource.gd, FEAT-006/Iteration-P) this
+## composition root loads at boot to construct `scenario_session` /
+## `exploration_controller` below. Its sole encounter_entries member wraps
+## the SAME PROLOGUE_ENCOUNTER_PATH resource above (no duplicated/forked
+## encounter definition, ADR-002).
+const PROLOGUE_SCENARIO_PATH: String = "res://data/scenarios/prologue_scenario.tres"
+
 ## FEAT-002 (US-002 / FR-012, ADR-003): fallback viewport dimensions used to
 ## derive the boot-time centering offset (see _compute_boot_centering_offset())
 ## when project.godot declares no explicit display/window/size override --
@@ -435,6 +462,47 @@ var seed_override = null
 ## prologue_encounter.tres' hardcoded fixture seed (42), and that two
 ## independent such launches resolve to different values (FR-001/NFR-002).
 var resolved_seed: int = -1
+
+## GameMode — FEAT-006 (US-005 / FR-004): the two top-level modes this
+## composition root can be in. EXPLORATION is the primary user-facing entry
+## point (US-005) — the game boots into it by default, walking the party
+## around the hex map via `exploration_controller` until a proximity trigger
+## fires `combat_triggered`. COMBAT is the pre-existing hardcoded
+## round/turn-based pipeline built below in _ready() (RISK-001: reserved for
+## a LATER feature's real trigger-driven handoff into it -- this feature only
+## introduces the label and the EXPLORATION-side wiring, never flips
+## `_game_mode` itself).
+enum GameMode { EXPLORATION, COMBAT }
+
+## _game_mode — defaults to GameMode.EXPLORATION (US-005's "boot into
+## exploration mode" requirement). Exposed (not private-only in spirit, just
+## GDScript's underscore-prefix convention for a composition-root field
+## mirroring this file's other exposed-for-verification fields, e.g.
+## `centering_offset`) so boot-real tests can assert the default directly.
+var _game_mode: GameMode = GameMode.EXPLORATION
+
+## _active_encounter_id — FEAT-008 (US-007 / FR-006): the encounter_id of
+## the combat currently in progress. Left at its default "" (unset) until
+## `_on_combat_triggered()` commits its atomic mode-switch to
+## GameMode.COMBAT -- a FAILED handoff (LoadScenarioEncounterUseCase
+## ok=false) never touches this field, matching the atomic-failure contract
+## documented on `_on_combat_triggered()` below. Cleared again by a LATER
+## feature's `_on_combat_won()` once the encounter concludes.
+var _active_encounter_id: String = ""
+
+## scenario_session — the ScenarioSession (core/application/scenario_session.gd,
+## FEAT-003) this composition root constructs at boot from
+## PROLOGUE_SCENARIO_PATH (FEAT-006 / US-005). Null only if the scenario
+## resource itself fails to load (push_error'd, see _boot_exploration_mode()).
+var scenario_session = null
+
+## exploration_controller — the ExplorationController (core/application/
+## exploration_controller.gd, FEAT-005) this composition root constructs
+## around `scenario_session` at boot (FEAT-006 / US-005), with its
+## `combat_triggered` signal wired to `_on_combat_triggered()` below (a stub
+## at this stage -- the real trigger-driven combat handoff is a LATER
+## feature's scope).
+var exploration_controller = null
 
 ## encounter_repository — the repository adapter instantiated at the
 ## composition root (ADR-006).
@@ -862,6 +930,16 @@ func _ready() -> void:
 		hex_grid_view.set_origin_offset(centering_offset)
 		hex_grid_view.load_combatants(hex_combatants)
 
+	# ── FEAT-006 (US-005 / FR-004, RISK-001): boot into EXPLORATION mode --
+	# construct `scenario_session`/`exploration_controller` from
+	# PROLOGUE_SCENARIO_PATH and wire their signals. Party/enemy tokens for
+	# the scenario's active encounter entry are already rendered above (the
+	# SAME hex_combatants loaded from PROLOGUE_ENCOUNTER_PATH, which is the
+	# exact resource the scenario's sole entry wraps -- ADR-002, no
+	# duplicated encounter definition), so no second token-loading call is
+	# needed here. See _boot_exploration_mode()'s own doc below. ───────────
+	_boot_exploration_mode(hex_combatants)
+
 	var encounter_resource = ResourceLoader.load(PROLOGUE_ENCOUNTER_PATH)
 	if encounter_resource == null:
 		push_error("MainScene: failed to load " + PROLOGUE_ENCOUNTER_PATH)
@@ -984,9 +1062,15 @@ func _ready() -> void:
 		# above and presentation/result_screen_view.gd.
 		result_screen_view.configure(null, end_turn_control, movement_input_controller, null, verb_bar_view, selection_overlay)
 
-	if turn_controller != null:
-		turn_controller.active_actor_changed.connect(_on_active_actor_changed)
-		turn_controller.round_over.connect(_on_round_over)
+	# ── FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): the
+	# turn_controller.active_actor_changed/round_over connections used to be
+	# established HERE, unconditionally, regardless of `_game_mode` -- which
+	# meant the legacy hardcoded combat pipeline's round-over/active-actor
+	# plumbing booted live alongside EXPLORATION mode instead of staying
+	# dormant until a real trigger fired (the FR-004 acceptance-criteria gap
+	# "_on_round_over is NOT connected at boot"). This connection now happens
+	# ONLY inside _on_combat_triggered() below, the real trigger-driven
+	# handoff into GameMode.COMBAT -- see that method's own FEAT-316 doc. ────
 
 	# ── FEAT-207 (US-013 / FR-015): construct the ReactionWindow (wired to
 	# the SAME `event_sink` every other use case emits through, ADR-003) and
@@ -1026,25 +1110,29 @@ func _ready() -> void:
 		# duplicate "End Turn" control alongside the verb-bar button.
 		end_turn_control.visible = false
 
-	# ── FEAT-006 (US-004/FR-004, ADR-012): obtains this round's RoundSession
-	# via RunRoundUseCase.begin_round(ROUND_NUMBER, ...), wires its AI-Stride
-	# token-reposition hook (FEAT-008, unchanged), and hands it to
-	# TurnController.set_session() -- a harmless no-op on Strike/Stride/Step
-	# availability this early, since $VerbBarView is not yet configure()d
-	# (that happens immediately below); it becomes effective from the very
-	# next call site (_on_end_turn_control_turn_ended(), or a later
-	# _on_round_over() round continuation) onward. See rewire_session()'s own
-	# doc below for why this is the ONE place that wiring is expressed. ─────
-	rewire_session()
+	# ── FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001):
+	# rewire_session() -- which obtains this round's RoundSession via
+	# RunRoundUseCase.begin_round() and hands it to TurnController.set_session()
+	# -- used to be invoked HERE, unconditionally, on every boot regardless of
+	# `_game_mode`. That meant `round_session` was always live (and the legacy
+	# hardcoded combat pipeline always running) even while the game sat in
+	# EXPLORATION mode with no trigger yet fired -- the FR-004 acceptance gap
+	# this feature closes ("round_session is null ... rewire_session() was not
+	# called" at boot). rewire_session() is now called ONLY from
+	# _on_combat_triggered() below, the real trigger-driven handoff into
+	# GameMode.COMBAT -- see that method's own FEAT-316 doc. ─────────────────
 
-	# ── FEAT-004 / US-004/FR-001: build the Layer 1 verb registry and hand it
-	# to $VerbBarView (see _build_verb_registry()'s doc). Built AFTER
-	# set_session() above so the initial is_available() gating already
-	# reflects whichever actor/targets/hexes that first active_actor_changed
-	# settled on. ────────────────────────────────────────────────────────────
+	# ── FEAT-004 / US-004/FR-001: build the Layer 1 verb registry so it is
+	# ready the instant _on_combat_triggered() configures $VerbBarView with it
+	# (FEAT-316) -- building it here (rather than inside the handoff itself)
+	# costs nothing at boot: _build_verb_registry() only wires Callables that
+	# read `round_session`/`_party`/`_enemies` fresh off `self` on every call
+	# (see its own doc), never a snapshot, so it observes whichever round is
+	# live the moment it is actually queried. `verb_bar_view.configure()`
+	# itself -- the call that would actually render/activate any verb button --
+	# is deferred to _on_combat_triggered() (FEAT-316): see that method's own
+	# doc for why. ──────────────────────────────────────────────────────────
 	_verb_registry = _build_verb_registry()
-	if verb_bar_view != null:
-		verb_bar_view.configure(_verb_registry)
 
 	# ── FEAT-005 (US-005; FR-004/FR-013; NFR-002/NFR-003; ADR-002): minimal
 	# composition-root wiring for MultiPhaseTargetingController -- this
@@ -1130,8 +1218,17 @@ func _ready() -> void:
 	# subscribe to it" -- this is that subscriber, connected generically to
 	# EVERY non-END_TURN verb's Layer 2 entry (VerbBarView.verb_selection_entered)
 	# rather than special-cased to STRIKE, mirroring VerbBarView's/
-	# verb_registry.py's own verb-agnostic dispatch discipline. ─────────────
-	selection_overlay.configure(_verb_registry, hex_grid_view)
+	# verb_registry.py's own verb-agnostic dispatch discipline.
+	# FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001):
+	# `selection_overlay.configure(_verb_registry, hex_grid_view)` itself --
+	# the call that actually arms Layer 2 targeting -- used to happen HERE,
+	# unconditionally, on every boot. It is now deferred to
+	# _on_combat_triggered() below (see that method's own doc), so
+	# SelectionOverlay stays unconfigured/inert throughout EXPLORATION mode.
+	# The signal wiring immediately below is left in place -- it is harmless
+	# with an unconfigured overlay (verb_selection_entered can only fire once
+	# $VerbBarView has rendered buttons, which itself only happens once
+	# _on_combat_triggered() calls verb_bar_view.configure()). ──────────────
 	if verb_bar_view != null:
 		verb_bar_view.verb_selection_entered.connect(_on_verb_bar_selection_entered)
 	selection_overlay.selection_resolved.connect(_on_selection_overlay_resolved)
@@ -1150,11 +1247,19 @@ func _ready() -> void:
 	# is reachable from it (see cancel_controller.gd's file-level doc). ──────
 	cancel_controller.configure(selection_overlay)
 
-	print(
-		"INFO: Hykaen MainScene booted into the prologue encounter (interactive) -- "
-		+ "current_actor=" + (round_session.current_actor().name if round_session.current_actor() != null else "")
-		+ " round_over=" + str(round_session.is_round_over())
-	)
+	# FEAT-316 (resolves DEF-001/PR-001): round_session is no longer
+	# guaranteed non-null here -- it stays null throughout EXPLORATION mode
+	# until a real combat trigger's _on_combat_triggered() calls
+	# rewire_session() (see that method's own FEAT-316 doc) -- so this
+	# observability line must not unconditionally dereference it.
+	if round_session != null:
+		print(
+			"INFO: Hykaen MainScene booted into the prologue encounter (interactive) -- "
+			+ "current_actor=" + (round_session.current_actor().name if round_session.current_actor() != null else "")
+			+ " round_over=" + str(round_session.is_round_over())
+		)
+	else:
+		print("INFO: Hykaen MainScene booted into EXPLORATION mode -- no active round_session yet (FEAT-316)")
 
 	# ── FEAT-002 / US-002 (observability, per design notes): surface the
 	# resolved centering_offset once at boot so any future transform-drift
@@ -1162,6 +1267,220 @@ func _ready() -> void:
 	# immediately visible in headless-boot logs, mirroring the ADR-003
 	# rationale already established for `resolved_seed`. ───────────────────
 	print("DEBUG: viewport_centering centering_offset=" + str(centering_offset))
+
+
+## _boot_exploration_mode(hex_combatants) -> void — FEAT-006 (US-005 / FR-004,
+## RISK-001).
+##
+## Constructs this composition root's EXPLORATION-mode state:
+##   - `_game_mode` is (re)confirmed as GameMode.EXPLORATION (already its
+##     field default -- restated here for clarity/observability).
+##   - `scenario_session` is a fresh ScenarioSession (FEAT-003) with its
+##     `.scenario` set from PROLOGUE_SCENARIO_PATH, and
+##     `.party_hex_positions` seeded combatant_id -> HexCoord for every party
+##     member (the scenario's own PartyResource.character_resource_paths
+##     count, ADR-002 -- the SAME party-authority convention
+##     LoadScenarioEncounterUseCase already establishes) from `hex_combatants`
+##     (already loaded by _ready() above from PROLOGUE_ENCOUNTER_PATH -- the
+##     exact resource the scenario's sole entry wraps, so no second/forked
+##     load).
+##   - `exploration_controller` is a fresh ExplorationController (FEAT-005)
+##     wrapping `scenario_session`, with its `combat_triggered` signal wired
+##     to `_on_combat_triggered()` below -- a STUB at this stage; the real
+##     trigger-driven combat handoff is a LATER feature's scope.
+##   - `hex_grid_view.hex_clicked` is wired to `_on_exploration_hex_clicked()`
+##     below -- also a STUB at this stage (interactive exploration movement
+##     is a LATER feature's scope). This is purely additive: `hex_clicked`
+##     already has an independent subscriber (presentation/selection_overlay.gd's
+##     own `_on_hex_clicked()`, wired via `selection_overlay.configure()`
+##     elsewhere in _ready()) -- both fire independently on every click, and
+##     neither depends on the other.
+##
+## A missing/malformed scenario resource push_error()s and leaves
+## `scenario_session.scenario` null (ScenarioSession's own documented
+## null-scenario contract already fails closed/open appropriately at every
+## call site -- see that file's doc) rather than aborting boot: EXPLORATION
+## mode still exists in a degenerate (no scenario) state instead of crashing.
+func _boot_exploration_mode(hex_combatants: Array) -> void:
+	_game_mode = GameMode.EXPLORATION
+	scenario_session = ScenarioSessionClass.new()
+
+	var scenario_resource = ResourceLoader.load(PROLOGUE_SCENARIO_PATH)
+	if scenario_resource == null:
+		push_error("MainScene: failed to load " + PROLOGUE_SCENARIO_PATH)
+	else:
+		scenario_session.scenario = scenario_resource
+		var party_count: int = 0
+		if scenario_resource.party != null:
+			party_count = scenario_resource.party.character_resource_paths.size()
+		for i in range(min(party_count, hex_combatants.size())):
+			var party_hex_combatant = hex_combatants[i]
+			scenario_session.party_hex_positions[party_hex_combatant.combatant_id] = party_hex_combatant.hex_coord
+
+	exploration_controller = ExplorationControllerClass.new(scenario_session)
+	exploration_controller.combat_triggered.connect(_on_combat_triggered)
+
+	if hex_grid_view != null:
+		hex_grid_view.hex_clicked.connect(_on_exploration_hex_clicked)
+
+
+## _on_combat_triggered(encounter_id) -> void — FEAT-008 (US-007 / FR-006):
+## the real exploration-to-combat handoff. `exploration_controller.
+## combat_triggered` (emitted from ExplorationController._evaluate_triggers()
+## when a party move enters a proximity trigger's hexes, FEAT-005/FEAT-006)
+## reaches this handler, which drives the full handoff in the ordered steps
+## design notes' api_contracts #2 documents:
+##
+##   1. Disconnect `hex_grid_view.hex_clicked` from
+##      `_on_exploration_hex_clicked` FIRST, before any of the multi-step
+##      work below begins (the signal-contract's own guard against a second
+##      click racing the handoff -- see this feature's own boot-real
+##      "disconnected before the handoff's multi-step work begins" test).
+##   2 + 3. Resolve `encounter_id` against `scenario_session.scenario`'s
+##      ScenarioEncounterEntryResource entries and assemble live party/enemy
+##      Combatants via the SAME `load_encounter_from_scenario()` additive
+##      hook FEAT-010 already established (itself a thin wrapper around
+##      LoadScenarioEncounterUseCase.execute(), ADR-006 -- no second/forked
+##      assembly path). On failure (ok=false), `load_encounter_from_scenario()`
+##      has already push_error()'d the failure reason; this handler aborts
+##      the handoff WITHOUT mutating `_game_mode`/`_active_encounter_id` at
+##      all (atomic-failure contract) and re-connects hex-click handling so
+##      exploration continues uninterrupted.
+##   4. On success, commit the mode switch: `_game_mode = GameMode.COMBAT`
+##      and `_active_encounter_id = encounter_id` -- only ever mutated
+##      together, only ever after assembly has already succeeded.
+##   5. Place enemy tokens on the SAME, unreset `hex_grid_view` instance via
+##      `add_combatants()` (presentation/hex_grid_view.gd) -- which, unlike
+##      `load_combatants()`, never clears pre-existing tokens, so the party
+##      tokens already rendered at their exploration positions are left
+##      completely untouched (ADR-001).
+##   6 + 7. Roll initiative for the freshly-assembled `encounter` (built by
+##      `load_encounter_from_scenario()` above) and stand up the full combat
+##      pipeline via the SAME `rewire_session()` / TurnController wiring
+##      `_ready()` already uses. `rewire_session()` itself is the only place
+##      that calls RunRoundUseCase's begin_round entry point, on whichever
+##      RunRoundUseCase instance was constructed at boot -- and that instance's injected
+##      TurnOrderPort (infrastructure/encounter_turn_order_adapter.gd) holds
+##      a captured reference to the ORIGINAL, boot-time `encounter` object,
+##      not the fresh one `load_encounter_from_scenario()` just built. This
+##      handler therefore rebuilds `run_round_use_case` around a fresh
+##      TurnOrderPort/AIDecisionPort bound to the CURRENT `encounter` --
+##      mirroring _ready()'s own construction verbatim (ADR-006, no second/
+##      forked wiring shape) -- before awaiting `rewire_session()`, so
+##      initiative is rolled from the SAME live Combatants this handoff just
+##      assembled, not a stale boot-time roster.
+##
+## Known deviation (accepted for this steel thread, flagged as an extension
+## point rather than fixed here): `round_history_port`/`resolve_action_use_case`
+## are reused verbatim from `_ready()` rather than also rebuilt, so any round
+## history recorded by the pre-existing hardcoded boot pipeline (which stands
+## up its own RunRoundUseCase/RoundSession unconditionally in `_ready()`,
+## independent of `_game_mode`) remains visible alongside this handoff's own
+## history entries.
+func _on_combat_triggered(encounter_id: String) -> void:
+	if hex_grid_view != null and hex_grid_view.hex_clicked.is_connected(_on_exploration_hex_clicked):
+		hex_grid_view.hex_clicked.disconnect(_on_exploration_hex_clicked)
+
+	var scenario = scenario_session.scenario if scenario_session != null else null
+	var ok: bool = load_encounter_from_scenario(scenario, encounter_id)
+	if not ok:
+		# load_encounter_from_scenario() has already push_error()'d the
+		# failure reason (FEAT-010's established contract). Atomic-failure
+		# contract: abort WITHOUT mutating _game_mode/_active_encounter_id,
+		# and restore exploration's click-to-move handling.
+		if hex_grid_view != null and not hex_grid_view.hex_clicked.is_connected(_on_exploration_hex_clicked):
+			hex_grid_view.hex_clicked.connect(_on_exploration_hex_clicked)
+		return
+
+	_game_mode = GameMode.COMBAT
+	_active_encounter_id = encounter_id
+
+	if hex_grid_view != null:
+		hex_grid_view.add_combatants(_enemies)
+
+	# ── FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): the
+	# turn_controller.active_actor_changed/round_over subscriptions used to be
+	# established unconditionally in _ready() (see that method's own FEAT-316
+	# doc), regardless of `_game_mode` -- the peer-review blocking finding
+	# this feature resolves. They are now established HERE instead, the
+	# instant a real combat trigger commits the mode switch above, so they
+	# stay disconnected for the entire EXPLORATION-mode lifetime of a fresh
+	# boot. Mirrors _on_combat_won()'s established disconnect-then-reconnect
+	# idiom (below) so a later _on_combat_triggered() call -- entering a
+	# SECOND encounter after _on_combat_won() already reconnected these very
+	# signals for the return trip -- can never leave a duplicate/dangling
+	# listener behind either. ────────────────────────────────────────────────
+	if turn_controller != null:
+		if turn_controller.active_actor_changed.is_connected(_on_active_actor_changed):
+			turn_controller.active_actor_changed.disconnect(_on_active_actor_changed)
+		turn_controller.active_actor_changed.connect(_on_active_actor_changed)
+
+		if turn_controller.round_over.is_connected(_on_round_over):
+			turn_controller.round_over.disconnect(_on_round_over)
+		turn_controller.round_over.connect(_on_round_over)
+
+	# ── Rebuild run_round_use_case's TurnOrderPort/AIDecisionPort around the
+	# FRESH `encounter` load_encounter_from_scenario() just built above --
+	# see this method's own doc for why rewire_session() alone is not enough.
+	var turn_order_port = EncounterTurnOrderAdapterClass.new(encounter)
+	var ai_decision_port = AIClass.new()
+	ai_decision_port.set_stride_reaction_resolver_fn(Callable(self, "_resolve_enemy_stride_opportunistic_window"))
+	run_round_use_case = RunRoundUseCaseClass.new(
+		turn_order_port, event_sink, round_history_port, ai_decision_port,
+		resolve_action_use_case, determine_outcome_use_case
+	)
+
+	ROUND_NUMBER = 1
+	await rewire_session()
+
+	# ── FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): activate
+	# the Layer 1 verb bar / Layer 2 selection overlay ONLY now that combat is
+	# genuinely live -- these two configure() calls used to run
+	# unconditionally in _ready() (see that method's own FEAT-316 doc),
+	# meaning the "combat UI" was always armed even during EXPLORATION. Both
+	# configure() calls are documented safe to call repeatedly (verb_bar_view.gd
+	# FEAT-177 doc; selection_overlay.gd's own doc), so a later encounter after
+	# a post-combat return to EXPLORATION reconfigures cleanly, with no stale
+	# button/highlight state leaking across encounters. ─────────────────────
+	if verb_bar_view != null:
+		verb_bar_view.configure(_verb_registry)
+	selection_overlay.configure(_verb_registry, hex_grid_view)
+
+
+## _on_exploration_hex_clicked(hex_coord) -> void — FEAT-007 (US-006 / FR-005).
+##
+## Click-to-move the selected party member (_party[0], Titus) on the hex
+## map while in EXPLORATION mode. Guard contract (design notes'
+## api_contracts #5, verified directly by this feature's boot-real spy
+## test): a no-op, WITHOUT ever touching `exploration_controller`, whenever
+## `_game_mode != GameMode.EXPLORATION` -- this is the boundary that keeps
+## combat-mode clicks from reaching ExplorationController at all.
+##
+## In EXPLORATION mode: forwards to
+## `exploration_controller.move_party_member(combatant_id, hex_coord)` for
+## `_party[0]`'s combatant_id. ExplorationController's own contract
+## (core/application/exploration_controller.gd) is fail-closed -- an
+## unknown combatant_id or a non-adjacent `hex_coord` returns `false` with
+## NO mutation of `scenario_session.party_hex_positions` -- so on `false`
+## this handler does nothing further: a silent no-op, no push_error, no
+## visual change (matches FEAT-005's fail-closed contract; illegal moves
+## are UX, not a developer-facing error per design notes' error_handling
+## #2). On `true`, the move already succeeded in the session, so this
+## handler repositions the ALREADY-rendered token via the existing
+## `hex_grid_view.move_token()` reposition API (FEAT-013/US-013, the SAME
+## hook the Step/Stride combat path and AI-Stride reposition already use --
+## no second/parallel token-drawing path).
+func _on_exploration_hex_clicked(hex_coord) -> void:
+	if _game_mode != GameMode.EXPLORATION:
+		return
+
+	if _party.is_empty() or exploration_controller == null:
+		return
+
+	var combatant_id: String = _party[0].combatant_id
+	var moved: bool = exploration_controller.move_party_member(combatant_id, hex_coord)
+	if moved and hex_grid_view != null:
+		hex_grid_view.move_token(combatant_id, hex_coord)
 
 
 ## load_encounter_from_scenario(scenario, encounter_id) -> bool — FEAT-010
@@ -2799,6 +3118,31 @@ func _on_active_actor_changed(combatant) -> void:
 ## call to `await` its own connected handlers, so TurnController.round_over
 ## firing from inside a suspended _drive() is unaffected by this handler
 ## also being a coroutine.
+##
+## FEAT-009 (US-008 / FR-007): now branches on the just-refreshed `outcome`
+## (round_session.outcome(), the SAME live source this method already read
+## into `outcome` -- design notes' architecture section names
+## `encounter.get_outcome()` as the branch source, but the interactive
+## RunRoundUseCase/RoundSession pipeline this composition root actually
+## drives (FEAT-123 / ADR-007) never calls the legacy `encounter`
+## object's own run()/run_round() -- its `_outcome` field is therefore never
+## populated and would stay "" forever; `round_session.outcome()` is the
+## real, live equivalent this file already established as the single
+## outcome-of-record, so this feature branches on THAT rather than
+## introducing a second, always-empty read):
+##   - "" (undecided, existing behavior, byte-for-byte unchanged): the round
+##     continues -- ROUND_NUMBER increments and rewire_session() begins the
+##     next round exactly as before this feature.
+##   - "won": the full post-combat exploration-return handoff
+##     (_on_combat_won() below) runs -- this is this feature's own new
+##     branch.
+##   - "lost": a placeholder push_error() only (no crash, no state mutation)
+##     -- the real "lost" handoff (e.g. a defeat/retry screen) is an
+##     explicitly deferred, LATER feature's scope; ResultScreenView has
+##     already reacted to the EncounterResultEvent this round's own
+##     resolution emitted (see this file's step 11 doc), so the player is
+##     never left without ANY on-screen feedback even before that later
+##     feature lands.
 func _on_round_over() -> void:
 	if round_session == null:
 		return
@@ -2818,6 +3162,80 @@ func _on_round_over() -> void:
 		# FEAT-003: rewire_session() is now a coroutine — awaited (see this
 		# method's own FEAT-003 doc above).
 		await rewire_session()
+	elif outcome == "won":
+		_on_combat_won()
+	elif outcome == "lost":
+		# FEAT-009 placeholder (US-008): a genuinely unexpected/unhandled
+		# terminal state gets a developer/QA-facing signal (push_error, per
+		# design notes' error_handling #2 "loud for genuinely unexpected
+		# states") rather than a silent no-op -- but deliberately never
+		# crashes and never mutates _game_mode/_active_encounter_id/
+		# scenario_session, so the (already-locked, per ResultScreenView)
+		# combat screen is left exactly as a decided "lost" round leaves it
+		# today, with zero regression to that pre-existing behavior.
+		push_error("MainScene: 'lost' outcome handling is not yet implemented (FEAT-009 placeholder)")
+
+
+## _on_combat_won() -> void — FEAT-009 (US-008 / FR-007): the post-combat
+## return-to-exploration handoff, run once _on_round_over() above observes
+## outcome == "won". Mirrors _on_combat_triggered()'s (FEAT-008) own ordered,
+## atomic-transition style in reverse:
+##
+##   1. `_active_encounter_id` is marked complete in `scenario_session`
+##      (ScenarioSession.mark_encounter_complete(), FEAT-003 -- already
+##      idempotent/defensive against a dangling id, RISK-010) BEFORE any
+##      other mutation below, so a future re-entry check
+##      (ExplorationController._evaluate_triggers() ->
+##      ScenarioSession.get_active_encounter_entries(), unmodified) already
+##      excludes this encounter from the very next trigger evaluation.
+##   2. Enemy tokens for the just-won encounter are stripped off
+##      `hex_grid_view` via the new HexGridView.remove_combatants() (the
+##      mirror operation to FEAT-008's add_combatants()) -- party tokens are
+##      never touched (ADR-001) -- and `_enemies` is cleared to match.
+##   3. Every combat-facing signal subscription this composition root owns
+##      (`turn_controller.active_actor_changed`/`round_over`, and
+##      `hex_grid_view.hex_clicked`) is torn down via an explicit
+##      unsubscribe-before-resubscribe pattern (RISK-010 mitigation) -- a
+##      disconnect-if-connected guard immediately followed by a fresh
+##      connect -- so a repeated post-combat transition can never leave a
+##      duplicate/dangling listener behind, mirroring
+##      _on_combat_triggered()'s identical disconnect-then-conditionally-
+##      reconnect convention for hex_clicked (FEAT-008).
+##   4. `_game_mode` is committed back to GameMode.EXPLORATION and
+##      `_active_encounter_id` is cleared -- only ever mutated together,
+##      mirroring _on_combat_triggered()'s own atomic "only mutated
+##      together" contract for the opposite transition.
+func _on_combat_won() -> void:
+	if scenario_session != null and _active_encounter_id != "":
+		scenario_session.mark_encounter_complete(_active_encounter_id)
+
+	if hex_grid_view != null:
+		var enemy_ids: Array = []
+		for enemy in _enemies:
+			enemy_ids.append(enemy.combatant_id)
+		hex_grid_view.remove_combatants(enemy_ids)
+	_enemies = []
+
+	# RISK-010 mitigation: explicit unsubscribe-before-resubscribe for every
+	# combat-facing signal subscription this composition root owns, so this
+	# (or a later) post-combat transition never leaves a duplicate/dangling
+	# listener behind.
+	if turn_controller != null:
+		if turn_controller.active_actor_changed.is_connected(_on_active_actor_changed):
+			turn_controller.active_actor_changed.disconnect(_on_active_actor_changed)
+		turn_controller.active_actor_changed.connect(_on_active_actor_changed)
+
+		if turn_controller.round_over.is_connected(_on_round_over):
+			turn_controller.round_over.disconnect(_on_round_over)
+		turn_controller.round_over.connect(_on_round_over)
+
+	_game_mode = GameMode.EXPLORATION
+	_active_encounter_id = ""
+
+	if hex_grid_view != null:
+		if hex_grid_view.hex_clicked.is_connected(_on_exploration_hex_clicked):
+			hex_grid_view.hex_clicked.disconnect(_on_exploration_hex_clicked)
+		hex_grid_view.hex_clicked.connect(_on_exploration_hex_clicked)
 
 
 ## _on_end_turn_control_turn_ended(_result) -> void — $EndTurnControl's own

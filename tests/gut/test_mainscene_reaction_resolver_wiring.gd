@@ -38,12 +38,27 @@ const ActionEconomyClass = preload("res://core/rules/action_economy.gd")
 ## good seed, matching this codebase's established convention — see
 ## tests/infrastructure/test_presentation_stack_wiring.gd) so every scenario
 ## below can rely on a deterministic first-actor/target layout.
+##
+## FEAT-316 (resolves DEF-001/PR-001): MainScene now boots into
+## GameMode.EXPLORATION with the legacy combat pipeline (round_session, etc.)
+## gated behind a real _on_combat_triggered() handoff -- see MainScene.gd's
+## own FEAT-316 doc. This suite asserts round_session's reaction-resolver
+## wiring directly, so this helper now also drives that SAME real handoff
+## (mirrors tests/boot/test_first_cast_firebolt.gd's established
+## `_boot_main_scene()` convention), landing the instance in GameMode.COMBAT
+## with a live round_session before returning.
 func _boot_main_scene():
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = 42
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -54,7 +69,7 @@ func _boot_main_scene():
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_reaction_resolver_is_wired_to_turn_controller_resolve_reaction_on_boot() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 
 	assert_not_null(instance.round_session, "MainScene.round_session must be a real RoundSession after boot")
 	assert_not_null(instance.turn_controller, "MainScene.turn_controller must be wired after boot")
@@ -79,7 +94,7 @@ func test_reaction_resolver_is_wired_to_turn_controller_resolve_reaction_on_boot
 ## headlessly (correctly so -- the SAME behavior a real, live pop-up would
 ## exhibit; not a bug in this test's target).
 func test_injected_reaction_resolver_callable_actually_invokes_turn_controller_resolve_reaction() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 
 	var fn: Callable = instance.round_session._reaction_resolver_fn
 	assert_true(fn.is_valid(), "fixture assumption: the resolver must already be wired after boot")
@@ -113,7 +128,7 @@ func test_injected_reaction_resolver_callable_actually_invokes_turn_controller_r
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_rewire_session_reapplies_identical_wiring_on_round_continuation() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 
 	var session_before = instance.round_session
 	var fn_before: Callable = session_before._reaction_resolver_fn
@@ -142,7 +157,7 @@ func test_rewire_session_reapplies_identical_wiring_on_round_continuation() -> v
 
 
 func test_rewire_session_reapplies_wiring_across_multiple_continuations() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 
 	var seen_session_ids: Array = []
 	for i in range(3):
@@ -164,7 +179,7 @@ func test_rewire_session_reapplies_wiring_across_multiple_continuations() -> voi
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_configure_reactions_is_still_invoked_once_with_reaction_window_and_chooser() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 
 	assert_not_null(instance.reaction_window, "MainScene must still construct reaction_window (FEAT-207, unchanged)")
 	assert_not_null(instance.player_reaction_chooser, "MainScene must still construct player_reaction_chooser (FEAT-207, unchanged)")
@@ -180,7 +195,7 @@ func test_configure_reactions_is_still_invoked_once_with_reaction_window_and_cho
 
 
 func test_configure_reactions_signature_is_unchanged() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 
 	var found: bool = false
 	for method in instance.turn_controller.get_method_list():
@@ -207,6 +222,13 @@ func test_headless_boot_still_succeeds_after_reaction_resolver_rewiring() -> voi
 	add_child_autofree(instance)
 	await get_tree().process_frame
 
+	# FEAT-316 (resolves DEF-001/PR-001): MainScene now boots into
+	# GameMode.EXPLORATION with round_session gated behind a real
+	# _on_combat_triggered() handoff -- see MainScene.gd's own FEAT-316 doc.
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	assert_not_null(instance.round_session, "MainScene.round_session must be a real RoundSession after first frame")
 	assert_false(instance.round_session.is_round_over(), "the freshly-begun RoundSession must not already be over with no player input")
 
@@ -224,7 +246,7 @@ func test_headless_boot_still_succeeds_after_reaction_resolver_rewiring() -> voi
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_real_player_combatant_weapon_carries_defensive_reaction_fields() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	var player = instance.round_session.current_actor()
@@ -242,7 +264,7 @@ func test_real_player_combatant_weapon_carries_defensive_reaction_fields() -> vo
 
 
 func test_live_reaction_window_offers_dodge_parry_and_block_for_the_real_player() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	var player = instance.round_session.current_actor()

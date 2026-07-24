@@ -45,6 +45,11 @@ extends GutTest
 const PROJECT_GODOT_PATH: String = "res://project.godot"
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 
+## PROLOGUE_ENCOUNTER_ID -- this project's established fixture encounter id
+## (mirrors tests/boot/test_first_cast_firebolt.gd's identically-named/valued
+## constant), driven through the real _on_combat_triggered() handoff below.
+const PROLOGUE_ENCOUNTER_ID: String = "prologue"
+
 
 ## Reads project.godot and returns the list of singleton names declared in
 ## its [autoload] section (e.g. ["HeadlessRunner"]). Generic over however
@@ -134,6 +139,20 @@ func test_main_scene_headless_boot_completes_first_frame_without_auto_resolving(
 
 	# Let at least one real process frame elapse so this genuinely checks
 	# "first frame processed", not merely "constructor ran".
+	await get_tree().process_frame
+
+	# FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): round_session
+	# is no longer live immediately on boot -- it stays null throughout
+	# EXPLORATION mode until a real combat trigger's _on_combat_triggered()
+	# calls rewire_session() (see MainScene.gd's own FEAT-316 doc). This test's
+	# own point is proving a real, interactive RoundSession that does NOT
+	# auto-resolve, so drive the SAME real handoff
+	# tests/unit/test_main_scene_entry_point.gd's
+	# test_main_scene_instantiated_boots_prologue_encounter_without_auto_resolving()
+	# already drives, landing the instance in GameMode.COMBAT with a live
+	# round_session before the assertions below run.
+	instance._on_combat_triggered(PROLOGUE_ENCOUNTER_ID)
+	await get_tree().process_frame
 	await get_tree().process_frame
 
 	assert_eq(

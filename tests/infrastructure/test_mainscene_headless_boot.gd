@@ -58,6 +58,16 @@ func test_mainscene_boots_headlessly_with_zero_errors_after_battlefield_removal(
 	add_child_autofree(instance)
 	await get_tree().process_frame
 
+	# FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): MainScene
+	# now boots into GameMode.EXPLORATION with round_session left null until a
+	# real combat trigger's _on_combat_triggered() calls rewire_session() (see
+	# MainScene.gd's own FEAT-316 doc). Drive the same real handoff here so
+	# this suite's "boots headlessly with a live RoundSession" criterion still
+	# exercises one.
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	assert_not_null(instance.encounter_repository, "MainScene.encounter_repository must be non-null after first frame post-removal (FEAT-001)")
 	assert_not_null(instance.random_port, "MainScene.random_port must be non-null after first frame post-removal (FEAT-001)")
 	assert_not_null(instance.event_sink, "MainScene.event_sink must be non-null after first frame post-removal (FEAT-001)")

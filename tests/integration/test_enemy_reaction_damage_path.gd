@@ -128,6 +128,16 @@ func _latest_structured_attack_event(instance):
 
 func test_boot_real_enemy_reaction_block_matches_pinned_baseline_hp_attack_event_and_log() -> void:
 	var instance = _boot_main_scene()
+
+	# FEAT-316 (resolves DEF-001/PR-001): round_session/turn_controller
+	# signals/verb bar only become live once a real combat trigger fires (see
+	# MainScene.gd's own FEAT-316 doc) -- drive the same real handoff here so
+	# this suite's two-phase reaction pop-up flow can be driven exactly as it
+	# was before this feature.
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	var titus = _titus(instance)
 	titus["ac"] = AC_GUARANTEED_HIT
 	titus["weapon"]["block_value"] = OVERWHELMING_MITIGATION_STAT
@@ -193,6 +203,12 @@ func test_boot_real_enemy_reaction_block_matches_pinned_baseline_hp_attack_event
 
 func test_boot_real_enemy_reaction_pass_matches_pinned_baseline_hp_attack_event_and_log() -> void:
 	var instance = _boot_main_scene()
+
+	# FEAT-316: see the identical doc on the Block test above.
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	var titus = _titus(instance)
 	titus["ac"] = AC_GUARANTEED_HIT
 

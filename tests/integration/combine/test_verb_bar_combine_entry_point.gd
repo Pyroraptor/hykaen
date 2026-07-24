@@ -106,6 +106,15 @@ func test_pressing_combine_via_live_entry_point_invokes_build_verb_queue_use_cas
 	var instance = _boot_main_scene()
 	await get_tree().process_frame
 
+	# FEAT-316 (resolves DEF-001/PR-001): round_session/verb bar/selection
+	# overlay only become live once a real combat trigger fires (see
+	# MainScene.gd's own FEAT-316 doc) -- drive the same real handoff here so
+	# the live COMBINE entry point below can be driven exactly as it was
+	# before this feature.
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	var titus = _titus(instance)
 	assert_true(titus.stamina > 0, "fixture assumption: Titus starts with positive Stamina")
 	assert_false(titus.has_condition("Dazed"), "fixture assumption: Titus must not be Dazed")
@@ -137,6 +146,12 @@ func test_pressing_combine_via_live_entry_point_invokes_build_verb_queue_use_cas
 func test_confirm_sentinel_absent_at_queue_length_1_and_present_at_length_2_via_live_entry_point() -> void:
 	var instance = _boot_main_scene()
 	await get_tree().process_frame
+
+	# FEAT-316: see the identical doc on the "offers stride and strike" test above.
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	_titus(instance)
 
 	_press_combine(instance)
@@ -180,6 +195,11 @@ func test_confirm_sentinel_absent_at_queue_length_1_and_present_at_length_2_via_
 
 func test_cancelling_at_queue_build_step_via_live_entry_point_returns_to_verb_bar_with_no_queue_state_retained() -> void:
 	var instance = _boot_main_scene()
+	await get_tree().process_frame
+
+	# FEAT-316: see the identical doc on the "offers stride and strike" test above.
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
 	await get_tree().process_frame
 
 	var titus = _titus(instance)
@@ -256,6 +276,12 @@ func test_main_scene_source_never_hardcodes_stride_strike_queue_in_the_live_comb
 func test_confirming_a_full_queue_via_live_entry_point_hands_off_to_the_unchanged_targeting_phase() -> void:
 	var instance = _boot_main_scene()
 	await get_tree().process_frame
+
+	# FEAT-316: see the identical doc on the "offers stride and strike" test above.
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	_titus(instance)
 
 	_press_combine(instance)

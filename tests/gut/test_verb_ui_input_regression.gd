@@ -12,16 +12,30 @@ const HexMathClass = preload("res://core/geometry/hex_math.gd")
 const MovementClass = preload("res://core/rules/movement.gd")
 
 
+## FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): MainScene now
+## boots into EXPLORATION mode with round_session/verb_bar_view/
+## selection_overlay/turn_controller signal wiring gated behind a real
+## _on_combat_triggered() handoff (see MainScene.gd's own FEAT-316 doc). This
+## suite drives verb_bar_view/round_session/end_turn_control directly, so
+## this helper now also drives the SAME real handoff tests/boot/
+## test_exploration_to_combat_handoff_trigger.gd exercises directly, landing
+## the instance in GameMode.COMBAT with a live round_session before returning.
 func _boot(seed_value: int):
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	var instance = packed.instantiate()
 	instance.seed_override = seed_value
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
 func test_stride_mode_displays_full_speed_range_on_the_grid() -> void:
-	var instance = _boot(42)
+	var instance = await _boot(42)
 	await get_tree().process_frame
 
 	assert_true(instance._verb_registry.is_available("STRIDE"), "fixture: STRIDE available at boot")
@@ -60,7 +74,7 @@ func test_stride_mode_displays_full_speed_range_on_the_grid() -> void:
 ## move? Emits hex_grid_view.hex_clicked (the SAME signal the overlay subscribes
 ## to) with a far candidate and asserts the token repositions there.
 func test_clicking_a_far_stride_hex_resolves_the_move() -> void:
-	var instance = _boot(42)
+	var instance = await _boot(42)
 	await get_tree().process_frame
 	var actor: Dictionary = instance.round_session.current_actor()
 	var actor_id: String = actor.get("combatant_id", "")
@@ -97,7 +111,7 @@ func test_clicking_a_far_stride_hex_resolves_the_move() -> void:
 ## be transparent to mouse input (MOUSE_FILTER_IGNORE) or they swallow clicks on
 ## hexes drawn beneath them (only the clear-center hexes were selectable before).
 func test_display_panels_are_mouse_transparent() -> void:
-	var instance = _boot(42)
+	var instance = await _boot(42)
 	await get_tree().process_frame
 	for panel_name in ["status_panel_view", "event_log_view", "initiative_view"]:
 		var panel = instance.get(panel_name)
@@ -111,7 +125,7 @@ func test_display_panels_are_mouse_transparent() -> void:
 ## BUG 2 fix: End Turn is a single verb-bar button labelled "End Turn"; the old
 ## standalone EndTurnControl button is hidden (kept only as the logic delegate).
 func test_single_labelled_end_turn() -> void:
-	var instance = _boot(42)
+	var instance = await _boot(42)
 	await get_tree().process_frame
 	assert_false(instance.end_turn_control.visible, "the legacy EndTurnControl button must be hidden (End Turn is now a verb)")
 	# The verb-bar button for END_TURN must read "End Turn", not the raw id.

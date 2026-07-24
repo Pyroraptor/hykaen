@@ -89,12 +89,29 @@ class ScriptedHexChoiceResolver:
 		return chosen_hex
 
 
+## FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): round_session/
+## the Layer 1 verb bar/Layer 2 selection overlay/turn_controller signal
+## wiring are no longer live unconditionally at boot -- they now stay
+## dormant until a real combat trigger fires (see MainScene.gd's own
+## FEAT-316 doc). This suite drives real Strikes/the Dodge-Step prompt
+## directly against the real composition root, so
+## _boot_main_scene_with_seed() now also drives the SAME real handoff
+## tests/boot/test_exploration_to_combat_handoff_trigger.gd exercises
+## directly (mirrors tests/boot/test_first_cast_firebolt.gd's established
+## convention), landing the instance in GameMode.COMBAT with a live
+## round_session before returning.
 func _boot_main_scene_with_seed(seed_value: int):
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn (the real project.godot run/main_scene target) must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = seed_value
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -197,7 +214,7 @@ func _assert_seams_are_the_real_composition_root_bindings(instance) -> void:
 
 
 func test_round1_player_strike_then_enemy_forced_dodge_strike_each_produce_one_row_and_dodge_step_relocates_defender() -> void:
-	var instance = _boot_main_scene_with_seed(1)
+	var instance = await _boot_main_scene_with_seed(1)
 	await get_tree().process_frame
 
 	assert_eq(instance.event_log_view.get_entry_count(), 0, "sanity: the log must start empty before any Strike is scripted")

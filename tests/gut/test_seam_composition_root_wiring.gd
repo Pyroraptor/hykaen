@@ -50,12 +50,28 @@ const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 ## pinning seed_override=42 for a deterministic boot. This suite NEVER
 ## constructs/injects a resolver, Callable, or adapter of its own — it only
 ## inspects what booting the real scene already wired.
+## FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): MainScene now
+## boots into EXPLORATION mode with round_session/verb_bar_view/
+## selection_overlay/turn_controller signal wiring gated behind a real
+## _on_combat_triggered() handoff (see MainScene.gd's own FEAT-316 doc). This
+## suite inspects round_session's own seam Callables directly, so this helper
+## now also drives the SAME real handoff tests/boot/
+## test_exploration_to_combat_handoff_trigger.gd exercises directly, landing
+## the instance in GameMode.COMBAT with a live round_session before returning
+## -- still never constructing/injecting a resolver, Callable, or adapter of
+## its own.
 func _boot_main_scene():
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = 42
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -66,7 +82,7 @@ func _boot_main_scene():
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_token_reposition_fn_is_bound_to_the_real_booted_hex_grid_view_move_token() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 
 	assert_not_null(instance.round_session, "MainScene must boot with a live round_session")
 	assert_not_null(instance.hex_grid_view, "MainScene must boot with a live hex_grid_view")
@@ -92,7 +108,7 @@ func test_token_reposition_fn_is_bound_to_the_real_booted_hex_grid_view_move_tok
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_hex_choice_resolver_fn_is_bound_to_the_real_mainscene_resolve_hex_choice() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 
 	var hex_choice_fn: Callable = instance.round_session._hex_choice_resolver_fn
 	assert_true(hex_choice_fn.is_valid(), "round_session._hex_choice_resolver_fn must be bound after boot")
@@ -108,7 +124,7 @@ func test_hex_choice_resolver_fn_is_bound_to_the_real_mainscene_resolve_hex_choi
 
 
 func test_step_hex_query_fn_is_bound_to_the_real_mainscene_query_selectable_step_hexes() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 
 	var step_hex_query_fn: Callable = instance.round_session._step_hex_query_fn
 	assert_true(step_hex_query_fn.is_valid(), "round_session._step_hex_query_fn must be bound after boot")
@@ -129,7 +145,7 @@ func test_mainscene_hex_choice_resolver_field_wraps_the_same_live_hex_grid_view_
 	# suite already proved the token-reposition seam is bound to above --
 	# never a second `_UIHexChoiceResolver`/HexGridView pair constructed
 	# anywhere else.
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 
 	assert_not_null(instance.hex_choice_resolver, "MainScene must wire a default hex_choice_resolver during initialization")
 	assert_same(
@@ -156,7 +172,7 @@ func test_mainscene_hex_choice_resolver_field_wraps_the_same_live_hex_grid_view_
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_combat_log_callables_are_bound_to_the_real_booted_event_log_view() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 
 	assert_not_null(instance.event_log_view, "MainScene must boot with a live event_log_view")
 	assert_true(instance.event_log_view.is_inside_tree(), "event_log_view must actually be attached to the booted scene tree, not a detached stand-in")
@@ -188,7 +204,7 @@ func test_combat_log_callables_are_bound_to_the_real_booted_event_log_view() -> 
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_seam_identities_are_unchanged_across_a_round_continuation_rewire() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 
 	var hex_grid_view_before = instance.round_session._token_reposition_fn.get_object()
 	var event_log_view_before = instance.round_session._event_log_record_attack_fn.get_object()

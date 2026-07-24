@@ -109,7 +109,18 @@ func execute(scenario, encounter_id: String, deps: Dictionary = {}) -> Dictionar
 	var party_combatants: Array = []
 	for i in range(party_paths.size()):
 		var hex_coord = _hex_coord_at(encounter_resource.party_hex_positions, i)
-		var combatant: Dictionary = combatant_factory.build_party_combatant(party_paths[i], hex_coord)
+		# FEAT-008 (US-007 / FR-006, regression fix): pass a stable
+		# combatant_id ("player_%d"), mirroring
+		# infrastructure/resource_encounter_repository.gd's identical
+		# "%s_%d" % [team.to_lower(), i] convention -- the SAME ids the
+		# boot-time hardcoded pipeline's tokens are already keyed by on
+		# HexGridView. Without this, every scenario-assembled combatant fell
+		# back to CombatantFactory's "" default id (unset param), so a LATER
+		# caller (e.g. MainScene's exploration-to-combat handoff) could never
+		# correlate a freshly-assembled Combatant back to its already-
+		# rendered token, party position, or turn-order bookkeeping — every
+		# such combatant collapsed onto the SAME empty-string id.
+		var combatant: Dictionary = combatant_factory.build_party_combatant(party_paths[i], hex_coord, "player_%d" % i)
 		if combatant.has("error"):
 			return {"ok": false, "error_code": ERR_COMBATANT_BUILD_FAILED}
 		party_combatants.append(combatant)
@@ -118,7 +129,7 @@ func execute(scenario, encounter_id: String, deps: Dictionary = {}) -> Dictionar
 	for j in range(encounter_resource.enemy_resource_paths.size()):
 		var enemy_hex_coord = _hex_coord_at(encounter_resource.enemy_hex_positions, j)
 		var enemy_combatant: Dictionary = combatant_factory.build_enemy_combatant(
-			encounter_resource.enemy_resource_paths[j], enemy_hex_coord
+			encounter_resource.enemy_resource_paths[j], enemy_hex_coord, "enemy_%d" % j
 		)
 		if enemy_combatant.has("error"):
 			return {"ok": false, "error_code": ERR_COMBATANT_BUILD_FAILED}

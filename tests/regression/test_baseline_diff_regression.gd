@@ -65,6 +65,8 @@ const RoundEventsClass = preload("res://core/rules/round_events.gd")
 ## (Skeleton) starts adjacent to him.
 const PROLOGUE_SEED: int = 42
 
+const PROLOGUE_ENCOUNTER_ID: String = "prologue"
+
 const FIXTURES_DIR: String = "res://tests/regression/fixtures"
 
 
@@ -74,12 +76,28 @@ const FIXTURES_DIR: String = "res://tests/regression/fixtures"
 # tests/integration/test_enemy_reaction_effects_applier_retrofit.gd).
 # ══════════════════════════════════════════════════════════════════════════
 
+## FEAT-316 (resolves DEF-001/PR-001): MainScene now boots into EXPLORATION
+## mode with the legacy combat pipeline (round_session, $VerbBarView/
+## $SelectionOverlay configuration, turn_controller signal wiring) gated
+## behind a real _on_combat_triggered() handoff -- see MainScene.gd's own
+## FEAT-316 doc. This suite drives Strike/END_TURN directly against
+## round_session/the verb registry, so this helper now also drives the SAME
+## real handoff tests/boot/test_exploration_to_combat_handoff_trigger.gd
+## exercises directly, landing the instance in GameMode.COMBAT with a live
+## round_session before returning (mirrors tests/boot/
+## test_first_cast_firebolt.gd's established idiom).
 func _boot_main_scene():
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = PROLOGUE_SEED
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered(PROLOGUE_ENCOUNTER_ID)
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -201,7 +219,7 @@ func _classify_event(e) -> String:
 func test_player_strike_matches_pinned_seed42_baseline_byte_for_byte() -> void:
 	var baseline: Dictionary = _load_fixture("baseline_strike_seed42.json")
 
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	var skeleton = _skeleton(instance)
@@ -261,7 +279,7 @@ func test_player_strike_matches_pinned_seed42_baseline_byte_for_byte() -> void:
 func test_enemy_reaction_matches_pinned_seed42_baseline_byte_for_byte() -> void:
 	var baseline: Dictionary = _load_fixture("baseline_enemy_reaction_seed42.json")
 
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	var titus = _titus(instance)
@@ -327,7 +345,7 @@ func test_enemy_reaction_matches_pinned_seed42_baseline_byte_for_byte() -> void:
 func test_end_turn_sequence_matches_pinned_seed42_baseline_with_zero_deltas() -> void:
 	var baseline: Dictionary = _load_fixture("baseline_end_turn_seed42.json")
 
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	var actor_before = instance.round_session.current_actor()

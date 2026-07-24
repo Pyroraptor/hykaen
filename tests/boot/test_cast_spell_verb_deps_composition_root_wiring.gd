@@ -43,12 +43,26 @@ const CombatLogPanelAdapterClass = preload("res://presentation/ui/combat_log_pan
 const CombatLogEntryClass        = preload("res://core/domain/combat_log_entry.gd")
 
 
+## FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): MainScene now
+## boots into EXPLORATION mode with the legacy combat pipeline (round_session,
+## $VerbBarView/$SelectionOverlay configuration, turn_controller signal
+## wiring) gated behind a real _on_combat_triggered() handoff -- see
+## MainScene.gd's own FEAT-316 doc. This suite drives CAST_SPELL verb wiring
+## directly against `round_session`/`_verb_deps()`, so `_boot_main_scene()`
+## now also drives the SAME real handoff, landing the instance in
+## GameMode.COMBAT with a live round_session before returning.
 func _boot_main_scene():
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = PROLOGUE_SEED
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -77,7 +91,7 @@ func _advance_to_marigolds_turn(instance) -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_verb_deps_cache_contains_the_four_previously_missing_cast_spell_keys() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	var deps: Dictionary = instance._verb_deps()
@@ -126,7 +140,7 @@ func test_verb_deps_cache_contains_the_four_previously_missing_cast_spell_keys()
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_controller_cast_spell_is_a_real_spell_action_controller_from_unmodified_verb_deps() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	var controller = instance._controller("CAST_SPELL")
@@ -138,7 +152,7 @@ func test_controller_cast_spell_is_a_real_spell_action_controller_from_unmodifie
 
 
 func test_full_channel_cast_resolves_end_to_end_through_the_real_composition_root_with_zero_test_overrides() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	var marigold = _find_marigold(instance)
@@ -192,7 +206,7 @@ func test_full_channel_cast_resolves_end_to_end_through_the_real_composition_roo
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_boot_real_loads_cleanly_with_fully_wired_cast_spell_dependencies_present() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	assert_not_null(instance, "MainScene.tscn must instantiate headlessly with no crash")
@@ -213,7 +227,7 @@ func test_boot_real_loads_cleanly_with_fully_wired_cast_spell_dependencies_prese
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_pre_existing_verb_deps_keys_are_unchanged_by_the_cast_spell_additions() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	var deps: Dictionary = instance._verb_deps()
@@ -248,7 +262,7 @@ func test_pre_existing_verb_deps_keys_are_unchanged_by_the_cast_spell_additions(
 
 
 func test_strike_step_stride_and_end_turn_verbs_still_construct_controllers_and_operate_normally() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	for verb_id in ["STRIKE", "STEP", "STRIDE", "END_TURN"]:

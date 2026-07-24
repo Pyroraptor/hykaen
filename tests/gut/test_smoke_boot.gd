@@ -41,6 +41,7 @@ extends GutTest
 
 const PROJECT_GODOT_PATH: String = "res://project.godot"
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
+const MainSceneClass = preload("res://MainScene.gd")
 
 
 ## Reads project.godot and returns the list of singleton names declared in
@@ -158,9 +159,28 @@ func test_main_scene_boots_headlessly_with_no_manual_setup() -> void:
 		instance.encounter,
 		"MainScene.encounter (EncounterClass, seeded per ADR-002) must be non-null after first frame (FEAT-001)"
 	)
+	# FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): MainScene now
+	# boots into GameMode.EXPLORATION by default, and `round_session` is no
+	# longer wired unconditionally at boot -- it stays null until a real
+	# combat trigger fires `_on_combat_triggered()` (see MainScene.gd's own
+	# FEAT-316 doc; the gating itself is covered end-to-end by tests/boot/
+	# test_combat_pipeline_gated_by_game_mode.gd). Asserting `round_session`
+	# non-null here would defeat this test's own "zero manual setup" premise
+	# (driving combat is itself a manual setup step), so this "no unhandled
+	# boot exception" proxy now checks fields that ARE still guaranteed
+	# live at a true zero-manual-setup boot: the composition root's own
+	# scenario/exploration wiring and the game-mode field itself.
 	assert_not_null(
-		instance.round_session,
-		"MainScene.round_session must be a real RoundSession after first frame -- no unhandled boot exception (FEAT-001)"
+		instance.scenario_session,
+		"MainScene.scenario_session must be non-null after first frame -- no unhandled boot exception (FEAT-001 / FEAT-316)"
+	)
+	assert_not_null(
+		instance.exploration_controller,
+		"MainScene.exploration_controller must be non-null after first frame -- no unhandled boot exception (FEAT-001 / FEAT-316)"
+	)
+	assert_eq(
+		instance._game_mode, MainSceneClass.GameMode.EXPLORATION,
+		"MainScene must boot into GameMode.EXPLORATION with no manual setup (FEAT-001 / FEAT-316)"
 	)
 
 

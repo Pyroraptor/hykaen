@@ -215,6 +215,25 @@ func _wire_synthetic_fixture(instance, hero, golem) -> void:
 
 	instance.rewire_session()
 
+	# FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001):
+	# turn_controller.round_over/active_actor_changed are no longer connected
+	# unconditionally at boot -- _ready() only wires them inside
+	# _on_combat_triggered() (see MainScene.gd's own FEAT-316 doc), which this
+	# synthetic-fixture rig never drives (it replaces the encounter directly
+	# rather than going through a real combat-trigger handoff). Reconnect
+	# them here, mirroring _on_combat_triggered()'s own disconnect-then-
+	# reconnect idiom, so _on_round_over() (ROUND_NUMBER increment +
+	# rewire_session() continuation on an undecided outcome) fires exactly as
+	# it did before this feature.
+	if instance.turn_controller != null:
+		if instance.turn_controller.round_over.is_connected(instance._on_round_over):
+			instance.turn_controller.round_over.disconnect(instance._on_round_over)
+		instance.turn_controller.round_over.connect(instance._on_round_over)
+
+		if instance.turn_controller.active_actor_changed.is_connected(instance._on_active_actor_changed):
+			instance.turn_controller.active_actor_changed.disconnect(instance._on_active_actor_changed)
+		instance.turn_controller.active_actor_changed.connect(instance._on_active_actor_changed)
+
 
 # ══════════════════════════════════════════════════════════════════════════
 # Criterion 1: round_session.finish() resets every combatant's ActionEconomy

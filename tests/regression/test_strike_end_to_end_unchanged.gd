@@ -75,13 +75,31 @@ const RoundEventsClass = preload("res://core/rules/round_events.gd")
 ## zero setup needed.
 const PROLOGUE_SEED: int = 42
 
+const PROLOGUE_ENCOUNTER_ID: String = "prologue"
 
+
+## FEAT-316 (resolves DEF-001/PR-001): MainScene now boots into EXPLORATION
+## mode with the legacy combat pipeline (round_session, $VerbBarView/
+## $SelectionOverlay configuration, turn_controller signal wiring) gated
+## behind a real _on_combat_triggered() handoff -- see MainScene.gd's own
+## FEAT-316 doc. Both arms below drive Strike directly against the verb
+## registry/SelectionOverlay, so this helper now also drives the SAME real
+## handoff tests/boot/test_exploration_to_combat_handoff_trigger.gd exercises
+## directly, landing the instance in GameMode.COMBAT with a live
+## round_session before returning (mirrors tests/boot/
+## test_first_cast_firebolt.gd's established idiom).
 func _boot_main_scene_with_seed(seed_value: int):
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn (the real project.godot run/main_scene target) must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = seed_value
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered(PROLOGUE_ENCOUNTER_ID)
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -199,7 +217,7 @@ func test_strike_via_direct_execute_and_via_real_selection_overlay_ui_produce_by
 	# EXACTLY the single-scalar call shape presentation/action_controller.gd's
 	# `_verb_registry.execute(verb_id, selection)` seam has always accepted,
 	# predating every additive Layer 2 generalization this iteration made. ──
-	var baseline = _boot_main_scene_with_seed(PROLOGUE_SEED)
+	var baseline = await _boot_main_scene_with_seed(PROLOGUE_SEED)
 	await get_tree().process_frame
 
 	var baseline_skeleton = _skeleton(baseline)
@@ -233,7 +251,7 @@ func test_strike_via_direct_execute_and_via_real_selection_overlay_ui_produce_by
 	# landing on the highlighted target's own hex, resolved through
 	# SelectionOverlay's real Layer 2 flow (presentation/selection_overlay.gd,
 	# wired by MainScene.gd -- no mocked/stubbed double anywhere). ──
-	var current = _boot_main_scene_with_seed(PROLOGUE_SEED)
+	var current = await _boot_main_scene_with_seed(PROLOGUE_SEED)
 	await get_tree().process_frame
 
 	var current_skeleton = _skeleton(current)

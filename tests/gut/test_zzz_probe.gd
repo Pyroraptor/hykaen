@@ -4,12 +4,27 @@ const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 const STRIKE: String = "STRIKE"
 const STRIDE: String = "STRIDE"
 const HexMathClass = preload("res://core/geometry/hex_math.gd")
+const PROLOGUE_ENCOUNTER_ID: String = "prologue"
 
+## FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): MainScene now
+## boots into EXPLORATION mode with the legacy combat pipeline (round_session,
+## $VerbBarView/$SelectionOverlay configuration, turn_controller signal
+## wiring) gated behind a real _on_combat_triggered() handoff -- see
+## MainScene.gd's own FEAT-316 doc. This probe drives Strike/Stride directly
+## against a live round_session/verb registry, so it must drive the SAME real
+## handoff tests/boot/test_exploration_to_combat_handoff_trigger.gd exercises
+## directly before returning.
 func _boot_main_scene_with_seed(seed_value: int):
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	var instance = packed.instantiate()
 	instance.seed_override = seed_value
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered(PROLOGUE_ENCOUNTER_ID)
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 ## Seed 1106 (formerly pinned here) is no longer usable as of FEAT-201: fixing
@@ -37,7 +52,7 @@ func _boot_main_scene_with_seed(seed_value: int):
 ## rest of this suite already uses) to reach Titus, the fixture's intended
 ## melee striker, before the probe's loop begins.
 func test_probe_real_depletion(seed_value = use_parameters([959, 13269])) -> void:
-	var instance = _boot_main_scene_with_seed(seed_value)
+	var instance = await _boot_main_scene_with_seed(seed_value)
 	await get_tree().process_frame
 
 	if not instance.round_session.current_actor().is_enemy and instance.round_session.current_actor().display_id() != "player_0":

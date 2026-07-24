@@ -202,14 +202,30 @@ func test_target_invalidated_strike_still_commits_exactly_one_ledger_charge() ->
 
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 const PROLOGUE_SEED: int = 42
+const PROLOGUE_ENCOUNTER_ID: String = "prologue"
 
 
+## FEAT-316 (resolves DEF-001/PR-001): MainScene now boots into EXPLORATION
+## mode with the legacy combat pipeline (round_session, verb bar/selection
+## overlay configuration, turn_controller signal wiring) gated behind a real
+## _on_combat_triggered() handoff -- see MainScene.gd's own FEAT-316 doc.
+## This suite drives `_controller("STRIKE")`/`_controller("COMBINE")` and
+## `round_session` directly, so `_boot_main_scene()` now also drives that
+## SAME real handoff (mirroring tests/boot/test_first_cast_firebolt.gd's
+## established convention), landing the instance in GameMode.COMBAT with a
+## live round_session before returning.
 func _boot_main_scene():
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = PROLOGUE_SEED
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered(PROLOGUE_ENCOUNTER_ID)
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -228,7 +244,7 @@ func _skeleton(instance):
 
 
 func test_boot_real_strike_target_invalidated_after_stride_gracefully_skips_but_still_charges() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	var titus = _titus(instance)

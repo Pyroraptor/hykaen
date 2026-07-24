@@ -367,12 +367,33 @@ func test_application_layer_contains_no_new_port_or_use_case_class() -> void:
 	# introduced (design notes: "no new ports beyond the applier seam") --
 	# both files are whitelisted here purely because this check's
 	# dir.list_dir_begin() scan is name-based, not type-based.
+	#
+	# FEAT-003 (US-002 / FR-001, exploration/scenario steel thread) deliberately
+	# extends this whitelist by ONE more file: core/application/scenario_session.gd
+	# (ScenarioSession) -- the RUNTIME-ONLY (ADR-002, not persisted) application
+	# state tracking party_hex_positions/completed_encounter_ids/the active
+	# ScenarioResource reference, per that feature's own explicit
+	# files_to_create. Not a port (no ports/ subdirectory entry), a plain
+	# RefCounted application-state object mirroring round_session.gd's own
+	# layering, whitelisted here purely because this check's
+	# dir.list_dir_begin() scan is name-based, not type-based.
+	#
+	# FEAT-005 (US-004 / FR-002, exploration/scenario steel thread) deliberately
+	# extends this whitelist by ONE more file: core/application/
+	# exploration_controller.gd (ExplorationController) -- the use-case
+	# orchestrator for party movement + proximity-trigger evaluation over the
+	# injected ScenarioSession, per that feature's own explicit
+	# files_to_create. Not a port (no ports/ subdirectory entry), a plain
+	# RefCounted use-case object depending only on ScenarioSession + DOMAIN
+	# HexCoord/HexMath/TriggerType, whitelisted here purely because this
+	# check's dir.list_dir_begin() scan is name-based, not type-based.
 	var expected_files: Array = [
 		"_build_defense_context.gd",
 		"ai_decision_port.gd",
 		"apply_on_hit_defense_uc.gd",
 		"determine_outcome_use_case.gd",
 		"event_sink_port.gd",
+		"exploration_controller.gd",
 		"open_reaction_window_use_case.gd",
 		"reaction_window.gd",
 		"render_combat_log_use_case.gd",
@@ -383,6 +404,7 @@ func test_application_layer_contains_no_new_port_or_use_case_class() -> void:
 		"round_history_port.gd",
 		"round_session.gd",
 		"run_round_use_case.gd",
+		"scenario_session.gd",
 		"selection_descriptor.gd",
 		"selection_resolution_use_case.gd",
 		"turn_order_port.gd",

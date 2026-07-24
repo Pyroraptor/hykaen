@@ -136,6 +136,15 @@ func test_headless_smoke_boot_reaches_interactive_state_with_zero_unhandled_erro
 	var instance = _boot_main_scene_with_seed(SEED)
 	await get_tree().process_frame
 
+	# FEAT-316 (resolves DEF-001/PR-001): round_session and the rest of the
+	# legacy combat pipeline are now gated behind a real combat trigger rather
+	# than being wired unconditionally in _ready() -- drive the same real
+	# _on_combat_triggered() handoff so this headless smoke boot still reaches
+	# a genuinely interactive (live RoundSession) state.
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	assert_eq(instance.resolved_seed, SEED, "seed_override must be honored as the resolved seed")
 	assert_eq(instance.outcome, "", "MainScene must NOT auto-resolve the prologue encounter to a terminal outcome on first frame")
 	assert_not_null(instance.round_session, "MainScene must obtain a real RoundSession via RunRoundUseCase.begin_round()")

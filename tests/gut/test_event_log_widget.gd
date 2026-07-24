@@ -188,6 +188,18 @@ func test_widget_receives_a_real_attack_event_through_the_live_composition_root(
 	var instance = packed.instantiate()
 	instance.seed_override = 42
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	# FEAT-316 (resolves DEF-001/PR-001): MainScene now boots into
+	# GameMode.EXPLORATION with the legacy combat pipeline (round_session,
+	# verb_bar_view/selection_overlay configuration) gated behind a real
+	# _on_combat_triggered() handoff -- see MainScene.gd's own FEAT-316 doc.
+	# This test drives a real Strike through the real verb bar/registry, so it
+	# must enter combat first (mirrors
+	# tests/boot/test_first_cast_firebolt.gd's established convention).
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
 
 	assert_eq(
 		instance.event_log_view.get_entry_count(), 0,

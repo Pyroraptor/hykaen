@@ -99,12 +99,26 @@ const _ENEMY_HP_HANDICAP: int = 200
 const _MAX_TURN_EXCHANGES: int = 30
 
 
+## FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): MainScene now
+## boots into EXPLORATION mode with the legacy combat pipeline (round_session,
+## $VerbBarView/$SelectionOverlay configuration, turn_controller signal
+## wiring) gated behind a real _on_combat_triggered() handoff -- see
+## MainScene.gd's own FEAT-316 doc. This suite drives Cast-a-Spell verbs
+## directly against `round_session`/the verb registry, so `_boot_main_scene()`
+## now also drives the SAME real handoff, landing the instance in
+## GameMode.COMBAT with a live round_session before returning.
 func _boot_main_scene():
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = PROLOGUE_SEED
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -152,7 +166,7 @@ func _attack_events(instance) -> Array:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_controller_cast_spell_is_real_spell_action_controller_from_unmodified_verb_deps() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	# No `instance._verb_deps().duplicate()` / `instance._controllers[...] = ...`
@@ -178,7 +192,7 @@ func test_controller_cast_spell_is_real_spell_action_controller_from_unmodified_
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_fire_bolt_and_channel_cast_end_to_end_through_real_composition_root_zero_overrides() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	var marigold = _find_marigold(instance)
@@ -381,7 +395,7 @@ func test_fire_bolt_and_channel_cast_end_to_end_through_real_composition_root_ze
 ## test_determinism_pinned_seed_cast_a_spell.gd's own established
 ## "_run_full_scenario()" convention, with zero dependency overrides).
 func _run_full_scenario() -> Dictionary:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	var marigold = _find_marigold(instance)

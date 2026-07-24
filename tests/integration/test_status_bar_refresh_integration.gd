@@ -42,12 +42,28 @@ const StatusPanelViewClass      = preload("res://presentation/status_panel_view.
 ## seed (mirroring the established convention in tests/integration/
 ## test_movement_affordance_integration.gd and tests/business_logic/
 ## test_action_budget_projection.gd).
+## FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): round_session/
+## the Layer 1 verb bar/Layer 2 selection overlay/turn_controller signal
+## wiring are no longer live unconditionally at boot -- they now stay
+## dormant until a real combat trigger fires (see MainScene.gd's own
+## FEAT-316 doc). This suite drives the STRIKE verb directly against the
+## real composition root, so _boot_main_scene_with_seed() now also drives
+## the SAME real handoff tests/boot/test_exploration_to_combat_handoff_trigger.gd
+## exercises directly (mirrors tests/boot/test_first_cast_firebolt.gd's
+## established convention), landing the instance in GameMode.COMBAT with a
+## live round_session before returning.
 func _boot_main_scene_with_seed(seed_value: int):
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = seed_value
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -60,7 +76,7 @@ func _boot_main_scene_with_seed(seed_value: int):
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_real_main_scene_boots_headlessly_and_resolves_a_strike_through_the_real_resolve_action_use_case() -> void:
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	assert_not_null(instance.round_session, "MainScene must obtain a real RoundSession via RunRoundUseCase.begin_round()")
@@ -95,7 +111,7 @@ func test_real_main_scene_boots_headlessly_and_resolves_a_strike_through_the_rea
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_status_panel_view_action_budget_remaining_decreases_by_exactly_one_for_the_acting_combatant() -> void:
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	var actor_id: String = instance.round_session.current_actor().display_id()
@@ -135,7 +151,7 @@ func test_status_panel_view_action_budget_remaining_decreases_by_exactly_one_for
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_status_panel_view_spent_value_matches_the_domain_action_economys_spent_value() -> void:
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	var actor_id: String = instance.round_session.current_actor().display_id()

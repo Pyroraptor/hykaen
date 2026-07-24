@@ -64,13 +64,36 @@ const PROLOGUE_SEED: int = ChargeE2EClass.PROLOGUE_SEED
 const SKELETON_REPOSITIONED_HEX_Q: int = ChargeE2EClass.SKELETON_REPOSITIONED_HEX_Q
 const STRIDE_DESTINATION_HEX_Q: int = ChargeE2EClass.STRIDE_DESTINATION_HEX_Q
 
+## PROLOGUE_ENCOUNTER_ID -- this project's established fixture encounter id
+## (mirrors tests/boot/test_first_cast_firebolt.gd's identically-named/valued
+## constant), driven through the real _on_combat_triggered() handoff below.
+const PROLOGUE_ENCOUNTER_ID: String = "prologue"
 
+
+## FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): MainScene now
+## boots into GameMode.EXPLORATION with the legacy combat pipeline
+## (round_session, VerbBarView/SelectionOverlay configuration, turn_controller
+## signal wiring) gated behind a real _on_combat_triggered() handoff -- see
+## MainScene.gd's own FEAT-316 doc. This whole suite drives the real Charge
+## steel thread (COMBINE press -> ... -> execute()) against round_session/
+## the live verb registry, so this shared boot helper now also drives the
+## SAME real handoff tests/boot/test_first_cast_firebolt.gd's own
+## _boot_main_scene() convention establishes, landing the instance in
+## GameMode.COMBAT with a live round_session before returning. Adding an
+## `await` here makes this a coroutine -- every call site now does
+## `var instance = await _boot_main_scene()`.
 func _boot_main_scene():
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = PROLOGUE_SEED
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered(PROLOGUE_ENCOUNTER_ID)
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -131,7 +154,7 @@ func _press_combine(instance) -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_headless_main_scene_boot_succeeds_with_no_script_errors() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	assert_not_null(instance, "MainScene.tscn must instantiate headlessly with no script errors")
@@ -152,7 +175,7 @@ func test_headless_main_scene_boot_succeeds_with_no_script_errors() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_real_charge_steel_thread_executes_with_one_action_one_stamina_and_post_move_strike() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	var titus = _titus(instance)
@@ -306,7 +329,7 @@ func test_data_directory_has_no_uncommitted_or_untracked_changes_fix_002() -> vo
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_cancel_during_queue_build_step_regression_still_passes() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	var titus = _titus(instance)

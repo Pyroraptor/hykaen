@@ -118,12 +118,26 @@ const SKELETON_REPOSITIONED_HEX_Q: int = 3
 const STRIDE_DESTINATION_HEX_Q: int = 2
 
 
+## FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): MainScene now
+## boots into EXPLORATION mode with the legacy combat pipeline (round_session,
+## $VerbBarView/$SelectionOverlay configuration, turn_controller signal
+## wiring) gated behind a real _on_combat_triggered() handoff -- see
+## MainScene.gd's own FEAT-316 doc. This suite drives COMBINE through the
+## real Layer 1 verb bar / SelectionOverlay / round_session, so
+## `_boot_main_scene()` now also drives the SAME real handoff, landing the
+## instance in GameMode.COMBAT with a live round_session before returning.
 func _boot_main_scene():
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = PROLOGUE_SEED
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -202,7 +216,7 @@ func _reposition_skeleton_for_charge(titus, skeleton) -> Dictionary:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_combine_press_offers_real_selection_descriptor_with_stride_and_strike() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	var titus = _titus(instance)
@@ -236,7 +250,7 @@ func test_combine_press_offers_real_selection_descriptor_with_stride_and_strike(
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_full_happy_path_combine_stride_strike_confirm_hex_pick_target_pick_execute() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	var titus = _titus(instance)
@@ -393,7 +407,7 @@ func test_full_happy_path_combine_stride_strike_confirm_hex_pick_target_pick_exe
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_cancel_during_queue_build_step_leaves_state_unchanged_and_returns_to_layer1() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	var titus = _titus(instance)
@@ -452,7 +466,7 @@ func test_cancel_during_queue_build_step_leaves_state_unchanged_and_returns_to_l
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_cancel_during_stride_targeting_phase_aborts_entire_combine_with_no_state_leak() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	var titus = _titus(instance)
@@ -509,7 +523,7 @@ func test_cancel_during_stride_targeting_phase_aborts_entire_combine_with_no_sta
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_cancel_during_strike_targeting_phase_aborts_entire_combine_with_no_state_leak() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	var titus = _titus(instance)

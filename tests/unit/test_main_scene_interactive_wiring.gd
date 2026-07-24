@@ -102,6 +102,13 @@ func _strike_candidate_target_ids(instance) -> Array:
 func test_ready_obtains_a_real_round_session_via_run_round_use_case() -> void:
 	var instance = _boot_main_scene()
 
+	# FEAT-316: round_session stays null until a real combat trigger fires --
+	# drive the same real _on_combat_triggered() handoff so this criterion's
+	# "obtains a real RoundSession" intent is exercised post-handoff.
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	assert_not_null(instance.run_round_use_case, "MainScene must wire a RunRoundUseCase")
 	assert_is(instance.run_round_use_case, RunRoundUseCaseClass, "MainScene.run_round_use_case must be a real RunRoundUseCase")
 
@@ -111,6 +118,13 @@ func test_ready_obtains_a_real_round_session_via_run_round_use_case() -> void:
 
 func test_ready_hands_the_round_session_to_turn_controller() -> void:
 	var instance = _boot_main_scene()
+
+	# FEAT-316: the legacy pipeline (incl. TurnController.set_session()) is now
+	# gated behind a real combat trigger rather than unconditional _ready() --
+	# drive the same real handoff before asserting on it.
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
 
 	# TurnController.set_session() was called with the live RoundSession --
 	# proven behaviorally (no private-field reach-through, matching this
@@ -136,6 +150,12 @@ func test_ready_hands_the_round_session_to_turn_controller() -> void:
 func test_verb_registry_strike_is_configured_with_live_targets_after_ready() -> void:
 	var instance = _boot_main_scene()
 
+	# FEAT-316: `_verb_registry`'s STRIKE entry is only configured once a real
+	# combat trigger fires -- drive the same real handoff before asserting.
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	assert_true(
 		instance._verb_registry.is_available("STRIKE"),
 		"`_verb_registry`'s STRIKE entry must be available immediately after _ready() with a live, in-reach target"
@@ -149,6 +169,12 @@ func test_verb_registry_strike_is_configured_with_live_targets_after_ready() -> 
 
 func test_end_turn_control_is_configured_after_ready() -> void:
 	var instance = _boot_main_scene()
+
+	# FEAT-316: EndTurnControl is only configured once a real combat trigger
+	# fires -- drive the same real handoff before asserting.
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
 
 	assert_true(
 		instance.end_turn_control.is_enabled(),
@@ -196,6 +222,12 @@ func test_result_screen_view_is_configured_and_not_yet_shown_after_ready() -> vo
 
 func test_strike_via_verb_registry_emits_attack_event_through_real_event_sink() -> void:
 	var instance = _boot_main_scene()
+
+	# FEAT-316: the verb registry/event sink pipeline is only live once a real
+	# combat trigger fires -- drive the same real handoff before asserting.
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
 
 	var target_ids: Array = _strike_candidate_target_ids(instance)
 	assert_true(target_ids.size() > 0, "fixture assumption: the prologue's first actor has at least one in-reach target")

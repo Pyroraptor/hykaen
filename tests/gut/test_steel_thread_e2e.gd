@@ -75,12 +75,26 @@ const SEED: int = 42
 # across files, matching this project's per-suite-file convention.
 # ══════════════════════════════════════════════════════════════════════════
 
+## FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): MainScene now
+## boots into EXPLORATION mode with round_session/verb_bar_view/
+## selection_overlay/turn_controller signal wiring gated behind a real
+## _on_combat_triggered() handoff (see MainScene.gd's own FEAT-316 doc). This
+## whole suite drives verb_bar_view/selection_overlay/round_session directly,
+## so this helper now also drives the SAME real handoff tests/boot/
+## test_exploration_to_combat_handoff_trigger.gd exercises directly, landing
+## the instance in GameMode.COMBAT with a live round_session before returning.
 func _boot_main_scene_with_seed(seed_value: int):
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn (the real project.godot run/main_scene target) must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = seed_value
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -120,7 +134,7 @@ func _snapshot_hp(instance) -> Dictionary:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_entry_point_verb_bar_renders_correctly_gated_at_turn_start() -> void:
-	var instance = _boot_main_scene_with_seed(SEED)
+	var instance = await _boot_main_scene_with_seed(SEED)
 	await get_tree().process_frame
 
 	assert_false(
@@ -173,7 +187,7 @@ func test_entry_point_verb_bar_renders_correctly_gated_at_turn_start() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_strike_flow_resolves_via_select_target_with_board_status_lock_updating() -> void:
-	var instance = _boot_main_scene_with_seed(SEED)
+	var instance = await _boot_main_scene_with_seed(SEED)
 	await get_tree().process_frame
 
 	assert_true(instance._verb_registry.is_available(STRIKE), "fixture assumption: STRIKE is available at seed=42")
@@ -228,7 +242,7 @@ func test_strike_flow_resolves_via_select_target_with_board_status_lock_updating
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_step_flow_moves_token_via_move_token_with_no_action_spent() -> void:
-	var instance = _boot_main_scene_with_seed(SEED)
+	var instance = await _boot_main_scene_with_seed(SEED)
 	await get_tree().process_frame
 
 	assert_true(instance._verb_registry.is_available(STEP), "fixture assumption: STEP is available at seed=42")
@@ -272,7 +286,7 @@ func test_step_flow_moves_token_via_move_token_with_no_action_spent() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_stride_flow_moves_token_via_move_token_with_one_action_spent() -> void:
-	var instance = _boot_main_scene_with_seed(SEED)
+	var instance = await _boot_main_scene_with_seed(SEED)
 	await get_tree().process_frame
 
 	assert_true(instance._verb_registry.is_available(STRIDE), "fixture assumption: STRIDE is available at seed=42")
@@ -320,7 +334,7 @@ func test_stride_flow_moves_token_via_move_token_with_one_action_spent() -> void
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_end_turn_flow_transitions_turn_state_with_no_layer2_step() -> void:
-	var instance = _boot_main_scene_with_seed(SEED)
+	var instance = await _boot_main_scene_with_seed(SEED)
 	await get_tree().process_frame
 
 	assert_true(instance._verb_registry.is_available(END_TURN), "End Turn must always be available")
@@ -358,7 +372,7 @@ func test_end_turn_flow_transitions_turn_state_with_no_layer2_step() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_cancel_from_strike_layer2_produces_zero_side_effects_and_returns_to_layer1() -> void:
-	var instance = _boot_main_scene_with_seed(SEED)
+	var instance = await _boot_main_scene_with_seed(SEED)
 	await get_tree().process_frame
 
 	assert_true(instance._verb_registry.is_available(STRIKE), "fixture assumption: STRIKE is available at seed=42")
@@ -391,7 +405,7 @@ func test_cancel_from_strike_layer2_produces_zero_side_effects_and_returns_to_la
 
 
 func test_cancel_from_step_layer2_produces_zero_side_effects_and_returns_to_layer1() -> void:
-	var instance = _boot_main_scene_with_seed(SEED)
+	var instance = await _boot_main_scene_with_seed(SEED)
 	await get_tree().process_frame
 
 	assert_true(instance._verb_registry.is_available(STEP), "fixture assumption: STEP is available at seed=42")
@@ -421,7 +435,7 @@ func test_cancel_from_step_layer2_produces_zero_side_effects_and_returns_to_laye
 
 
 func test_cancel_from_stride_layer2_produces_zero_side_effects_and_returns_to_layer1() -> void:
-	var instance = _boot_main_scene_with_seed(SEED)
+	var instance = await _boot_main_scene_with_seed(SEED)
 	await get_tree().process_frame
 
 	assert_true(instance._verb_registry.is_available(STRIDE), "fixture assumption: STRIDE is available at seed=42")

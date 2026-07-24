@@ -125,6 +125,38 @@ func _boot_main_scene():
 	return instance
 
 
+## PROLOGUE_ENCOUNTER_ID -- this project's established fixture encounter id
+## every one of these boot-real suites drives (mirrors tests/boot/
+## test_first_cast_firebolt.gd's identically-named/valued constant).
+const PROLOGUE_ENCOUNTER_ID: String = "prologue"
+
+
+## _enter_combat(instance) -> void -- FEAT-316 (US-005/US-007 / FR-004,
+## resolves DEF-001/PR-001): round_session, VerbBarView.configure(),
+## SelectionOverlay.configure(), and turn_controller's
+## active_actor_changed/round_over signal connections all used to be
+## established unconditionally at boot (see MainScene.gd's own FEAT-316 doc)
+## -- they now stay dormant throughout EXPLORATION mode until a real combat
+## trigger's _on_combat_triggered() fires. Drive that SAME real handoff here
+## so this suite's wiring assertions exercise the SAME live state they always
+## have.
+func _enter_combat(instance) -> void:
+	instance._on_combat_triggered(PROLOGUE_ENCOUNTER_ID)
+
+
+## _force_win(instance) -> void -- mirrors tests/boot/
+## test_post_combat_return_to_exploration.gd's identically-named/purposed
+## helper: zeroes every live enemy Combatant's hp_current then ends the
+## current actor's turn via the real $EndTurnControl node, so
+## RoundSession's _after_action_resolved() tail resolves the round as "won"
+## and MainScene._on_combat_won() runs its real post-combat return-to-
+## exploration reconnect (see that method's own doc).
+func _force_win(instance) -> void:
+	for enemy in instance._enemies:
+		enemy.hp_current = 0
+	instance.end_turn_control.press()
+
+
 ## _is_expected_handler_script(script) -> bool — true iff `script` belongs to
 ## the composition root (MainScene.gd) or to any presentation/* module — the
 ## ONLY legitimate homes for a player-facing signal handler post-FEAT-001/
@@ -255,18 +287,50 @@ func test_mainscene_wires_movement_input_controller_as_the_sole_movement_pathway
 func test_hex_clicked_signal_is_wired_to_the_selection_overlay() -> void:
 	var instance = _boot_main_scene()
 
+	# FEAT-316 (resolves DEF-001/PR-001): selection_overlay.configure() (which
+	# wires SelectionOverlay's own hex_clicked subscriber) now only runs
+	# inside _on_combat_triggered(), not unconditionally at boot -- so at a
+	# fresh boot, hex_clicked carries only the exploration click-to-move
+	# handler, not yet selection_overlay. Drive the real trigger, then force a
+	# win to reach _on_combat_won()'s return-to-exploration reconnect of
+	# _on_exploration_hex_clicked -- selection_overlay's own subscription is
+	# never explicitly torn down once armed (see MainScene.gd's own doc), so
+	# this reproduces the SAME "both handlers coexist" wiring shape this
+	# test's own doc above already describes.
+	_enter_combat(instance)
+	await get_tree().process_frame
+	await get_tree().process_frame
+
+	_force_win(instance)
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	assert_true(instance.hex_grid_view.has_signal("hex_clicked"), "HexGridView must still declare the hex_clicked signal")
 	var connections: Array = instance.hex_grid_view.get_signal_connection_list("hex_clicked")
+	# Iteration Q / FEAT-006 (US-005, FR-004) additively wired a SECOND,
+	# independent hex_clicked subscriber -- MainScene._on_exploration_hex_clicked
+	# (see tests/boot/test_boot_exploration_mode.gd's own doc) -- for
+	# EXPLORATION-mode click-to-move (FEAT-007, US-006), alongside the
+	# pre-existing FEAT-008 SelectionOverlay subscriber this test originally
+	# pinned to "exactly one". Both fire independently on every click and
+	# neither depends on the other, so the invariant this test now protects
+	# is "selection_overlay is (still) one of the subscribers", not "the
+	# only" one.
 	assert_eq(
-		connections.size(), 1,
-		"HexGridView.hex_clicked must carry EXACTLY ONE connection from this composition root -- the FEAT-008 SelectionOverlay subscriber, never the deleted legacy auto Step-or-Stride handler"
+		connections.size(), 2,
+		"HexGridView.hex_clicked must carry the FEAT-008 SelectionOverlay subscriber plus the FEAT-006/FEAT-007 EXPLORATION-mode click-to-move handler -- never a re-introduced legacy auto Step-or-Stride handler"
 	)
-	if connections.size() > 0:
-		var target: Object = connections[0].get("callable").get_object()
-		assert_eq(
-			target, instance.selection_overlay,
-			"HexGridView.hex_clicked's sole connection must target MainScene's own selection_overlay (presentation/selection_overlay.gd), not a re-introduced legacy handler"
-		)
+	var targets: Array = []
+	for connection in connections:
+		targets.append(connection.get("callable").get_object())
+	assert_true(
+		targets.has(instance.selection_overlay),
+		"HexGridView.hex_clicked must still be connected to MainScene's own selection_overlay (presentation/selection_overlay.gd), not a re-introduced legacy handler"
+	)
+	assert_true(
+		targets.has(instance),
+		"HexGridView.hex_clicked must be connected to MainScene itself for the EXPLORATION-mode click-to-move handler (_on_exploration_hex_clicked)"
+	)
 
 
 ## "Step"/"Stride" verb-registry wiring -- FEAT-007 (this iteration's
@@ -282,6 +346,14 @@ func test_hex_clicked_signal_is_wired_to_the_selection_overlay() -> void:
 ## as a real player interaction would).
 func test_step_and_stride_verbs_are_wired_to_the_presentation_stack_and_move_the_token() -> void:
 	var instance = _boot_main_scene()
+
+	# FEAT-316 (resolves DEF-001/PR-001): _verb_registry availability,
+	# VerbBarView's rendered buttons, and round_session all only become live
+	# once a real combat trigger fires (see MainScene.gd's own FEAT-316 doc)
+	# -- drive the same real handoff here.
+	_enter_combat(instance)
+	await get_tree().process_frame
+	await get_tree().process_frame
 
 	assert_true(
 		instance._verb_registry.is_available("STEP"),
@@ -318,6 +390,14 @@ func test_step_and_stride_verbs_are_wired_to_the_presentation_stack_and_move_the
 ## i.e. it becomes that combatant's turn.
 func test_turn_started_signal_is_connected_to_the_presentation_stack() -> void:
 	var instance = _boot_main_scene()
+
+	# FEAT-316 (resolves DEF-001/PR-001): turn_controller.active_actor_changed
+	# is only connected once a real combat trigger fires (see MainScene.gd's
+	# own FEAT-316 doc) -- drive the same real handoff here.
+	_enter_combat(instance)
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	_assert_signal_connected_to_presentation_stack(
 		instance.turn_controller, "active_actor_changed",
 		"TurnController.active_actor_changed (turn_started)"
@@ -345,6 +425,12 @@ func test_turn_ended_signal_is_connected_to_the_presentation_stack() -> void:
 ## same-named but dead one).
 func test_strike_verb_is_wired_to_the_presentation_stack_and_resolves_a_strike() -> void:
 	var instance = _boot_main_scene()
+
+	# FEAT-316 (resolves DEF-001/PR-001): see the identical doc on
+	# test_step_and_stride_verbs_are_wired_to_the_presentation_stack_and_move_the_token above.
+	_enter_combat(instance)
+	await get_tree().process_frame
+	await get_tree().process_frame
 
 	assert_true(
 		instance._verb_registry.is_available("STRIKE"),
@@ -377,6 +463,14 @@ func test_strike_verb_is_wired_to_the_presentation_stack_and_resolves_a_strike()
 func test_end_turn_pressed_is_wired_to_the_presentation_stack_and_ends_the_turn() -> void:
 	var instance = _boot_main_scene()
 
+	# FEAT-316 (resolves DEF-001/PR-001): round_session is null until a real
+	# combat trigger fires (see MainScene.gd's own FEAT-316 doc) -- ending the
+	# current turn requires a live round_session, so drive the same real
+	# handoff here.
+	_enter_combat(instance)
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	var button: Button = instance.end_turn_control.get_node("Button")
 	_assert_signal_connected_to_presentation_stack(button, "pressed", "EndTurnControl's Button.pressed (end_turn pressed)")
 
@@ -406,6 +500,13 @@ func test_headless_boot_still_succeeds_after_presentation_stack_rewiring() -> vo
 		return
 
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	# FEAT-316 (resolves DEF-001/PR-001): round_session stays null until a
+	# real combat trigger's _on_combat_triggered() calls rewire_session() (see
+	# MainScene.gd's own FEAT-316 doc) -- drive the same real handoff here.
+	_enter_combat(instance)
+	await get_tree().process_frame
 	await get_tree().process_frame
 
 	assert_not_null(instance.round_session, "MainScene.round_session must be a real RoundSession after first frame")

@@ -209,12 +209,28 @@ func before_each() -> void:
 	)
 
 
+## FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): round_session/
+## the Layer 1 verb bar/Layer 2 selection overlay/turn_controller signal
+## wiring are no longer live unconditionally at boot -- they now stay
+## dormant until a real combat trigger fires (see MainScene.gd's own
+## FEAT-316 doc). The Strike scenario drives the STRIKE verb directly
+## against the real composition root, so _boot_main_scene() now also drives
+## the SAME real handoff tests/boot/test_exploration_to_combat_handoff_trigger.gd
+## exercises directly (mirrors tests/boot/test_first_cast_firebolt.gd's
+## established convention), landing the instance in GameMode.COMBAT with a
+## live round_session before returning.
 func _boot_main_scene():
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = PROLOGUE_SEED
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -317,7 +333,7 @@ func test_blast_area_descriptor_highlights_computed_affected_set_and_resolves_fu
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_strike_single_target_verb_remains_unchanged_end_to_end_in_the_same_suite() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	var skeleton = _skeleton(instance)

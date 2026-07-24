@@ -247,6 +247,15 @@ func test_real_skeleton_mobility_drives_live_dodge_decision_boot_real() -> void:
 	var pass_instance = _boot_main_scene()
 	await get_tree().process_frame
 
+	# FEAT-316 (resolves DEF-001/PR-001): round_session/verb bar/selection
+	# overlay only become live once a real combat trigger fires (see
+	# MainScene.gd's own FEAT-316 doc) -- drive the same real handoff here so
+	# this boot-real Strike can be driven exactly as it was before this
+	# feature.
+	pass_instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	var pass_skeleton = _skeleton(pass_instance)
 	var pass_skills: Dictionary = pass_skeleton.skills
 	assert_eq(
@@ -270,6 +279,11 @@ func test_real_skeleton_mobility_drives_live_dodge_decision_boot_real() -> void:
 	_set_skeleton_mobility(HIGH_MOBILITY)
 
 	var dodge_instance = _boot_main_scene()
+	await get_tree().process_frame
+
+	# FEAT-316: see the identical doc on Run A's boot above.
+	dodge_instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
 	await get_tree().process_frame
 
 	var dodge_skeleton = _skeleton(dodge_instance)

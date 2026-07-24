@@ -100,12 +100,26 @@ class ScriptedTargetingPort:
 		return scripted_target
 
 
+## FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): MainScene now
+## boots into EXPLORATION mode with the legacy combat pipeline (round_session,
+## $VerbBarView/$SelectionOverlay configuration, turn_controller signal
+## wiring) gated behind a real _on_combat_triggered() handoff -- see
+## MainScene.gd's own FEAT-316 doc. This suite drives Cast-a-Spell verbs
+## directly against `round_session`, so `_boot_main_scene()` now also drives
+## the SAME real handoff, landing the instance in GameMode.COMBAT with a live
+## round_session before returning.
 func _boot_main_scene():
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = PROLOGUE_SEED
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -196,7 +210,7 @@ func test_headless_boot_loads_cleanly_with_caster_and_cast_spell_verb_registered
 		"VERB_TABLE['CAST_SPELL'] must point at presentation/verbs/spell_action_controller.gd's SpellActionController"
 	)
 
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	assert_not_null(instance, "MainScene.tscn must instantiate")
@@ -224,7 +238,7 @@ func test_headless_boot_loads_cleanly_with_caster_and_cast_spell_verb_registered
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_fire_bolt_cast_spans_turn_boundary_resolves_hit_logs_and_clears_casting_state() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	var marigold = _find_marigold(instance)
@@ -296,7 +310,7 @@ func test_fire_bolt_cast_spans_turn_boundary_resolves_hit_logs_and_clears_castin
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_channel_cast_after_round_boundary_resolves_and_adds_energy_to_caster_pool() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	var marigold = _find_marigold(instance)
@@ -365,7 +379,7 @@ func test_channel_cast_after_round_boundary_resolves_and_adds_energy_to_caster_p
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_lethal_opportunistic_strike_fires_during_cast_window_and_cancels_with_no_resolution_log_or_energy_refund() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	var marigold = _find_marigold(instance)

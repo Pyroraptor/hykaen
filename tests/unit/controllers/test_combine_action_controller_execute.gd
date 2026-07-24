@@ -57,6 +57,7 @@ const CAST_SPELL_RESOURCE_PATH: String = "res://data/verbs/cast_spell.tres"
 ## constants (e.g. tests/integration/test_combine_execute_stride_then_strike.gd).
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 const PROLOGUE_SEED: int = 42
+const PROLOGUE_ENCOUNTER_ID: String = "prologue"
 
 
 class FakeVerbRegistryPort:
@@ -754,17 +755,31 @@ func test_execute_skips_dispatch_entirely_when_no_controller_for_resolver_is_wir
 ## own start_combine_targeting()/_finish_combine_targeting() doc).
 # ══════════════════════════════════════════════════════════════════════════
 
+## FEAT-316 (resolves DEF-001/PR-001): MainScene now boots into EXPLORATION
+## mode with the legacy combat pipeline (round_session, verb bar/selection
+## overlay configuration, turn_controller signal wiring) gated behind a real
+## _on_combat_triggered() handoff -- see MainScene.gd's own FEAT-316 doc.
+## This suite drives the live _core_combine_action_controller/round_session,
+## so _boot_main_scene() now also drives that SAME real handoff (mirroring
+## tests/boot/test_first_cast_firebolt.gd's established convention), landing
+## the instance in GameMode.COMBAT with a live round_session before returning.
 func _boot_main_scene():
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = PROLOGUE_SEED
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered(PROLOGUE_ENCOUNTER_ID)
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
 func test_live_signal_chain_dispatches_through_a_single_combine_action_controller_instance() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	assert_not_null(instance._core_combine_action_controller, "the composition root must construct a real core CombineActionController")
@@ -818,7 +833,7 @@ const STRIDE_DESTINATION_HEX_Q: int = 2
 
 
 func test_main_scene_constructs_core_combine_action_controller_with_a_non_null_action_economy_port() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	assert_not_null(instance._core_combine_action_controller, "the composition root must construct a real core CombineActionController")
@@ -829,7 +844,7 @@ func test_main_scene_constructs_core_combine_action_controller_with_a_non_null_a
 
 
 func test_live_wired_controller_charges_one_action_and_one_stamina_on_successful_execute() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	var titus = instance._party[0]
@@ -888,7 +903,7 @@ func test_live_wired_controller_charges_one_action_and_one_stamina_on_successful
 
 
 func test_live_wired_controller_validation_failed_path_still_charges_zero_actions_and_stamina() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	var titus = instance._party[0]

@@ -114,12 +114,27 @@ const _MAX_DRIVE_ITERATIONS: int = 20
 # Shared fixture: boot the REAL res://MainScene.tscn composition root.
 # ══════════════════════════════════════════════════════════════════════════
 
+## FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): MainScene now
+## boots into EXPLORATION mode with the legacy combat pipeline (round_session,
+## $VerbBarView/$SelectionOverlay configuration, turn_controller signal
+## wiring) gated behind a real _on_combat_triggered() handoff -- see
+## MainScene.gd's own FEAT-316 doc. This suite drives the whole steel thread
+## directly against `round_session`/`_verb_registry`/`movement_input_controller`,
+## so `_boot_main_scene_with_seed()` now also drives the SAME real handoff,
+## landing the instance in GameMode.COMBAT with a live round_session before
+## returning.
 func _boot_main_scene_with_seed(seed_value: int):
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn (the real project.godot run/main_scene target) must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = seed_value
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -202,7 +217,7 @@ func _assert_highlight_matches_controller_union(instance, context: String) -> vo
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_full_steel_thread_from_turn_start_to_post_resolution_lock() -> void:
-	var instance = _boot_main_scene_with_seed(SEED)
+	var instance = await _boot_main_scene_with_seed(SEED)
 	await get_tree().process_frame
 
 	# ── Fixture assumptions (seed=42, prologue_encounter.tres) ─────────────
@@ -449,7 +464,7 @@ func test_full_steel_thread_from_turn_start_to_post_resolution_lock() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_enemy_ai_leg_strides_toward_nearest_target_but_does_not_strike_same_turn() -> void:
-	var instance = _boot_main_scene_with_seed(SEED)
+	var instance = await _boot_main_scene_with_seed(SEED)
 	await get_tree().process_frame
 
 	assert_eq(instance._enemies.size(), 1, "fixture assumption: the prologue encounter has exactly one enemy")
@@ -570,7 +585,7 @@ func test_enemy_ai_leg_strides_toward_nearest_target_but_does_not_strike_same_tu
 
 
 func test_enemy_ai_leg_strides_but_does_not_strike_when_no_action_remains_after_the_stride() -> void:
-	var instance = _boot_main_scene_with_seed(SEED)
+	var instance = await _boot_main_scene_with_seed(SEED)
 	await get_tree().process_frame
 
 	assert_eq(instance._enemies.size(), 1, "fixture assumption: the prologue encounter has exactly one enemy")

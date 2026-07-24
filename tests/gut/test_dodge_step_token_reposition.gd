@@ -60,12 +60,27 @@ class ScriptedHexChoiceResolver:
 ## composition root (this codebase's established convention), pinning
 ## seed_override=42 for a deterministic boot (Titus vs the Skeleton, prologue
 ## encounter).
+##
+## FEAT-316 (resolves DEF-001/PR-001): MainScene now boots into
+## GameMode.EXPLORATION with the legacy combat pipeline (round_session, etc.)
+## gated behind a real _on_combat_triggered() handoff -- see MainScene.gd's
+## own FEAT-316 doc. This suite drives Dodge-Step relocation directly against
+## `round_session`, so this helper now also drives that SAME real handoff
+## (mirrors tests/boot/test_first_cast_firebolt.gd's established
+## `_boot_main_scene()` convention), landing the instance in GameMode.COMBAT
+## with a live round_session before returning.
 func _boot_main_scene():
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = 42
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -75,7 +90,7 @@ func _boot_main_scene():
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_successful_dodge_and_legal_hex_pick_relocates_defender_hex_coord_and_on_screen_token() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 
 	var defender = instance.round_session.current_actor()
 	assert_eq(defender.name, "Titus", "fixture: Titus (the real player combatant) must be the current actor at boot")
@@ -138,7 +153,7 @@ func test_successful_dodge_and_legal_hex_pick_relocates_defender_hex_coord_and_o
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_mainscene_wires_the_token_reposition_hook_to_hex_grid_view_move_token() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 
 	assert_not_null(instance.round_session, "MainScene must obtain a real RoundSession via RunRoundUseCase.begin_round()")
 
@@ -162,7 +177,7 @@ func test_mainscene_wires_the_token_reposition_hook_to_hex_grid_view_move_token(
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_no_reposition_when_dodge_is_not_successful() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 
 	var defender = instance.round_session.current_actor()
 	var original_hex = defender.hex_coord

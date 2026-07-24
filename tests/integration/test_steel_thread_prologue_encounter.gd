@@ -110,11 +110,27 @@ const _MAX_DRIVE_ITERATIONS: int = 20
 ## pre-FEAT-006 "none"/PASS default this suite's assertions were written
 ## against; the REAL PlayerReactionChooser is still what MainScene.gd wires
 ## for an actual player session.
+## FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): round_session/
+## the Layer 1 verb bar/Layer 2 selection overlay/turn_controller signal
+## wiring are no longer live unconditionally at boot -- they now stay
+## dormant until a real combat trigger fires (see MainScene.gd's own
+## FEAT-316 doc). Part (A)/(B) of this suite both depend on a genuinely live
+## round_session/verb registry, so _boot_main_scene() now also drives the
+## SAME real handoff tests/boot/test_exploration_to_combat_handoff_trigger.gd
+## exercises directly (mirrors tests/boot/test_first_cast_firebolt.gd's
+## established convention), landing the instance in GameMode.COMBAT with a
+## live round_session before returning.
 func _boot_main_scene():
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	if instance.turn_controller != null and instance.reaction_window != null:
 		instance.turn_controller.configure_reactions(instance.reaction_window, AutoReactionChooserClass.new("pass"))
 	return instance
@@ -138,12 +154,23 @@ func _boot_main_scene():
 ## See _boot_main_scene()'s FEAT-006 doc immediately above -- the same
 ## headless AutoReactionChooser swap applies here regardless of the pinned
 ## seed, since a fixed seed can still place the enemy first in initiative.
+## FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): see
+## _boot_main_scene()'s identical FEAT-316 doc immediately above --
+## _boot_main_scene_with_seed() drives the SAME real _on_combat_triggered()
+## handoff before returning, so this seeded-boot variant lands the instance
+## in GameMode.COMBAT with a live round_session too.
 func _boot_main_scene_with_seed(seed_value: int):
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = seed_value
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	if instance.turn_controller != null and instance.reaction_window != null:
 		instance.turn_controller.configure_reactions(instance.reaction_window, AutoReactionChooserClass.new("pass"))
 	return instance
@@ -167,7 +194,7 @@ func _find_combatant_by_id(instance, combatant_id: String):
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_mainscene_boot_populates_hex_battlefield_status_panel_and_initiative() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	# FEAT-123 / FIND-120: MainScene no longer auto-resolves the encounter on
@@ -220,9 +247,9 @@ func test_determinism_two_independent_mainscene_boots_produce_identical_event_se
 	# randomized play seed every boot, so this determinism regression pins
 	# `seed_override` explicitly (matching the prologue fixture's original
 	# seed=42) rather than relying on MainScene's default.
-	var instance_1 = _boot_main_scene_with_seed(42)
+	var instance_1 = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
-	var instance_2 = _boot_main_scene_with_seed(42)
+	var instance_2 = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	# FEAT-123 / FIND-120: MainScene no longer auto-resolves the encounter on
@@ -264,7 +291,7 @@ func test_player_strike_through_real_pipeline_observable_in_event_log_and_status
 	# play seed every boot (which could just as validly seat the Skeleton
 	# first), so this test pins that known-good seed explicitly rather than
 	# relying on MainScene's randomized default.
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	assert_false(
@@ -345,7 +372,7 @@ func test_enemy_ai_turn_auto_drives_through_identical_pipeline_after_end_turn() 
 	# holds for the prologue fixture's original seed=42 initiative roll; a
 	# real (non-override) launch now resolves a fresh random play seed every
 	# boot.
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	assert_is(instance.turn_controller, TurnControllerClass, "MainScene must wire the real $TurnController (presentation/turn_controller.gd)")
@@ -448,7 +475,7 @@ func test_encounter_concludes_with_result_screen_matching_determine_outcome_use_
 	# independent of this iteration's work. Seed 42 (this codebase's standard
 	# fixture seed) makes the Titus-vs-Skeleton resolution deterministic so the
 	# round reliably reaches a 'won'/'lost' terminal outcome.
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	assert_false(instance.result_screen_view.is_shown(), "fixture assumption: no result is shown before any input")

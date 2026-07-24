@@ -59,12 +59,26 @@ class _ScriptedPassResolver:
 		return {"choice": "none"}
 
 
+## FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): MainScene now
+## boots into EXPLORATION mode with round_session/verb_bar_view/
+## selection_overlay/turn_controller signal wiring gated behind a real
+## _on_combat_triggered() handoff (see MainScene.gd's own FEAT-316 doc). This
+## suite drives round_session/event_log_view directly, so this helper now
+## also drives the SAME real handoff tests/boot/
+## test_exploration_to_combat_handoff_trigger.gd exercises directly, landing
+## the instance in GameMode.COMBAT with a live round_session before returning.
 func _boot_main_scene_with_seed(seed_value: int):
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = seed_value
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	# This suite asserts the enemy-path rich log, not the Dodge-Step follow-up.
 	# A successful Dodge now fires the live Dodge-Step hex prompt inside
 	# advance_ai_turn(); the REAL _UIHexChoiceResolver would block awaiting a
@@ -116,7 +130,7 @@ func _resolve_one_real_enemy_strike(instance) -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_real_enemy_strike_renders_a_rich_row_at_index_zero() -> void:
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	assert_eq(instance.event_log_view.get_entry_count(), 0, "sanity: the log must start empty before any Strike is scripted")
@@ -164,7 +178,7 @@ func test_real_enemy_strike_renders_a_rich_row_at_index_zero() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_live_enemy_attack_call_site_invokes_record_attack_and_render_attack_entry_on_the_real_event_log_view() -> void:
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	var real_event_log_view = instance.event_log_view

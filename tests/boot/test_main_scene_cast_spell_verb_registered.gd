@@ -22,12 +22,26 @@ const SpellActionControllerClass = preload("res://presentation/verbs/spell_actio
 const PROLOGUE_SEED: int = 42
 
 
+## FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): MainScene now
+## boots into EXPLORATION mode with the legacy combat pipeline (round_session,
+## $VerbBarView/$SelectionOverlay configuration, turn_controller signal
+## wiring) gated behind a real _on_combat_triggered() handoff -- see
+## MainScene.gd's own FEAT-316 doc. This suite drives CAST_SPELL registration
+## directly against `round_session`/the verb registry/`verb_bar_view`, so
+## `_boot_main_scene()` now also drives the SAME real handoff, landing the
+## instance in GameMode.COMBAT with a live round_session before returning.
 func _boot_main_scene():
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = PROLOGUE_SEED
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -51,7 +65,7 @@ func test_verb_table_registers_cast_spell_pointing_at_spell_action_controller() 
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_main_scene_and_prologue_encounter_load_cleanly_with_cast_spell_registered() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	assert_not_null(instance, "MainScene.tscn must instantiate")
@@ -65,7 +79,7 @@ func test_main_scene_and_prologue_encounter_load_cleanly_with_cast_spell_registe
 
 
 func test_booted_verb_registry_dispatches_cast_spell_availability_without_crashing() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	# Drives the SAME real, live VerbBarRegistry the Layer 1 verb bar itself
@@ -77,7 +91,7 @@ func test_booted_verb_registry_dispatches_cast_spell_availability_without_crashi
 
 
 func test_booted_verb_bar_view_renders_a_cast_spell_button() -> void:
-	var instance = _boot_main_scene()
+	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	assert_not_null(instance.verb_bar_view, "MainScene must wire a real $VerbBarView")

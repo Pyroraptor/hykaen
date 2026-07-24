@@ -64,6 +64,14 @@ func test_strike_and_stride_disabled_immediately_after_a_spend_via_can_take_acti
 	var instance = _boot_main_scene_with_seed(SEED)
 	await get_tree().process_frame
 
+	# FEAT-316 (resolves DEF-001/PR-001): `_verb_registry`/round_session are
+	# now gated behind a real combat trigger rather than being wired
+	# unconditionally in _ready() -- drive the same real handoff so this
+	# criterion's live-ActionEconomy gating is genuinely exercised.
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	assert_true(instance._verb_registry.is_available("STRIKE"), "fixture assumption: STRIKE is available at seed=42 before any spend")
 	assert_true(instance._verb_registry.is_available("STRIDE"), "fixture assumption: STRIDE is available at seed=42 before any spend")
 
@@ -104,6 +112,12 @@ func test_strike_and_stride_disabled_immediately_after_a_spend_via_can_take_acti
 
 func test_step_availability_is_unaffected_by_can_take_action_and_depends_solely_on_movement_gate() -> void:
 	var instance = _boot_main_scene_with_seed(SEED)
+	await get_tree().process_frame
+
+	# FEAT-316: drive the same real combat-trigger handoff so `_verb_registry`
+	# is genuinely live before asserting on STEP's availability.
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
 	await get_tree().process_frame
 
 	assert_true(instance._verb_registry.is_available("STEP"), "fixture assumption: STEP is available at seed=42 before any spend")
@@ -231,6 +245,13 @@ func test_verb_bar_availability_does_not_throw_while_the_enemy_is_the_current_ac
 ## AI-controlled turn.
 func test_turn_controller_refreshes_verb_bar_across_the_ai_drive_without_throwing() -> void:
 	var instance = _boot_main_scene_with_seed(SEED)
+	await get_tree().process_frame
+
+	# FEAT-316: end_turn_control/turn_controller wiring is only live once a
+	# real combat trigger fires -- drive the same real handoff before driving
+	# End Turn.
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
 	await get_tree().process_frame
 
 	var press_result: Dictionary = instance.end_turn_control.press()

@@ -1,0 +1,321 @@
+#+TITLE: Iteration Q — Exploration Mode & Combat Handoff
+#+DATE: 2026-07-24
+#+STATUS: DRAFT for review
+
+* Context (why this sprint exists)
+
+The game currently boots directly into a hardcoded fight. Iteration P built the data
+layer for multi-encounter scenarios (~ScenarioResource~, ~LoadScenarioEncounterUseCase~,
+~prologue_scenario.tres~), but nothing yet uses it at runtime. The game has no sense of
+exploration, positioning before a fight, or the ability to author a locale with multiple
+encounters.
+
+This iteration adds the exploration layer that turns the game into a CRPG rather than a
+combat simulator. The design is a *unified hex map*: exploration and combat happen on the
+same grid at the same scale. In exploration mode the party moves freely in real time;
+when combat is triggered the map stays exactly where it is and the game switches into
+turn-based mode. This is the western CRPG model (Baldur's Gate, Pathfinder: Kingmaker)
+rather than a JRPG separate-battle-screen model.
+
+The steel thread: the game boots into exploration mode with the party on the hex map.
+The player clicks to move party members. Enemy tokens are visible on the map. When a
+party member enters a proximity trigger hex, initiative is rolled and combat begins on
+the same map. When all enemies are defeated, the game returns to exploration mode with
+the encounter marked complete.
+
+*IMPORTANT — do not recreate existing infrastructure:*
+- ~HexGridView~ (~presentation/hex_grid_view.gd~) is the hex renderer. It already
+  handles tokens, click events, highlights, and axial↔pixel translation. Do not replace
+  it or add a second grid renderer.
+- ~CombatantTokenView~ (~presentation/combatant_token_view.gd~) is already the per-
+  combatant token. Reuse it for both exploration and combat rendering.
+- ~LoadScenarioEncounterUseCase~ (~core/application/use_cases/load_scenario_encounter_use_case.gd~)
+  assembles party + enemy Combatants from a ScenarioResource. Use it unchanged.
+- ~ScenarioResource~, ~ScenarioEncounterEntryResource~, ~ProximityTriggerResource~,
+  ~PartyResource~ — all exist from Iteration P. Do not rewrite them.
+- ~Encounter~ (~core/combat/encounter.gd~) and ~RoundSession~ drive all combat.
+  ~Encounter.get_outcome()~ returns ~'won'~ / ~'lost'~ / ~''~. Do not modify these.
+- ~MainScene.gd~ is the composition root. New behaviour is added via new controllers
+  that MainScene wires — do not restructure MainScene's existing combat wiring.
+- ~data/characters/marigold.tres~, ~data/characters/titus.tres~,
+  ~data/enemies/skeleton.tres~, ~data/scenarios/prologue_scenario.tres~ — existing
+  assets; modify only where the brief explicitly asks for it.
+
+* P0 items — Exploration & combat handoff (MUST; never drop)
+
+** Q0-1: ScenarioSession — runtime scenario state
+
+New file: ~core/application/scenario_session.gd~
+
+Runtime object (extends RefCounted, NOT a Resource — this is live state, not saved data)
+tracking which scenario is loaded, party hex positions during exploration, and which
+encounter entries have been completed.
+
+#+BEGIN_SRC gdscript
+class_name ScenarioSession
+extends RefCounted
+
+## The loaded scenario definition.
+var scenario: ScenarioResource = null
+
+## combatant_id (String) -> HexCoord: where each party member stands on the shared map.
+## Updated on every exploration move. Seeded from encounter start positions at boot.
+var party_hex_positions: Dictionary = {}
+
+## encounter_ids that have been resolved (won or fled). Completed encounters do not
+## re-trigger when the party re-enters their trigger hexes.
+var completed_encounter_ids: Array = []
+
+func is_encounter_complete(encounter_id: String) -> bool
+func mark_encounter_complete(encounter_id: String) -> void
+
+## Returns all ScenarioEncounterEntryResource entries whose encounter_id is NOT in
+## completed_encounter_ids.
+func get_active_encounter_entries() -> Array
+#+END_SRC
+
+TESTS: ~is_encounter_complete~ returns false for unknown id; ~mark_encounter_complete~
+causes ~is_encounter_complete~ to return true for that id; ~get_active_encounter_entries~
+excludes completed entries; marking all entries complete yields an empty active list.
+
+** Q0-2: ExplorationController — party movement and trigger evaluation
+
+New file: ~core/application/exploration_controller.gd~
+
+Application-layer controller (extends RefCounted, no Node/Presentation imports).
+Owns party movement rules and proximity trigger evaluation. MainScene calls into this
+during exploration mode; it emits signals that MainScene acts on.
+
+#+BEGIN_SRC gdscript
+class_name ExplorationController
+extends RefCounted
+
+## Emitted when a party member enters a trigger hex for an active encounter.
+## Carries the encounter_id of the triggered entry.
+signal combat_triggered(encounter_id: String)
+
+## session — the live ScenarioSession; injected at construction.
+func _init(session: ScenarioSession) -> void
+
+## Attempt to move the party member identified by combatant_id to target_hex.
+## Returns true if the move is legal (target is passable, adjacent to current position).
+## Updates session.party_hex_positions on success, then calls _evaluate_triggers().
+## Returns false and makes no state change if the move is illegal.
+func move_party_member(combatant_id: String, target_hex: HexCoord) -> bool
+
+## Called internally after each successful move. Checks all active encounter entries
+## whose trigger is a ProximityTriggerResource. If target_hex is in trigger_hexes,
+## emits combat_triggered(encounter_id). At most one trigger fires per move (first match).
+func _evaluate_triggers(moved_to: HexCoord) -> void
+#+END_SRC
+
+Movement rules for this iteration:
+- A move is legal if ~target_hex~ is adjacent to the combatant's current hex (distance = 1).
+- Passability is not yet enforced (HexTileDataResource tiles are data-only for now;
+  tile-based blocking is Iteration R+ work).
+- The party member's hex in ~session.party_hex_positions~ must exist; unknown ids return false.
+
+TESTS: move to adjacent hex updates ~session.party_hex_positions~; move to non-adjacent
+hex returns false and does not update positions; moving into a trigger hex emits
+~combat_triggered~ with the correct encounter_id; moving into a trigger hex for a
+completed encounter does NOT emit ~combat_triggered~; moving into a non-trigger hex
+emits nothing.
+
+** Q0-3: Extend ProximityTriggerResource with default trigger_type
+
+Modify ~data/scenarios/proximity_trigger_resource.gd~ (already exists from Iteration P)
+to set ~trigger_type = "PROXIMITY"~ in ~_init()~ so instances created via
+~ProximityTriggerResource.new()~ are correctly typed without manual field assignment.
+
+#+BEGIN_SRC gdscript
+func _init() -> void:
+    trigger_type = "PROXIMITY"
+#+END_SRC
+
+TESTS: ~ProximityTriggerResource.new().trigger_type == "PROXIMITY"~; existing
+~prologue_scenario.tres~ loads without error after this change.
+
+** Q0-4: Exploration mode in MainScene — boot into exploration, render party tokens
+
+Extend ~MainScene.gd~ to support a two-mode state machine. The game now boots in
+~EXPLORATION~ mode, not directly into combat.
+
+Add to MainScene:
+#+BEGIN_SRC gdscript
+enum GameMode { EXPLORATION, COMBAT }
+var _game_mode: GameMode = GameMode.EXPLORATION
+var _scenario_session: ScenarioSession = null
+var _exploration_controller: ExplorationController = null
+#+END_SRC
+
+Modify ~_ready()~ so that:
+1. It loads ~prologue_scenario.tres~ via ~ResourceLoader.load()~.
+2. It constructs a ~ScenarioSession~ with that scenario.
+3. It calls a new ~_enter_exploration_mode()~ method instead of immediately entering
+   combat. The existing ~PROLOGUE_ENCOUNTER_PATH~ hardcoded boot path is preserved but
+   guarded behind a ~_game_mode == COMBAT~ check or a dev-only flag — it must not fire
+   during normal play.
+4. Party tokens are placed on the hex map at their starting positions (read from the
+   first active encounter entry's ~party_hex_positions~ in the scenario, or default
+   hex coords if none are defined).
+
+~_enter_exploration_mode()~:
+- Sets ~_game_mode = EXPLORATION~.
+- Constructs ~ExplorationController~ with ~_scenario_session~.
+- Connects ~_exploration_controller.combat_triggered~ → ~_on_combat_triggered~.
+- Renders party tokens via ~hex_grid_view.load_combatants()~ (reusing the existing
+  token rendering path).
+- Renders visible enemy tokens for all active encounter entries at their start positions
+  (so the player can see enemies before the fight — Baldur's Gate style).
+- Connects ~hex_grid_view.hex_clicked~ → ~_on_exploration_hex_clicked~.
+
+The existing combat wiring (~rewire_session~, ~TurnController~, verb bar, etc.) is NOT
+activated in exploration mode — it remains exactly as-is, only engaged when
+~_enter_combat_mode()~ is called (Q0-6).
+
+TESTS (boot-real): game boots without error; ~_game_mode == EXPLORATION~ after ~_ready()~;
+party tokens are visible on the hex map; verb bar is not active; ~_on_round_over~ is not
+connected at boot.
+
+** Q0-5: Click-to-move party member in exploration mode
+
+Add to MainScene:
+
+#+BEGIN_SRC gdscript
+## Index into _party for the currently selected party member in exploration mode.
+## -1 means no selection.
+var _selected_party_index: int = 0  ## default: first party member selected
+#+END_SRC
+
+~_on_exploration_hex_clicked(hex_coord: HexCoord)~:
+- If ~_game_mode != EXPLORATION~: return immediately (guard).
+- Calls ~_exploration_controller.move_party_member(selected_combatant_id, hex_coord)~.
+- On success: redraws party token at new position via ~hex_grid_view.move_token()~
+  (or ~load_combatants()~ refresh — whichever is the existing move API).
+- On failure (illegal move): no visible change, no error.
+
+For this iteration, the selected party member is always ~_party[0]~ (Titus). Multi-
+member selection is Iteration R+ work.
+
+TESTS: clicking an adjacent hex moves the party token there; clicking a non-adjacent
+hex has no effect; clicking in COMBAT mode does not call ExplorationController.
+
+** Q0-6: Combat handoff — _on_combat_triggered
+
+Add to MainScene:
+
+~_on_combat_triggered(encounter_id: String)~:
+1. Disconnect ~hex_grid_view.hex_clicked~ from ~_on_exploration_hex_clicked~.
+2. Look up the ~ScenarioEncounterEntryResource~ by ~encounter_id~ in
+   ~_scenario_session.scenario~.
+3. Call ~LoadScenarioEncounterUseCase.execute(_scenario_session.scenario, encounter_id)~
+   to assemble party and enemy Combatants. On failure: ~push_error~ and return —
+   exploration mode continues.
+4. Set ~_game_mode = COMBAT~.
+5. Place enemy Combatants at their start positions on the existing hex map (add their
+   tokens via ~hex_grid_view~; the party tokens are already there from exploration).
+6. Roll initiative (existing ~Encounter~ + ~RoundSession~ path).
+7. Call the existing ~rewire_session()~ / ~TurnController~ setup so the full combat
+   pipeline activates — this is the SAME wiring that currently runs in ~_ready()~.
+
+The hex map does not change scene or reset. Party tokens stay at their exploration
+positions; enemy tokens appear at their encounter start positions.
+
+TESTS: ~_on_combat_triggered~ with a valid encounter_id sets ~_game_mode == COMBAT~;
+enemy tokens appear on the map; ~TurnController~ is active; verb bar is wired.
+
+** Q0-7: Post-combat return to exploration
+
+Extend ~_on_round_over()~ (the existing round-continuation handler):
+- After checking ~encounter.get_outcome()~:
+  - ~'won'~: call ~_on_combat_won()~.
+  - ~'lost'~: existing handling (or a placeholder push_error for now — loss handling
+    is Iteration R+ work).
+  - ~''~: existing round-continuation logic, unchanged.
+
+~_on_combat_won()~:
+1. Mark the current encounter complete: ~_scenario_session.mark_encounter_complete(_active_encounter_id)~.
+2. Remove enemy tokens from ~hex_grid_view~.
+3. Disconnect combat signal subscriptions (same teardown pattern as existing rewire_session).
+4. Set ~_game_mode = EXPLORATION~.
+5. Re-connect ~hex_grid_view.hex_clicked~ → ~_on_exploration_hex_clicked~.
+6. If ~_scenario_session.get_active_encounter_entries().is_empty()~: show a simple
+   "Prologue complete" label (or push_error placeholder) — full victory screen is
+   Iteration R+.
+
+Add to MainScene:
+#+BEGIN_SRC gdscript
+## The encounter_id of the combat currently in progress. Set in _on_combat_triggered,
+## cleared in _on_combat_won.
+var _active_encounter_id: String = ""
+#+END_SRC
+
+TESTS: after ~_on_combat_won()~ is called, ~_game_mode == EXPLORATION~; the encounter
+is marked complete in ~_scenario_session~; ~get_active_encounter_entries()~ no longer
+includes it; re-entering the trigger hex does not re-trigger combat.
+
+** Q0-8: Update prologue_scenario.tres — add proximity trigger hexes
+
+Modify ~data/scenarios/prologue_scenario.tres~ so the prologue encounter entry has a
+~ProximityTriggerResource~ with ~trigger_hexes~ defined.
+
+The trigger hexes should be the hexes immediately surrounding the skeleton's starting
+position in ~prologue_encounter.tres~ (within 2 hexes of the enemy start position).
+Read the enemy start positions from ~prologue_encounter.tres~ and define trigger hexes
+as the ring at distance 2 from that position.
+
+This is the only .tres file that changes. ~prologue_encounter.tres~ itself is NOT
+modified.
+
+TESTS: ~ResourceLoader.load("res://data/scenarios/prologue_scenario.tres")~ returns a
+ScenarioResource whose first entry has a ~ProximityTriggerResource~ with at least one
+entry in ~trigger_hexes~.
+
+** Q0-9: End-to-end steel thread integration test
+
+New file: ~tests/boot/test_exploration_to_combat_handoff.gd~
+
+Boot-real integration test (requires Godot headless, same pattern as existing boot tests):
+1. Scene loads → ~_game_mode == EXPLORATION~.
+2. Party token for Titus is on the hex map at a known start hex.
+3. Simulate moving Titus step by step toward a trigger hex.
+4. On entering the trigger hex, ~_game_mode == COMBAT~.
+5. Enemy tokens are on the map.
+6. ~TurnController~ is active (round has started).
+7. Simulate all enemies being defeated (or directly call ~_on_combat_won()~).
+8. ~_game_mode == EXPLORATION~ again.
+9. The prologue encounter is in ~_scenario_session.completed_encounter_ids~.
+10. Re-entering the trigger hex does NOT switch to COMBAT.
+
+* Out of scope for this iteration
+
+- Pathfinding / multi-hex movement paths. Click-to-move is one hex at a time
+  (adjacent only). A* pathfinding is Iteration R+ work.
+- Party member selection UI (selecting who to move). ~_party[0]~ is always selected.
+  Group selection and individual character switching is Iteration R+.
+- Enemy patrol / idle movement in exploration mode. Enemies stand at their start
+  positions until combat begins.
+- Tile-based passability enforcement. ~HexTileDataResource.passable~ exists but is not
+  yet checked during exploration movement.
+- Trap and hazard entities. New entity types on the map are Iteration R+.
+- Dialogue triggers (~DialogueTriggerResource~). Data schema exists; evaluation is
+  Iteration R+.
+- Loss / defeat handling. ~encounter.get_outcome() == 'lost'~ gets a push_error
+  placeholder only.
+- Full victory / scenario-complete screen. A placeholder label is sufficient.
+- Fog of war.
+- Camera scrolling / map larger than the existing GRID_RADIUS of 5.
+- Isometric rendering (rendering concern, deferred, pending artist collaboration).
+- Saving scenario session state to disk (ScenarioSession is runtime-only this iteration).
+- Multiple scenarios / scenario selection screen.
+
+* Follow-on (post-sprint)
+
+- Iteration R: pathfinding (A* on hex grid), multi-member party selection, tile
+  passability enforcement, enemy patrol movement in exploration, trap/hazard entities,
+  loss/defeat handling, camera scroll for larger maps.
+- Author additional encounter entries in prologue_scenario.tres once the pipeline is
+  proven (multiple fights in one locale).
+- Dialogue trigger evaluation (DialogueTriggerResource) once NPC/dialogue system exists.
+- Isometric rendering upgrade (pending artist collaboration, no mechanical changes needed).
+- Persist ScenarioSession to disk for save/load.

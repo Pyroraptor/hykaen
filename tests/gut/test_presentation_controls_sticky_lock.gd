@@ -73,12 +73,27 @@ class FakeRoundSession:
 ## fixture) so this suite's Strike-lock coverage exercises the real
 ## VerbBarView -> `_verb_registry` -> resolve_action_use_case flow, never a
 ## mock/stub standing in for any of them.
+## FEAT-316 (resolves DEF-001/PR-001): MainScene now boots into
+## GameMode.EXPLORATION with the legacy combat pipeline (round_session,
+## verb_bar_view configuration, etc.) gated behind a real
+## _on_combat_triggered() handoff -- see MainScene.gd's own FEAT-316 doc. This
+## suite drives Strike/verb-bar locking directly against the real verb bar/
+## registry, so this helper now also drives that SAME real handoff (mirrors
+## tests/boot/test_first_cast_firebolt.gd's established `_boot_main_scene()`
+## convention), landing the instance in GameMode.COMBAT with a live
+## round_session before returning.
 func _boot_main_scene_with_seed(seed_value: int):
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = seed_value
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -91,7 +106,7 @@ func _boot_main_scene_with_seed(seed_value: int):
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_verb_bar_strike_stays_locked_even_after_a_stray_reconfigure_via_real_main_scene() -> void:
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	assert_true(
@@ -177,7 +192,7 @@ func test_end_turn_control_stays_locked_even_after_a_stray_reconfigure() -> void
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_is_locked_true_on_verb_bar_and_end_turn_control_after_encounter_result_event_via_real_main_scene_and_stays_true_through_reconfigure() -> void:
-	var instance = _boot_main_scene_with_seed(42)
+	var instance = await _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
 	assert_false(instance.verb_bar_view.is_locked())

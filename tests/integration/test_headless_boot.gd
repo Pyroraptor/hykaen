@@ -71,7 +71,18 @@ const SeedPolicyClass = preload("res://infrastructure/seed_policy.gd")
 ## (see MainScene.gd's `print("INFO: Hykaen MainScene booted...")` call) --
 ## used below to guard against a degenerate "silently empty/no-op boot"
 ## trivially satisfying "zero ERROR/WARNING output".
-const MAIN_SCENE_BOOT_MARKER: String = "Hykaen MainScene booted into the prologue encounter"
+##
+## FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): a real,
+## non-test launch (this file's bare `godot --headless` subprocess never
+## drives a combat trigger) now boots into GameMode.EXPLORATION with
+## round_session left null -- MainScene.gd's _ready() prints the
+## EXPLORATION-mode boot line ("...booted into EXPLORATION mode -- no active
+## round_session yet (FEAT-316)") in that branch instead of the old
+## "...booted into the prologue encounter (interactive)..." line, which now
+## only ever prints once a real combat trigger fires. EXPLORATION mode IS
+## this feature's new "interactive, input-awaiting boot state" -- update the
+## marker to match.
+const MAIN_SCENE_BOOT_MARKER: String = "Hykaen MainScene booted into EXPLORATION mode"
 
 ## The ONE pre-existing, documented, out-of-scope warning shape this suite
 ## allowlists (see file-level design note above) -- the specific

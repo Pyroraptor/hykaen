@@ -111,12 +111,28 @@ const _MAX_TURN_EXCHANGES: int = 30
 ## _ready() so the resulting boot is reproducible (ADR-004's in-process
 ## composition-root contract). No manual setup beyond this one injected
 ## property — MainScene.gd's own _ready() performs every other wiring step.
+## FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): MainScene now
+## boots into EXPLORATION mode with the legacy combat pipeline (round_session,
+## $VerbBarView/$SelectionOverlay configuration, turn_controller signal
+## wiring) gated behind a real _on_combat_triggered() handoff -- see
+## MainScene.gd's own FEAT-316 doc. This suite drives the whole post-
+## remediation steel thread directly against `round_session`/
+## `strike_action_control`/`end_turn_control`, so
+## `_boot_main_scene_with_seed()` now also drives the SAME real handoff,
+## landing the instance in GameMode.COMBAT with a live round_session before
+## returning.
 func _boot_main_scene_with_seed(seed_value: int):
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn (the real project.godot run/main_scene target) must load as a PackedScene")
 	var instance = packed.instantiate()
 	instance.seed_override = seed_value
 	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	instance._on_combat_triggered("prologue")
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	return instance
 
 
@@ -127,7 +143,7 @@ func _boot_main_scene_with_seed(seed_value: int):
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_boots_real_main_scene_with_injected_seed_and_reaches_interactive_state() -> void:
-	var instance = _boot_main_scene_with_seed(SEED)
+	var instance = await _boot_main_scene_with_seed(SEED)
 	await get_tree().process_frame
 
 	assert_eq(
@@ -166,7 +182,7 @@ func test_boots_real_main_scene_with_injected_seed_and_reaches_interactive_state
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_full_journey_strike_pass_ai_turn_and_result_screen_stays_locked_through_stray_reconfigure() -> void:
-	var instance = _boot_main_scene_with_seed(SEED)
+	var instance = await _boot_main_scene_with_seed(SEED)
 	await get_tree().process_frame
 
 	# ── Boot-time render assertions (hex grid + event log) ──────────────────
@@ -314,7 +330,7 @@ func test_full_journey_strike_pass_ai_turn_and_result_screen_stays_locked_throug
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_hex_grid_view_resyncs_token_position_after_step_and_stride() -> void:
-	var instance = _boot_main_scene_with_seed(SEED)
+	var instance = await _boot_main_scene_with_seed(SEED)
 	await get_tree().process_frame
 
 	assert_false(
@@ -386,7 +402,7 @@ func test_hex_grid_view_resyncs_token_position_after_step_and_stride() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_ranged_strike_within_reach_succeeds_and_beyond_reach_rejected_through_real_pipeline() -> void:
-	var instance = _boot_main_scene_with_seed(SEED)
+	var instance = await _boot_main_scene_with_seed(SEED)
 	await get_tree().process_frame
 
 	const RANGE_HEXES: int = 8  # mirrors shortbow's short range, per tests/unit/core/application/test_resolve_action_ranged_reach.gd
