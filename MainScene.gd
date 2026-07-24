@@ -306,6 +306,22 @@ const CombineQueueBuildSessionClass = preload("res://presentation/combine_queue_
 ## complete before/after mapping).
 const CombineTargetingSessionClass = preload("res://presentation/combine_targeting_session.gd")
 
+## RoundFlowControllerClass — FEAT-006 (US-006 / FR-007): the extracted,
+## independently-testable turn-order / round-lifecycle controller
+## (presentation/round_flow_controller.gd). This composition root
+## constructs/`setup(deps)`s a REAL instance (wired against the SAME
+## `run_round_use_case` and `_party`/`_enemies` — the CombatSessionFactory.
+## build() output, FEAT-003 — this file already drives) and connects to its
+## own `round_over()` signal for UI-cleanup-only observability. See that
+## file's own extensive doc for exactly why this composition root's
+## PRE-EXISTING, pinned `rewire_session()`/`_on_round_over()` pair (below)
+## remains the sole live driver of the real encounter's round-flow — this
+## class's own `rewire_session()` is exercised for real only by its own
+## dedicated GUT suite (tests/gut/test_round_flow_controller.gd), against a
+## fake run_round_use_case/turn_controller, so wiring it here never risks a
+## second, parallel `RunRoundUseCase.begin_round()` call site.
+const RoundFlowControllerClass = preload("res://presentation/round_flow_controller.gd")
+
 ## TargetingPortClass — core/application/ports/targeting_port.gd's abstract
 ## base (FEAT-283), extended BY PATH below (_FirstLegalTargetingPort) —
 ## mirrors this project's established preload-typing convention for
@@ -857,6 +873,20 @@ var combine_targeting_session = null
 ## for verification" precedent.
 var combine_queue_build_session = null
 
+## round_flow_controller — FEAT-006 (US-006 / FR-007): the composition-root-
+## owned RoundFlowController instance (presentation/round_flow_controller.gd).
+## `.new()`d and `.setup(deps)`-wired once in _ready(), against the SAME
+## `run_round_use_case` and `_party`/`_enemies` this composition root already
+## drives. This composition root connects to its `round_over()` signal
+## (`_on_round_flow_controller_round_over()` below) for UI cleanup ONLY —
+## see that handler's own doc, and round_flow_controller.gd's own file-level
+## doc, for why this file's PRE-EXISTING `rewire_session()`/`_on_round_over()`
+## pair (below) remains the sole live driver of the real encounter's
+## round-flow. Exposed as a field so tests can verify it directly, mirroring
+## `combine_queue_build_session`'s/`combine_targeting_session`'s identical
+## "constructed here, exposed for verification" precedent.
+var round_flow_controller = RoundFlowControllerClass.new()
+
 ## _party / _enemies — the live combatant Dictionaries built at boot,
 ## mutated in place by every resolved Strike throughout the interactive
 ## session (Dictionaries are reference types in GDScript). Kept as fields so
@@ -1227,6 +1257,36 @@ func _ready() -> void:
 		"show_spell_picker_fn": Callable(self, "_show_spell_picker"),
 	})
 	combine_targeting_session.targeting_complete.connect(_on_combine_targeting_complete)
+
+	# ── FEAT-006 (US-006 / FR-007): construct/wire the extracted
+	# RoundFlowController (presentation/round_flow_controller.gd) against the
+	# SAME `run_round_use_case` and `_party`/`_enemies` (CombatSessionFactory.
+	# build()'s own output, FEAT-003) this composition root already drives —
+	# see round_flow_controller.gd's own file-level doc for why this
+	# composition root's PRE-EXISTING `rewire_session()`/`_on_round_over()`
+	# pair (below) remains the sole live driver of the real encounter's
+	# round-flow (never this controller's own rewire_session(), which would
+	# otherwise call RunRoundUseCase.begin_round() a second, parallel time
+	# per round). Deliberately OMITS the "turn_controller" deps key -- setup()
+	# would otherwise connect its own internal handler to
+	# turn_controller.round_over immediately, regressing the pinned FEAT-316/
+	# DEF-001 acceptance criterion that turn_controller.round_over must have
+	# ZERO connections at boot (tests/boot/test_combat_pipeline_gated_by_game_mode.gd).
+	# Connected to round_flow_controller's own round_over() signal for UI
+	# cleanup ONLY (_on_round_flow_controller_round_over() below) -- no
+	# game-state mutation. This file's OWN _on_round_over() (below) calls
+	# round_flow_controller.notify_round_concluded() at the very end of its
+	# existing work, so round_over() still fires for real, live round
+	# conclusions -- see that method's own doc. ─────────────────────────────
+	round_flow_controller.setup({
+		"run_round_use_case": run_round_use_case,
+		"end_turn_control": end_turn_control,
+		"verb_bar_view": verb_bar_view,
+		"party_fn": Callable(self, "_current_party"),
+		"enemies_fn": Callable(self, "_current_enemies"),
+		"round_number": ROUND_NUMBER,
+	})
+	round_flow_controller.round_over.connect(_on_round_flow_controller_round_over)
 
 	# ── FEAT-008 / US-008 (FR-003, ADR-002): wire the generic Layer 2
 	# SelectionOverlay (presentation/selection_overlay.gd) over the SAME
@@ -2647,6 +2707,19 @@ func _living_enemy_reactors() -> Array:
 	return _living_combatants(_enemies)
 
 
+## _current_party() / _current_enemies() -> Array — FEAT-006 (US-006 /
+## FR-007): the `party_fn`/`enemies_fn` Callables round_flow_controller is
+## `setup()` with in _ready() above. Read `_party`/`_enemies` FRESH on every
+## call (never a snapshot) -- mirrors every other extracted controller's
+## closures in this file (e.g. `_verb_bar_strike_availability()`'s own doc).
+func _current_party() -> Array:
+	return _party
+
+
+func _current_enemies() -> Array:
+	return _enemies
+
+
 func _current_turn_order():
 	return encounter.get_turn_order() if encounter != null else null
 
@@ -2764,6 +2837,32 @@ func _on_round_over() -> void:
 		# combat screen is left exactly as a decided "lost" round leaves it
 		# today, with zero regression to that pre-existing behavior.
 		push_error("MainScene: 'lost' outcome handling is not yet implemented (FEAT-009 placeholder)")
+
+	# ── FEAT-006 (US-006 / FR-007): relay this round's conclusion to the
+	# extracted RoundFlowController via its safe, additive
+	# notify_round_concluded() helper -- a PURE signal relay (never calls
+	# begin_round()/mutates round_session of its own accord, see that
+	# method's own doc), so round_flow_controller.round_over() fires for this
+	# real, live round conclusion too, for whatever UI-cleanup-only
+	# subscriber is wired to it (_on_round_flow_controller_round_over()
+	# below). ────────────────────────────────────────────────────────────────
+	round_flow_controller.notify_round_concluded()
+
+
+## _on_round_flow_controller_round_over() -> void — FEAT-006 (US-006 /
+## FR-007): connected to the extracted RoundFlowController's own
+## `round_over()` signal (_ready() above). UI CLEANUP ONLY — never mutates
+## `ROUND_NUMBER`/`round_session`/`_game_mode`/`_active_encounter_id`/
+## `scenario_session`, and never calls `rewire_session()` or begins a new
+## round via the injected RunRoundUseCase — every one of those remains the
+## sole responsibility of this file's own pre-existing, pinned `_on_round_over()`
+## above (see round_flow_controller.gd's own file-level doc for why). Simply
+## re-gates the Layer 1 verb bar's availability one more time, mirroring
+## `_on_round_over()`'s own identical (idempotent) refresh_availability()
+## call immediately above -- harmless to invoke twice.
+func _on_round_flow_controller_round_over() -> void:
+	if verb_bar_view != null:
+		verb_bar_view.refresh_availability()
 
 
 ## _on_combat_won() -> void — FEAT-009 (US-008 / FR-007): the post-combat
