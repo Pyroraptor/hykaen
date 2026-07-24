@@ -1,0 +1,443 @@
+#+TITLE: Iteration R — MainScene Decompose
+#+PROPERTY: sprint 26
+#+PROPERTY: version 0.3.0
+
+* Overview
+
+MainScene.gd has grown to 3,678 lines — a factor of ~2× its post-Iteration-K
+size of 1,915 lines. Every new feature iteration has added logic directly into
+MainScene because it was the convenient host. This iteration extracts that logic
+into dedicated controllers so that MainScene returns to being a thin composition
+root: it wires controllers together, routes signals, and nothing else.
+
+Target: MainScene.gd ≤ 1,000 lines after all extractions. FEAT-009 is the
+hard gate — if MainScene.gd exceeds 1,000 lines, the iteration is NOT complete.
+
+* !! CRITICAL CONSTRAINT — MainScene is the composition root
+
+  #+BEGIN_QUOTE
+  MainScene.gd MUST NOT contain feature logic.
+  It exists only to:
+    1. Instantiate and configure dedicated controller objects
+    2. Wire signals and callbacks between controllers
+    3. Pass node/resource references to controllers on construction
+
+  Every item in this iteration MOVES code OUT of MainScene into a
+  dedicated controller file. Do not add new logic to MainScene.
+  Do not leave shim duplicates in MainScene after extraction.
+  #+END_QUOTE
+
+This constraint applies to ALL future iteration briefs as well. Each feature
+iteration brief must include this constraint in its own scope section.
+
+* DO NOT RECREATE — existing infrastructure
+
+The following files already exist. Do not re-implement or duplicate them:
+
+  Presentation layer (res://presentation/):
+  - action_controller.gd
+  - cancel_controller.gd
+  - combatant_token_view.gd
+  - combine_action_controller.gd
+  - end_turn_action_controller.gd
+  - hex_grid_view.gd
+  - movement_input_controller.gd
+  - reaction_controller.gd
+  - step_action_controller.gd
+  - stride_action_controller.gd
+  - strike_action_controller.gd
+  - turn_controller.gd
+  - turn_presentation_controller.gd
+  - verb_bar_view.gd
+  - verbs/resolve_spell_controller.gd
+  - verbs/spell_action_controller.gd
+
+  Application layer (res://core/application/):
+  - exploration_controller.gd
+  - scenario_session.gd
+  - round_session.gd
+  - run_round_use_case.gd
+  - combine/multi_phase_targeting_controller.gd  ← domain-layer targeting loop;
+    the presentation-layer CombineTargetingSession (FEAT-004) WRAPS this,
+    it does NOT replace it
+
+* Features
+
+** FEAT-001: Extract inner adapter classes to presentation/adapters/
+
+   Source: MainScene.gd lines 3537–3678 (5 inner classes, ~141 lines)
+
+   Move each inner class to its own file under a new directory
+   =res://presentation/adapters/=. Remove the inner class definitions from
+   MainScene.gd. Update all usages in MainScene.gd to preload the new files.
+
+   | Inner class name                  | Destination file                                     |
+   |-----------------------------------+------------------------------------------------------|
+   | _CoreCastSpellAdapter             | presentation/adapters/core_cast_spell_adapter.gd     |
+   | _GdVerbRegistryPort               | presentation/adapters/gd_verb_registry_port.gd       |
+   | _GdCombineActionEconomyPort       | presentation/adapters/gd_combine_action_economy_port.gd |
+   | _CombineTargetingRegistryProxy    | presentation/adapters/combine_targeting_registry_proxy.gd |
+   | _CombineBuildRegistryProxy        | presentation/adapters/combine_build_registry_proxy.gd |
+
+   Each file becomes a top-level class (no inner class wrapper). The leading
+   underscore is dropped from the class name (e.g., _CoreCastSpellAdapter →
+   CoreCastSpellAdapter). All existing method signatures and logic are
+   preserved exactly.
+
+   Completion criteria:
+   - 5 new files exist under presentation/adapters/
+   - MainScene.gd has no inner class definitions
+   - All GUT tests pass (exit 0)
+   - MainScene.gd line count is lower than before this item
+
+** FEAT-002: Extract SpellPickerPanelController
+
+   Source: MainScene.gd lines 2838–2891 (4 functions, ~54 lines)
+   Destination: res://presentation/spell_picker_panel_controller.gd
+
+   Functions to extract:
+   - _setup_spell_picker_panel() → renamed: setup(panel_node: Control)
+   - _show_spell_picker(options: Array) → renamed: show(options: Array, on_selected: Callable)
+   - _on_spell_option_pressed(option: Dictionary) → private, internal to controller
+   - _hide_spell_picker() → renamed: hide()
+
+   Public API of SpellPickerPanelController:
+   #+BEGIN_SRC gdscript
+   class_name SpellPickerPanelController
+
+   # Call once from MainScene._ready() to bind the UI node
+   func setup(panel_node: Control) -> void
+
+   # Show the picker; on_selected is called with the chosen option dict
+   func show(options: Array, on_selected: Callable) -> void
+
+   # Hide the picker (called after selection or on cancel)
+   func hide() -> void
+   #+END_SRC
+
+   MainScene:
+   - Declares: var _spell_picker: SpellPickerPanelController
+   - In _ready(): _spell_picker = SpellPickerPanelController.new(); _spell_picker.setup($SpellPickerPanel)
+   - Replaces all _show_spell_picker / _hide_spell_picker calls with _spell_picker.show() / _spell_picker.hide()
+
+   Completion criteria:
+   - File exists at res://presentation/spell_picker_panel_controller.gd
+   - MainScene contains no spell-picker logic (only _spell_picker var + wiring)
+   - All GUT tests pass (exit 0)
+
+** FEAT-003: Extract CombineQueueBuildSession
+
+   Source: MainScene.gd lines 2677–2837 (queue-build state machine, ~160 lines)
+   Destination: res://presentation/combine_queue_build_session.gd
+
+   Move the following out of MainScene:
+   - All _combine_build_* instance variables (6 vars)
+   - _start_combine_queue_build(actor)
+   - _enter_combine_build_pick()
+   - _on_combine_build_option_chosen(option)
+   - _advance_combine_build()
+   - _abort_combine_build()
+   - _reset_combine_build_state()
+
+   Public API of CombineQueueBuildSession:
+   #+BEGIN_SRC gdscript
+   class_name CombineQueueBuildSession
+
+   signal queue_built(queue)   # emitted when all slots filled successfully
+   signal aborted()            # emitted when user cancels mid-build
+
+   func setup(deps: Dictionary) -> void  # inject needed refs (verb_bar_view, etc.)
+   func start(actor) -> void
+   func abort() -> void
+   #+END_SRC
+
+   MainScene:
+   - Declares: var _combine_build_session: CombineQueueBuildSession
+   - In _ready(): constructs and wires queue_built / aborted signals
+   - Removes all _combine_build_* vars and their usages
+
+   Completion criteria:
+   - File exists at res://presentation/combine_queue_build_session.gd
+   - MainScene contains no _combine_build_* vars or functions
+   - All GUT tests pass (exit 0)
+
+** FEAT-004: Extract CombineTargetingSession
+
+   Source: MainScene.gd lines 2399–2676 (N-phase targeting state machine, ~277 lines)
+   Destination: res://presentation/combine_targeting_session.gd
+
+   IMPORTANT: core/application/combine/multi_phase_targeting_controller.gd (316 lines)
+   is the APPLICATION-layer targeting loop — it is the domain-traversal engine.
+   CombineTargetingSession is the PRESENTATION-layer wrapper that:
+   - Owns the UI state (_combine_targeting_* vars)
+   - Receives user input (hex clicks, target selections)
+   - Delegates to MultiPhaseTargetingController for domain evaluation
+   It must WRAP, not re-implement, MultiPhaseTargetingController.
+
+   Move the following out of MainScene:
+   - All _combine_targeting_* instance variables (7 vars)
+   - start_combine_targeting(queue_entries, actor, context, combine_queue)
+   - _enter_combine_targeting_phase()
+   - _on_combine_targeting_value_chosen(value)
+   - _advance_combine_targeting_phase()
+   - _finish_combine_targeting()
+   - _abort_combine_targeting()
+   - _reset_combine_targeting_state()
+   - _combine_verb_id_of(entry) and _combine_order_index_of(entry) helpers
+
+   Public API of CombineTargetingSession:
+   #+BEGIN_SRC gdscript
+   class_name CombineTargetingSession
+
+   signal targeting_complete(queue)  # all phases resolved; queue ready to execute
+   signal aborted()                  # user or system cancelled targeting
+
+   func setup(deps: Dictionary) -> void  # inject refs (combine_targeting_registry, hex_grid_view, etc.)
+   func start(queue_entries: Array, actor, context: int, combine_queue) -> void
+   func abort() -> void
+   #+END_SRC
+
+   MainScene:
+   - Declares: var _combine_targeting: CombineTargetingSession
+   - In _ready(): constructs and wires targeting_complete / aborted signals
+   - Removes all _combine_targeting_* vars and function definitions
+
+   Completion criteria:
+   - File exists at res://presentation/combine_targeting_session.gd
+   - multi_phase_targeting_controller.gd is NOT modified (it is only used, not replaced)
+   - MainScene contains no _combine_targeting_* vars or functions
+   - All GUT tests pass (exit 0)
+
+** FEAT-005: Extract ExplorationModeController
+
+   Source: MainScene.gd lines 1304–1608 (~304 lines)
+   Destination: res://presentation/exploration_mode_controller.gd
+
+   Functions to extract (preserving all logic exactly):
+   - _boot_exploration_mode(hex_combatants: Array)       → renamed: boot(hex_combatants)
+   - _on_combat_triggered(encounter_id: String)          → private, connected to ExplorationController signal
+   - _on_exploration_hex_clicked(hex_coord)              → private, connected to hex_grid_view signal
+   - load_encounter_from_scenario(scenario, encounter_id: String) → bool   → keep same name (called externally)
+
+   Public API of ExplorationModeController:
+   #+BEGIN_SRC gdscript
+   class_name ExplorationModeController
+
+   signal combat_triggered(encounter_id: String)     # fires when proximity trigger activates
+   signal combat_won_return_to_exploration()         # fires after combat is won (see FEAT-008)
+
+   func setup(deps: Dictionary) -> void  # inject: scenario_session, exploration_controller,
+                                         # hex_grid_view, party array, scenario resource, game_mode setter
+   func boot(hex_combatants: Array) -> void
+   func load_encounter_from_scenario(scenario, encounter_id: String) -> bool
+   #+END_SRC
+
+   MainScene:
+   - Declares: var _exploration: ExplorationModeController
+   - In _ready(): constructs, calls setup(), connects combat_triggered to MainScene._on_combat_triggered()
+   - Calls _exploration.boot() where _boot_exploration_mode() was called
+   - _on_combat_triggered in MainScene becomes a thin router to combat wiring (the heavy exploration work is now inside the controller)
+
+   Completion criteria:
+   - File exists at res://presentation/exploration_mode_controller.gd
+   - MainScene.load_encounter_from_scenario() delegates to _exploration.load_encounter_from_scenario()
+   - All GUT tests pass (exit 0)
+
+** FEAT-006: Extract VerbDispatchController
+
+   Source: MainScene.gd lines 1825–3055 (~1,230 lines)
+   Destination: res://presentation/verb_dispatch_controller.gd
+
+   NOTE: This is the largest single item — approximately 1,230 source lines.
+   Implement it as one well-bounded class. Do not split across multiple files.
+   The agent should read the source block in full before writing the output.
+
+   Functions to extract (all verb-bar wiring, verb registry, and helpers):
+   - _build_verb_registry() → VerbBarRegistryAdapterClass
+   - All _verb_bar_* functions (lines 1850–2398 approximately)
+   - _turn_presentation()
+   - _current_round_number() -> int
+   - _reaction()
+   - _verb_deps() -> Dictionary
+   - _energy_pool_for(caster)
+   - _controller(verb_id: String)
+
+   These functions are tightly coupled (shims call _verb_deps() and _controller()
+   internally) — they must all move to the same file.
+
+   Public API of VerbDispatchController:
+   #+BEGIN_SRC gdscript
+   class_name VerbDispatchController
+
+   # Call once; returns the fully configured registry for wiring into VerbBarView
+   func build_verb_registry(deps: Dictionary) -> VerbBarRegistryAdapterClass
+
+   # Called by RoundFlowController after rewire to refresh the verb bar state
+   func refresh(round_session) -> void
+   #+END_SRC
+
+   The deps dictionary that _verb_deps() currently assembles is built inside
+   VerbDispatchController and populated from refs injected via setup(). MainScene
+   no longer assembles _verb_deps() itself.
+
+   MainScene:
+   - Declares: var _verb_dispatch: VerbDispatchController
+   - In _ready(): constructs, calls setup() with all needed refs
+   - Calls _verb_dispatch.build_verb_registry() where _build_verb_registry() was called
+   - Removes all _verb_bar_* function definitions and _verb_registry,
+     _verb_deps_cache, _combine_controller_registry vars
+
+   Completion criteria:
+   - File exists at res://presentation/verb_dispatch_controller.gd
+   - MainScene contains no _verb_bar_* functions, no _verb_deps_cache var, no _build_verb_registry() def
+   - All GUT tests pass (exit 0)
+
+** FEAT-007: Extract RoundFlowController
+
+   Source: MainScene.gd lines 1609–1824 + lines 3056–3530 (scattered, ~530 lines)
+   Destination: res://presentation/round_flow_controller.gd
+
+   Functions to extract:
+   Lines 1609–1824 block:
+   - rewire_session()
+   - _unhandled_input(event: InputEvent)
+   - _compute_boot_centering_offset(hex_combatants: Array) -> Vector2
+   - _grid_extent_corner_hexes() -> Array
+   - _presentation_event_subscribers() -> Array
+
+   Lines 3056–3530 block:
+   - _living_enemy_reactors() -> Array
+   - _current_turn_order()
+   - _on_active_actor_changed(combatant)
+   - _on_round_over()
+   - _on_end_turn_control_turn_ended(_result: Dictionary)
+   - _after_successful_move()
+   - _other_living_combatants(combatant) -> Array
+   - _find_combatant_by_id(combatant_id: String)
+   - _query_selectable_step_hexes(combatant_id: String) -> Array
+   - _living_combatants(combatants: Array) -> Array
+   - _order_candidate_reactors_by_initiative(candidates: Array) -> Array
+   - _assert_candidate_reactors_ordering(ordered_candidates, turn_order) -> bool
+   - _refresh_off_guard_conditions()
+
+   Public API of RoundFlowController:
+   #+BEGIN_SRC gdscript
+   class_name RoundFlowController
+
+   signal round_over()       # emitted when the round ends; MainScene connects to clean up UI
+
+   func setup(deps: Dictionary) -> void  # inject: round_session_holder, verb_dispatch, hex_grid_view,
+                                         # event_log_view, status_panel_view, turn_controller,
+                                         # end_turn_control, run_round_use_case, party, enemies
+   func rewire_session() -> void         # public; called from MainScene after combat boot
+   #+END_SRC
+
+   The signal handlers (_on_active_actor_changed, _on_round_over, etc.) connect
+   to round_session / run_round_use_case signals internally inside RoundFlowController.
+
+   MainScene:
+   - Declares: var _round_flow: RoundFlowController
+   - In _ready(): constructs, calls setup(), calls _round_flow.rewire_session()
+   - Removes the listed function definitions
+
+   Completion criteria:
+   - File exists at res://presentation/round_flow_controller.gd
+   - MainScene calls _round_flow.rewire_session() (not its own rewire_session)
+   - All GUT tests pass (exit 0)
+
+** FEAT-008: Extract CombatSessionFactory
+
+   Source: MainScene.gd lines 914–1303 (the heavy _ready() initialization block, ~389 lines)
+   Also: _build_party_combatant() and _build_enemy_combatant() at lines 3511–3519 (~8 lines)
+   Destination: res://core/application/combat_session_factory.gd
+
+   The current _ready() function (starting at line 914) does all of:
+   1. Load character/enemy resources
+   2. Build Combatant dicts for each party member and enemy
+   3. Create the EncounterResource / load scenario encounter data
+   4. Instantiate and configure RoundSession
+   5. Build ViewModels for the hex grid
+
+   Extract all of steps 1–5 into CombatSessionFactory. The factory takes a
+   configuration dict and returns a result dict.
+
+   Public API of CombatSessionFactory:
+   #+BEGIN_SRC gdscript
+   class_name CombatSessionFactory
+
+   # deps contains: character_paths array, enemy_paths array,
+   # hex_coord assignments, encounter_resource / scenario refs
+   func build(deps: Dictionary) -> Dictionary:
+     # Returns:
+     # {
+     #   "round_session": RoundSession,
+     #   "party": Array,        # Combatant dicts
+     #   "enemies": Array,      # Combatant dicts
+     #   "hex_combatants": Array,  # for grid initialization
+     # }
+   #+END_SRC
+
+   _build_party_combatant() and _build_enemy_combatant() become private helpers
+   inside CombatSessionFactory.
+
+   MainScene._ready() after this item:
+   - Calls _combat_factory.build({...}) to get the session data
+   - Stores the returned refs as instance vars
+   - Wires signals to _round_flow, _exploration, etc.
+   - Should be substantially shorter (~100–150 lines max)
+
+   Completion criteria:
+   - File exists at res://core/application/combat_session_factory.gd
+   - MainScene._ready() is ≤ 150 lines
+   - _build_party_combatant and _build_enemy_combatant do not exist in MainScene
+   - All GUT tests pass (exit 0)
+
+** FEAT-009: Line count gate + cleanup pass
+
+   This item verifies the decompose is complete.
+
+   Hard gate — FAIL if either check fails:
+   1. Run: wc -l res://MainScene.gd (or equivalent path)
+      Result MUST be ≤ 1000. If it exceeds 1000, identify and extract
+      remaining blocks before marking complete.
+   2. Run all GUT tests. All must pass (exit 0).
+
+   If MainScene.gd is still > 1000 lines after FEAT-001 through FEAT-008,
+   audit what remains and extract additional blocks as needed within this item.
+   Common residue to check:
+   - Any remaining _verb_bar_* or _combine_* function definitions
+   - Any block of > 30 consecutive lines of feature logic (not wiring)
+   - Any query helper still defined directly in MainScene
+
+   Additional checks:
+   - No circular preloads: run `grep -r "preload" MainScene.gd | grep MainScene`
+     should return nothing
+   - No func definitions that belong to extracted controllers remain in MainScene
+   - The MainScene file is comprehensible in isolation: a reader can understand
+     what it does (wire up controllers) without reading controller internals
+
+   Completion criteria:
+   - wc -l MainScene.gd ≤ 1000
+   - GUT: all tests pass (exit 0)
+   - No circular preloads
+   - git status clean (all changes committed)
+
+* Follow-on: FEAT-Q-316 retry
+
+   FEAT-316 from Iteration Q ("Gate legacy combat-pipeline wiring behind
+   _game_mode == COMBAT") timed out because MainScene was too complex. After
+   this decompose, retry that feature. It should now be tractable because
+   MainScene._ready() is shorter and the game-mode check point is well-defined.
+
+* Deferred
+
+  The following were considered and explicitly excluded from this iteration:
+  - Pathfinding / multi-hex movement (Iteration S)
+  - Party member selection UI (Iteration S)
+  - Enemy patrol AI in exploration mode (Iteration S)
+  - Tile passability enforcement (Iteration S)
+  - Traps / hazards (Iteration S)
+  - Equipment slots (prerequisite for talents, later iteration)
+  - Talent tree data + implementation (later iteration)
+  - Enemy AI sophistication (dedicated iteration before vignette ships)
+  - Isometric rendering (rendering concern, deferred)
