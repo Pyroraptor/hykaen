@@ -192,24 +192,19 @@ const CombatantClass                   = preload("res://core/domain/combatant.gd
 const CombatSessionFactoryClass        = preload("res://core/application/combat_session_factory.gd")
 const GdResourceLoaderAdapterClass     = preload("res://presentation/adapters/gd_resource_loader_adapter.gd")
 
-## ScenarioSessionClass / ExplorationControllerClass — FEAT-006 (US-005 /
-## FR-004): core/application/scenario_session.gd's ScenarioSession
-## (FEAT-003) and core/application/exploration_controller.gd's
-## ExplorationController (FEAT-005), the two Application-layer collaborators
-## this composition root wires so the game boots into an exploration-mode
-## state instead of the pre-existing hardcoded combat setup below. Preloaded
-## alongside every other use case/adapter this composition root wires
-## (ADR-006).
-const ScenarioSessionClass             = preload("res://core/application/scenario_session.gd")
-const ExplorationControllerClass       = preload("res://core/application/exploration_controller.gd")
-
-## LoadScenarioEncounterUseCaseClass — FEAT-010 (US-009 / FR-008, NFR-001):
-## core/application/use_cases/load_scenario_encounter_use_case.gd's
-## LoadScenarioEncounterUseCase (FEAT-008/FEAT-009), driven by the new
-## load_encounter_from_scenario() method below. Preloaded alongside every
-## other use case/adapter this composition root wires (ADR-006) — this is
-## the ONLY new const this feature adds to MainScene.gd.
-const LoadScenarioEncounterUseCaseClass = preload("res://core/application/use_cases/load_scenario_encounter_use_case.gd")
+## ExplorationModeControllerClass — FEAT-009 (US-008 / FR-005): presentation/
+## exploration_mode_controller.gd's ExplorationModeController, the extracted
+## controller that now owns exploration-mode BOOT (constructing
+## scenario_session/exploration_controller from PROLOGUE_SCENARIO_PATH,
+## FEAT-006) and scenario-encounter loading (FEAT-010's
+## LoadScenarioEncounterUseCase-driven load_encounter_from_scenario()).
+## `scenario_session`/`exploration_controller` below are thin get/set proxies
+## onto `_exploration`'s own identically-named fields (mirrors `round_session`'s
+## pre-existing get/set facade over `_round_session_holder`) so every
+## pre-existing call site/test that reads or reassigns those two fields
+## keeps working unchanged. Preloaded alongside every other use case/adapter
+## this composition root wires (ADR-006).
+const ExplorationModeControllerClass   = preload("res://presentation/exploration_mode_controller.gd")
 const ViewModelBuilderClass            = preload("res://presentation/view_model_builder.gd")
 const RoundSessionHolderClass          = preload("res://infrastructure/round_session_holder.gd")
 const TurnPresentationControllerClass  = preload("res://presentation/turn_presentation_controller.gd")
@@ -557,19 +552,41 @@ var _game_mode: GameMode = GameMode.EXPLORATION
 ## feature's `_on_combat_won()` once the encounter concludes.
 var _active_encounter_id: String = ""
 
+## _exploration — the ExplorationModeController (presentation/
+## exploration_mode_controller.gd, FEAT-009) this composition root owns.
+## Constructed eagerly (not only in _ready()) so `load_encounter_from_
+## scenario()` below works even against a bare `MainSceneScript.new()`
+## instance that never boots (mirrors `round_flow_controller`'s identical
+## eager-construction precedent).
+var _exploration = ExplorationModeControllerClass.new()
+
 ## scenario_session — the ScenarioSession (core/application/scenario_session.gd,
-## FEAT-003) this composition root constructs at boot from
-## PROLOGUE_SCENARIO_PATH (FEAT-006 / US-005). Null only if the scenario
+## FEAT-003) `_exploration` constructs at boot from PROLOGUE_SCENARIO_PATH
+## (FEAT-006 / US-005). A thin get/set proxy onto `_exploration.
+## scenario_session` (mirrors `round_session`'s pre-existing get/set facade
+## over `_round_session_holder`) -- every pre-existing call site keeps
+## reading/observing the exact same real instance, just now constructed by
+## `_exploration.boot()` instead of inline here. Null only if the scenario
 ## resource itself fails to load (push_error'd, see _boot_exploration_mode()).
-var scenario_session = null
+var scenario_session:
+	get:
+		return _exploration.scenario_session
+	set(value):
+		_exploration.scenario_session = value
 
 ## exploration_controller — the ExplorationController (core/application/
-## exploration_controller.gd, FEAT-005) this composition root constructs
-## around `scenario_session` at boot (FEAT-006 / US-005), with its
-## `combat_triggered` signal wired to `_on_combat_triggered()` below (a stub
-## at this stage -- the real trigger-driven combat handoff is a LATER
-## feature's scope).
-var exploration_controller = null
+## exploration_controller.gd, FEAT-005) `_exploration` constructs around
+## `scenario_session` at boot (FEAT-006 / US-005), with its `combat_triggered`
+## signal wired to `_on_combat_triggered()` below. A thin get/set proxy onto
+## `_exploration.exploration_controller` (mirrors `scenario_session` above)
+## -- settable so a GUT test may substitute a spy after boot (tests/boot/
+## test_exploration_to_combat_handoff_trigger.gd, tests/boot/
+## test_exploration_click_to_move.gd's established convention).
+var exploration_controller:
+	get:
+		return _exploration.exploration_controller
+	set(value):
+		_exploration.exploration_controller = value
 
 ## encounter_repository — the repository adapter instantiated at the
 ## composition root (ADR-006).
@@ -1413,58 +1430,45 @@ func _ready() -> void:
 
 
 ## _boot_exploration_mode(hex_combatants) -> void — FEAT-006 (US-005 / FR-004,
-## RISK-001).
+## RISK-001); FEAT-009 (US-008 / FR-005) extracted the actual construction
+## work below into `_exploration` (presentation/exploration_mode_controller.gd's
+## ExplorationModeController).
 ##
 ## Constructs this composition root's EXPLORATION-mode state:
 ##   - `_game_mode` is (re)confirmed as GameMode.EXPLORATION (already its
 ##     field default -- restated here for clarity/observability).
-##   - `scenario_session` is a fresh ScenarioSession (FEAT-003) with its
-##     `.scenario` set from PROLOGUE_SCENARIO_PATH, and
-##     `.party_hex_positions` seeded combatant_id -> HexCoord for every party
-##     member (the scenario's own PartyResource.character_resource_paths
-##     count, ADR-002 -- the SAME party-authority convention
-##     LoadScenarioEncounterUseCase already establishes) from `hex_combatants`
-##     (already loaded by _ready() above from PROLOGUE_ENCOUNTER_PATH -- the
-##     exact resource the scenario's sole entry wraps, so no second/forked
-##     load).
-##   - `exploration_controller` is a fresh ExplorationController (FEAT-005)
-##     wrapping `scenario_session`, with its `combat_triggered` signal wired
-##     to `_on_combat_triggered()` below -- a STUB at this stage; the real
-##     trigger-driven combat handoff is a LATER feature's scope.
-##   - `hex_grid_view.hex_clicked` is wired to `_on_exploration_hex_clicked()`
-##     below -- also a STUB at this stage (interactive exploration movement
-##     is a LATER feature's scope). This is purely additive: `hex_clicked`
-##     already has an independent subscriber (presentation/selection_overlay.gd's
-##     own `_on_hex_clicked()`, wired via `selection_overlay.configure()`
-##     elsewhere in _ready()) -- both fire independently on every click, and
-##     neither depends on the other.
+##   - `_exploration.setup(deps)` injects `hex_grid_view`, PROLOGUE_SCENARIO_PATH,
+##     and the two Callables `_exploration.boot()` wires signals to:
+##     Callable(self, "_on_exploration_hex_clicked") / Callable(self,
+##     "_on_combat_triggered") -- so the REAL, booted composition root's own
+##     signal-connection assertions (tests/boot/test_boot_exploration_mode.gd
+##     et al.) keep observing `hex_grid_view.hex_clicked`/`exploration_
+##     controller.combat_triggered` connected to THESE MainScene methods,
+##     exactly as before this feature.
+##   - `_exploration.boot(hex_combatants)` constructs `scenario_session`
+##     (`.scenario` set from PROLOGUE_SCENARIO_PATH, `.party_hex_positions`
+##     seeded combatant_id -> HexCoord for every party member from
+##     `hex_combatants` -- already loaded by _ready() above from
+##     PROLOGUE_ENCOUNTER_PATH, so no second/forked load) and
+##     `exploration_controller` wrapping it, both exposed back on this node
+##     via the `scenario_session`/`exploration_controller` get/set proxies
+##     declared above.
 ##
-## A missing/malformed scenario resource push_error()s and leaves
-## `scenario_session.scenario` null (ScenarioSession's own documented
-## null-scenario contract already fails closed/open appropriately at every
-## call site -- see that file's doc) rather than aborting boot: EXPLORATION
-## mode still exists in a degenerate (no scenario) state instead of crashing.
+## A missing/malformed scenario resource push_error()s (inside `_exploration.
+## boot()`) and leaves `scenario_session.scenario` null (ScenarioSession's
+## own documented null-scenario contract already fails closed/open
+## appropriately at every call site -- see that file's doc) rather than
+## aborting boot: EXPLORATION mode still exists in a degenerate (no
+## scenario) state instead of crashing.
 func _boot_exploration_mode(hex_combatants: Array) -> void:
 	_game_mode = GameMode.EXPLORATION
-	scenario_session = ScenarioSessionClass.new()
-
-	var scenario_resource = ResourceLoader.load(PROLOGUE_SCENARIO_PATH)
-	if scenario_resource == null:
-		push_error("MainScene: failed to load " + PROLOGUE_SCENARIO_PATH)
-	else:
-		scenario_session.scenario = scenario_resource
-		var party_count: int = 0
-		if scenario_resource.party != null:
-			party_count = scenario_resource.party.character_resource_paths.size()
-		for i in range(min(party_count, hex_combatants.size())):
-			var party_hex_combatant = hex_combatants[i]
-			scenario_session.party_hex_positions[party_hex_combatant.combatant_id] = party_hex_combatant.hex_coord
-
-	exploration_controller = ExplorationControllerClass.new(scenario_session)
-	exploration_controller.combat_triggered.connect(_on_combat_triggered)
-
-	if hex_grid_view != null:
-		hex_grid_view.hex_clicked.connect(_on_exploration_hex_clicked)
+	_exploration.setup({
+		"hex_grid_view": hex_grid_view,
+		"scenario_path": PROLOGUE_SCENARIO_PATH,
+		"on_hex_clicked": Callable(self, "_on_exploration_hex_clicked"),
+		"on_combat_triggered": Callable(self, "_on_combat_triggered"),
+	})
+	_exploration.boot(hex_combatants)
 
 
 ## _on_combat_triggered(encounter_id) -> void — FEAT-008 (US-007 / FR-006):
@@ -1642,49 +1646,37 @@ func _on_exploration_hex_clicked(hex_coord) -> void:
 ## tests/unit/test_main_scene_interactive_wiring.gd) is a blocking
 ## pre-check proving this diff introduced zero edits to that method.
 ##
-## On success (result.ok == true): lifts the use case's
-## party_combatants/enemy_combatants Dictionaries onto live Combatant
-## instances via CombatantClass.from_dict() — mirroring EXACTLY how
-## _ready() above lifts _build_party_combatant()/_build_enemy_combatant()'s
-## own Dictionaries — assigns them into this composition root's `_party`/
-## `_enemies` fields (the SAME fields _ready() populates), constructs and
-## initialize()s a fresh EncounterClass around them with the SAME
-## EncounterClass.new()/initialize() call _ready() makes (reused verbatim,
-## ADR-006 — no second/forked encounter-construction path), and returns
-## true.
+## FEAT-009 (US-008 / FR-005) moved the actual use-case call + Combatant-
+## lifting + EncounterClass construction ABOVE (ADR-006: no duplicated
+## algorithm) into `_exploration.load_encounter_from_scenario()`
+## (presentation/exploration_mode_controller.gd) — this method is now a
+## THIN delegator: it forwards to `_exploration.load_encounter_from_
+## scenario()` (passing `resolved_seed` through, since the RNG/Encounter
+## construction step lives there now) and, on success ONLY, copies the
+## controller's freshly-assembled `party`/`enemies`/`encounter` back onto
+## this composition root's own `_party`/`_enemies`/`encounter` fields (the
+## SAME fields _ready() populates) so every pre-existing call site keeps
+## reading them unchanged.
 ##
-## On failure (result.ok == false): push_error()s the use case's
-## error_code and returns false WITHOUT mutating `_party`/`_enemies`/
-## `encounter` at all — a caller may safely retry or fall back to the
-## legacy _ready() path (design notes' api_contracts section; this
-## feature's own "no partial mutation on failure" test_criterion).
+## On success (result.ok == true): `_party`/`_enemies` end up containing the
+## live Combatant instances `_exploration` built via CombatantClass.
+## from_dict(), and `encounter` ends up the freshly initialize()d
+## EncounterClass instance it constructed — returns true.
+##
+## On failure (result.ok == false): `_exploration.load_encounter_from_
+## scenario()` has already push_error()'d the use case's error_code and
+## left its own `party`/`enemies`/`encounter` fields untouched; this method
+## mirrors that by never touching `_party`/`_enemies`/`encounter` either — a
+## caller may safely retry or fall back to the legacy _ready() path (design
+## notes' api_contracts section; this feature's own "no partial mutation on
+## failure" test_criterion).
 func load_encounter_from_scenario(scenario, encounter_id: String) -> bool:
-	var use_case := LoadScenarioEncounterUseCaseClass.new()
-	var result: Dictionary = use_case.execute(scenario, encounter_id)
-
-	if not result.get("ok", false):
-		push_error(
-			"MainScene.load_encounter_from_scenario: failed to load encounter_id '%s' (%s)"
-			% [encounter_id, result.get("error_code", "UNKNOWN_ERROR")]
-		)
-		return false
-
-	var new_party: Array = []
-	for party_combatant_dict in result.get("party_combatants", []):
-		new_party.append(CombatantClass.from_dict(party_combatant_dict))
-
-	var new_enemies: Array = []
-	for enemy_combatant_dict in result.get("enemy_combatants", []):
-		new_enemies.append(CombatantClass.from_dict(enemy_combatant_dict))
-
-	_party = new_party
-	_enemies = new_enemies
-
-	var rng := RNGClass.new(resolved_seed)
-	encounter = EncounterClass.new(_party, _enemies, rng)
-	encounter.initialize()
-
-	return true
+	var ok: bool = _exploration.load_encounter_from_scenario(scenario, encounter_id, resolved_seed)
+	if ok:
+		_party = _exploration.party
+		_enemies = _exploration.enemies
+		encounter = _exploration.encounter
+	return ok
 
 
 ## resolve_hex_choice(legal_hexes) -> HexCoord | null — FEAT-001 (US-004,
