@@ -247,6 +247,24 @@ const CoreCombineActionControllerClass = preload("res://core/controllers/combine
 const CoreStrideActionControllerClass = preload("res://core/controllers/stride_action_controller.gd")
 const CoreStrikeActionControllerClass = preload("res://core/controllers/strike_action_controller.gd")
 
+## CoreCastSpellAdapterClass / GdVerbRegistryPortClass /
+## GdCombineActionEconomyPortClass / CombineTargetingRegistryProxyClass /
+## CombineBuildRegistryProxyClass — FEAT-002 (US-002; FR-001; ADR-002): the
+## five inner adapter/port classes formerly defined inline inside this file
+## (`_CoreCastSpellAdapter` / `_GdVerbRegistryPort` /
+## `_GdCombineActionEconomyPort` / `_CombineTargetingRegistryProxy` /
+## `_CombineBuildRegistryProxy`) now live as standalone top-level classes
+## under presentation/adapters/ — extracted VERBATIM (same method bodies/
+## signatures), preload()ed here instead of defined inline, per the design
+## notes' "adapters are concrete GDScript classes ... in
+## presentation/adapters/" architecture section. This is the foundational
+## dependency-inversion seam US-003/004/005/007 build on.
+const CoreCastSpellAdapterClass = preload("res://presentation/adapters/core_cast_spell_adapter.gd")
+const GdVerbRegistryPortClass = preload("res://presentation/adapters/gd_verb_registry_port.gd")
+const GdCombineActionEconomyPortClass = preload("res://presentation/adapters/gd_combine_action_economy_port.gd")
+const CombineTargetingRegistryProxyClass = preload("res://presentation/adapters/combine_targeting_registry_proxy.gd")
+const CombineBuildRegistryProxyClass = preload("res://presentation/adapters/combine_build_registry_proxy.gd")
+
 ## CombineQueueClass / VerbQueueEntryClass / BuildVerbQueueUseCaseClass /
 ## ConfirmQueueUseCaseClass / CancelCombineUseCaseClass — FEAT-296
 ## (DEF-NEW-001): the domain/application-layer collaborators the LIVE
@@ -776,8 +794,8 @@ var _core_combine_action_controller = null
 var _combine_controller_registry: Dictionary = {}
 
 ## _combine_targeting_registry_proxy — FEAT-007: the thin presentation-layer
-## adapter (see the private _CombineTargetingRegistryProxy class at the
-## bottom of this file) this composition root hands to
+## adapter (FEAT-002: see presentation/adapters/combine_targeting_registry_proxy.gd's
+## CombineTargetingRegistryProxy class) this composition root hands to
 ## `selection_overlay.configure()` for the DURATION of an interactive Combine
 ## targeting phase only, standing in for `_verb_registry`. It exposes the
 ## exact SAME duck-typed `execute(verb_id, value) -> Dictionary` contract
@@ -854,8 +872,8 @@ var _combine_build_context: int = 0
 var _combine_build_pending_option: Dictionary = {}
 
 ## _combine_build_registry_proxy — FEAT-296: the thin presentation-layer
-## adapter (see the private _CombineBuildRegistryProxy class near the
-## bottom of this file) this composition root hands to
+## adapter (FEAT-002: see presentation/adapters/combine_build_registry_proxy.gd's
+## CombineBuildRegistryProxy class) this composition root hands to
 ## `selection_overlay.configure()` for the DURATION of an interactive
 ## Combine QUEUE-BUILD pick only, mirroring
 ## `_combine_targeting_registry_proxy`'s own identical role for the
@@ -1163,7 +1181,8 @@ func _ready() -> void:
 	# (`multi_phase_targeting_controller`, wired just below) perform real
 	# movement + Strike resolution, not just validate-then-charge.
 	# FEAT-298 (resolves DEF-NEW-003): `action_economy_port` wires a real
-	# ActionEconomyPort adapter (`_GdCombineActionEconomyPort`, below) so
+	# ActionEconomyPort adapter (`GdCombineActionEconomyPortClass`, FEAT-002:
+	# presentation/adapters/gd_combine_action_economy_port.gd) so
 	# `_core_combine_action_controller`'s own `_charge_action_economy()`
 	# (core/controllers/combine_action_controller.gd) actually charges the
 	# documented 1-action cost (FR-007) alongside the 1-Stamina cost it
@@ -1176,8 +1195,8 @@ func _ready() -> void:
 	# ActionEconomy instance up front, so it stays correct across
 	# `rewire_session()`/round-boundary ActionEconomy instance swaps.
 	_core_combine_action_controller = CoreCombineActionControllerClass.new({
-		"verb_registry_port": _GdVerbRegistryPort.new(),
-		"action_economy_port": _GdCombineActionEconomyPort.new(self),
+		"verb_registry_port": GdVerbRegistryPortClass.new(),
+		"action_economy_port": GdCombineActionEconomyPortClass.new(self),
 		"controller_for": Callable(self, "_controller"),
 	})
 	# FEAT-007 (US-007; NFR-001): built as its own named field
@@ -1195,7 +1214,7 @@ func _ready() -> void:
 		"STRIKE": CoreStrikeActionControllerClass.new({
 			"candidate_targets_fn": Callable(self, "_living_enemy_reactors"),
 		}),
-		"CAST_SPELL": _CoreCastSpellAdapter.new({
+		"CAST_SPELL": CoreCastSpellAdapterClass.new({
 			"get_ctrl_fn": func(): return _controller("CAST_SPELL"),
 		}),
 	}
@@ -1203,11 +1222,11 @@ func _ready() -> void:
 		"controller_registry": _combine_controller_registry,
 		"combine_action_controller": _core_combine_action_controller,
 	})
-	_combine_targeting_registry_proxy = _CombineTargetingRegistryProxy.new(self)
+	_combine_targeting_registry_proxy = CombineTargetingRegistryProxyClass.new(self)
 	# FEAT-296 (DEF-NEW-001): the SAME "thin, self-only proxy" pattern
 	# `_combine_targeting_registry_proxy` above establishes, one phase
 	# earlier -- see `_combine_build_registry_proxy`'s own field doc.
-	_combine_build_registry_proxy = _CombineBuildRegistryProxy.new(self)
+	_combine_build_registry_proxy = CombineBuildRegistryProxyClass.new(self)
 
 	# ── FEAT-008 / US-008 (FR-003, ADR-002): wire the generic Layer 2
 	# SelectionOverlay (presentation/selection_overlay.gd) over the SAME
@@ -3515,164 +3534,3 @@ func _build_party_combatant(character_path: String, hex_coord, combatant_id: Str
 func _build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String = "") -> Dictionary:
 	return _combatant_factory.build_enemy_combatant(enemy_path, hex_coord, combatant_id)
 
-
-## _GdVerbRegistryPort — minimal VerbRegistryPort adapter (FEAT-007): returns
-## the loaded STRIDE and STRIKE VerbResource .tres files as the available verb
-## pool for any actor/context. Sufficient for the v0 Charge steel thread; a
-## full actor/context-aware implementation is a later sprint's scope.
-## _CoreCastSpellAdapter — thin VerbControllerPort adapter that enables
-## CAST_SPELL as a combination sub-action in the MPTC targeting loop.
-##
-## Offer phase (no selected_hex in context): delegates to the presentation
-## SpellActionController's 0-arg enter_selection() to get the actor's
-## available spells as candidate_options. SelectionOverlay then handles the
-## two-step spell-picker → target flow internally as a single activate() call.
-##
-## Resolution phase (selected_hex present in context): the value is the
-## {"option": chosen_spell, "target": target_id} dict SelectionOverlay's
-## _resolve() builds after both spell and target are chosen. Stored verbatim
-## in meta["chosen_target"] so CombineActionController._targeting_payload_for()
-## returns it unchanged to execute() — the exact OPTION_TARGET shape
-## SpellActionController.execute() already expects.
-class _CoreCastSpellAdapter:
-	extends "res://core/application/combine/verb_controller_port.gd"
-
-	const SelectionDescriptorClass = preload("res://core/domain/combine/selection_descriptor.gd")
-
-	var _get_ctrl_fn: Callable
-
-	func _init(deps: Dictionary = {}) -> void:
-		_get_ctrl_fn = deps.get("get_ctrl_fn", Callable())
-
-	func enter_selection(context: Dictionary) -> Object:
-		var order_index: int = context.get("order_index", 0)
-		var selected = context.get("selected_hex")
-		if selected != null:
-			return SelectionDescriptorClass.new(true, [], [], [], order_index,
-				{"chosen_target": selected})
-		if not _get_ctrl_fn.is_valid():
-			return _sd_failure(order_index)
-		var pres_ctrl = _get_ctrl_fn.call()
-		if pres_ctrl == null:
-			return _sd_failure(order_index)
-		var pres_result = pres_ctrl.enter_selection()
-		var candidate_options: Array = pres_result.get("candidate_options", [])
-		if candidate_options.is_empty():
-			return _sd_failure(order_index)
-		return SelectionDescriptorClass.new(true, candidate_options, [], [], order_index, {})
-
-	func _sd_failure(order_index: int) -> Object:
-		return SelectionDescriptorClass.new(false, [], [], [], order_index,
-			{"error_code": "NO_LEGAL_OPTIONS"})
-
-
-class _GdVerbRegistryPort:
-	extends VerbRegistryPort
-
-	func get_available_verbs(_actor, _context) -> Array:
-		var verbs: Array = []
-		var stride = load("res://data/verbs/stride.tres")
-		if stride != null:
-			verbs.append(stride)
-		var strike = load("res://data/verbs/strike.tres")
-		if strike != null:
-			verbs.append(strike)
-		var cast_spell = load("res://data/verbs/cast_spell.tres")
-		if cast_spell != null:
-			verbs.append(cast_spell)
-		return verbs
-
-
-## _GdCombineActionEconomyPort — FEAT-298 (resolves DEF-NEW-003): minimal
-## ActionEconomyPort adapter (core/application/ports/action_economy_port.gd)
-## for `_core_combine_action_controller`'s `_charge_action_economy()`
-## (core/controllers/combine_action_controller.gd). Never captures a single
-## ActionEconomy instance at construction time — instead, every call
-## resolves `_owner._verb_bar_current_action_economy()` (the SAME
-## `round_session.current_action_economy()` read every other verb's own
-## availability gate already uses) lazily, so the port stays correct
-## across `rewire_session()`/round-boundary ActionEconomy instance swaps,
-## mirroring `_GdVerbRegistryPort`'s own "thin, lazily-resolving adapter"
-## convention immediately above. When no live ActionEconomy is available
-## (e.g. before the first round is wired), degrades safely: spend_action()/
-## spend_reaction() report failure without mutating anything, is_spent()
-## reports true (nothing left to spend), get_remaining() reports 0 — never
-## a crash.
-class _GdCombineActionEconomyPort:
-	extends ActionEconomyPort
-
-	var _owner  # MainScene — untyped to avoid a cyclic self-reference.
-
-	func _init(owner) -> void:
-		_owner = owner
-
-	func spend_action(action_metadata: Dictionary) -> Dictionary:
-		var economy = _owner._verb_bar_current_action_economy()
-		if economy == null:
-			return {"success": false, "ok": false}
-		return economy.spend_action(action_metadata)
-
-	func spend_reaction() -> Dictionary:
-		var economy = _owner._verb_bar_current_action_economy()
-		if economy == null:
-			return {"success": false, "ok": false}
-		return economy.spend_reaction()
-
-	func is_spent() -> bool:
-		var economy = _owner._verb_bar_current_action_economy()
-		if economy == null:
-			return true
-		return economy.is_spent()
-
-	func get_remaining() -> int:
-		var economy = _owner._verb_bar_current_action_economy()
-		if economy == null:
-			return 0
-		return economy.get_remaining()
-
-
-## _CombineTargetingRegistryProxy — FEAT-007 (US-007; NFR-001): the thin
-## presentation-layer adapter `_combine_targeting_registry_proxy` is an
-## instance of (see that field's own doc, and the "interactive Combine
-## sub-action targeting" section doc above _on_verb_bar_selection_entered()/
-## _on_selection_overlay_resolved()). Exposes the EXACT SAME duck-typed
-## `execute(verb_id, value) -> Dictionary` contract presentation/
-## selection_overlay.gd's own `_registry` doc requires (`_verb_registry`'s
-## `_VerbBarRegistryAdapter` satisfies the identical shape) — selection_overlay.gd
-## itself is COMPLETELY UNCHANGED by this feature. Delegates every call
-## straight back to the owning MainScene's own
-## _on_combine_targeting_value_chosen(), never resolving a real
-## ActionController itself.
-class _CombineTargetingRegistryProxy:
-	extends RefCounted
-
-	var _main_scene
-
-	func _init(main_scene) -> void:
-		_main_scene = main_scene
-
-	func execute(verb_id: String, value) -> Dictionary:
-		return _main_scene._on_combine_targeting_value_chosen(verb_id, value)
-
-
-## _CombineBuildRegistryProxy — FEAT-296 (DEF-NEW-001): the thin
-## presentation-layer adapter `_combine_build_registry_proxy` is an
-## instance of (see that field's own doc, and the "interactive Combine
-## QUEUE-BUILD pick loop" section doc above _combine_order_index_of()).
-## Exposes the EXACT SAME duck-typed `execute(verb_id, value) -> Dictionary`
-## contract presentation/selection_overlay.gd's own `_registry` doc
-## requires -- mirrors `_CombineTargetingRegistryProxy`'s identical role,
-## one phase earlier in the flow. selection_overlay.gd itself remains
-## COMPLETELY UNCHANGED. Delegates every call straight back to the owning
-## MainScene's own _on_combine_build_option_chosen(), never resolving a
-## real ActionController itself.
-class _CombineBuildRegistryProxy:
-	extends RefCounted
-
-	var _main_scene
-
-	func _init(main_scene) -> void:
-		_main_scene = main_scene
-
-	func execute(verb_id: String, value) -> Dictionary:
-		return _main_scene._on_combine_build_option_chosen(verb_id, value)
