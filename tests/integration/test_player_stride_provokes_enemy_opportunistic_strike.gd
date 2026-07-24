@@ -25,7 +25,7 @@ extends GutTest
 ## tests/e2e/test_reactions_fully_live.gd's established conventions exactly:
 ## boots the REAL res://MainScene.tscn composition root (G2 — never a
 ## hand-wired double), then drives the SAME real, composition-root-bound
-## STRIDE entry point (`instance._verb_bar_stride_execute()` — "the SOLE
+## STRIDE entry point (`instance.verb_dispatch_controller._verb_bar_stride_execute()` — "the SOLE
 ## Stride entry point", per that method's own doc) a live player click
 ## resolves through, against the prologue fixture's OWN real adjacency
 ## (Titus and the Skeleton start adjacent — no fixture repositioning
@@ -146,7 +146,7 @@ func test_player_stride_past_live_adjacent_skeleton_provokes_and_resolves_opport
 	# ── Drive the SAME real, composition-root-bound Stride entry point a
 	# live player click resolves through -- "the SOLE Stride entry point"
 	# (MainScene.gd's own _verb_bar_stride_execute() doc). ──────────────────
-	var stride_result: Dictionary = await instance._verb_bar_stride_execute(destination)
+	var stride_result: Dictionary = await instance.verb_dispatch_controller._verb_bar_stride_execute(destination)
 
 	# The criterion itself: the window was genuinely OFFERED, the REAL
 	# AIReactionPolicy genuinely CHOSE opportunistic_strike, and the effect

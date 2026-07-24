@@ -22,7 +22,7 @@ extends GutTest
 ##
 ## This suite drives the SAME "Cast a Spell" steel thread
 ## tests/e2e/test_steel_thread_cast_a_spell.gd exercises — entry point
-## (`instance._controller("CAST_SPELL")` / `instance._verb_bar_cast_spell_execute()`)
+## (`instance._controller("CAST_SPELL")` / `instance.verb_dispatch_controller._verb_bar_cast_spell_execute()`)
 ## through Fire Bolt (2 actions, spanning a TURN boundary, provoking a
 ## non-lethal Opportunistic Strike) and Channel (1 action, self-resolving) —
 ## to the SAME exit points (combat log, hp, energy pool) — with ONE
@@ -246,7 +246,7 @@ func test_fire_bolt_and_channel_cast_end_to_end_through_real_composition_root_ze
 	# driven through the SAME production `_verb_bar_cast_spell_execute()`
 	# shim a live player click resolves through -- `instance._controllers`
 	# is NEVER written to anywhere in this file. ────────────────────────────
-	var begin_result: Dictionary = instance._verb_bar_cast_spell_execute("fire_bolt")
+	var begin_result: Dictionary = instance.verb_dispatch_controller._verb_bar_cast_spell_execute("fire_bolt")
 	assert_true(begin_result.get("success", false), "the first CAST_SPELL action (select verb + pay energy) must succeed")
 	assert_true(marigold.is_casting(), "Fire Bolt costs 2 actions -- Marigold must now be mid-cast")
 	assert_eq(marigold.casting_state.get("remaining_actions"), 1, "the first action must decrement remaining_actions from 2 to 1")
@@ -299,7 +299,7 @@ func test_fire_bolt_and_channel_cast_end_to_end_through_real_composition_root_ze
 	# -> real CombatLogPort emission -> casting_state cleared. ──
 	var _captured_continue := {"done": false, "result": null}
 	var _runner_continue := func():
-		var r = await instance._verb_bar_cast_spell_execute()
+		var r = await instance.verb_dispatch_controller._verb_bar_cast_spell_execute()
 		_captured_continue["done"] = true
 		_captured_continue["result"] = r
 	_runner_continue.call()
@@ -353,7 +353,7 @@ func test_fire_bolt_and_channel_cast_end_to_end_through_real_composition_root_ze
 	var pool_before = instance.round_session.get_energy_pool(marigold)
 	var energy_before: int = pool_before.current
 
-	var channel_result: Dictionary = instance._verb_bar_cast_spell_execute("channel")
+	var channel_result: Dictionary = instance.verb_dispatch_controller._verb_bar_cast_spell_execute("channel")
 	assert_true(channel_result.get("success", false), "the Channel CAST_SPELL action (select verb + pay energy + resolve, all in ONE action) must succeed")
 	assert_false(marigold.is_casting(), "casting_state must be cleared immediately after Channel resolves")
 	assert_true(marigold.casting_state.is_empty())
@@ -415,7 +415,7 @@ func _run_full_scenario() -> Dictionary:
 	marigold.hp_current = SURVIVABLE_HP
 	marigold.hp_max = SURVIVABLE_HP
 
-	var begin_result: Dictionary = instance._verb_bar_cast_spell_execute("fire_bolt")
+	var begin_result: Dictionary = instance.verb_dispatch_controller._verb_bar_cast_spell_execute("fire_bolt")
 	assert_true(begin_result.get("success", false), "the first Fire Bolt CAST_SPELL action must succeed")
 	var reaction_result: Dictionary = begin_result.get("reaction_result", {})
 	var reactions: Array = reaction_result.get("reactions", [])
@@ -428,7 +428,7 @@ func _run_full_scenario() -> Dictionary:
 
 	var _captured_c := {"done": false, "result": null}
 	var _runner_c := func():
-		var r = await instance._verb_bar_cast_spell_execute()
+		var r = await instance.verb_dispatch_controller._verb_bar_cast_spell_execute()
 		_captured_c["done"] = true
 		_captured_c["result"] = r
 	_runner_c.call()
@@ -443,7 +443,7 @@ func _run_full_scenario() -> Dictionary:
 	_advance_to_marigolds_turn(instance)
 	assert_eq(instance.round_session.current_actor_entity(), marigold, "it must now be Marigold's NEXT live turn for the Channel leg")
 
-	var channel_result: Dictionary = instance._verb_bar_cast_spell_execute("channel")
+	var channel_result: Dictionary = instance.verb_dispatch_controller._verb_bar_cast_spell_execute("channel")
 	assert_true(channel_result.get("success", false), "the Channel CAST_SPELL action must succeed")
 	assert_false(marigold.is_casting(), "Channel must have resolved and cleared casting_state")
 

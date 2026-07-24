@@ -14,7 +14,7 @@ extends GutTest
 ## only that the CODE compiled against a hand-wired test double, never that
 ## the real composition root could drive spell resolution on its own (PR-001).
 ## This suite drives `instance._controller("CAST_SPELL")` /
-## `instance._verb_bar_cast_spell_execute()` directly, with NO
+## `instance.verb_dispatch_controller._verb_bar_cast_spell_execute()` directly, with NO
 ## `_verb_deps().duplicate()` / `instance._controllers["CAST_SPELL"] = ...`
 ## override anywhere in this file, to prove that gap is closed.
 ##
@@ -85,40 +85,50 @@ func _advance_to_marigolds_turn(instance) -> void:
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Criterion 1: _verb_deps_cache for CAST_SPELL contains non-null
+# Criterion 1: _verb_deps() for CAST_SPELL contains non-null
 # targeting_port/resolution_port/combat_log_port/energy_pool_fn keys
 # (previously missing/absent).
+#
+# FEAT-007 (US-005 / FR-006): MainScene._verb_deps() no longer memoizes its
+# result into a `_verb_deps_cache` field -- that field was removed as part
+# of extracting VerbDispatchController (presentation/
+# verb_dispatch_controller.gd), which is now the sole owner of verb-bar
+# dispatch/registry-building. `_verb_deps()` itself, `_controller(verb_id)`,
+# and `_controllers` remain on MainScene unchanged (VerbDispatchController
+# reaches them via an injected `controller_for` Callable, ADR-002 -- no
+# second/forked controller-resolution path), so every collaborator this
+# test asserts on below is still the SAME real, live adapter instance; only
+# the no-longer-existing memoized-Dictionary-identity assertion is dropped.
 # ══════════════════════════════════════════════════════════════════════════
 
-func test_verb_deps_cache_contains_the_four_previously_missing_cast_spell_keys() -> void:
+func test_verb_deps_contains_the_four_previously_missing_cast_spell_keys() -> void:
 	var instance = await _boot_main_scene()
 	await get_tree().process_frame
 
 	var deps: Dictionary = instance._verb_deps()
-	assert_same(instance._verb_deps_cache, deps, "_verb_deps() must return the memoized _verb_deps_cache instance")
 
-	assert_true(deps.has("targeting_port"), "_verb_deps_cache must carry a 'targeting_port' key")
+	assert_true(deps.has("targeting_port"), "_verb_deps() must carry a 'targeting_port' key")
 	assert_not_null(deps.get("targeting_port"), "'targeting_port' must be non-null -- a real TargetingPort adapter")
 	assert_true(
 		deps.get("targeting_port").has_method("request_single_target"),
 		"'targeting_port' must be a real TargetingPort-shaped adapter"
 	)
 
-	assert_true(deps.has("resolution_port"), "_verb_deps_cache must carry a 'resolution_port' key")
+	assert_true(deps.has("resolution_port"), "_verb_deps() must carry a 'resolution_port' key")
 	assert_not_null(deps.get("resolution_port"), "'resolution_port' must be non-null -- a real ResolutionPort adapter")
 	assert_true(
 		deps.get("resolution_port") is ResolutionPortClass.ResolutionRulesAdapter,
 		"'resolution_port' must be a real ResolutionRulesAdapter wrapping the composition root's shared RandomPort"
 	)
 
-	assert_true(deps.has("combat_log_port"), "_verb_deps_cache must carry a 'combat_log_port' key")
+	assert_true(deps.has("combat_log_port"), "_verb_deps() must carry a 'combat_log_port' key")
 	assert_not_null(deps.get("combat_log_port"), "'combat_log_port' must be non-null -- a real CombatLogPort adapter")
 	assert_true(
 		deps.get("combat_log_port") is CombatLogPanelAdapterClass,
 		"'combat_log_port' must be a real CombatLogPanelAdapter"
 	)
 
-	assert_true(deps.has("energy_pool_fn"), "_verb_deps_cache must carry an 'energy_pool_fn' key")
+	assert_true(deps.has("energy_pool_fn"), "_verb_deps() must carry an 'energy_pool_fn' key")
 	var energy_pool_fn = deps.get("energy_pool_fn")
 	assert_true(energy_pool_fn is Callable and energy_pool_fn.is_valid(), "'energy_pool_fn' must be a valid, real Callable")
 
@@ -177,7 +187,7 @@ func test_full_channel_cast_resolves_end_to_end_through_the_real_composition_roo
 	# / instance._controllers["CAST_SPELL"] is NEVER overridden anywhere in
 	# this test; every collaborator comes from the real composition root's
 	# _verb_deps() dict alone. ─────────────────────────────────────────────
-	var cast_result: Dictionary = instance._verb_bar_cast_spell_execute("channel")
+	var cast_result: Dictionary = instance.verb_dispatch_controller._verb_bar_cast_spell_execute("channel")
 	assert_true(cast_result.get("success", false), "the real, unmodified CAST_SPELL pipeline must resolve a full Channel cast")
 
 	assert_false(marigold.is_casting(), "casting_state must be cleared immediately after Channel resolves")
@@ -217,7 +227,7 @@ func test_boot_real_loads_cleanly_with_fully_wired_cast_spell_dependencies_prese
 		assert_not_null(deps.get(key), "CAST_SPELL dependency '%s' must be non-null after a real headless boot" % key)
 
 	# Driving CAST_SPELL's three-step verb contract must not crash/error.
-	var available: bool = instance._verb_bar_cast_spell_availability()
+	var available: bool = instance.verb_dispatch_controller._verb_bar_cast_spell_availability()
 	assert_typeof(available, TYPE_BOOL, "CAST_SPELL availability() must resolve to a real bool with no crash")
 
 

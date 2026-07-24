@@ -169,7 +169,7 @@ func test_highlight_cleared_immediately_after_a_successful_step() -> void:
 	var calls_before: int = _hex_grid_view.set_selectable_calls.size()
 
 	var destination := HexCoordClass.new(1, 0)
-	var result: Dictionary = _instance._verb_bar_step_execute(destination)
+	var result: Dictionary = _instance.verb_dispatch_controller._verb_bar_step_execute(destination)
 
 	assert_true(result.get("ok", false), "sanity check: the Step verb execute() must succeed for a legal adjacent destination")
 	assert_true(actor["hex_coord"].equals(destination), "sanity check: the Step actually moved the actor to the destination hex")
@@ -208,7 +208,7 @@ func test_highlight_cleared_immediately_after_a_successful_stride() -> void:
 	# Two hexes away -- not a legal Step (adjacent-only), but within Stride's
 	# default Speed (4).
 	var destination := HexCoordClass.new(2, 0)
-	var result: Dictionary = _instance._verb_bar_stride_execute(destination)
+	var result: Dictionary = _instance.verb_dispatch_controller._verb_bar_stride_execute(destination)
 
 	assert_true(result.get("ok", false), "sanity check: the Stride verb execute() must succeed for a legal Stride-only destination")
 	assert_true(actor["hex_coord"].equals(destination), "sanity check: the Stride actually moved the actor to the destination hex")
@@ -240,8 +240,8 @@ func test_highlight_not_cleared_by_a_verb_execute_that_resolves_to_neither_step_
 	# rejected by both verb closures with no effect at all, so no
 	# additional set_selectable_hexes() call is made.
 	var far_hex := HexCoordClass.new(10, 0)
-	var step_result: Dictionary = _instance._verb_bar_step_execute(far_hex)
-	var stride_result: Dictionary = _instance._verb_bar_stride_execute(far_hex)
+	var step_result: Dictionary = _instance.verb_dispatch_controller._verb_bar_step_execute(far_hex)
+	var stride_result: Dictionary = _instance.verb_dispatch_controller._verb_bar_stride_execute(far_hex)
 
 	assert_false(step_result.get("ok", false), "sanity check: an out-of-range hex must be rejected by the Step verb")
 	assert_false(stride_result.get("ok", false), "sanity check: an out-of-range hex must be rejected by the Stride verb")
@@ -297,7 +297,7 @@ func test_highlight_stays_empty_and_cannot_be_repopulated_after_encounter_resolv
 	# drives _verb_bar_step_execute() directly, the SAME entry point a stray
 	# post-resolution VerbBarView press would use.
 	var calls_before_click: int = _hex_grid_view.set_selectable_calls.size()
-	var stray_result: Dictionary = _instance._verb_bar_step_execute(HexCoordClass.new(1, 0))
+	var stray_result: Dictionary = _instance.verb_dispatch_controller._verb_bar_step_execute(HexCoordClass.new(1, 0))
 
 	assert_false(stray_result.get("ok", false), "a stray post-resolution Step verb execute() must be rejected")
 	for i in range(calls_before_click, _hex_grid_view.set_selectable_calls.size()):

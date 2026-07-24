@@ -873,7 +873,7 @@ func test_live_wired_controller_charges_one_action_and_one_stamina_on_successful
 	assert_true(strike_offer.ok, "fixture assumption: the repositioned Skeleton must be reachable from the chosen Stride hex")
 	assert_true(strike_offer.candidate_targets.has(skeleton.display_id()))
 
-	var economy = instance._verb_bar_current_action_economy()
+	var economy = instance.verb_dispatch_controller._verb_bar_current_action_economy()
 	assert_not_null(economy, "fixture assumption: Titus must have a live ActionEconomy at boot")
 	var actions_before: int = economy.get_remaining()
 	var stamina_before: int = titus.stamina
@@ -907,7 +907,7 @@ func test_live_wired_controller_validation_failed_path_still_charges_zero_action
 	await get_tree().process_frame
 
 	var titus = instance._party[0]
-	var economy = instance._verb_bar_current_action_economy()
+	var economy = instance.verb_dispatch_controller._verb_bar_current_action_economy()
 	assert_not_null(economy, "fixture assumption: Titus must have a live ActionEconomy at boot")
 	var actions_before: int = economy.get_remaining()
 	var stamina_before: int = titus.stamina

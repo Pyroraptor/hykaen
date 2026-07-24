@@ -199,7 +199,7 @@ func test_lethal_opportunistic_strike_cancels_mid_cast_end_to_end() -> void:
 	# the cast genuinely "in progress" -- remaining_actions == 1 -- the
 	# instant BEFORE the lethal Opportunistic Strike cancels it). ──────────
 	assert_false(instance.reaction_prompt_ui.is_open(), "fixture assumption: no pop-up is open before this cast is driven")
-	var begin_result: Dictionary = instance._verb_bar_cast_spell_execute("fire_bolt")
+	var begin_result: Dictionary = instance.verb_dispatch_controller._verb_bar_cast_spell_execute("fire_bolt")
 
 	# The enemy reactor's own OpportunisticStrike decision routes
 	# synchronously through the REAL AIReactionPolicy -- never a pop-up.

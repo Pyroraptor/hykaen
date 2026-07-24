@@ -195,7 +195,7 @@ func _run_full_scenario() -> Dictionary:
 	_advance_to_marigolds_turn(instance)
 	assert_eq(instance.round_session.current_actor_entity(), marigold, "fixture assumption: it must now be Marigold's live turn")
 
-	var begin_result: Dictionary = instance._verb_bar_cast_spell_execute("fire_bolt")
+	var begin_result: Dictionary = instance.verb_dispatch_controller._verb_bar_cast_spell_execute("fire_bolt")
 	assert_true(begin_result.get("success", false), "the first Fire Bolt CAST_SPELL action must succeed")
 
 	var end_turn_result: Dictionary = instance.end_turn_control.press()
@@ -204,7 +204,7 @@ func _run_full_scenario() -> Dictionary:
 	_advance_to_marigolds_turn(instance)
 	assert_eq(instance.round_session.current_actor_entity(), marigold, "it must now be Marigold's NEXT live turn")
 
-	var continue_result: Dictionary = instance._verb_bar_cast_spell_execute()
+	var continue_result: Dictionary = instance.verb_dispatch_controller._verb_bar_cast_spell_execute()
 	assert_true(continue_result.get("success", false), "the continuing Fire Bolt CAST_SPELL action must succeed")
 	assert_false(marigold.is_casting(), "Fire Bolt must have resolved and cleared casting_state")
 
@@ -217,7 +217,7 @@ func _run_full_scenario() -> Dictionary:
 	_advance_to_marigolds_turn(instance)
 	assert_eq(instance.round_session.current_actor_entity(), marigold, "fixture assumption: it must now be Marigold's live turn in round 2")
 
-	var channel_result: Dictionary = instance._verb_bar_cast_spell_execute("channel")
+	var channel_result: Dictionary = instance.verb_dispatch_controller._verb_bar_cast_spell_execute("channel")
 	assert_true(channel_result.get("success", false), "the Channel CAST_SPELL action must succeed")
 	assert_false(marigold.is_casting(), "Channel must have resolved and cleared casting_state")
 
@@ -235,7 +235,7 @@ func _run_full_scenario() -> Dictionary:
 	marigold.hp_current = SURVIVABLE_HP
 	marigold.hp_max = SURVIVABLE_HP
 
-	var reaction_begin_result: Dictionary = instance._verb_bar_cast_spell_execute("fire_bolt")
+	var reaction_begin_result: Dictionary = instance.verb_dispatch_controller._verb_bar_cast_spell_execute("fire_bolt")
 	assert_true(reaction_begin_result.get("success", false), "the reaction-provoking Fire Bolt CAST_SPELL action must succeed")
 
 	var reaction_result: Dictionary = reaction_begin_result.get("reaction_result", {})

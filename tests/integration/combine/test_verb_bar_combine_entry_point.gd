@@ -37,6 +37,14 @@ extends GutTest
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 const MAIN_SCENE_SCRIPT_PATH: String = "res://MainScene.gd"
 
+## VERB_DISPATCH_CONTROLLER_SCRIPT_PATH -- FEAT-007 (US-005 / FR-006):
+## `_verb_bar_combine_enter_selection()` (criterion 5's own static scan
+## target) moved off MainScene.gd entirely, into the extracted
+## presentation/verb_dispatch_controller.gd's VerbDispatchController -- see
+## that file's own doc for the full "verb-bar wiring + verb registry
+## builder" extraction this feature performs.
+const VERB_DISPATCH_CONTROLLER_SCRIPT_PATH: String = "res://presentation/verb_dispatch_controller.gd"
+
 const BuildVerbQueueUseCaseClass = preload("res://core/application/combine/build_verb_queue_use_case.gd")
 const CancelCombineUseCaseClass  = preload("res://core/application/combine/cancel_combine_use_case.gd")
 const CombineQueueClass          = preload("res://core/domain/combine/combine_queue.gd")

@@ -91,7 +91,7 @@ func test_casting_state_unchanged_across_other_combatants_interleaved_turns() ->
 	assert_eq(instance.round_session.current_actor_entity(), marigold, "fixture assumption: it must now be Marigold's live turn")
 	assert_false(marigold.is_casting(), "fixture assumption: Marigold must not already be mid-cast before this test's own cast begins")
 
-	var begin_result: Dictionary = instance._verb_bar_cast_spell_execute("fire_bolt")
+	var begin_result: Dictionary = instance.verb_dispatch_controller._verb_bar_cast_spell_execute("fire_bolt")
 	assert_true(begin_result.get("success", false), "fixture assumption: the cast must begin successfully")
 
 	var expected_spell_id: String = "fire_bolt"
@@ -133,7 +133,7 @@ func test_casting_state_unchanged_across_other_combatants_interleaved_turns() ->
 
 	# ── Only NOW, on Marigold's OWN action, does remaining_actions decrement
 	# -- proving the earlier interleaved turns genuinely never touched it.
-	var continue_result: Dictionary = instance._verb_bar_cast_spell_execute()
+	var continue_result: Dictionary = instance.verb_dispatch_controller._verb_bar_cast_spell_execute()
 	assert_true(continue_result.get("success", false), "continuing an in-progress cast with no selection argument must succeed (US-006: no re-selection)")
 	# The "casting_state" key on the ExecuteResult is ContinueCastUseCase's
 	# OWN pre-resolution snapshot (SpellActionController._maybe_resolve_cast()

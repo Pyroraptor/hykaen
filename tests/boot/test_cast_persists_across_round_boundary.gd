@@ -88,7 +88,7 @@ func test_committed_energy_and_spell_id_survive_end_of_round_pool_emptying() -> 
 	assert_eq(instance.round_session.current_actor_entity(), marigold, "fixture assumption: it must now be Marigold's live turn")
 	assert_false(marigold.is_casting(), "fixture assumption: Marigold must not already be mid-cast before this test's own cast begins")
 
-	var begin_result: Dictionary = instance._verb_bar_cast_spell_execute("fire_bolt")
+	var begin_result: Dictionary = instance.verb_dispatch_controller._verb_bar_cast_spell_execute("fire_bolt")
 	assert_true(begin_result.get("success", false), "fixture assumption: the cast must begin successfully")
 	assert_true(marigold.is_casting(), "fixture assumption: Marigold must now be mid-cast")
 
@@ -144,7 +144,7 @@ func test_committed_energy_and_spell_id_survive_end_of_round_pool_emptying() -> 
 	_advance_to_marigolds_turn(instance)
 	assert_eq(instance.round_session.current_actor_entity(), marigold, "fixture assumption: it must now be Marigold's live turn in round 2")
 
-	var continue_result: Dictionary = instance._verb_bar_cast_spell_execute()
+	var continue_result: Dictionary = instance.verb_dispatch_controller._verb_bar_cast_spell_execute()
 	assert_true(continue_result.get("success", false), "continuing a cast that spans a round boundary must still succeed, with no re-selection (US-006: no selection argument at all)")
 	# The "casting_state" key on the ExecuteResult is ContinueCastUseCase's
 	# OWN pre-resolution snapshot (SpellActionController._maybe_resolve_cast()

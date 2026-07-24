@@ -151,7 +151,7 @@ func test_full_fire_bolt_cast_emits_cast_resolve_log_entry_and_clears_casting_st
 	assert_eq(instance.round_session.current_actor_entity(), marigold, "fixture assumption: it must now be Marigold's live turn")
 	assert_false(marigold.is_casting(), "fixture assumption: Marigold must not already be mid-cast")
 
-	var begin_result: Dictionary = instance._verb_bar_cast_spell_execute("fire_bolt")
+	var begin_result: Dictionary = instance.verb_dispatch_controller._verb_bar_cast_spell_execute("fire_bolt")
 	assert_true(begin_result.get("success", false), "the first CAST_SPELL action (select verb + pay energy) must succeed")
 	assert_true(marigold.is_casting())
 	assert_eq(marigold.casting_state.get("remaining_actions"), 1)
@@ -171,7 +171,7 @@ func test_full_fire_bolt_cast_emits_cast_resolve_log_entry_and_clears_casting_st
 	# triggers ResolveCastUseCase through the SAME production
 	# _verb_bar_cast_spell_execute() shim, with NO selection argument --
 	# US-006: no re-selection) ───────────────────────────────────────────
-	var continue_result: Dictionary = instance._verb_bar_cast_spell_execute()
+	var continue_result: Dictionary = instance.verb_dispatch_controller._verb_bar_cast_spell_execute()
 	assert_true(continue_result.get("success", false), "the continuing CAST_SPELL action must succeed")
 
 	# ── casting_state must be null (cleared) immediately after

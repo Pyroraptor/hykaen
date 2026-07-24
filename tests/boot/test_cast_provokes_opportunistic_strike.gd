@@ -138,7 +138,7 @@ func test_first_cast_action_provokes_in_range_enemys_opportunistic_strike() -> v
 
 	# ── Drive the SAME real, composition-root-bound CAST_SPELL entry point a
 	# live player click resolves through. ────────────────────────────────────
-	var begin_result: Dictionary = instance._verb_bar_cast_spell_execute("fire_bolt")
+	var begin_result: Dictionary = instance.verb_dispatch_controller._verb_bar_cast_spell_execute("fire_bolt")
 
 	assert_true(begin_result.get("success", false), "the first-cast Fire Bolt action must succeed")
 	assert_true(marigold.is_casting(), "Marigold must now be mid-cast (Fire Bolt costs 2 actions)")
@@ -225,7 +225,7 @@ func test_continuing_cast_action_also_provokes_the_same_reaction_window() -> voi
 	# which awaits a hex click from the real PlayerTargetingPort.
 	var _cap := {"done": false, "result": null}
 	var _run := func():
-		var r = await instance._verb_bar_cast_spell_execute()
+		var r = await instance.verb_dispatch_controller._verb_bar_cast_spell_execute()
 		_cap["done"] = true
 		_cap["result"] = r
 	_run.call()

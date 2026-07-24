@@ -111,7 +111,7 @@ func test_full_channel_cast_adds_energy_and_emits_cast_resolve_log_entry() -> vo
 	# action, since Channel's 1-action cost drives remaining_actions to 0
 	# on the FIRST cast, through the SAME production
 	# _verb_bar_cast_spell_execute() shim ──────────────────────────────────
-	var cast_result: Dictionary = instance._verb_bar_cast_spell_execute("channel")
+	var cast_result: Dictionary = instance.verb_dispatch_controller._verb_bar_cast_spell_execute("channel")
 	assert_true(cast_result.get("success", false), "the single Channel CAST_SPELL action (select verb + pay energy + resolve) must succeed")
 
 	# ── casting_state must be cleared immediately after resolution ────────

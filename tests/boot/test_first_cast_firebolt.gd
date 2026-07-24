@@ -88,7 +88,7 @@ func test_fire_bolt_begun_reserves_energy_and_leaves_one_remaining_action() -> v
 	var capacity: int = pool_before.capacity
 	assert_eq(capacity, marigold.spellcasting_attribute_score, "fixture assumption: the round pool's capacity must be resolved from Marigold's own spellcasting_attribute_score")
 
-	var result: Dictionary = instance._verb_bar_cast_spell_execute("fire_bolt")
+	var result: Dictionary = instance.verb_dispatch_controller._verb_bar_cast_spell_execute("fire_bolt")
 
 	assert_true(result.get("success", false), "casting Fire Bolt on turn N with sufficient/affordable energy must succeed")
 	assert_true(marigold.is_casting(), "Marigold must now be mid-cast")
@@ -118,7 +118,7 @@ func test_casting_state_persists_across_a_turn_boundary() -> void:
 	assert_not_null(marigold, "fixture assumption: Marigold must be present in the live party")
 	_advance_to_marigolds_turn(instance)
 
-	var result: Dictionary = instance._verb_bar_cast_spell_execute("fire_bolt")
+	var result: Dictionary = instance.verb_dispatch_controller._verb_bar_cast_spell_execute("fire_bolt")
 	assert_true(result.get("success", false), "fixture assumption: the cast must begin successfully")
 
 	# End Marigold's own turn -- casting_state lives on the Combatant entity,

@@ -261,7 +261,7 @@ func test_fire_bolt_cast_spans_turn_boundary_resolves_hit_logs_and_clears_castin
 	assert_eq(instance.round_session.current_actor_entity(), marigold, "fixture assumption: it must now be Marigold's live turn")
 	assert_false(marigold.is_casting(), "fixture assumption: Marigold must not already be mid-cast")
 
-	var begin_result: Dictionary = instance._verb_bar_cast_spell_execute("fire_bolt")
+	var begin_result: Dictionary = instance.verb_dispatch_controller._verb_bar_cast_spell_execute("fire_bolt")
 	assert_true(begin_result.get("success", false), "the first CAST_SPELL action (select verb + pay energy) must succeed")
 	assert_true(marigold.is_casting())
 	assert_eq(marigold.casting_state.get("remaining_actions"), 1)
@@ -278,7 +278,7 @@ func test_fire_bolt_cast_spans_turn_boundary_resolves_hit_logs_and_clears_castin
 	assert_eq(marigold.casting_state.get("remaining_actions"), 1)
 
 	# ── continuing action -> targeting -> resolution (no re-selection). ────
-	var continue_result: Dictionary = instance._verb_bar_cast_spell_execute()
+	var continue_result: Dictionary = instance.verb_dispatch_controller._verb_bar_cast_spell_execute()
 	assert_true(continue_result.get("success", false), "the continuing CAST_SPELL action must succeed")
 
 	# ── exit point: casting_state cleared, combat log shows the resolved
@@ -344,7 +344,7 @@ func test_channel_cast_after_round_boundary_resolves_and_adds_energy_to_caster_p
 
 	# ── entry point -> resolution, all in ONE action (Channel's 1-action
 	# cost drives remaining_actions to 0 on the FIRST cast). ────────────────
-	var cast_result: Dictionary = instance._verb_bar_cast_spell_execute("channel")
+	var cast_result: Dictionary = instance.verb_dispatch_controller._verb_bar_cast_spell_execute("channel")
 	assert_true(cast_result.get("success", false), "the single Channel CAST_SPELL action (select verb + pay energy + resolve) must succeed")
 
 	# ── exit point: casting_state cleared, caster energy pool +1, combat
@@ -444,7 +444,7 @@ func test_lethal_opportunistic_strike_fires_during_cast_window_and_cancels_with_
 	# a live player click resolves through -- the continuing-cast action
 	# (no selection argument at all, US-006). ───────────────────────────────
 	assert_false(instance.reaction_prompt_ui.is_open(), "fixture assumption: no pop-up is open before this cast is driven")
-	var continue_result: Dictionary = instance._verb_bar_cast_spell_execute()
+	var continue_result: Dictionary = instance.verb_dispatch_controller._verb_bar_cast_spell_execute()
 
 	# The enemy reactor's own OpportunisticStrike decision routes
 	# synchronously through the REAL AIReactionPolicy -- never a pop-up.

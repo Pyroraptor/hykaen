@@ -473,7 +473,7 @@ func test_opportunistic_strike_damage_math_unaffected_by_the_retrofit() -> void:
 	var destination = candidate_hexes[0]
 
 	var titus_hp_before: int = titus.hp_current
-	var stride_result: Dictionary = await instance._verb_bar_stride_execute(destination)
+	var stride_result: Dictionary = await instance.verb_dispatch_controller._verb_bar_stride_execute(destination)
 
 	assert_eq(
 		skeleton_ae.get_remaining(), skeleton_budget_before - 1,

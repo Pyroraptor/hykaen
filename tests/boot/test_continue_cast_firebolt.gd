@@ -71,7 +71,7 @@ func test_second_cast_spell_action_on_same_caster_drives_remaining_actions_to_ze
 	assert_eq(instance.round_session.current_actor_entity(), marigold, "fixture assumption: it must now be Marigold's live turn")
 	assert_false(marigold.is_casting(), "fixture assumption: Marigold must not already be mid-cast before this test's own cast begins")
 
-	var begin_result: Dictionary = instance._verb_bar_cast_spell_execute("fire_bolt")
+	var begin_result: Dictionary = instance.verb_dispatch_controller._verb_bar_cast_spell_execute("fire_bolt")
 	assert_true(begin_result.get("success", false), "fixture assumption: the cast must begin successfully")
 	assert_true(marigold.is_casting(), "fixture assumption: Marigold must now be mid-cast")
 	assert_eq(marigold.casting_state.get("remaining_actions"), 1, "fixture assumption: Fire Bolt's 2-action cost must show exactly 1 remaining action immediately after being begun")
@@ -90,7 +90,7 @@ func test_second_cast_spell_action_on_same_caster_drives_remaining_actions_to_ze
 
 	# ── Turn N+k: continue the cast (FEAT-006, US-006) -- NO selection
 	# argument at all, proving no re-selection occurs.
-	var continue_result: Dictionary = instance._verb_bar_cast_spell_execute()
+	var continue_result: Dictionary = instance.verb_dispatch_controller._verb_bar_cast_spell_execute()
 
 	assert_true(continue_result.get("success", false), "continuing an in-progress cast with no selection argument must succeed (US-006: no re-selection)")
 	# The "casting_state" key on the ExecuteResult is ContinueCastUseCase's

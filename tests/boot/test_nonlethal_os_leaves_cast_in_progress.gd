@@ -188,7 +188,7 @@ func test_nonlethal_opportunistic_strike_during_first_cast_leaves_casting_state_
 	# actions == 1 -- immediately after BeginCastUseCase runs, followed by
 	# the non-lethal reaction). ─────────────────────────────────────────────
 	assert_false(instance.reaction_prompt_ui.is_open(), "fixture assumption: no pop-up is open before this cast is driven")
-	var begin_result: Dictionary = instance._verb_bar_cast_spell_execute("fire_bolt")
+	var begin_result: Dictionary = instance.verb_dispatch_controller._verb_bar_cast_spell_execute("fire_bolt")
 
 	# The enemy reactor's own OpportunisticStrike decision routes
 	# synchronously through the REAL AIReactionPolicy -- never a pop-up.
@@ -273,7 +273,7 @@ func test_cast_resolves_normally_on_subsequent_action_after_nonlethal_opportunis
 	marigold.hp_current = SURVIVABLE_HP
 	marigold.hp_max = SURVIVABLE_HP
 
-	var begin_result: Dictionary = instance._verb_bar_cast_spell_execute("fire_bolt")
+	var begin_result: Dictionary = instance.verb_dispatch_controller._verb_bar_cast_spell_execute("fire_bolt")
 	assert_true(begin_result.get("success", false), "the first-cast Fire Bolt action must succeed")
 	assert_true(marigold.is_casting(), "Marigold must now be mid-cast")
 	assert_eq(marigold.casting_state.get("remaining_actions"), 1)
@@ -299,7 +299,7 @@ func test_cast_resolves_normally_on_subsequent_action_after_nonlethal_opportunis
 	# Strike, driven with NO selection argument (US-006: no re-selection).
 	# This drives remaining_actions to 0, which triggers ResolveCastUseCase
 	# through the SAME production _verb_bar_cast_spell_execute() shim. ──────
-	var continue_result: Dictionary = instance._verb_bar_cast_spell_execute()
+	var continue_result: Dictionary = instance.verb_dispatch_controller._verb_bar_cast_spell_execute()
 	assert_true(continue_result.get("success", false), "the continuing CAST_SPELL action must succeed")
 
 	# The continuing action may ALSO provoke a (fresh-round) Opportunistic

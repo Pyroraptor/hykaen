@@ -59,7 +59,7 @@ extends GutTest
 ##      — mirrors tests/integration/
 ##      test_player_stride_provokes_enemy_opportunistic_strike.gd's own
 ##      established technique: drives the REAL, composition-root-bound
-##      Stride entry point (`instance._verb_bar_stride_execute()` — "the SOLE
+##      Stride entry point (`instance.verb_dispatch_controller._verb_bar_stride_execute()` — "the SOLE
 ##      Stride entry point", per that method's own doc) against the prologue
 ##      fixture's own real adjacency (Titus and the Skeleton start adjacent —
 ##      no fixture repositioning required for eligibility). Titus's own
@@ -386,7 +386,7 @@ func test_player_mover_lethal_opportunistic_strike_cancels_stride_via_real_mains
 	# ── Drive the SAME real, composition-root-bound Stride entry point a
 	# live player click resolves through -- "the SOLE Stride entry point"
 	# (MainScene.gd's own _verb_bar_stride_execute() doc). ─────────────────
-	var stride_result: Dictionary = await instance._verb_bar_stride_execute(destination)
+	var stride_result: Dictionary = await instance.verb_dispatch_controller._verb_bar_stride_execute(destination)
 
 	# The enemy reactor's own OpportunisticStrike decision routes
 	# synchronously through the REAL AIReactionPolicy -- never a pop-up.
