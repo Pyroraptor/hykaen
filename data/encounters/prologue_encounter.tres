@@ -1,11 +1,22 @@
-[gd_resource type="Resource" script_class="EncounterResource" load_steps=2 format=3 uid="uid://prl0genc001a"]
+[gd_resource type="Resource" script_class="EncounterResource" load_steps=3 format=3 uid="uid://prl0genc001a"]
 
-[ext_resource type="Script" uid="uid://encrsc1a2b3cd" path="res://data/encounters/encounter_resource.gd" id="1_encrsc"]
+[ext_resource type="Script" path="res://data/encounters/encounter_resource.gd" id="1_encrsc"]
+[ext_resource type="Script" path="res://data/tiles/hex_tile_data_resource.gd" id="2_hblrh"]
 
 [resource]
 script = ExtResource("1_encrsc")
 party_resource_paths = ["res://data/characters/titus.tres", "res://data/characters/marigold.tres"]
 enemy_resource_paths = ["res://data/enemies/skeleton.tres"]
-party_hex_positions = [{"q": 0, "r": 0}, {"q": -1, "r": 0}]
-enemy_hex_positions = [{"q": 1, "r": 0}]
+party_hex_positions = [{
+"q": 0,
+"r": 0
+}, {
+"q": -1,
+"r": 0
+}]
+enemy_hex_positions = [{
+"q": 1,
+"r": 0
+}]
 seed = 42
+tiles = Array[ExtResource("2_hblrh")]([])
