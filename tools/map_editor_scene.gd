@@ -359,9 +359,9 @@ func _tile(q: int, r: int):
 	return null
 
 
-func _get_or_create_tile(q: int, r: int):
+func _get_or_create_tile(q: int, r: int) -> HexTileDataResource:
 	var existing = _tile(q, r)
-	if existing != null: return existing
+	if existing != null: return existing as HexTileDataResource
 	var t := HexTileDataResource.new()
 	t.q = q; t.r = r
 	encounter_resource.tiles.append(t)
