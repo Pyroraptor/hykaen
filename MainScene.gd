@@ -287,7 +287,6 @@ func _ready() -> void:
 
 	var rng := RNGClass.new(resolved_seed)
 	encounter = EncounterClass.new(_party, _enemies, rng)
-	encounter.initialize()
 
 	_combat_query_service = CombatQueryServiceClass.new(
 		Callable(self, "_current_party"),
