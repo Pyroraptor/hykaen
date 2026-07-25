@@ -47,3 +47,12 @@ extends Resource
 
 ## Display/gameplay terrain label (e.g. "floor", "rubble", "water").
 @export var terrain_type: String = "floor"
+
+## Relative elevation in abstract height units (negative = low, positive = raised).
+@export var elevation: int = 0
+
+## Cover provided by this tile: 0 = none, 1 = partial, 2 = full.
+@export var cover: int = 0
+
+## Named feature on this tile (e.g. "door", "chest", "statue"). Empty = none.
+@export var feature: String = ""

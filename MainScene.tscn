@@ -1,4 +1,4 @@
-[gd_scene load_steps=11 format=3 uid="uid://hykaen_mainscene"]
+[gd_scene load_steps=11 format=3 uid="uid://dydrmopo707d7"]
 
 [ext_resource type="Script" path="res://MainScene.gd" id="1_mainscene"]
 [ext_resource type="PackedScene" path="res://presentation/hex_grid_view.tscn" id="2_hexgrid"]

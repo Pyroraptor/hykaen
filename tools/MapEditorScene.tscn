@@ -1,4 +1,4 @@
-[gd_scene format=3 uid="uid://map_editor_scene"]
+[gd_scene load_steps=2 format=3 uid="uid://cbm8vmnnd4gsr"]
 
 [ext_resource type="Script" path="res://tools/map_editor_scene.gd" id="1_mapes"]
 

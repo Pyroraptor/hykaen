@@ -1,0 +1,832 @@
+[gd_resource type="Resource" script_class="EncounterResource" load_steps=102 format=3]
+
+[ext_resource type="Script" path="res://data/encounters/encounter_resource.gd" id="1_dmoyi"]
+[ext_resource type="Script" path="res://data/tiles/hex_tile_data_resource.gd" id="2_qdouv"]
+
+[sub_resource type="Resource" id="Resource_ono4t"]
+script = ExtResource("2_qdouv")
+q = 7
+r = -3
+passable = true
+difficult = true
+terrain_type = "floor"
+
+[sub_resource type="Resource" id="Resource_ph5ls"]
+script = ExtResource("2_qdouv")
+q = 8
+r = -3
+passable = true
+difficult = false
+terrain_type = "floor"
+
+[sub_resource type="Resource" id="Resource_26ank"]
+script = ExtResource("2_qdouv")
+q = 0
+r = 2
+passable = true
+difficult = false
+terrain_type = "floor"
+
+[sub_resource type="Resource" id="Resource_p56uh"]
+script = ExtResource("2_qdouv")
+q = 1
+r = 1
+passable = true
+difficult = true
+terrain_type = "rubble"
+
+[sub_resource type="Resource" id="Resource_skfpd"]
+script = ExtResource("2_qdouv")
+q = 1
+r = 2
+passable = true
+difficult = false
+terrain_type = "floor"
+
+[sub_resource type="Resource" id="Resource_p4t2c"]
+script = ExtResource("2_qdouv")
+q = 0
+r = 3
+passable = true
+difficult = false
+terrain_type = "floor"
+
+[sub_resource type="Resource" id="Resource_pmpnj"]
+script = ExtResource("2_qdouv")
+q = 0
+r = 1
+passable = true
+difficult = false
+terrain_type = "water"
+
+[sub_resource type="Resource" id="Resource_orgfr"]
+script = ExtResource("2_qdouv")
+q = 1
+r = 0
+passable = true
+difficult = false
+terrain_type = "water"
+
+[sub_resource type="Resource" id="Resource_4pbkg"]
+script = ExtResource("2_qdouv")
+q = 0
+r = 5
+passable = false
+difficult = false
+terrain_type = "wall"
+
+[sub_resource type="Resource" id="Resource_fqdpv"]
+script = ExtResource("2_qdouv")
+q = 1
+r = 4
+passable = false
+difficult = false
+terrain_type = "wall"
+
+[sub_resource type="Resource" id="Resource_u880i"]
+script = ExtResource("2_qdouv")
+q = 2
+r = 3
+passable = false
+difficult = false
+terrain_type = "wall"
+
+[sub_resource type="Resource" id="Resource_acqsy"]
+script = ExtResource("2_qdouv")
+q = 3
+r = 2
+passable = false
+difficult = false
+terrain_type = "wall"
+
+[sub_resource type="Resource" id="Resource_u1eya"]
+script = ExtResource("2_qdouv")
+q = 4
+r = 1
+passable = false
+difficult = false
+terrain_type = "wall"
+
+[sub_resource type="Resource" id="Resource_q6m2h"]
+script = ExtResource("2_qdouv")
+q = 5
+r = 0
+passable = false
+difficult = false
+terrain_type = "wall"
+
+[sub_resource type="Resource" id="Resource_tb5m0"]
+script = ExtResource("2_qdouv")
+q = 0
+r = 4
+passable = false
+difficult = false
+terrain_type = "pit"
+
+[sub_resource type="Resource" id="Resource_huep1"]
+script = ExtResource("2_qdouv")
+q = 1
+r = 3
+passable = false
+difficult = false
+terrain_type = "pit"
+
+[sub_resource type="Resource" id="Resource_allvc"]
+script = ExtResource("2_qdouv")
+q = 2
+r = 2
+passable = false
+difficult = false
+terrain_type = "pit"
+
+[sub_resource type="Resource" id="Resource_yr150"]
+script = ExtResource("2_qdouv")
+q = -1
+r = 3
+passable = true
+difficult = false
+terrain_type = "floor"
+
+[sub_resource type="Resource" id="Resource_b7w3k"]
+script = ExtResource("2_qdouv")
+q = 5
+r = -5
+passable = true
+difficult = true
+terrain_type = "rubble"
+
+[sub_resource type="Resource" id="Resource_gudmn"]
+script = ExtResource("2_qdouv")
+q = 6
+r = -5
+passable = true
+difficult = true
+terrain_type = "floor"
+
+[sub_resource type="Resource" id="Resource_nq87g"]
+script = ExtResource("2_qdouv")
+q = 6
+r = -4
+passable = true
+difficult = true
+terrain_type = "floor"
+
+[sub_resource type="Resource" id="Resource_vxqwu"]
+script = ExtResource("2_qdouv")
+q = 7
+r = -4
+passable = true
+difficult = true
+terrain_type = "floor"
+
+[sub_resource type="Resource" id="Resource_ipvax"]
+script = ExtResource("2_qdouv")
+q = 6
+r = -3
+passable = true
+difficult = true
+terrain_type = "floor"
+
+[sub_resource type="Resource" id="Resource_laj72"]
+script = ExtResource("2_qdouv")
+q = 6
+r = -2
+passable = true
+difficult = true
+terrain_type = "floor"
+
+[sub_resource type="Resource" id="Resource_t5iho"]
+script = ExtResource("2_qdouv")
+q = 7
+r = -6
+passable = true
+difficult = true
+terrain_type = "floor"
+
+[sub_resource type="Resource" id="Resource_fgom8"]
+script = ExtResource("2_qdouv")
+q = 0
+r = 0
+passable = true
+difficult = false
+terrain_type = "water"
+
+[sub_resource type="Resource" id="Resource_n0tfq"]
+script = ExtResource("2_qdouv")
+q = -1
+r = 2
+passable = true
+difficult = false
+terrain_type = "floor"
+
+[sub_resource type="Resource" id="Resource_vkdpq"]
+script = ExtResource("2_qdouv")
+q = -1
+r = 1
+passable = true
+difficult = false
+terrain_type = "floor"
+
+[sub_resource type="Resource" id="Resource_qng7f"]
+script = ExtResource("2_qdouv")
+q = -1
+r = 0
+passable = true
+difficult = false
+terrain_type = "floor"
+
+[sub_resource type="Resource" id="Resource_sqbmp"]
+script = ExtResource("2_qdouv")
+q = 0
+r = -1
+passable = true
+difficult = false
+terrain_type = "floor"
+
+[sub_resource type="Resource" id="Resource_twqsh"]
+script = ExtResource("2_qdouv")
+q = 1
+r = -1
+passable = true
+difficult = false
+terrain_type = "floor"
+
+[sub_resource type="Resource" id="Resource_kmj8q"]
+script = ExtResource("2_qdouv")
+q = 3
+r = -2
+passable = false
+difficult = false
+terrain_type = "wall"
+
+[sub_resource type="Resource" id="Resource_qqgy7"]
+script = ExtResource("2_qdouv")
+q = 2
+r = -2
+passable = false
+difficult = false
+terrain_type = "wall"
+
+[sub_resource type="Resource" id="Resource_y4bln"]
+script = ExtResource("2_qdouv")
+q = 1
+r = -2
+passable = false
+difficult = false
+terrain_type = "wall"
+
+[sub_resource type="Resource" id="Resource_y0lq1"]
+script = ExtResource("2_qdouv")
+q = 0
+r = -2
+passable = false
+difficult = false
+terrain_type = "wall"
+
+[sub_resource type="Resource" id="Resource_befnl"]
+script = ExtResource("2_qdouv")
+q = 2
+r = -1
+passable = true
+difficult = false
+terrain_type = "floor"
+
+[sub_resource type="Resource" id="Resource_b5s2d"]
+script = ExtResource("2_qdouv")
+q = 2
+r = 0
+passable = true
+difficult = false
+terrain_type = "floor"
+
+[sub_resource type="Resource" id="Resource_ko268"]
+script = ExtResource("2_qdouv")
+q = 2
+r = 1
+passable = true
+difficult = false
+terrain_type = "floor"
+
+[sub_resource type="Resource" id="Resource_isiwq"]
+script = ExtResource("2_qdouv")
+q = 3
+r = -1
+passable = true
+difficult = true
+terrain_type = "rubble"
+
+[sub_resource type="Resource" id="Resource_4in5o"]
+script = ExtResource("2_qdouv")
+q = 3
+r = 0
+passable = true
+difficult = true
+terrain_type = "rubble"
+
+[sub_resource type="Resource" id="Resource_clhg6"]
+script = ExtResource("2_qdouv")
+q = 3
+r = 1
+passable = true
+difficult = true
+terrain_type = "rubble"
+
+[sub_resource type="Resource" id="Resource_lcqo2"]
+script = ExtResource("2_qdouv")
+q = 4
+r = 0
+passable = true
+difficult = false
+terrain_type = "floor"
+
+[sub_resource type="Resource" id="Resource_hu000"]
+script = ExtResource("2_qdouv")
+q = 4
+r = -1
+passable = true
+difficult = false
+terrain_type = "floor"
+
+[sub_resource type="Resource" id="Resource_1qvxe"]
+script = ExtResource("2_qdouv")
+q = 4
+r = -2
+passable = true
+difficult = false
+terrain_type = "floor"
+
+[sub_resource type="Resource" id="Resource_uq88r"]
+script = ExtResource("2_qdouv")
+q = -1
+r = -1
+passable = true
+difficult = false
+terrain_type = "floor"
+
+[sub_resource type="Resource" id="Resource_knlfl"]
+script = ExtResource("2_qdouv")
+q = -2
+r = 0
+passable = true
+difficult = false
+terrain_type = "floor"
+
+[sub_resource type="Resource" id="Resource_1mv4x"]
+script = ExtResource("2_qdouv")
+q = -2
+r = 1
+passable = true
+difficult = false
+terrain_type = "floor"
+
+[sub_resource type="Resource" id="Resource_pdtfi"]
+script = ExtResource("2_qdouv")
+q = -2
+r = 2
+passable = true
+difficult = false
+terrain_type = "floor"
+
+[sub_resource type="Resource" id="Resource_jjf6g"]
+script = ExtResource("2_qdouv")
+q = -2
+r = 3
+passable = true
+difficult = false
+terrain_type = "floor"
+
+[sub_resource type="Resource" id="Resource_52knm"]
+script = ExtResource("2_qdouv")
+q = -2
+r = 4
+passable = true
+difficult = false
+terrain_type = "floor"
+
+[sub_resource type="Resource" id="Resource_u3her"]
+script = ExtResource("2_qdouv")
+q = -1
+r = 4
+passable = true
+difficult = false
+terrain_type = "floor"
+
+[sub_resource type="Resource" id="Resource_rhegp"]
+script = ExtResource("2_qdouv")
+q = 4
+r = -3
+passable = true
+difficult = true
+terrain_type = "rubble"
+
+[sub_resource type="Resource" id="Resource_ceily"]
+script = ExtResource("2_qdouv")
+q = 3
+r = -3
+passable = true
+difficult = true
+terrain_type = "rubble"
+
+[sub_resource type="Resource" id="Resource_tfqqf"]
+script = ExtResource("2_qdouv")
+q = 2
+r = -3
+passable = true
+difficult = true
+terrain_type = "rubble"
+
+[sub_resource type="Resource" id="Resource_wsnwj"]
+script = ExtResource("2_qdouv")
+q = 1
+r = -3
+passable = true
+difficult = true
+terrain_type = "rubble"
+
+[sub_resource type="Resource" id="Resource_ot785"]
+script = ExtResource("2_qdouv")
+q = -1
+r = -2
+passable = false
+difficult = false
+terrain_type = "wall"
+
+[sub_resource type="Resource" id="Resource_m6t42"]
+script = ExtResource("2_qdouv")
+q = -2
+r = -2
+passable = false
+difficult = false
+terrain_type = "wall"
+
+[sub_resource type="Resource" id="Resource_caqsf"]
+script = ExtResource("2_qdouv")
+q = -3
+r = -2
+passable = false
+difficult = false
+terrain_type = "wall"
+
+[sub_resource type="Resource" id="Resource_424la"]
+script = ExtResource("2_qdouv")
+q = -2
+r = -1
+passable = true
+difficult = false
+terrain_type = "pit"
+
+[sub_resource type="Resource" id="Resource_kye6p"]
+script = ExtResource("2_qdouv")
+q = -3
+r = -1
+passable = true
+difficult = false
+terrain_type = "pit"
+
+[sub_resource type="Resource" id="Resource_tbxmm"]
+script = ExtResource("2_qdouv")
+q = -3
+r = 0
+passable = true
+difficult = false
+terrain_type = "pit"
+
+[sub_resource type="Resource" id="Resource_m1l1e"]
+script = ExtResource("2_qdouv")
+q = -4
+r = -1
+passable = true
+difficult = false
+terrain_type = "pit"
+
+[sub_resource type="Resource" id="Resource_3hq5j"]
+script = ExtResource("2_qdouv")
+q = -4
+r = 0
+passable = true
+difficult = false
+terrain_type = "pit"
+
+[sub_resource type="Resource" id="Resource_t1uhm"]
+script = ExtResource("2_qdouv")
+q = -5
+r = 0
+passable = true
+difficult = false
+terrain_type = "pit"
+
+[sub_resource type="Resource" id="Resource_12iuf"]
+script = ExtResource("2_qdouv")
+q = -4
+r = 2
+passable = true
+difficult = true
+terrain_type = "rubble"
+
+[sub_resource type="Resource" id="Resource_xhelo"]
+script = ExtResource("2_qdouv")
+q = -4
+r = 3
+passable = true
+difficult = true
+terrain_type = "rubble"
+
+[sub_resource type="Resource" id="Resource_ursg2"]
+script = ExtResource("2_qdouv")
+q = -3
+r = 2
+passable = true
+difficult = false
+terrain_type = "water"
+
+[sub_resource type="Resource" id="Resource_o6dhb"]
+script = ExtResource("2_qdouv")
+q = -5
+r = 1
+passable = true
+difficult = false
+terrain_type = "floor"
+
+[sub_resource type="Resource" id="Resource_g7fx0"]
+script = ExtResource("2_qdouv")
+q = -4
+r = 1
+passable = true
+difficult = false
+terrain_type = "floor"
+
+[sub_resource type="Resource" id="Resource_lr7cc"]
+script = ExtResource("2_qdouv")
+q = -3
+r = 1
+passable = true
+difficult = false
+terrain_type = "floor"
+
+[sub_resource type="Resource" id="Resource_ecyby"]
+script = ExtResource("2_qdouv")
+q = -1
+r = 5
+passable = false
+difficult = false
+terrain_type = "wall"
+
+[sub_resource type="Resource" id="Resource_arcfq"]
+script = ExtResource("2_qdouv")
+q = -2
+r = 5
+passable = false
+difficult = false
+terrain_type = "wall"
+
+[sub_resource type="Resource" id="Resource_48sxr"]
+script = ExtResource("2_qdouv")
+q = -3
+r = 5
+passable = false
+difficult = false
+terrain_type = "wall"
+
+[sub_resource type="Resource" id="Resource_x84lf"]
+script = ExtResource("2_qdouv")
+q = -3
+r = 4
+passable = false
+difficult = false
+terrain_type = "wall"
+
+[sub_resource type="Resource" id="Resource_b6ak4"]
+script = ExtResource("2_qdouv")
+q = -4
+r = 5
+passable = false
+difficult = false
+terrain_type = "wall"
+
+[sub_resource type="Resource" id="Resource_f207w"]
+script = ExtResource("2_qdouv")
+q = -5
+r = 5
+passable = false
+difficult = false
+terrain_type = "wall"
+
+[sub_resource type="Resource" id="Resource_tkdgb"]
+script = ExtResource("2_qdouv")
+q = -3
+r = 3
+passable = false
+difficult = false
+terrain_type = "wall"
+
+[sub_resource type="Resource" id="Resource_60evx"]
+script = ExtResource("2_qdouv")
+q = -5
+r = 4
+passable = true
+difficult = true
+terrain_type = "rubble"
+
+[sub_resource type="Resource" id="Resource_kqftr"]
+script = ExtResource("2_qdouv")
+q = -4
+r = 4
+passable = true
+difficult = true
+terrain_type = "rubble"
+
+[sub_resource type="Resource" id="Resource_ya7kc"]
+script = ExtResource("2_qdouv")
+q = -5
+r = 2
+passable = true
+difficult = false
+terrain_type = "floor"
+
+[sub_resource type="Resource" id="Resource_ccl76"]
+script = ExtResource("2_qdouv")
+q = -5
+r = 3
+passable = true
+difficult = false
+terrain_type = "floor"
+
+[sub_resource type="Resource" id="Resource_16s31"]
+script = ExtResource("2_qdouv")
+q = 5
+r = -4
+passable = false
+difficult = false
+terrain_type = "wall"
+
+[sub_resource type="Resource" id="Resource_o7u2d"]
+script = ExtResource("2_qdouv")
+q = 4
+r = -4
+passable = false
+difficult = false
+terrain_type = "wall"
+
+[sub_resource type="Resource" id="Resource_y23hj"]
+script = ExtResource("2_qdouv")
+q = 3
+r = -4
+passable = false
+difficult = false
+terrain_type = "wall"
+
+[sub_resource type="Resource" id="Resource_xr17x"]
+script = ExtResource("2_qdouv")
+q = 2
+r = -4
+passable = false
+difficult = false
+terrain_type = "wall"
+
+[sub_resource type="Resource" id="Resource_l0yf3"]
+script = ExtResource("2_qdouv")
+q = 1
+r = -4
+passable = false
+difficult = false
+terrain_type = "wall"
+
+[sub_resource type="Resource" id="Resource_nrqyl"]
+script = ExtResource("2_qdouv")
+q = 0
+r = -4
+passable = false
+difficult = false
+terrain_type = "wall"
+
+[sub_resource type="Resource" id="Resource_kffib"]
+script = ExtResource("2_qdouv")
+q = 0
+r = -3
+passable = true
+difficult = false
+terrain_type = "water"
+
+[sub_resource type="Resource" id="Resource_dfkbi"]
+script = ExtResource("2_qdouv")
+q = 5
+r = -1
+passable = false
+difficult = false
+terrain_type = "wall"
+
+[sub_resource type="Resource" id="Resource_1xtaw"]
+script = ExtResource("2_qdouv")
+q = 5
+r = -3
+passable = true
+difficult = true
+terrain_type = "rubble"
+
+[sub_resource type="Resource" id="Resource_svfja"]
+script = ExtResource("2_qdouv")
+q = 5
+r = -2
+passable = true
+difficult = false
+terrain_type = "floor"
+
+[sub_resource type="Resource" id="Resource_wldcc"]
+script = ExtResource("2_qdouv")
+q = 4
+r = -5
+passable = true
+difficult = true
+terrain_type = "rubble"
+
+[sub_resource type="Resource" id="Resource_bbydq"]
+script = ExtResource("2_qdouv")
+q = 3
+r = -5
+passable = true
+difficult = true
+terrain_type = "rubble"
+
+[sub_resource type="Resource" id="Resource_1k2rv"]
+script = ExtResource("2_qdouv")
+q = 2
+r = -5
+passable = true
+difficult = true
+terrain_type = "rubble"
+
+[sub_resource type="Resource" id="Resource_xr0r2"]
+script = ExtResource("2_qdouv")
+q = 1
+r = -5
+passable = true
+difficult = true
+terrain_type = "rubble"
+
+[sub_resource type="Resource" id="Resource_nkjby"]
+script = ExtResource("2_qdouv")
+q = 0
+r = -5
+passable = true
+difficult = true
+terrain_type = "rubble"
+
+[sub_resource type="Resource" id="Resource_vsnqx"]
+script = ExtResource("2_qdouv")
+q = -1
+r = -4
+passable = true
+difficult = true
+terrain_type = "rubble"
+
+[sub_resource type="Resource" id="Resource_4loqt"]
+script = ExtResource("2_qdouv")
+q = -2
+r = -3
+passable = true
+difficult = true
+terrain_type = "rubble"
+
+[sub_resource type="Resource" id="Resource_lxq8f"]
+script = ExtResource("2_qdouv")
+q = -1
+r = -3
+passable = true
+difficult = true
+terrain_type = "rubble"
+
+[resource]
+script = ExtResource("1_dmoyi")
+party_resource_paths = []
+enemy_resource_paths = []
+party_hex_positions = [{
+"q": -5,
+"r": 2
+}, {
+"q": -4,
+"r": 1
+}, {
+"q": -5,
+"r": 1
+}, {
+"q": -5,
+"r": 3
+}]
+enemy_hex_positions = [{
+"q": -1,
+"r": -1
+}, {
+"q": 0,
+"r": 0
+}, {
+"q": 4,
+"r": 0
+}, {
+"q": -1,
+"r": 3
+}, {
+"q": 5,
+"r": -5
+}]
+seed = 0
+tiles = Array[ExtResource("2_qdouv")]([SubResource("Resource_ono4t"), SubResource("Resource_ph5ls"), SubResource("Resource_26ank"), SubResource("Resource_p56uh"), SubResource("Resource_skfpd"), SubResource("Resource_p4t2c"), SubResource("Resource_pmpnj"), SubResource("Resource_orgfr"), SubResource("Resource_4pbkg"), SubResource("Resource_fqdpv"), SubResource("Resource_u880i"), SubResource("Resource_acqsy"), SubResource("Resource_u1eya"), SubResource("Resource_q6m2h"), SubResource("Resource_tb5m0"), SubResource("Resource_huep1"), SubResource("Resource_allvc"), SubResource("Resource_yr150"), SubResource("Resource_b7w3k"), SubResource("Resource_gudmn"), SubResource("Resource_nq87g"), SubResource("Resource_vxqwu"), SubResource("Resource_ipvax"), SubResource("Resource_laj72"), SubResource("Resource_t5iho"), SubResource("Resource_fgom8"), SubResource("Resource_n0tfq"), SubResource("Resource_vkdpq"), SubResource("Resource_qng7f"), SubResource("Resource_sqbmp"), SubResource("Resource_twqsh"), SubResource("Resource_kmj8q"), SubResource("Resource_qqgy7"), SubResource("Resource_y4bln"), SubResource("Resource_y0lq1"), SubResource("Resource_befnl"), SubResource("Resource_b5s2d"), SubResource("Resource_ko268"), SubResource("Resource_isiwq"), SubResource("Resource_4in5o"), SubResource("Resource_clhg6"), SubResource("Resource_lcqo2"), SubResource("Resource_hu000"), SubResource("Resource_1qvxe"), SubResource("Resource_uq88r"), SubResource("Resource_knlfl"), SubResource("Resource_1mv4x"), SubResource("Resource_pdtfi"), SubResource("Resource_jjf6g"), SubResource("Resource_52knm"), SubResource("Resource_u3her"), SubResource("Resource_rhegp"), SubResource("Resource_ceily"), SubResource("Resource_tfqqf"), SubResource("Resource_wsnwj"), SubResource("Resource_ot785"), SubResource("Resource_m6t42"), SubResource("Resource_caqsf"), SubResource("Resource_424la"), SubResource("Resource_kye6p"), SubResource("Resource_tbxmm"), SubResource("Resource_m1l1e"), SubResource("Resource_3hq5j"), SubResource("Resource_t1uhm"), SubResource("Resource_12iuf"), SubResource("Resource_xhelo"), SubResource("Resource_ursg2"), SubResource("Resource_o6dhb"), SubResource("Resource_g7fx0"), SubResource("Resource_lr7cc"), SubResource("Resource_ecyby"), SubResource("Resource_arcfq"), SubResource("Resource_48sxr"), SubResource("Resource_x84lf"), SubResource("Resource_b6ak4"), SubResource("Resource_f207w"), SubResource("Resource_tkdgb"), SubResource("Resource_60evx"), SubResource("Resource_kqftr"), SubResource("Resource_ya7kc"), SubResource("Resource_ccl76"), SubResource("Resource_16s31"), SubResource("Resource_o7u2d"), SubResource("Resource_y23hj"), SubResource("Resource_xr17x"), SubResource("Resource_l0yf3"), SubResource("Resource_nrqyl"), SubResource("Resource_kffib"), SubResource("Resource_dfkbi"), SubResource("Resource_1xtaw"), SubResource("Resource_svfja"), SubResource("Resource_wldcc"), SubResource("Resource_bbydq"), SubResource("Resource_1k2rv"), SubResource("Resource_xr0r2"), SubResource("Resource_nkjby"), SubResource("Resource_vsnqx"), SubResource("Resource_4loqt"), SubResource("Resource_lxq8f")])

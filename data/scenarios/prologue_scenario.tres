@@ -1,10 +1,10 @@
-[gd_resource type="Resource" script_class="ScenarioResource" load_steps=8 format=3]
+[gd_resource type="Resource" script_class="ScenarioResource" load_steps=8 format=3 uid="uid://b8fb4ypwhlfvn"]
 
 [ext_resource type="Script" path="res://data/scenarios/scenario_resource.gd" id="1_scnres"]
 [ext_resource type="Script" path="res://data/scenarios/scenario_encounter_entry_resource.gd" id="2_entry"]
 [ext_resource type="Script" path="res://data/triggers/proximity_trigger_resource.gd" id="3_8l0xv"]
-[ext_resource type="Resource" path="res://data/parties/default_party.tres" id="3_party"]
-[ext_resource type="Resource" path="res://data/encounters/prologue_encounter.tres" id="4_enc"]
+[ext_resource type="Resource" uid="uid://dfltprty001a" path="res://data/parties/default_party.tres" id="3_party"]
+[ext_resource type="Resource" uid="uid://prl0genc001a" path="res://data/encounters/prologue_encounter.tres" id="4_enc"]
 
 [sub_resource type="Resource" id="Resource_6xmhc"]
 script = ExtResource("3_8l0xv")

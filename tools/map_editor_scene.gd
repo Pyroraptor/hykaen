@@ -7,20 +7,23 @@ extends Node2D
 const CoordTransform = preload("res://presentation/infrastructure/coordinate_transform.gd")
 
 const HEX_SIZE  : float = 48.0
-const RADIUS    : int   = 5
 const SIDEBAR_W : float = 220.0
+var radius      : int   = 10
 
-enum PaintMode { TERRAIN, IMPASSABLE, DIFFICULT, PARTY_POS, ENEMY_POS, TRIGGER }
+enum PaintMode { TERRAIN, IMPASSABLE, DIFFICULT, PARTY_POS, ENEMY_POS, TRIGGER, FEATURE }
 
 var encounter_resource : EncounterResource        = null
 var trigger_resource   : ProximityTriggerResource = null
 var _encounter_path    : String = ""
 var _trigger_path      : String = ""
 
-var paint_mode      : PaintMode = PaintMode.TERRAIN
-var current_terrain : String    = "floor"
-var party_slot      : int       = 0
-var enemy_slot      : int       = 0
+var paint_mode        : PaintMode = PaintMode.TERRAIN
+var current_terrain   : String    = "floor"
+var current_elevation : int       = 0
+var current_cover     : int       = 0
+var current_feature   : String    = ""
+var party_slot        : int       = 0
+var enemy_slot        : int       = 0
 
 var _hovered_q : int = 9999
 var _hovered_r : int = 9999
@@ -33,29 +36,54 @@ var _pan_from  : Vector2 = Vector2.ZERO
 var _pan_base  : Vector2 = Vector2.ZERO
 var _pan_offset: Vector2 = Vector2.ZERO
 
-var _file_label    : Label
-var _trigger_label : Label
-var _status_label  : Label
-var _mode_btn      : OptionButton
-var _terrain_row   : HBoxContainer
-var _terrain_btn   : OptionButton
-var _slot_row      : HBoxContainer
-var _slot_spin     : SpinBox
-var _sidebar       : Panel
+var _file_label     : Label
+var _trigger_label  : Label
+var _status_label   : Label
+var _mode_btn       : OptionButton
+var _terrain_row    : HBoxContainer
+var _terrain_btn    : OptionButton
+var _elevation_row  : HBoxContainer
+var _elevation_spin : SpinBox
+var _cover_row      : HBoxContainer
+var _cover_btn      : OptionButton
+var _feature_row    : HBoxContainer
+var _feature_edit   : LineEdit
+var _slot_row       : HBoxContainer
+var _slot_spin      : SpinBox
+var _radius_spin    : SpinBox
+var _sidebar        : Panel
 
 const _TERRAIN_COLORS = {
-	"floor":  Color(0.82, 0.82, 0.82, 0.85),
-	"rubble": Color(0.65, 0.55, 0.40, 0.88),
-	"water":  Color(0.25, 0.55, 0.85, 0.88),
-	"wall":   Color(0.28, 0.26, 0.26, 0.92),
-	"pit":    Color(0.10, 0.08, 0.08, 0.96),
+	# indoor / structural
+	"floor":         Color(0.82, 0.82, 0.82, 0.85),
+	"rubble":        Color(0.65, 0.55, 0.40, 0.88),
+	"wall":          Color(0.28, 0.26, 0.26, 0.92),
+	"pit":           Color(0.10, 0.08, 0.08, 0.96),
+	# outdoor ground
+	"grass":         Color(0.35, 0.62, 0.25, 0.85),
+	"stone":         Color(0.60, 0.58, 0.54, 0.85),
+	"sand":          Color(0.85, 0.78, 0.52, 0.85),
+	# difficult / cover
+	"forest":        Color(0.15, 0.42, 0.15, 0.90),
+	"undergrowth":   Color(0.32, 0.55, 0.22, 0.85),
+	"mud":           Color(0.45, 0.33, 0.18, 0.88),
+	# water
+	"shallow_water": Color(0.48, 0.72, 0.90, 0.82),
+	"deep_water":    Color(0.10, 0.22, 0.65, 0.92),
+	"water":         Color(0.25, 0.55, 0.85, 0.88),
+	# hazard
+	"lava":          Color(0.95, 0.35, 0.05, 0.90),
+	"ice":           Color(0.80, 0.92, 0.98, 0.88),
 }
 const _EMPTY_COLOR    = Color(0.48, 0.48, 0.52, 0.38)
 const _IMPASS_TINT    = Color(0.85, 0.22, 0.18, 0.40)
 const _DIFFICULT_TINT = Color(0.88, 0.76, 0.14, 0.38)
+const _COVER1_TINT    = Color(0.70, 0.88, 1.00, 0.22)
+const _COVER2_TINT    = Color(0.40, 0.65, 0.95, 0.38)
 const _PARTY_COLOR    = Color(0.22, 0.52, 0.95, 0.92)
 const _ENEMY_COLOR    = Color(0.88, 0.22, 0.22, 0.92)
 const _TRIGGER_COLOR  = Color(0.92, 0.55, 0.10, 0.38)
+const _FEATURE_COLOR  = Color(0.50, 0.88, 0.50, 0.85)
 const _HOVER_COLOR    = Color(1.00, 1.00, 1.00, 0.22)
 const _LINE_COLOR     = Color(0.35, 0.35, 0.40, 1.00)
 
@@ -73,7 +101,15 @@ func _finalize_layout() -> void:
 	if _sidebar != null:
 		_sidebar.position = Vector2(vp.x - SIDEBAR_W, 0)
 		_sidebar.size     = Vector2(SIDEBAR_W, vp.y)
+		_resize_scroll_child()
 	queue_redraw()
+
+func _resize_scroll_child() -> void:
+	var vp := get_viewport_rect().size
+	if _sidebar == null: return
+	var scroll := _sidebar.get_child(0) as ScrollContainer
+	if scroll == null: return
+	scroll.size = Vector2(SIDEBAR_W, vp.y)
 
 
 # ── Input ────────────────────────────────────────────────────────────────────
@@ -110,7 +146,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _try_paint(screen_pos: Vector2) -> void:
 	var hex = CoordTransform.pixel_to_axial(screen_pos, HEX_SIZE, _pan_offset)
-	if absi(-hex.q - hex.r) > RADIUS:
+	if absi(hex.q) > radius or absi(hex.r) > radius or absi(-hex.q - hex.r) > radius:
 		return
 	if hex.q == _last_q and hex.r == _last_r:
 		return
@@ -121,9 +157,9 @@ func _try_paint(screen_pos: Vector2) -> void:
 # ── Draw ─────────────────────────────────────────────────────────────────────
 
 func _draw() -> void:
-	for q in range(-RADIUS, RADIUS + 1):
-		for r in range(-RADIUS, RADIUS + 1):
-			if absi(-q - r) <= RADIUS:
+	for q in range(-radius, radius + 1):
+		for r in range(-radius, radius + 1):
+			if absi(-q - r) <= radius:
 				_draw_hex(q, r)
 	_draw_legend()
 
@@ -145,6 +181,10 @@ func _draw_hex(q: int, r: int) -> void:
 			draw_colored_polygon(poly, _IMPASS_TINT)
 		elif tile.difficult:
 			draw_colored_polygon(poly, _DIFFICULT_TINT)
+		if tile.cover == 1:
+			draw_colored_polygon(poly, _COVER1_TINT)
+		elif tile.cover == 2:
+			draw_colored_polygon(poly, _COVER2_TINT)
 
 	if trigger_resource != null and _arr_has(trigger_resource.trigger_hexes, q, r):
 		draw_colored_polygon(poly, _TRIGGER_COLOR)
@@ -163,6 +203,14 @@ func _draw_hex(q: int, r: int) -> void:
 				draw_string(ThemeDB.fallback_font, center + Vector2(-7, 5),
 					"E%d" % i, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color.WHITE)
 
+	if tile != null:
+		if tile.elevation != 0:
+			draw_string(ThemeDB.fallback_font, center + Vector2(14, -14),
+				"%+d" % tile.elevation, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(1.0, 0.9, 0.4, 0.9))
+		if not tile.feature.is_empty():
+			draw_string(ThemeDB.fallback_font, center + Vector2(-10, 20),
+				tile.feature.left(6), HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.85, 1.0, 0.5, 0.9))
+
 	if q == _hovered_q and r == _hovered_r:
 		draw_string(ThemeDB.fallback_font, center + Vector2(-14, -4),
 			"(%d,%d)" % [q, r], HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(1, 1, 0.6, 0.9))
@@ -177,9 +225,9 @@ func _draw_hex(q: int, r: int) -> void:
 func _draw_legend() -> void:
 	var font := ThemeDB.fallback_font
 	var lx := 8.0; var ly := 8.0
-	var labels := ["TERRAIN", "IMPASSABLE", "DIFFICULT", "PARTY POS", "ENEMY POS", "TRIGGER"]
+	var labels := ["TERRAIN", "IMPASSABLE", "DIFFICULT", "PARTY POS", "ENEMY POS", "TRIGGER", "FEATURE"]
 	var colors := [_TERRAIN_COLORS.get(current_terrain, _EMPTY_COLOR),
-		_IMPASS_TINT, _DIFFICULT_TINT, _PARTY_COLOR, _ENEMY_COLOR, _TRIGGER_COLOR]
+		_IMPASS_TINT, _DIFFICULT_TINT, _PARTY_COLOR, _ENEMY_COLOR, _TRIGGER_COLOR, _FEATURE_COLOR]
 	for i in labels.size():
 		var ry := ly + i * 22.0
 		draw_rect(Rect2(Vector2(lx, ry), Vector2(14, 14)), colors[i])
@@ -194,7 +242,14 @@ func _paint(q: int, r: int, erase: bool) -> void:
 	match paint_mode:
 		PaintMode.TERRAIN:
 			if encounter_resource == null: return
-			_get_or_create_tile(q, r).terrain_type = "floor" if erase else current_terrain
+			var t := _get_or_create_tile(q, r)
+			if erase:
+				t.terrain_type = "floor"
+				t.elevation = 0; t.cover = 0
+			else:
+				t.terrain_type = current_terrain
+				t.elevation = current_elevation
+				t.cover = current_cover
 
 		PaintMode.IMPASSABLE:
 			if encounter_resource == null: return
@@ -222,6 +277,11 @@ func _paint(q: int, r: int, erase: bool) -> void:
 				_arr_remove(trigger_resource.trigger_hexes, q, r)
 			else:
 				trigger_resource.trigger_hexes.append({"q": q, "r": r})
+
+		PaintMode.FEATURE:
+			if encounter_resource == null: return
+			var t := _get_or_create_tile(q, r)
+			t.feature = "" if erase else current_feature
 
 	queue_redraw()
 
@@ -371,10 +431,20 @@ func _build_ui() -> void:
 	_add_btn(vbox, "Save trigger",  _save_trigger)
 	_add_btn(vbox, "Save trigger As…", func(): _show_dialog("save_trg"))
 
+	_add_head(vbox, "MAP SIZE")
+	var radius_row := HBoxContainer.new()
+	_add_lbl_to(radius_row, "Radius:")
+	_radius_spin = SpinBox.new()
+	_radius_spin.min_value = 3; _radius_spin.max_value = 24; _radius_spin.value = radius
+	_radius_spin.value_changed.connect(func(v: float) -> void:
+		radius = int(v); queue_redraw())
+	radius_row.add_child(_radius_spin)
+	vbox.add_child(radius_row)
+
 	_add_head(vbox, "PAINT MODE")
 	_mode_btn = OptionButton.new()
-	for name in ["Terrain","Impassable","Difficult","Party Pos","Enemy Pos","Trigger"]:
-		_mode_btn.add_item(name)
+	for label in ["Terrain","Impassable","Difficult","Party Pos","Enemy Pos","Trigger","Feature"]:
+		_mode_btn.add_item(label)
 	_mode_btn.item_selected.connect(func(i: int) -> void:
 		paint_mode = i as PaintMode
 		_refresh_context_rows()
@@ -382,14 +452,42 @@ func _build_ui() -> void:
 	vbox.add_child(_mode_btn)
 
 	_terrain_row = HBoxContainer.new()
-	_add_lbl_to(_terrain_row, "Terrain:")
+	_add_lbl_to(_terrain_row, "Type:")
 	_terrain_btn = OptionButton.new()
-	for t in ["floor","rubble","water","wall","pit"]: _terrain_btn.add_item(t)
+	for t in ["floor","rubble","wall","pit","grass","stone","sand",
+			  "forest","undergrowth","mud","shallow_water","deep_water",
+			  "water","lava","ice"]:
+		_terrain_btn.add_item(t)
 	_terrain_btn.item_selected.connect(func(i: int) -> void:
 		current_terrain = _terrain_btn.get_item_text(i)
 		queue_redraw())
 	_terrain_row.add_child(_terrain_btn)
 	vbox.add_child(_terrain_row)
+
+	_elevation_row = HBoxContainer.new()
+	_add_lbl_to(_elevation_row, "Elev:")
+	_elevation_spin = SpinBox.new()
+	_elevation_spin.min_value = -5; _elevation_spin.max_value = 5; _elevation_spin.value = 0
+	_elevation_spin.value_changed.connect(func(v: float) -> void: current_elevation = int(v))
+	_elevation_row.add_child(_elevation_spin)
+	vbox.add_child(_elevation_row)
+
+	_cover_row = HBoxContainer.new()
+	_add_lbl_to(_cover_row, "Cover:")
+	_cover_btn = OptionButton.new()
+	for c in ["None","Partial","Full"]: _cover_btn.add_item(c)
+	_cover_btn.item_selected.connect(func(i: int) -> void: current_cover = i)
+	_cover_row.add_child(_cover_btn)
+	vbox.add_child(_cover_row)
+
+	_feature_row = HBoxContainer.new()
+	_add_lbl_to(_feature_row, "Feature:")
+	_feature_edit = LineEdit.new()
+	_feature_edit.placeholder_text = "door, chest…"
+	_feature_edit.custom_minimum_size = Vector2(100, 0)
+	_feature_edit.text_changed.connect(func(s: String) -> void: current_feature = s)
+	_feature_row.add_child(_feature_edit)
+	vbox.add_child(_feature_row)
 
 	_slot_row = HBoxContainer.new()
 	_add_lbl_to(_slot_row, "Slot:")
@@ -435,7 +533,11 @@ func _show_dialog(tag: String) -> void:
 
 
 func _refresh_context_rows() -> void:
-	_terrain_row.visible = (paint_mode == PaintMode.TERRAIN)
+	var is_terrain := (paint_mode == PaintMode.TERRAIN)
+	_terrain_row.visible   = is_terrain
+	_elevation_row.visible = is_terrain
+	_cover_row.visible     = is_terrain
+	_feature_row.visible   = (paint_mode == PaintMode.FEATURE)
 	_slot_row.visible = (paint_mode == PaintMode.PARTY_POS or paint_mode == PaintMode.ENEMY_POS)
 
 
