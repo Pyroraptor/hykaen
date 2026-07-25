@@ -316,6 +316,15 @@ const CombineTargetingSessionClass = preload("res://presentation/combine_targeti
 ## fake run_round_use_case/turn_controller, so wiring it here never risks a
 ## second, parallel `RunRoundUseCase.begin_round()` call site.
 const RoundFlowControllerClass = preload("res://presentation/round_flow_controller.gd")
+## VerbDispatchControllerClass — FEAT-007/FEAT-320 (US-005/US-009; FR-006/
+## FR-009; ADR-002): owns verb-bar dispatch (build_verb_registry()/
+## availability()/enter_selection()/execute() for every VERB_TABLE entry,
+## plus the Layer 1 -> Layer 2 -> resolve signal handlers) extracted VERBATIM
+## from this composition root's former `_build_verb_registry()`/
+## `_verb_bar_*`/`_on_verb_bar_selection_entered()`/
+## `_on_selection_overlay_resolved()` methods. See presentation/
+## verb_dispatch_controller.gd's own file-level doc for the full contract.
+const VerbDispatchControllerClass = preload("res://presentation/verb_dispatch_controller.gd")
 
 
 ## SpellPickerPanelControllerClass — FEAT-008 (US-007 / FR-002): the
@@ -914,6 +923,13 @@ var combine_queue_build_session = null
 ## `combine_queue_build_session`'s/`combine_targeting_session`'s identical
 ## "constructed here, exposed for verification" precedent.
 var round_flow_controller = RoundFlowControllerClass.new()
+## verb_dispatch_controller — the owned VerbDispatchController instance
+## (presentation/verb_dispatch_controller.gd). `.setup(self)` is called once
+## in _ready(); build_verb_registry(VERB_TABLE) replaces this composition
+## root's former inline _build_verb_registry() call, and
+## verb_bar_view.verb_selection_entered / selection_overlay.selection_resolved
+## are connected straight to this controller's handlers.
+var verb_dispatch_controller = VerbDispatchControllerClass.new()
 
 ## _spell_picker — FEAT-008 (US-007 / FR-002): the composition-root-owned
 ## SpellPickerPanelController instance (presentation/
@@ -1184,7 +1200,8 @@ func _ready() -> void:
 	# itself -- the call that would actually render/activate any verb button --
 	# is deferred to _on_combat_triggered() (FEAT-316): see that method's own
 	# doc for why. ──────────────────────────────────────────────────────────
-	_verb_registry = _build_verb_registry()
+	verb_dispatch_controller.setup(self)
+	_verb_registry = verb_dispatch_controller.build_verb_registry(VERB_TABLE)
 
 	# ── FEAT-005 (US-005; FR-004/FR-013; NFR-002/NFR-003; ADR-002): minimal
 	# composition-root wiring for MultiPhaseTargetingController -- this
@@ -1365,8 +1382,8 @@ func _ready() -> void:
 	# $VerbBarView has rendered buttons, which itself only happens once
 	# _on_combat_triggered() calls verb_bar_view.configure()). ──────────────
 	if verb_bar_view != null:
-		verb_bar_view.verb_selection_entered.connect(_on_verb_bar_selection_entered)
-	selection_overlay.selection_resolved.connect(_on_selection_overlay_resolved)
+		verb_bar_view.verb_selection_entered.connect(verb_dispatch_controller._on_verb_bar_selection_entered)
+	selection_overlay.selection_resolved.connect(verb_dispatch_controller._on_selection_overlay_resolved)
 
 	# FEAT-008 (US-007 / FR-002): this composition root still creates/
 	# add_child()s the "SpellPickerPanel" Panel node itself (scene-tree
@@ -1937,153 +1954,36 @@ func _presentation_event_subscribers() -> Array:
 	return subscribers
 
 
-## _build_verb_registry() -> _VerbBarRegistryAdapter — FEAT-004 (US-004/
-## FR-001): composes the four in-scope verb entries (Strike/Step/Stride/End
-## Turn — the SAME four US-003 scoped in core/application/verb_registry.py's
-## build_default_registry(), mirrored here for the Godot runtime, which
-## cannot reach that pytest-only Python module directly, ADR-001) over the
-## ALREADY-INSTANTIATED, already-tested presentation controls this
-## composition root wires elsewhere. This is the ONE place verb-specific
-## wiring exists (mirroring build_default_registry()'s own file-level doc);
-## _VerbBarRegistryAdapter itself stays completely verb-agnostic.
-##
-## No new domain/application logic is introduced here (ADR-002/CR-001): each
-## availability/enter_selection/execute closure below is a thin forward to
-## _strike_reachable_target_ids()/_find_strike_reachable_target() +
-## resolve_action_use_case.resolve() (FEAT-006 -- see this file's FEAT-006
-## doc: the removed strike_action_control.gd's reach-filter UX mirror lives
-## here now, since Strike has no dedicated presentation control of its own
-## anymore), movement_input_controller.get_selectable_step_hexes()/step_to()/
-## get_selectable_stride_hexes()/stride_to(), or end_turn_control.press() --
-## the SAME reach/movement/turn-ending paths those controls already expose
-## and this file already relies on elsewhere.
-func _build_verb_registry() -> VerbBarRegistryAdapterClass:
-	var registry := VerbBarRegistryAdapterClass.new()
+## Verb-bar dispatch (build_verb_registry / availability / enter_selection /
+## execute for every VERB_TABLE entry, plus the Layer 1 -> Layer 2 -> resolve
+## signal handlers) is now OWNED ENTIRELY by verb_dispatch_controller
+## (presentation/verb_dispatch_controller.gd, FEAT-007/FEAT-320) -- this
+## composition root only `.new()`s it, calls `.setup(self)`, and connects
+## verb_bar_view.verb_selection_entered / selection_overlay.selection_resolved
+## to its handlers (see _ready()). The reaction-window shims below remain
+## HERE (not part of verb dispatch) because other controllers/tests call them
+## directly on the composition root (ADR-002 -- no duplicated resolution
+## logic; `instance._strike_reachable_target_ids()` etc. keep working
+## unchanged).
 
-	# Data-driven (2026-07-11): loop VERB_TABLE rather than four hand-written
-	# register() blocks. Each verb wires the three thin _verb_bar_<verb>_* shim
-	# Callables tests call on `self` — "END_TURN".to_lower() == "end_turn" matches
-	# the shim names. Adding a VERB_TABLE entry auto-registers its verb here.
-	for verb_id in VERB_TABLE:
-		var suffix: String = verb_id.to_lower()
-		registry.register(
-			verb_id,
-			Callable(self, "_verb_bar_%s_availability" % suffix),
-			Callable(self, "_verb_bar_%s_enter_selection" % suffix),
-			Callable(self, "_verb_bar_%s_execute" % suffix),
-		)
-
-	return registry
-
-
-## _verb_bar_current_action_economy() -> ActionEconomy or null — the SAME
-## live ActionEconomy round_session.current_action_economy() already exposes
-## elsewhere in this file, read here only for its get_remaining() count (US-
-## 004's "an action remains" gate for Strike/Stride availability, mirroring
-## core/application/verb_registry.py's build_default_registry() strike_
-## availability()/stride_availability() closures exactly).
-func _verb_bar_current_action_economy():
-	if round_session == null:
-		return null
-	return round_session.current_action_economy()
-
-
-## _verb_bar_strike_availability() -> bool — FEAT-009 (US-009 / FR-004):
-## gates on the active actor's live ActionEconomy.can_take_action()
-## (core/rules/action_economy.gd, read-only, ADR-003) rather than the
-## coarser "an action point remains" (get_remaining() > 0) check this used to
-## perform. The two are NOT equivalent: can_take_action() additionally
-## reports false the instant this turn's ONE action has been spent, even
-## though the shared 7-action round budget may still have several points
-## left (e.g. immediately after a Strike, remaining could still be 6) — this
-## is the "one action per turn" gate the steel thread's exit criterion (the
-## verb bar visibly greying Strike/Stride until the actor's NEXT turn) is
-## built on, mirroring can_take_action()'s own file-level doc ("the SINGLE
-## SOURCE OF TRUTH ... presentation ... is intended to read from"). This
-## function only READS can_take_action(); it never mutates the domain gate
-## itself.
-func _verb_bar_strike_availability() -> bool:
-	return _controller("STRIKE").availability()
-
-
-func _verb_bar_strike_enter_selection() -> Dictionary:
-	return _controller("STRIKE").enter_selection()
-
-
-## _verb_bar_strike_execute(selection) -> Dictionary — FEAT-006: `selection`
-## is the chosen target's id (String, the SAME "combatant_id" falling back to
-## "name" convention _strike_target_id() below uses). Rejects HERE, before
-## ever reaching resolve_action_use_case, when selection does not name a
-## currently in-reach target -- including a stale/spoofed id -- exactly as
-## the removed strike_action_control.gd's select_target() used to (no
-## action-budget spend, no event emission, no use-case call at all).
-##
-## FEAT-005 (US-004 / FR-004, ADR-005 — CR-001 accepted debt; docs/
-## iterations/iteration-I-reactions-live-wiring-and-offensive-reactions.org
-## Part A-3): this is the PLAYER-strikes-ENEMY call site (historically
-## documented as "MainScene.gd:1008").
-##
-## Iteration K FEAT-004 (US-004, ADR-004) — Part B: the enemy target now
-## GENUINELY reacts on this path. `enemy_reaction_chooser` (AIReactionPolicy,
-## constructed in _ready()) and the target's own live ActionEconomy
-## (`_action_economy_for()` below) are handed to
-## resolve_action_use_case.resolve_reactive() (core/application/
-## resolve_action_use_case.gd), which opens the target's PreHitAvoidance
-## window BEFORE the to-hit roll and OnHitMitigation window AFTER a hit,
-## synchronously — no `await`, no coroutine, so NO pop-up/UI ever opens for
-## the enemy's own reaction (this feature's "no pop-up UI opens" test
-## criterion; contrast with core/application/round_session.gd's
-## enemy-Strikes-PLAYER path, where the PLAYER reacts via the REAL,
-## awaited `reaction_prompt_ui` pop-up). This supersedes the earlier "Part A
-## pass-through" (the enemy always Passing, pinned by tests/gut/
-## test_player_strikes_enemy_pass_through.gd) — that suite has been updated
-## for Part B by this same feature.
-func _verb_bar_strike_execute(selection) -> Dictionary:
-	return await _controller("STRIKE").execute(selection)
-
-
-## _resolve_enemy_dodge_step(target, resolve_result, attacker_hex, legal_hexes)
-## -> void — thin shim to ReactionController.resolve_enemy_dodge_step()
-## (presentation/reaction_controller.gd), restored per that file's own
-## documented contract ("MainScene keeps thin _resolve_*/… shims that
-## delegate here, so … the direct-call tests all keep working unchanged").
-## presentation/strike_action_controller.gd's execute() already calls
-## `_reaction.resolve_enemy_dodge_step()` directly for the live
-## player-Strikes-enemy call path (ADR-002 — no duplicated resolution logic
-## here, this is pure delegation); this shim exists solely so tests/other
-## callers can drive the SAME seam via `instance._resolve_enemy_dodge_step()`
-## on the composition root, exactly like `_resolve_enemy_stride_opportunistic_
-## window()` below does for its own ReactionController method.
+## _resolve_enemy_dodge_step(...) -> void -- thin shim to
+## ReactionController.resolve_enemy_dodge_step() (presentation/reaction_controller.gd).
 func _resolve_enemy_dodge_step(target, resolve_result: Dictionary, attacker_hex, legal_hexes: Array) -> void:
 	await _reaction().resolve_enemy_dodge_step(target, resolve_result, attacker_hex, legal_hexes)
 
 
-## _strike_reachable_target_ids() -> Array - thin shim to StrikeActionController
-## (kept because tests call it directly). strike_execute + the targeting helpers
-## (_strike_reachable_targets/_strike_actor_is_ranged/_strike_target_id/
-## _find_strike_reachable_target) moved into
-## presentation/strike_action_controller.gd.
+## _strike_reachable_target_ids() -> Array -- thin shim to StrikeActionController
+## (kept because tests/verb_dispatch_controller.gd call it directly).
 func _strike_reachable_target_ids() -> Array:
 	return _controller("STRIKE").reachable_target_ids()
 
 
-## _action_economy_for(combatant) -> ActionEconomy or null — iteration K
-## FEAT-004 (US-004, ADR-004): looks up the live ActionEconomy `encounter`
-## (core/combat/encounter.gd) already holds for `combatant`, so
-## _verb_bar_strike_execute() can hand the enemy TARGET's own (not the
-## acting player's) live budget into resolve_action_use_case.resolve_reactive()
-## — the reactor's reaction must spend from ITS OWN budget, never the
-## attacker's. Mirrors core/application/round_session.gd's private
-## _find_action_economy_for() identity convention exactly (object-identity
-## match first, falling back to the combatant_id/name convention used
-## throughout this codebase) — a NEW, independent copy here since
-## round_session.gd is out of this feature's file scope, but `encounter`'s
-## ActionEconomy instances are the SAME live objects RunRoundUseCase.begin_round()
-## handed to `round_session` (see rewire_session()'s own doc), so a spend here
-## is visible everywhere else that reads the same instance.
-## Returns null when `encounter` is unwired or no matching entry exists —
-## resolve_reactive()/resolution.gd both degrade safely to "reaction
-## untracked" in that case (never a crash).
+## _action_economy_for(combatant) -> ActionEconomy or null -- looks up the
+## live ActionEconomy `encounter` holds for `combatant` (object-identity
+## match first, falling back to display_id()), so a reactor's reaction spends
+## from ITS OWN budget, never the attacker's. Returns null when `encounter`
+## is unwired or no matching entry exists (degrades safely to "reaction
+## untracked", never a crash).
 func _action_economy_for(combatant):
 	if encounter == null:
 		return null
@@ -2103,360 +2003,39 @@ func _action_economy_for(combatant):
 	return null
 
 
-## _is_reactor_reaction_spent(reactor) -> bool — iteration K FEAT-006
-## (US-006): the `reactor_spent_fn` Callable core/application/use_cases/
-## resolve_stride_use_case.gd's ResolveStrideUseCase awaits per candidate
-## reactor, backed by the SAME live ActionEconomy lookup
-## (_action_economy_for()) every other reaction seam in this file already
-## uses. Defaults to "not spent" when no tracked ActionEconomy exists (a
-## fixture/test-double reactor), mirroring _action_economy_for()'s own
-## documented "reaction untracked" degrade-safely contract.
+## _is_reactor_reaction_spent(reactor) -> bool -- the `reactor_spent_fn`
+## Callable ResolveStrideUseCase awaits per candidate reactor, backed by the
+## SAME live ActionEconomy lookup (_action_economy_for()).
 func _is_reactor_reaction_spent(reactor) -> bool:
 	return _reaction().is_reactor_reaction_spent(reactor)
 
 
 ## _resolve_enemy_stride_opportunistic_window(mover, mover_start_hex,
-## candidate_reactors) -> Dictionary — iteration K FEAT-006 (US-006, ADR-004):
-## the Callable core/combat/ai.gd's `_stride_reaction_resolver_fn` seam awaits
-## for the ENEMY-mover Stride path (a Skeleton Striding toward Titus) —
-## injected onto `ai_decision_port` in _ready() above. Drives
-## ResolveStrideUseCaseClass.execute() with this composition root's own
-## per-reactor spent/resolver Callables, routing the PLAYER reactor (the only
-## hostile candidate an enemy mover can ever have in this steel thread) to
-## _resolve_player_opportunistic_strike_reaction() below — the real,
-## awaited turn_controller.resolve_reaction() pop-up — BEFORE core/combat/
-## ai.gd's own Movement.stride() call (immediately following this seam,
-## still inside the SAME decide_action() call) ever mutates `mover`'s
+## candidate_reactors) -> Dictionary -- the Callable core/combat/ai.gd's
+## `_stride_reaction_resolver_fn` seam awaits for the ENEMY-mover Stride path,
+## routing the PLAYER reactor to _resolve_player_opportunistic_strike_reaction()
+## below (the real, awaited turn_controller.resolve_reaction() pop-up) BEFORE
+## core/combat/ai.gd's own Movement.stride() call ever mutates `mover`'s
 ## hex_coord.
-##
-## iteration K FEAT-008 (US-008): now wires `resolve_action_use_case`/
-## `_action_economy_for` through as ResolveStrideUseCase.execute()'s
-## `strike_use_case`/`reactor_action_economy_fn` (previously omitted
-## entirely — an "opportunistic_strike" choice on this path resolved NO
-## effect at all in live play, despite core/application/use_cases/
-## resolve_stride_use_case.gd's own FEAT-007 effect-resolution machinery —
-## see that file's own FEAT-008 doc), and now returns the use case's own
-## result Dictionary (`-> void` previously) so core/combat/ai.gd's
-## `_stride_toward_target()` can read `"mover_downed"` and cancel the Stride
-## when a lethal opportunistic Strike defeats `mover`.
 func _resolve_enemy_stride_opportunistic_window(mover, mover_start_hex, candidate_reactors: Array) -> Dictionary:
 	return await _reaction().resolve_enemy_stride_opportunistic_window(mover, mover_start_hex, candidate_reactors)
 
 
 ## _resolve_player_opportunistic_strike_reaction(reactor, context) ->
-## Dictionary — iteration K FEAT-006 (US-006): the player-reactor half of
-## this feature's required routing ("reactor=player -> the real
-## turn_controller.resolve_reaction pop-up"). Delegates to
-## turn_controller.resolve_opportunistic_strike_reaction() (iteration K
-## FEAT-008 — see that method's own doc for the "OpportunisticStrike"
-## ReactionTrigger shape it builds internally) — the SAME live integration
-## point the enemy-Strikes-player path already awaits via this composition
-## root's own `reaction_window`/`player_reaction_chooser` (wired in
-## _ready()), so a genuinely blocking pop-up decides whether the player
-## takes the opportunistic strike, BEFORE the enemy mover's Stride below
-## ever commits a position change. Degrades safely to Pass
-## ({"choice": "none"}) when `turn_controller` is unwired (never
-## crashes/hangs).
+## Dictionary -- the player-reactor half of opportunistic-strike routing
+## ("reactor=player -> the real turn_controller.resolve_reaction pop-up").
+## Degrades safely to Pass ({"choice": "none"}) when `turn_controller` is
+## unwired (never crashes/hangs).
 func _resolve_player_opportunistic_strike_reaction(reactor, context: Dictionary) -> Dictionary:
 	return await _reaction().resolve_player_opportunistic_strike_reaction(reactor, context)
 
 
 ## _resolve_enemy_opportunistic_strike_reaction(reactor, context) ->
-## Dictionary — iteration K FEAT-006 (US-006): the enemy-reactor half of this
-## feature's required routing ("reactor=enemy -> ai_reaction_policy
-## synchronously") — consulted by _verb_bar_stride_execute() below for the
-## PLAYER-mover Stride path (Titus Striding, a Skeleton reacting).
-## Synchronous end to end (OpenReactionWindowUseCase.open() never `await`s,
-## and `enemy_reaction_chooser` — infrastructure/ai_reaction_policy.gd's
-## AIReactionPolicy — never suspends either), so NO pop-up/UI ever opens for
-## the enemy's own reaction decision here (mirrors
-## _verb_bar_strike_execute()'s identical iteration-K "no pop-up UI opens
-## during the enemy's reaction window" contract for Strikes).
+## Dictionary -- the enemy-reactor half of opportunistic-strike routing
+## ("reactor=enemy -> ai_reaction_policy synchronously", no pop-up).
 func _resolve_enemy_opportunistic_strike_reaction(reactor, context: Dictionary) -> Dictionary:
 	return _reaction().resolve_enemy_opportunistic_strike_reaction(reactor, context)
 
-
-## _verb_bar_step_availability() -> bool -- FEAT-002 (US-002 / FR-003 /
-## FR-004; Iteration F P0-1): additionally queries the active actor's live
-## ActionEconomy.can_take_movement_action() (core/rules/action_economy.gd,
-## read-only, ADR-003) -- STEP is unavailable once EITHER Step or Stride has
-## already been taken this turn (the SAME Movement-trait gate FEAT-001 wired
-## into core/rules/movement.gd), in addition to the pre-existing "at least
-## one legal Step destination" check. This function only READS
-## can_take_movement_action(); it never mutates the domain gate itself.
-func _verb_bar_step_availability() -> bool:
-	return _controller("STEP").availability()
-
-
-func _verb_bar_step_enter_selection() -> Dictionary:
-	return _controller("STEP").enter_selection()
-
-
-## _verb_bar_step_execute(selection) -> Dictionary — FEAT-007 (this
-## iteration's US-007/FR-010): `selection` is the Layer-2-picked destination
-## HexCoord (see _verb_bar_step_enter_selection()'s candidate_hexes). Forwards
-## directly to the injected, REUSED movement_input_controller.step_to() (ADR-
-## 002: no duplicate movement path -- this is now the SOLE Step entry point,
-## replacing the deleted hex_grid_view.hex_clicked auto-resolve handler). On
-## success, runs the SAME post-move refresh
-## (_after_successful_move()) that handler used to run.
-func _verb_bar_step_execute(selection) -> Dictionary:
-	return _controller("STEP").execute(selection)
-
-
-## _verb_bar_stride_availability() -> bool -- FEAT-002 (US-002 / FR-003 /
-## FR-004; Iteration F P0-1): additionally queries the active actor's live
-## ActionEconomy.can_take_movement_action() (read-only, ADR-003) -- STRIDE is
-## unavailable once EITHER Step or Stride has already been taken this turn
-## (the SAME Movement-trait gate Stride's own action_economy.spend_action()
-## call already trips), in addition to the "an action remains AND at least
-## one legal Stride destination" checks below.
-##
-## FEAT-009 (US-009 / FR-004): the "an action remains" half of that check is
-## now can_take_action() (mirrors _verb_bar_strike_availability()'s identical
-## FEAT-009 change, see its doc above) rather than the coarser
-## get_remaining() > 0 -- STRIDE must grey out the instant this turn's ONE
-## action has been spent (e.g. by a Strike), even while the shared 7-action
-## round budget still has points left, exactly like STRIKE. This function
-## only READS can_take_movement_action()/can_take_action(); it never mutates
-## either domain gate itself.
-func _verb_bar_stride_availability() -> bool:
-	return _controller("STRIDE").availability()
-
-
-func _verb_bar_stride_enter_selection() -> Dictionary:
-	return _controller("STRIDE").enter_selection()
-
-
-## _verb_bar_stride_execute(selection) -> Dictionary — FEAT-007 (this
-## iteration's US-007/FR-010): mirrors _verb_bar_step_execute() exactly, for
-## Stride -- the SOLE Stride entry point now that the legacy
-## hex_grid_view.hex_clicked auto-resolve handler is gone.
-##
-## FEAT-178 (US-014 / FR-014): a Stride spends one action from the SAME live
-## ActionEconomy instance Strike's status-bar push already reads from -- but
-## unlike Strike (whose post-resolution action-budget snapshot reaches
-## StatusPanelView via an AttackEvent, see status_panel_view.gd's
-## on_attack_event()), a Stride emits no event at all. `actor_id`/
-## `action_economy` are captured BEFORE movement_input_controller.stride_to()
-## runs (the Stride never changes whose turn it is, so this is exactly the
-## SAME actor/economy the Stride itself spends from) so this composition
-## root can explicitly push that snapshot to $StatusPanelView the moment the
-## Stride resolves -- closing the gap where the status bar's Actions/Spent
-## readout went stale after a Stride (regression coverage: tests/gut/
-## test_status_bar_verb_flow_regression.gd).
-## iteration K FEAT-006 (US-006, ADR-004): BEFORE forwarding to
-## movement_input_controller.stride_to() (this method's pre-existing sole
-## commit point for the player's Stride), this now opens an
-## OpportunisticStrike reaction window for every hostile (enemy) reactor
-## eligible per core/domain/opportunistic_strike_eligibility.gd — routed
-## synchronously through _resolve_enemy_opportunistic_strike_reaction()
-## (ai_reaction_policy, no pop-up) — so the enemy's reaction is fully
-## resolved before Titus's position ever changes, mirroring this feature's
-## identical guarantee on the enemy-mover path (core/combat/ai.gd). A no-op
-## when round_session/current_actor carries no hex_coord (e.g. a test double
-## that never populates positional data) — the pre-existing Stride contract
-## is otherwise completely unaffected.
-##
-## iteration K FEAT-008 (US-008): now wires `resolve_action_use_case`/
-## `_action_economy_for` through as ResolveStrideUseCase.execute()'s
-## `strike_use_case`/`reactor_action_economy_fn` (previously omitted
-## entirely — see _resolve_enemy_stride_opportunistic_window()'s own
-## FEAT-008 doc for the identical enemy-mover-path gap this closes), and now
-## reads the returned Dictionary's `"stride_should_commit"` — when false (a
-## lethal Opportunistic Strike defeated Titus before his Stride could ever
-## commit), movement_input_controller.stride_to() is NEVER called: Titus
-## remains at his start hex (no hex_coord mutation occurs), and this method
-## returns a rejected result carrying ERR_MOVER_DOWNED_BY_OPPORTUNISTIC_STRIKE
-## rather than the movement controller's own ok/resolved shape.
-##
-## FEAT-228 (resolves FIND-224 / FR-007): `_living_combatants(_enemies)`
-## yields candidates in ENCOUNTER SPAWN ORDER (`_enemies`'s own array order,
-## fixed at boot before `encounter.initialize()` ever rolls initiative) --
-## NOT the rolled-initiative order this feature's ADR on deterministic-replay
-## ordering requires ResolveStrideUseCase.execute() to receive (that use
-## case's own doc explicitly states it "resolves reactors strictly in the
-## order given, never re-sorting them itself" -- the caller, this method, is
-## the sole party responsible for supplying initiative order). This method
-## now runs that living-enemy pool through _order_candidate_reactors_by_initiative()
-## (sorted by each combatant's own "_initiative_roll", stamped by
-## `encounter.initialize()` before this method is ever reachable) before
-## handing it to the use case, and additionally runs the SORTED result
-## through _assert_candidate_reactors_ordering() -- a defensive, fail-loud
-## check (mirrors core/application/reaction_window.gd's
-## assert_reaction_budget_delta() convention: assert()+push_error(), plus a
-## bool return so a GUT test can observe the violation directly, since this
-## project's Godot 4.3 engine cannot capture assert()/push_error() output
-## from GUT) confirming the sorted order is genuinely consistent with
-## `encounter.get_turn_order()` (the authoritative initiative table) rather
-## than merely internally sorted.
-func _verb_bar_stride_execute(selection) -> Dictionary:
-	return await _controller("STRIDE").execute(selection)
-
-
-## The END_TURN verb's availability/enter_selection/execute are delegated to
-## presentation/end_turn_action_controller.gd (EndTurnActionController, a concrete
-## ActionController subclass). These thin shims keep the VerbBarRegistry's
-## Callable(self, "_verb_bar_end_turn_*") registrations and the direct-call tests
-## unchanged.
-func _verb_bar_end_turn_availability() -> bool:
-	return _controller("END_TURN").availability()
-
-
-func _verb_bar_end_turn_enter_selection() -> Dictionary:
-	return _controller("END_TURN").enter_selection()
-
-
-func _verb_bar_end_turn_execute(_selection = null) -> Dictionary:
-	return _controller("END_TURN").execute(_selection)
-
-
-## The CAST_SPELL verb's availability/enter_selection/execute are delegated to
-## presentation/verbs/spell_action_controller.gd (SpellActionController, a
-## concrete ActionController subclass) — FEAT-004 (US-004, FR-003). These thin
-## shims mirror the STRIKE/STEP/STRIDE/END_TURN shims exactly (see VERB_TABLE's
-## own doc: "adding a verb is ~one entry ... + the three thin
-## _verb_bar_<verb>_* shims"), keeping the VerbBarRegistry's
-## Callable(self, "_verb_bar_cast_spell_*") registrations and any direct-call
-## tests working unchanged. SpellActionController.execute() is currently a
-## synchronous skeleton stub (no `await` inside it), so this shim does not
-## `await` it either — mirrors _verb_bar_step_execute()/_verb_bar_end_turn_execute()'s
-## identical non-async convention, not _verb_bar_strike_execute()/
-## _verb_bar_stride_execute()'s awaited one.
-func _verb_bar_cast_spell_availability() -> bool:
-	return _controller("CAST_SPELL").availability()
-
-
-func _verb_bar_cast_spell_enter_selection() -> Dictionary:
-	return _controller("CAST_SPELL").enter_selection()
-
-
-func _verb_bar_cast_spell_execute(selection = null) -> Dictionary:
-	return await _controller("CAST_SPELL").execute(selection)
-
-
-## The COMBINE verb's availability/enter_selection/execute are delegated to
-## presentation/combine_action_controller.gd (CombineActionController, a
-## concrete ActionController subclass) — FEAT-001 (US-001, FR-003), Iteration
-## N (Combinations) kickoff. These thin shims mirror the STRIKE/STEP/STRIDE/
-## END_TURN/CAST_SPELL shims exactly (see VERB_TABLE's own doc: "adding a
-## verb is ~one entry ... + the three thin _verb_bar_<verb>_* shims"),
-## keeping VerbBarRegistry's Callable(self, "_verb_bar_combine_*")
-## registrations working the instant COMBINE is added to VERB_TABLE.
-## CombineActionController.execute() (FEAT-007) now awaits each resolved
-## sub-action's own controller.execute() call (STRIDE's own execute() itself
-## awaits Opportunistic-Strike resolution), so this shim `await`s it too —
-## mirrors _verb_bar_strike_execute()'s/_verb_bar_stride_execute()'s
-## identical awaited convention (harmless even for the pre-FEAT-007
-## no-`controller_for` degrade path: `await` on an already-resolved value is
-## a documented GDScript no-op).
-func _verb_bar_combine_availability() -> bool:
-	return _controller("COMBINE").availability()
-
-
-## _verb_bar_combine_enter_selection() -> Dictionary — FEAT-296
-## (DEF-NEW-001), FEAT-004 (US-003): the LIVE entry point VerbBarRegistry
-## actually registers/invokes for a real player's COMBINE press
-## (`_verb_bar_combine_*` mirrors every other verb's own thin
-## `_verb_bar_<verb>_*` shim, see VERB_TABLE's own doc). Delegates to
-## `combine_queue_build_session.start(actor)` -- the extracted interactive
-## BuildVerbQueueUseCase/ConfirmQueueUseCase-backed queue-builder loop
-## (presentation/combine_queue_build_session.gd) -- which drives
-## SelectionOverlay directly, exactly like combine_targeting_session.start()'s
-## own established precedent for the targeting phase. No verb_id is ever
-## hardcoded here (or anywhere else in this file) -- the real, live
-## candidate pool (STRIDE/STRIKE today; any future combinable verb
-## automatically, with zero change to this function) is asked for fresh on
-## every pick via `_core_combine_action_controller`'s own
-## BuildVerbQueueUseCase seam (wired into the session at setup() time).
-func _verb_bar_combine_enter_selection() -> Dictionary:
-	var actor = round_session.current_actor() if round_session != null else null
-	combine_queue_build_session.start(actor)
-	return {}  # combine_queue_build_session.start() drives SelectionOverlay directly
-
-
-func _verb_bar_combine_execute(selection = null) -> Dictionary:
-	return await _controller("COMBINE").execute(selection)
-
-
-## _on_verb_bar_selection_entered(verb_id, selection) -> void — FEAT-008 /
-## US-008: forwards VerbBarView's own verb_selection_entered signal
-## (emitted immediately after registry.enter_selection(verb_id) inside
-## VerbBarView.press(), see presentation/verb_bar_view.gd's file-level doc)
-## straight to selection_overlay.activate() -- this composition root never
-## re-derives or re-queries the descriptor itself, and never special-cases
-## verb_id here (ADR-002/CR-001: no forked Layer 2 wiring per verb).
-func _on_verb_bar_selection_entered(verb_id: String, selection) -> void:
-	if combine_targeting_session.is_active() or combine_queue_build_session.is_active():
-		return  # combine_targeting_session.start()/combine_queue_build_session.start() already drove SelectionOverlay directly
-	selection_overlay.activate(verb_id, selection)
-	if selection_overlay.is_awaiting_option():
-		_spell_picker.show(selection_overlay.get_candidate_options(), Callable(selection_overlay, "choose_option"))
-
-
-## _on_selection_overlay_resolved(_verb_id, _result) -> void — FEAT-008 /
-## US-008: fires once selection_overlay resolves a highlighted target/hex
-## click through `_verb_registry.execute()` (whichever verb it was -- this
-## handler is generic, mirroring selection_overlay.gd's own verb-agnostic
-## discipline). Re-gates $VerbBarView (a Strike/Stride spends an action,
-## which may flip STRIKE/STRIDE availability) via the SAME
-## refresh_availability() every other verb-state change already relies on,
-## and re-derives the Layer 1 Step/Stride highlight for whoever the current
-## actor now is via the SAME _highlight_legal_moves() helper
-## _on_active_actor_changed()/_after_successful_move() already call -- a
-## resolved Strike does not itself move anyone, so nothing else already
-## re-pushes that highlight after selection_overlay.clear() blanks it.
-##
-## FEAT-005 (US-004; FR-004; ADR-003): when `combine_targeting_session`'s OWN
-## interactive Combine targeting loop is mid-flight AND this resolution is
-## for the CURRENT targeting phase's own verb_id, this handler routes to
-## `combine_targeting_session.try_advance(_verb_id)` instead -- the resolved
-## value was already captured (via that session's own registry proxy,
-## installed as selection_overlay's `_registry` for the duration) by that
-## session's own `_on_combine_targeting_value_chosen()` BEFORE this signal
-## ever fired, so this branch's ONLY job is advancing the loop, never
-## touching `_verb_registry`/`verb_bar_view`/highlight state a standalone
-## verb resolution would. Every standalone (non-Combine) verb resolution
-## takes the EXACT SAME path below this guard as before this feature
-## (`combine_targeting_session.is_active()` is false for the whole of a
-## standalone Strike/Stride flow), which is this feature's own regression
-## test_criteria.
-func _on_selection_overlay_resolved(_verb_id: String, _result) -> void:
-	# FEAT-296 (DEF-NEW-001), FEAT-004 (US-003): mirrors the FEAT-005
-	# targeting-phase branch immediately below, one phase earlier -- a
-	# resolved COMBINE pick while the interactive queue-BUILD loop is active
-	# routes to `combine_queue_build_session.advance()` instead, never
-	# touching `_verb_registry`/`verb_bar_view`/highlight state a standalone
-	# verb resolution would.
-	if combine_queue_build_session.is_active() and _verb_id == "COMBINE":
-		combine_queue_build_session.advance()
-		return
-	if combine_targeting_session.try_advance(_verb_id):
-		return
-	_spell_picker.hide()
-	if verb_bar_view != null:
-		verb_bar_view.refresh_availability()
-	if round_session != null:
-		# Phase C.3/C.4: highlight_legal_moves is instance-native (it configures the
-		# mutating movement controller), so pass the LIVE actor instance.
-		var actor = round_session.current_actor_entity()
-		if actor != null:
-			_turn_presentation().highlight_legal_moves(actor, actor.display_id())
-			# Push action budget to StatusPanelView. Strike already does this via AttackEvent,
-			# but Cast Spell / Continue Cast spend actions without emitting any event, so an
-			# explicit push is required here (mirrors StrideActionController's pattern).
-			var ae = round_session.current_action_economy()
-			if ae != null and status_panel_view != null:
-				status_panel_view.on_verb_action_budget_changed(
-					actor.display_id(), ae.get_remaining(), ae.is_spent()
-				)
-		# Push fresh HP values for all combatants after any spell resolution.
-		# Spell damage is applied via EffectsApplier (no AttackEvent emitted),
-		# so on_attack_event() never fires — an explicit HP push is required
-		# (mirrors the action-budget push above for the same reason).
-		if status_panel_view != null:
-			for combatant in _party + _enemies:
-				status_panel_view.update_combatant_hp(combatant.display_id(), combatant.hp_current)
 
 
 # ── FEAT-005 (US-004; FR-004; ADR-003) — interactive Combine sub-action
