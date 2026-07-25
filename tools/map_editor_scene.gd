@@ -61,6 +61,7 @@ const _LINE_COLOR     = Color(0.35, 0.35, 0.40, 1.00)
 
 func _ready() -> void:
 	DisplayServer.window_set_title("Hykaen Map Editor")
+	DisplayServer.window_set_size(Vector2i(1100, 700))
 	_build_ui()
 	_new_encounter()
 	var vp := get_viewport_rect().size
@@ -335,10 +336,18 @@ func _build_ui() -> void:
 	var cl := CanvasLayer.new()
 	add_child(cl)
 
+	# CanvasLayer has no Control rect, so anchor against a full-rect root.
+	var root := Control.new()
+	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	cl.add_child(root)
+
 	var panel := PanelContainer.new()
 	panel.custom_minimum_size = Vector2(SIDEBAR_W, 0)
-	panel.set_anchors_and_offsets_preset(Control.PRESET_RIGHT_WIDE)
-	cl.add_child(panel)
+	panel.set_anchor_and_offset(SIDE_LEFT,   1.0, -SIDEBAR_W)
+	panel.set_anchor_and_offset(SIDE_TOP,    0.0, 0.0)
+	panel.set_anchor_and_offset(SIDE_RIGHT,  1.0, 0.0)
+	panel.set_anchor_and_offset(SIDE_BOTTOM, 1.0, 0.0)
+	root.add_child(panel)
 
 	var vbox := VBoxContainer.new()
 	vbox.add_theme_constant_override("separation", 5)
