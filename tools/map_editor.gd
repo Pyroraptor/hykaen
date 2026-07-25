@@ -217,6 +217,7 @@ func _draw_legend() -> void:
 # ── Paint ─────────────────────────────────────────────────────────────────────
 
 func _paint(q: int, r: int, erase: bool) -> void:
+	_ensure_arrays_writable()
 	match paint_mode:
 		PaintMode.TERRAIN:
 			if encounter_resource == null:
@@ -266,6 +267,22 @@ func _paint(q: int, r: int, erase: bool) -> void:
 
 
 # ── Resource helpers ──────────────────────────────────────────────────────────
+
+# Godot freezes resource arrays in the editor (undo/redo). Duplicate and
+# reassign any read-only arrays before every paint operation.
+func _ensure_arrays_writable() -> void:
+	if encounter_resource != null:
+		if encounter_resource.tiles.is_read_only():
+			var t: Array[HexTileDataResource] = []
+			t.assign(encounter_resource.tiles)
+			encounter_resource.tiles = t
+		if encounter_resource.party_hex_positions.is_read_only():
+			encounter_resource.party_hex_positions = encounter_resource.party_hex_positions.duplicate()
+		if encounter_resource.enemy_hex_positions.is_read_only():
+			encounter_resource.enemy_hex_positions = encounter_resource.enemy_hex_positions.duplicate()
+	if trigger_resource != null and trigger_resource.trigger_hexes.is_read_only():
+		trigger_resource.trigger_hexes = trigger_resource.trigger_hexes.duplicate()
+
 
 func _tile(q: int, r: int):
 	if encounter_resource == null:
