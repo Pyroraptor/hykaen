@@ -7,22 +7,22 @@
 ##
 ##   Left-click  = paint / place / add
 ##   Right-click = erase / remove
+##   Drag        = paint continuously across hexes
 ##
 ## Modes:
 ##   TERRAIN       — writes current_terrain to a HexTileDataResource in tiles[]
-##   IMPASSABLE    — toggles passable=false (right-click restores passable=true)
-##   DIFFICULT     — sets difficult=true (right-click clears)
+##   IMPASSABLE    — left=impassable, right=restore passable
+##   DIFFICULT     — left=difficult, right=clear difficult
 ##   PARTY_POS     — places party_slot index at clicked hex
 ##   ENEMY_POS     — places enemy_slot index at clicked hex
 ##   TRIGGER       — adds/removes hex from ProximityTriggerResource.trigger_hexes
 ##
-## Auto-saves: after every click, ResourceSaver writes back each assigned .tres.
+## Auto-saves: after every painted hex, ResourceSaver writes back each .tres.
 
 @tool
 extends Node2D
 
 const CoordTransform = preload("res://presentation/infrastructure/coordinate_transform.gd")
-const HexTileDataResourceClass = preload("res://data/tiles/hex_tile_data_resource.gd")
 
 const HEX_SIZE: float = 48.0
 const RADIUS: int = 5
@@ -82,6 +82,41 @@ const _LINE_COLOR:     Color = Color(0.35, 0.35, 0.40, 1.00)
 
 var _hovered_q: int = 9999
 var _hovered_r: int = 9999
+# Track last-painted hex so drag doesn't repaint the same hex every frame.
+var _last_painted_q: int = 9999
+var _last_painted_r: int = 9999
+
+
+# ── Process (handles hover + paint — bypasses editor event interception) ──────
+
+func _process(_delta: float) -> void:
+	if not Engine.is_editor_hint():
+		return
+
+	var local_mouse: Vector2 = get_local_mouse_position()
+	var hex = CoordTransform.pixel_to_axial(local_mouse)
+
+	# Update hover highlight.
+	if hex.q != _hovered_q or hex.r != _hovered_r:
+		_hovered_q = hex.q
+		_hovered_r = hex.r
+		queue_redraw()
+
+	# Only paint within the grid.
+	if absi(-hex.q - hex.r) > RADIUS:
+		_last_painted_q = 9999
+		return
+
+	var left: bool = Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+	var right: bool = Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT)
+
+	# Paint once per hex entry while a button is held (supports drag-paint).
+	if (left or right) and (hex.q != _last_painted_q or hex.r != _last_painted_r):
+		_paint(hex.q, hex.r, right)
+		_last_painted_q = hex.q
+		_last_painted_r = hex.r
+	elif not left and not right:
+		_last_painted_q = 9999  # Reset on button release so same hex can be re-painted.
 
 
 # ── Draw ─────────────────────────────────────────────────────────────────────
@@ -98,14 +133,14 @@ func _draw_hex(q: int, r: int) -> void:
 	var center: Vector2 = _center(q, r)
 	var poly: PackedVector2Array = _poly(center)
 
-	# Terrain fill
+	# Terrain fill.
 	draw_colored_polygon(poly, _fill_color(q, r))
 
-	# Hover highlight
+	# Hover highlight.
 	if q == _hovered_q and r == _hovered_r:
 		draw_colored_polygon(poly, _HOVER_COLOR)
 
-	# Passable / difficult tint
+	# Passable / difficult tint.
 	var tile = _tile(q, r)
 	if tile != null:
 		if not tile.passable:
@@ -113,39 +148,35 @@ func _draw_hex(q: int, r: int) -> void:
 		elif tile.difficult:
 			draw_colored_polygon(poly, _DIFFICULT_TINT)
 
-	# Trigger zone fill
+	# Trigger zone fill.
 	if trigger_resource != null:
-		var hexes = trigger_resource.get("trigger_hexes")
-		if hexes is Array and _arr_has(hexes, q, r):
+		if _arr_has(trigger_resource.trigger_hexes, q, r):
 			draw_colored_polygon(poly, _TRIGGER_COLOR)
 
-	# Party position circles
+	# Party / enemy position circles.
 	if encounter_resource != null:
-		var party_pos = encounter_resource.get("party_hex_positions")
-		if party_pos is Array:
-			for i in party_pos.size():
-				var p = party_pos[i]
-				if p is Dictionary and p.get("q") == q and p.get("r") == r:
-					draw_circle(center, 16.0, _PARTY_COLOR)
-					draw_string(ThemeDB.fallback_font, center + Vector2(-7, 5),
-						"P%d" % i, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color.WHITE)
+		var party_pos: Array = encounter_resource.party_hex_positions
+		for i in party_pos.size():
+			var p = party_pos[i]
+			if p is Dictionary and p.get("q") == q and p.get("r") == r:
+				draw_circle(center, 16.0, _PARTY_COLOR)
+				draw_string(ThemeDB.fallback_font, center + Vector2(-7, 5),
+					"P%d" % i, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color.WHITE)
 
-		# Enemy position circles
-		var enemy_pos = encounter_resource.get("enemy_hex_positions")
-		if enemy_pos is Array:
-			for i in enemy_pos.size():
-				var p = enemy_pos[i]
-				if p is Dictionary and p.get("q") == q and p.get("r") == r:
-					draw_circle(center, 16.0, _ENEMY_COLOR)
-					draw_string(ThemeDB.fallback_font, center + Vector2(-7, 5),
-						"E%d" % i, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color.WHITE)
+		var enemy_pos: Array = encounter_resource.enemy_hex_positions
+		for i in enemy_pos.size():
+			var p = enemy_pos[i]
+			if p is Dictionary and p.get("q") == q and p.get("r") == r:
+				draw_circle(center, 16.0, _ENEMY_COLOR)
+				draw_string(ThemeDB.fallback_font, center + Vector2(-7, 5),
+					"E%d" % i, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color.WHITE)
 
-	# Hex coordinate label (only for hovered hex)
+	# Hex coordinate label on hovered hex.
 	if q == _hovered_q and r == _hovered_r:
 		draw_string(ThemeDB.fallback_font, center + Vector2(-14, -4),
 			"(%d,%d)" % [q, r], HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(1, 1, 0.6, 0.9))
 
-	# Outline (7 points closes the polygon)
+	# Outline.
 	var outline: PackedVector2Array = PackedVector2Array()
 	for i in range(7):
 		var a: float = deg_to_rad(60.0 * (i % 6))
@@ -155,7 +186,6 @@ func _draw_hex(q: int, r: int) -> void:
 
 func _draw_legend() -> void:
 	var font = ThemeDB.fallback_font
-	# Place legend to the right of the grid
 	var lx: float = RADIUS * HEX_SIZE * 1.5 + HEX_SIZE * 1.6
 	var ly: float = -RADIUS * HEX_SIZE * sqrt(3.0) * 0.5
 
@@ -184,22 +214,6 @@ func _draw_legend() -> void:
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(1.0, 1.0, 0.6))
 
 
-# ── Input ─────────────────────────────────────────────────────────────────────
-
-func _input(event: InputEvent) -> void:
-	if not Engine.is_editor_hint():
-		return
-	if event is InputEventMouseMotion:
-		var hex = CoordTransform.pixel_to_axial(get_local_mouse_position())
-		if hex.q != _hovered_q or hex.r != _hovered_r:
-			_hovered_q = hex.q
-			_hovered_r = hex.r
-			queue_redraw()
-	elif event is InputEventMouseButton and event.pressed:
-		var hex = CoordTransform.pixel_to_axial(get_local_mouse_position())
-		_paint(hex.q, hex.r, event.button_index == MOUSE_BUTTON_RIGHT)
-
-
 # ── Paint ─────────────────────────────────────────────────────────────────────
 
 func _paint(q: int, r: int, erase: bool) -> void:
@@ -225,36 +239,27 @@ func _paint(q: int, r: int, erase: bool) -> void:
 		PaintMode.PARTY_POS:
 			if encounter_resource == null:
 				return
-			var arr = encounter_resource.get("party_hex_positions")
-			if not arr is Array:
-				return
 			if erase:
-				_arr_remove(arr, q, r)
+				_arr_remove(encounter_resource.party_hex_positions, q, r)
 			else:
-				_arr_place(arr, party_slot, q, r)
+				_arr_place(encounter_resource.party_hex_positions, party_slot, q, r)
 
 		PaintMode.ENEMY_POS:
 			if encounter_resource == null:
 				return
-			var arr = encounter_resource.get("enemy_hex_positions")
-			if not arr is Array:
-				return
 			if erase:
-				_arr_remove(arr, q, r)
+				_arr_remove(encounter_resource.enemy_hex_positions, q, r)
 			else:
-				_arr_place(arr, enemy_slot, q, r)
+				_arr_place(encounter_resource.enemy_hex_positions, enemy_slot, q, r)
 
 		PaintMode.TRIGGER:
 			if trigger_resource == null:
 				push_warning("MapEditor: assign trigger_resource before painting triggers")
 				return
-			var arr = trigger_resource.get("trigger_hexes")
-			if not arr is Array:
-				return
-			if erase or _arr_has(arr, q, r):
-				_arr_remove(arr, q, r)
+			if erase or _arr_has(trigger_resource.trigger_hexes, q, r):
+				_arr_remove(trigger_resource.trigger_hexes, q, r)
 			else:
-				arr.append({"q": q, "r": r})
+				trigger_resource.trigger_hexes.append({"q": q, "r": r})
 
 	queue_redraw()
 	_save()
@@ -265,10 +270,9 @@ func _paint(q: int, r: int, erase: bool) -> void:
 func _tile(q: int, r: int):
 	if encounter_resource == null:
 		return null
-	var tiles = encounter_resource.get("tiles")
-	if not tiles is Array:
-		return null
-	for t in tiles:
+	for t in encounter_resource.tiles:
+		if t == null:
+			continue
 		if t.q == q and t.r == r:
 			return t
 	return null
@@ -278,10 +282,10 @@ func _get_or_create_tile(q: int, r: int):
 	var existing = _tile(q, r)
 	if existing != null:
 		return existing
-	var t = HexTileDataResourceClass.new()
+	var t = HexTileDataResource.new()
 	t.q = q
 	t.r = r
-	encounter_resource.get("tiles").append(t)
+	encounter_resource.tiles.append(t)
 	return t
 
 
