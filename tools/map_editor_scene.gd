@@ -41,6 +41,7 @@ var _terrain_row   : HBoxContainer
 var _terrain_btn   : OptionButton
 var _slot_row      : HBoxContainer
 var _slot_spin     : SpinBox
+var _sidebar       : Panel
 
 const _TERRAIN_COLORS = {
 	"floor":  Color(0.82, 0.82, 0.82, 0.85),
@@ -64,8 +65,15 @@ func _ready() -> void:
 	DisplayServer.window_set_size(Vector2i(1100, 700))
 	_build_ui()
 	_new_encounter()
+	call_deferred("_finalize_layout")
+
+func _finalize_layout() -> void:
 	var vp := get_viewport_rect().size
 	_pan_offset = Vector2((vp.x - SIDEBAR_W) * 0.5, vp.y * 0.5)
+	if _sidebar != null:
+		_sidebar.position = Vector2(vp.x - SIDEBAR_W, 0)
+		_sidebar.size     = Vector2(SIDEBAR_W, vp.y)
+	queue_redraw()
 
 
 # ── Input ────────────────────────────────────────────────────────────────────
@@ -336,15 +344,19 @@ func _build_ui() -> void:
 	var cl := CanvasLayer.new()
 	add_child(cl)
 
-	var win := DisplayServer.window_get_size()
-	var panel := PanelContainer.new()
-	panel.position = Vector2(win.x - SIDEBAR_W, 0)
-	panel.size     = Vector2(SIDEBAR_W, win.y)
-	cl.add_child(panel)
+	# Panel (not PanelContainer) so it never auto-resizes to fit children.
+	# Position and size are set in _finalize_layout() once the viewport is ready.
+	_sidebar = Panel.new()
+	cl.add_child(_sidebar)
+
+	var scroll := ScrollContainer.new()
+	scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_sidebar.add_child(scroll)
 
 	var vbox := VBoxContainer.new()
+	vbox.custom_minimum_size = Vector2(SIDEBAR_W - 20, 0)
 	vbox.add_theme_constant_override("separation", 5)
-	panel.add_child(vbox)
+	scroll.add_child(vbox)
 
 	_add_head(vbox, "ENCOUNTER")
 	_file_label = _add_lbl(vbox, "(new)")
