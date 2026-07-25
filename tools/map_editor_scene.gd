@@ -336,18 +336,11 @@ func _build_ui() -> void:
 	var cl := CanvasLayer.new()
 	add_child(cl)
 
-	# CanvasLayer has no Control rect, so anchor against a full-rect root.
-	var root := Control.new()
-	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	cl.add_child(root)
-
+	var win := DisplayServer.window_get_size()
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(SIDEBAR_W, 0)
-	panel.set_anchor_and_offset(SIDE_LEFT,   1.0, -SIDEBAR_W)
-	panel.set_anchor_and_offset(SIDE_TOP,    0.0, 0.0)
-	panel.set_anchor_and_offset(SIDE_RIGHT,  1.0, 0.0)
-	panel.set_anchor_and_offset(SIDE_BOTTOM, 1.0, 0.0)
-	root.add_child(panel)
+	panel.position = Vector2(win.x - SIDEBAR_W, 0)
+	panel.size     = Vector2(SIDEBAR_W, win.y)
+	cl.add_child(panel)
 
 	var vbox := VBoxContainer.new()
 	vbox.add_theme_constant_override("separation", 5)
