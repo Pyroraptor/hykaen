@@ -77,14 +77,33 @@ extends RefCounted
 
 const VerbBarRegistryAdapterClass = preload("res://infrastructure/verb_bar_registry_adapter.gd")
 
-var _main_scene = null
+var _controller_fn: Callable
+var _round_session_fn: Callable
+var _combine_queue_build_session = null
+var _combine_targeting_session = null
+var _selection_overlay = null
+var _spell_picker = null
+var _verb_bar_view = null
+var _status_panel_view = null
+var _party_fn: Callable
+var _enemies_fn: Callable
+var _turn_presentation_fn: Callable
 
 
-## setup(main_scene) -> void — wires this controller's sole collaborator
-## (the composition root itself). Must be called exactly once, before
-## build_verb_registry()/any `_verb_bar_*` method below.
-func setup(main_scene) -> void:
-	_main_scene = main_scene
+## setup(deps) -> void — injects all collaborators. Must be called exactly
+## once, before build_verb_registry()/any `_verb_bar_*` method below.
+func setup(deps: Dictionary) -> void:
+	_controller_fn = deps["controller_fn"]
+	_round_session_fn = deps["round_session_fn"]
+	_combine_queue_build_session = deps["combine_queue_build_session"]
+	_combine_targeting_session = deps["combine_targeting_session"]
+	_selection_overlay = deps["selection_overlay"]
+	_spell_picker = deps["spell_picker"]
+	_verb_bar_view = deps.get("verb_bar_view")
+	_status_panel_view = deps.get("status_panel_view")
+	_party_fn = deps["party_fn"]
+	_enemies_fn = deps["enemies_fn"]
+	_turn_presentation_fn = deps["turn_presentation_fn"]
 
 
 ## build_verb_registry(verb_table) -> VerbBarRegistryAdapterClass — loops
@@ -109,74 +128,74 @@ func build_verb_registry(verb_table: Dictionary) -> VerbBarRegistryAdapterClass:
 ## live ActionEconomy `round_session.current_action_economy()` already
 ## exposes, read here only for its get_remaining() count.
 func _verb_bar_current_action_economy():
-	var round_session = _main_scene.round_session
+	var round_session = _round_session_fn.call()
 	if round_session == null:
 		return null
 	return round_session.current_action_economy()
 
 
 func _verb_bar_strike_availability() -> bool:
-	return _main_scene._controller("STRIKE").availability()
+	return _controller_fn.call("STRIKE").availability()
 
 
 func _verb_bar_strike_enter_selection() -> Dictionary:
-	return _main_scene._controller("STRIKE").enter_selection()
+	return _controller_fn.call("STRIKE").enter_selection()
 
 
 func _verb_bar_strike_execute(selection) -> Dictionary:
-	return await _main_scene._controller("STRIKE").execute(selection)
+	return await _controller_fn.call("STRIKE").execute(selection)
 
 
 func _verb_bar_step_availability() -> bool:
-	return _main_scene._controller("STEP").availability()
+	return _controller_fn.call("STEP").availability()
 
 
 func _verb_bar_step_enter_selection() -> Dictionary:
-	return _main_scene._controller("STEP").enter_selection()
+	return _controller_fn.call("STEP").enter_selection()
 
 
 func _verb_bar_step_execute(selection) -> Dictionary:
-	return _main_scene._controller("STEP").execute(selection)
+	return _controller_fn.call("STEP").execute(selection)
 
 
 func _verb_bar_stride_availability() -> bool:
-	return _main_scene._controller("STRIDE").availability()
+	return _controller_fn.call("STRIDE").availability()
 
 
 func _verb_bar_stride_enter_selection() -> Dictionary:
-	return _main_scene._controller("STRIDE").enter_selection()
+	return _controller_fn.call("STRIDE").enter_selection()
 
 
 func _verb_bar_stride_execute(selection) -> Dictionary:
-	return await _main_scene._controller("STRIDE").execute(selection)
+	return await _controller_fn.call("STRIDE").execute(selection)
 
 
 func _verb_bar_end_turn_availability() -> bool:
-	return _main_scene._controller("END_TURN").availability()
+	return _controller_fn.call("END_TURN").availability()
 
 
 func _verb_bar_end_turn_enter_selection() -> Dictionary:
-	return _main_scene._controller("END_TURN").enter_selection()
+	return _controller_fn.call("END_TURN").enter_selection()
 
 
 func _verb_bar_end_turn_execute(_selection = null) -> Dictionary:
-	return _main_scene._controller("END_TURN").execute(_selection)
+	return _controller_fn.call("END_TURN").execute(_selection)
 
 
 func _verb_bar_cast_spell_availability() -> bool:
-	return _main_scene._controller("CAST_SPELL").availability()
+	return _controller_fn.call("CAST_SPELL").availability()
 
 
 func _verb_bar_cast_spell_enter_selection() -> Dictionary:
-	return _main_scene._controller("CAST_SPELL").enter_selection()
+	return _controller_fn.call("CAST_SPELL").enter_selection()
 
 
 func _verb_bar_cast_spell_execute(selection = null) -> Dictionary:
-	return await _main_scene._controller("CAST_SPELL").execute(selection)
+	return await _controller_fn.call("CAST_SPELL").execute(selection)
 
 
 func _verb_bar_combine_availability() -> bool:
-	return _main_scene._controller("COMBINE").availability()
+	return _controller_fn.call("COMBINE").availability()
 
 
 ## _verb_bar_combine_enter_selection() -> Dictionary — the LIVE entry point
@@ -186,14 +205,14 @@ func _verb_bar_combine_availability() -> bool:
 ## drives SelectionOverlay directly. No verb_id is ever hardcoded here -- the
 ## real, live candidate pool is asked for fresh on every pick.
 func _verb_bar_combine_enter_selection() -> Dictionary:
-	var round_session = _main_scene.round_session
+	var round_session = _round_session_fn.call()
 	var actor = round_session.current_actor() if round_session != null else null
-	_main_scene.combine_queue_build_session.start(actor)
+	_combine_queue_build_session.start(actor)
 	return {}  # combine_queue_build_session.start() drives SelectionOverlay directly
 
 
 func _verb_bar_combine_execute(selection = null) -> Dictionary:
-	return await _main_scene._controller("COMBINE").execute(selection)
+	return await _controller_fn.call("COMBINE").execute(selection)
 
 
 ## _on_verb_bar_selection_entered(verb_id, selection) -> void — forwards
@@ -201,11 +220,11 @@ func _verb_bar_combine_execute(selection = null) -> Dictionary:
 ## selection_overlay.activate(), UNLESS a Combine build/targeting session is
 ## already driving SelectionOverlay directly.
 func _on_verb_bar_selection_entered(verb_id: String, selection) -> void:
-	if _main_scene.combine_targeting_session.is_active() or _main_scene.combine_queue_build_session.is_active():
+	if _combine_targeting_session.is_active() or _combine_queue_build_session.is_active():
 		return  # combine_targeting_session.start()/combine_queue_build_session.start() already drove SelectionOverlay directly
-	_main_scene.selection_overlay.activate(verb_id, selection)
-	if _main_scene.selection_overlay.is_awaiting_option():
-		_main_scene._spell_picker.show(_main_scene.selection_overlay.get_candidate_options(), Callable(_main_scene.selection_overlay, "choose_option"))
+	_selection_overlay.activate(verb_id, selection)
+	if _selection_overlay.is_awaiting_option():
+		_spell_picker.show(_selection_overlay.get_candidate_options(), Callable(_selection_overlay, "choose_option"))
 
 
 ## _on_selection_overlay_resolved(_verb_id, _result) -> void — fires once
@@ -217,36 +236,36 @@ func _on_selection_overlay_resolved(_verb_id: String, _result) -> void:
 	# active routes to `combine_queue_build_session.advance()` instead, never
 	# touching `_verb_registry`/`verb_bar_view`/highlight state a standalone
 	# verb resolution would.
-	if _main_scene.combine_queue_build_session.is_active() and _verb_id == "COMBINE":
-		_main_scene.combine_queue_build_session.advance()
+	if _combine_queue_build_session.is_active() and _verb_id == "COMBINE":
+		_combine_queue_build_session.advance()
 		return
-	if _main_scene.combine_targeting_session.try_advance(_verb_id):
+	if _combine_targeting_session.try_advance(_verb_id):
 		return
 
-	_main_scene._spell_picker.hide()
-	if _main_scene.verb_bar_view != null:
-		_main_scene.verb_bar_view.refresh_availability()
+	_spell_picker.hide()
+	if _verb_bar_view != null:
+		_verb_bar_view.refresh_availability()
 
-	var round_session = _main_scene.round_session
+	var round_session = _round_session_fn.call()
 	if round_session != null:
 		# highlight_legal_moves is instance-native (it configures the
 		# mutating movement controller), so pass the LIVE actor instance.
 		var actor = round_session.current_actor_entity()
 		if actor != null:
-			_main_scene._turn_presentation().highlight_legal_moves(actor, actor.display_id())
+			_turn_presentation_fn.call().highlight_legal_moves(actor, actor.display_id())
 			# Push action budget to StatusPanelView. Strike already does this
 			# via AttackEvent, but Cast Spell / Continue Cast spend actions
 			# without emitting any event, so an explicit push is required
 			# here (mirrors StrideActionController's pattern).
 			var ae = round_session.current_action_economy()
-			if ae != null and _main_scene.status_panel_view != null:
-				_main_scene.status_panel_view.on_verb_action_budget_changed(
+			if ae != null and _status_panel_view != null:
+				_status_panel_view.on_verb_action_budget_changed(
 					actor.display_id(), ae.get_remaining(), ae.is_spent()
 				)
 		# Push fresh HP values for all combatants after any spell resolution.
 		# Spell damage is applied via EffectsApplier (no AttackEvent emitted),
 		# so on_attack_event() never fires -- an explicit HP push is required
 		# (mirrors the action-budget push above for the same reason).
-		if _main_scene.status_panel_view != null:
-			for combatant in _main_scene._party + _main_scene._enemies:
-				_main_scene.status_panel_view.update_combatant_hp(combatant.display_id(), combatant.hp_current)
+		if _status_panel_view != null:
+			for combatant in _party_fn.call() + _enemies_fn.call():
+				_status_panel_view.update_combatant_hp(combatant.display_id(), combatant.hp_current)

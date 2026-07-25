@@ -44,6 +44,7 @@ const RoundFlowControllerClass = preload("res://presentation/round_flow_controll
 ## VerbDispatchControllerClass — FEAT-007/FEAT-320 (US-005/US-009; FR-006/
 ## FR-009; ADR-002): owns verb-bar dispatch (build_verb_registry()/
 const VerbDispatchControllerClass = preload("res://presentation/verb_dispatch_controller.gd")
+const CombatQueryServiceClass = preload("res://presentation/combat_query_service.gd")
 
 
 const SpellPickerPanelControllerClass = preload("res://presentation/spell_picker_panel_controller.gd")
@@ -208,6 +209,8 @@ var _reaction_instance = null
 var _controllers: Dictionary = {}
 var _verb_deps_cache = null
 
+var _combat_query_service = null
+
 var multi_phase_targeting_controller = null
 var _core_combine_action_controller = null
 
@@ -286,6 +289,11 @@ func _ready() -> void:
 	encounter = EncounterClass.new(_party, _enemies, rng)
 	encounter.initialize()
 
+	_combat_query_service = CombatQueryServiceClass.new(
+		Callable(self, "_current_party"),
+		Callable(self, "_current_enemies")
+	)
+
 	var status_view_models: Array = _view_model_builder.build_status_view_models(hex_combatants, _party, _enemies, encounter)
 
 	if status_panel_view != null:
@@ -303,9 +311,19 @@ func _ready() -> void:
 	round_history_port = InMemoryRoundHistoryAdapterClass.new()
 	resolve_action_use_case = ResolveActionUseCaseClass.new(random_port, event_sink, round_history_port)
 	determine_outcome_use_case = DetermineOutcomeUseCaseClass.new()
+	enemy_reaction_chooser = AIReactionPolicyClass.new()
+	_reaction_instance = ReactionControllerClass.new(
+		Callable(self, "_action_economy_for"),
+		Callable(self, "_current_round_number"),
+		resolve_action_use_case,
+		turn_controller,
+		enemy_reaction_chooser,
+		hex_grid_view
+	)
+
 	var ai_decision_port = AIClass.new()
 
-	ai_decision_port.set_stride_reaction_resolver_fn(Callable(self, "_resolve_enemy_stride_opportunistic_window"))
+	ai_decision_port.set_stride_reaction_resolver_fn(Callable(_reaction_instance, "resolve_enemy_stride_opportunistic_window"))
 
 	run_round_use_case = RunRoundUseCaseClass.new(
 		turn_order_port, event_sink, round_history_port, ai_decision_port,
@@ -323,8 +341,6 @@ func _ready() -> void:
 	if turn_controller != null:
 		turn_controller.configure_reactions(reaction_window, player_reaction_chooser)
 
-	enemy_reaction_chooser = AIReactionPolicyClass.new()
-
 	if hex_grid_view != null:
 		hex_choice_resolver = UIHexChoiceResolverClass.new(hex_grid_view)
 
@@ -334,7 +350,6 @@ func _ready() -> void:
 		end_turn_control.visible = false
 
 
-	verb_dispatch_controller.setup(self)
 	_verb_registry = verb_dispatch_controller.build_verb_registry(VERB_TABLE)
 
 	_core_combine_action_controller = CoreCombineActionControllerClass.new({
@@ -383,6 +398,20 @@ func _ready() -> void:
 		"show_spell_picker_fn": Callable(_spell_picker, "show").bind(Callable(selection_overlay, "choose_option")),
 	})
 	combine_targeting_session.targeting_complete.connect(_on_combine_targeting_complete)
+
+	verb_dispatch_controller.setup({
+		"controller_fn": Callable(self, "_controller"),
+		"round_session_fn": func(): return round_session,
+		"combine_queue_build_session": combine_queue_build_session,
+		"combine_targeting_session": combine_targeting_session,
+		"selection_overlay": selection_overlay,
+		"spell_picker": _spell_picker,
+		"verb_bar_view": verb_bar_view,
+		"status_panel_view": status_panel_view,
+		"party_fn": Callable(self, "_current_party"),
+		"enemies_fn": Callable(self, "_current_enemies"),
+		"turn_presentation_fn": Callable(self, "_turn_presentation"),
+	})
 
 	round_flow_controller.setup({
 		"run_round_use_case": run_round_use_case,
@@ -460,7 +489,7 @@ func _on_combat_triggered(encounter_id: String) -> void:
 
 	var turn_order_port = EncounterTurnOrderAdapterClass.new(encounter)
 	var ai_decision_port = AIClass.new()
-	ai_decision_port.set_stride_reaction_resolver_fn(Callable(self, "_resolve_enemy_stride_opportunistic_window"))
+	ai_decision_port.set_stride_reaction_resolver_fn(Callable(_reaction_instance, "resolve_enemy_stride_opportunistic_window"))
 	run_round_use_case = RunRoundUseCaseClass.new(
 		turn_order_port, event_sink, round_history_port, ai_decision_port,
 		resolve_action_use_case, determine_outcome_use_case
@@ -587,7 +616,7 @@ func _presentation_event_subscribers() -> Array:
 
 ## Thin delegate to _reaction_instance.resolve_enemy_dodge_step().
 func _resolve_enemy_dodge_step(target, resolve_result: Dictionary, attacker_hex, legal_hexes: Array) -> void:
-	await _reaction().resolve_enemy_dodge_step(target, resolve_result, attacker_hex, legal_hexes)
+	await _reaction_instance.resolve_enemy_dodge_step(target, resolve_result, attacker_hex, legal_hexes)
 
 
 ## Thin shim to StrikeActionController.reachable_target_ids().
@@ -616,30 +645,12 @@ func _action_economy_for(combatant):
 	return null
 
 
-## Thin delegate to _reaction_instance.
-func _is_reactor_reaction_spent(reactor) -> bool:
-	return _reaction().is_reactor_reaction_spent(reactor)
-
-
-## Thin delegate to _reaction_instance.
-func _resolve_enemy_stride_opportunistic_window(mover, mover_start_hex, candidate_reactors: Array) -> Dictionary:
-	return await _reaction().resolve_enemy_stride_opportunistic_window(mover, mover_start_hex, candidate_reactors)
-
-
-## Thin delegate to _reaction_instance.
-func _resolve_player_opportunistic_strike_reaction(reactor, context: Dictionary) -> Dictionary:
-	return await _reaction().resolve_player_opportunistic_strike_reaction(reactor, context)
-
-
-## Thin delegate to _reaction_instance.
-func _resolve_enemy_opportunistic_strike_reaction(reactor, context: Dictionary) -> Dictionary:
-	return _reaction().resolve_enemy_opportunistic_strike_reaction(reactor, context)
 
 
 ## Route confirmed combine queue → combine_targeting_session.start().
 func _on_combine_queue_built(queue) -> void:
 	var entries: Array = queue.sorted_entries()
-	var actor = _find_combatant_by_id(queue.actor_id)
+	var actor = _combat_query_service.find_combatant_by_id(queue.actor_id)
 	combine_targeting_session.start(entries, actor, queue.context, queue)
 
 
@@ -671,7 +682,7 @@ func _turn_presentation():
 			hex_grid_view,
 			verb_bar_view,
 			status_panel_view,
-			Callable(self, "_other_living_combatants")
+			Callable(_combat_query_service, "other_living_combatants")
 		)
 	return _turn_presentation_instance
 
@@ -680,19 +691,6 @@ func _turn_presentation():
 func _current_round_number() -> int:
 	return ROUND_NUMBER
 
-
-## Lazy ReactionController getter.
-func _reaction():
-	if _reaction_instance == null:
-		_reaction_instance = ReactionControllerClass.new(
-			Callable(self, "_action_economy_for"),
-			Callable(self, "_current_round_number"),
-			resolve_action_use_case,
-			turn_controller,
-			enemy_reaction_chooser,
-			hex_grid_view
-		)
-	return _reaction_instance
 
 
 ## Memoized deps dict for all ActionControllers (data-driven VERB_TABLE).
@@ -707,7 +705,7 @@ func _verb_deps() -> Dictionary:
 			"event_log_view": event_log_view,
 			"resolve_action_use_case": resolve_action_use_case,
 			"enemy_reaction_chooser": enemy_reaction_chooser,
-			"reaction": _reaction(),
+			"reaction": _reaction_instance,
 			"action_economy_for": Callable(self, "_action_economy_for"),
 			"current_round_number": Callable(self, "_current_round_number"),
 			"after_successful_move": Callable(self, "_after_successful_move"),
@@ -741,7 +739,7 @@ func _controller(verb_id: String):
 
 ## Living enemies (hp > 0) — reactor pool for Stride opportunistic strikes.
 func _living_enemy_reactors() -> Array:
-	return _living_combatants(_enemies)
+	return _combat_query_service.living_combatants(_enemies)
 
 
 ## Fresh _party read (never a snapshot) — injected as party_fn Callable.
@@ -849,57 +847,30 @@ func _after_successful_move() -> void:
 		_on_active_actor_changed(round_session.current_actor_entity())
 
 
-## Living combatants excluding the given one.
-func _other_living_combatants(combatant) -> Array:
-	var self_id: String = combatant.display_id()
-	var others: Array = []
-	for c in _living_combatants(_party + _enemies):
-		if c.display_id() != self_id:
-			others.append(c)
-	return others
-
-
-## Lookup by display_id among _party + _enemies.
-func _find_combatant_by_id(combatant_id: String):
-	for c in _party + _enemies:
-		if c.display_id() == combatant_id:
-			return c
-	return null
-
-
 ## Callable seam: Dodge-Step selectable hex options for a combatant.
 func _query_selectable_step_hexes(combatant_id: String) -> Array:
-	var combatant = _find_combatant_by_id(combatant_id)
+	var combatant = _combat_query_service.find_combatant_by_id(combatant_id)
 	if combatant == null:
 		return []
-	return movement_input_controller.get_selectable_step_hexes_for(combatant, _other_living_combatants(combatant))
-
-
-## Filter: hp_current > 0.
-func _living_combatants(combatants: Array) -> Array:
-	var living: Array = []
-	for c in combatants:
-		if c.hp_current > 0:
-			living.append(c)
-	return living
+	return movement_input_controller.get_selectable_step_hexes_for(combatant, _combat_query_service.other_living_combatants(combatant))
 
 
 ## Order reactor candidates by initiative via ReactionController.
 func _order_candidate_reactors_by_initiative(candidates: Array) -> Array:
-	return _reaction().order_candidate_reactors_by_initiative(candidates)
+	return _reaction_instance.order_candidate_reactors_by_initiative(candidates)
 
 
 ## Defensive ordering guard (FIND-224): assert+push_error if candidates violate initiative order.
 ## Returns true when consistent, false on violation.
 func _assert_candidate_reactors_ordering(ordered_candidates: Array, turn_order: Array) -> bool:
-	return _reaction().assert_candidate_reactors_ordering(ordered_candidates, turn_order)
+	return _reaction_instance.assert_candidate_reactors_ordering(ordered_candidates, turn_order)
 
 
 ## Recompute Off-Guard for all combatants via Flanking rules.
 ## Writes into combatant.conditions (affects live Strike resolution) AND pushes to StatusPanelView.
 func _refresh_off_guard_conditions() -> void:
-	var living_party: Array = _living_combatants(_party)
-	var living_enemies: Array = _living_combatants(_enemies)
+	var living_party: Array = _combat_query_service.living_combatants(_party)
+	var living_enemies: Array = _combat_query_service.living_combatants(_enemies)
 
 	for combatant in _party:
 		var combatant_id: String = combatant.display_id()
