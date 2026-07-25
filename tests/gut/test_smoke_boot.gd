@@ -197,23 +197,19 @@ func test_main_scene_loads_prologue_encounter_party_and_enemies_with_no_manual_s
 	add_child_autofree(instance)
 	await get_tree().process_frame
 
-	assert_not_null(instance.encounter, "MainScene.encounter must be non-null to inspect the loaded turn order")
+	assert_not_null(instance.encounter, "MainScene.encounter must be non-null")
 	if instance.encounter == null:
 		return
 
-	var turn_order: Array = instance.encounter.get_turn_order()
+	# FEAT-316 (exploration mode): encounter.initialize() is deferred until
+	# combat triggers, so get_turn_order() is empty at boot by design.
+	# Verify that combatants are loaded into _party / _enemies instead.
 	assert_true(
-		turn_order.size() > 0,
-		"MainScene must load data/encounters/prologue_encounter.tres into a non-empty combatant turn order "
+		instance._party.size() > 0,
+		"MainScene must load data/encounters/prologue_encounter.tres party into _party "
 		+ "via the EncounterRepositoryPort adapter, with no manual setup steps (FEAT-001 / US-001)"
 	)
-
-	var teams: Array = []
-	for combatant in turn_order:
-		var team = combatant.is_enemy
-		if not teams.has(team):
-			teams.append(team)
 	assert_true(
-		teams.size() >= 2 or turn_order.size() >= 2,
+		instance._enemies.size() > 0,
 		"MainScene's loaded prologue encounter must include both the party and the enemy group (FEAT-001 / US-001)"
 	)

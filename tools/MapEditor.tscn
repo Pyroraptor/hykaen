@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://map_editor_tool"]
+
+[ext_resource type="Script" path="res://tools/map_editor.gd" id="1_mapeditor"]
+
+[node name="MapEditor" type="Node2D"]
+script = ExtResource("1_mapeditor")
