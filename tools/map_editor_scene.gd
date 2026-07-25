@@ -400,12 +400,14 @@ func _build_ui() -> void:
 		dlg.name = tag
 		dlg.access = FileDialog.ACCESS_RESOURCES
 		dlg.add_filter("*.tres", "Resource Files")
-		var is_save := tag.begins_with("save")
-		dlg.file_mode = FileDialog.FILE_MODE_SAVE_FILE if is_save else FileDialog.FILE_MODE_OPEN_FILE
-		var cb := _on_enc_saved if tag == "save_enc" \
-			else _on_enc_loaded if tag == "load_enc" \
-			else _on_trg_saved if tag == "save_trg" \
-			else _on_trg_loaded
+		dlg.file_mode = FileDialog.FILE_MODE_SAVE_FILE if (tag as String).begins_with("save") \
+			else FileDialog.FILE_MODE_OPEN_FILE
+		var cb: Callable
+		match tag:
+			"save_enc": cb = _on_enc_saved
+			"load_enc": cb = _on_enc_loaded
+			"save_trg": cb = _on_trg_saved
+			_:          cb = _on_trg_loaded
 		dlg.file_selected.connect(cb)
 		add_child(dlg)
 
