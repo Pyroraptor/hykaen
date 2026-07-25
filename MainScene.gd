@@ -1042,8 +1042,15 @@ func _ready() -> void:
 	# SAME hex_combatants loaded from PROLOGUE_ENCOUNTER_PATH, which is the
 	# exact resource the scenario's sole entry wraps -- ADR-002, no
 	# duplicated encounter definition), so no second token-loading call is
-	# needed here. See _boot_exploration_mode()'s own doc below. ───────────
-	_boot_exploration_mode(hex_combatants)
+	# needed here. ─────────────────────────────────────────────────────────
+	_game_mode = GameMode.EXPLORATION
+	_exploration.setup({
+		"hex_grid_view": hex_grid_view,
+		"scenario_path": PROLOGUE_SCENARIO_PATH,
+		"on_hex_clicked": Callable(self, "_on_exploration_hex_clicked"),
+		"on_combat_triggered": Callable(self, "_on_combat_triggered"),
+	})
+	_exploration.boot(hex_combatants)
 
 	# ── FEAT-002/003 / US-002/003: separate the real-play seed from the
 	# fixture seed baked into prologue_encounter.tres (42), via
@@ -1446,46 +1453,6 @@ func _ready() -> void:
 	print("DEBUG: viewport_centering centering_offset=" + str(centering_offset))
 
 
-## _boot_exploration_mode(hex_combatants) -> void — FEAT-006 (US-005 / FR-004,
-## RISK-001); FEAT-009 (US-008 / FR-005) extracted the actual construction
-## work below into `_exploration` (presentation/exploration_mode_controller.gd's
-## ExplorationModeController).
-##
-## Constructs this composition root's EXPLORATION-mode state:
-##   - `_game_mode` is (re)confirmed as GameMode.EXPLORATION (already its
-##     field default -- restated here for clarity/observability).
-##   - `_exploration.setup(deps)` injects `hex_grid_view`, PROLOGUE_SCENARIO_PATH,
-##     and the two Callables `_exploration.boot()` wires signals to:
-##     Callable(self, "_on_exploration_hex_clicked") / Callable(self,
-##     "_on_combat_triggered") -- so the REAL, booted composition root's own
-##     signal-connection assertions (tests/boot/test_boot_exploration_mode.gd
-##     et al.) keep observing `hex_grid_view.hex_clicked`/`exploration_
-##     controller.combat_triggered` connected to THESE MainScene methods,
-##     exactly as before this feature.
-##   - `_exploration.boot(hex_combatants)` constructs `scenario_session`
-##     (`.scenario` set from PROLOGUE_SCENARIO_PATH, `.party_hex_positions`
-##     seeded combatant_id -> HexCoord for every party member from
-##     `hex_combatants` -- already loaded by _ready() above from
-##     PROLOGUE_ENCOUNTER_PATH, so no second/forked load) and
-##     `exploration_controller` wrapping it, both exposed back on this node
-##     via the `scenario_session`/`exploration_controller` get/set proxies
-##     declared above.
-##
-## A missing/malformed scenario resource push_error()s (inside `_exploration.
-## boot()`) and leaves `scenario_session.scenario` null (ScenarioSession's
-## own documented null-scenario contract already fails closed/open
-## appropriately at every call site -- see that file's doc) rather than
-## aborting boot: EXPLORATION mode still exists in a degenerate (no
-## scenario) state instead of crashing.
-func _boot_exploration_mode(hex_combatants: Array) -> void:
-	_game_mode = GameMode.EXPLORATION
-	_exploration.setup({
-		"hex_grid_view": hex_grid_view,
-		"scenario_path": PROLOGUE_SCENARIO_PATH,
-		"on_hex_clicked": Callable(self, "_on_exploration_hex_clicked"),
-		"on_combat_triggered": Callable(self, "_on_combat_triggered"),
-	})
-	_exploration.boot(hex_combatants)
 
 
 ## _on_combat_triggered(encounter_id) -> void — FEAT-008 (US-007 / FR-006):
@@ -2775,18 +2742,4 @@ func _refresh_off_guard_conditions() -> void:
 		if status_panel_view != null:
 			status_panel_view.set_off_guard(combatant_id, off_guard)
 
-
-## _build_party_combatant / _build_enemy_combatant - thin delegations to
-## infrastructure/combatant_factory.gd (CombatantFactory), where the party/enemy
-## construction + FEAT-227 fail-fast validation now lives (composition-root
-## de-bloat, 2026-07-10). These shims preserve the _ready() call sites and the
-## existing direct-call test surface. See CombatantFactory for the typed ERR_
-## codes and full rationale; a caller MUST still check result.has("error") on
-## the enemy build before treating it as a playable combatant.
-func _build_party_combatant(character_path: String, hex_coord, combatant_id: String = "") -> Dictionary:
-	return _combatant_factory.build_party_combatant(character_path, hex_coord, combatant_id)
-
-
-func _build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String = "") -> Dictionary:
-	return _combatant_factory.build_enemy_combatant(enemy_path, hex_coord, combatant_id)
 
