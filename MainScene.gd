@@ -2743,3 +2743,9 @@ func _refresh_off_guard_conditions() -> void:
 			status_panel_view.set_off_guard(combatant_id, off_guard)
 
 
+func _build_party_combatant(character_path: String, hex_coord, combatant_id: String = "") -> Dictionary:
+	return _combatant_factory.build_party_combatant(character_path, hex_coord, combatant_id)
+
+
+func _build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String = "") -> Dictionary:
+	return _combatant_factory.build_enemy_combatant(enemy_path, hex_coord, combatant_id)
