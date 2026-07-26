@@ -1,0 +1,578 @@
+#+TITLE: Iteration S — Pathfinding & Movement
+#+DATE: 2026-07-26
+#+PROPERTY: sprint 27
+#+PROPERTY: version 0.3.1
+#+STATUS: DRAFT for review
+
+* Context (why this sprint exists)
+
+Exploration movement today is single-hex, adjacency-only; clicking a
+distant destination does nothing useful. Combat token movement is a direct
+teleport. Both omissions make the game feel mechanical and leave two known
+correctness gaps open: tile passability is never enforced (deferred since
+Iteration Q; marked TODO RISK-007/ADR-006 in ~exploration_controller.gd~),
+and Opportunistic Strike fires only from the mover's *start hex* — enemies
+adjacent to traversed hexes never get a window (documented in the
+token-movement-path-gap memory item since Iteration K).
+
+This iteration adds A* hex pathfinding to the domain layer and wires it end-
+to-end: exploration click-to-move navigates a full path hex by hex (checking
+proximity triggers at every step so encounters interrupt movement at the
+triggering hex, not the destination), combat movement shows a two-layer
+visual — reachable-area glow + live path line — and executes along the
+computed path, and OS is offered to every enemy adjacent to each traversed
+hex. Enemy AI routes around obstacles. A waypoint API (~find_path_via~) is
+included in the pathfinder so the future shift-click UX can be wired without
+touching this layer.
+
+The steel thread: in exploration, Marigold clicks a hex across the map.
+Her token walks there hex by hex. If a trigger hex is entered mid-path,
+combat starts from that hex and the remaining path is discarded. In combat,
+hovering over a reachable hex shows the whole movement range as a glow and
+the specific path as a line; clicking executes the move with OS checks at
+every step along the route.
+
+*IMPORTANT — do not recreate existing infrastructure:*
+- ~HexCoord~ (~core/geometry/hex_coord.gd~) and ~HexMath~
+  (~core/geometry/hex_math.gd~) are the domain coordinate types. Pathfinding
+  works in ~HexCoord~ space; never introduce a parallel coordinate type.
+- ~HexGridView~ (~presentation/hex_grid_view.gd~) is the hex renderer. All
+  overlay drawing extends it via new methods — do not add a second renderer
+  or a separate overlay scene.
+- ~ExplorationController~ (~core/application/exploration_controller.gd~)
+  owns the trigger-evaluation contract. Per-step trigger checking goes
+  through its existing ~move_party_member()~ call, not around it.
+- ~ExplorationModeController~ (~presentation/exploration_mode_controller.gd~)
+  is the presentation-layer exploration host. Path execution and hover
+  previews live here, not in MainScene.
+- ~ResolveStrideUseCase~
+  (~core/application/use_cases/resolve_stride_use_case.gd~) owns the OS
+  window contract. The per-step OS check calls it once per traversed hex;
+  do not re-implement the eligibility or reaction-window logic.
+- ~StrideActionController~ (~presentation/stride_action_controller.gd~) and
+  ~StepActionController~ (~presentation/step_action_controller.gd~) are the
+  combat movement verb controllers. Path execution is wired here, not
+  invented elsewhere.
+- ~HexTileDataResource~ (~data/tiles/hex_tile_data_resource.gd~) already has
+  ~passable: bool~ and ~difficult: bool~. Do not add new fields for
+  pathfinding; use what exists.
+
+
+* P0 items — Pathfinding core (MUST; never drop)
+
+** S0-1: HexPathfinder — A* on the axial hex grid
+
+New file: ~core/geometry/hex_pathfinder.gd~
+
+Pure domain service (extends RefCounted, no Node/engine imports). Static
+methods only; no instance state. Operates entirely in ~HexCoord~ space.
+~is_passable~ and ~move_cost~ are caller-supplied Callables, keeping the
+pathfinder free of any Resource or presentation dependency.
+
+#+BEGIN_SRC gdscript
+class_name HexPathfinder
+extends RefCounted
+
+## find_path(start, goal, is_passable, move_cost) -> Array[HexCoord]
+##
+## A* shortest path. Returns the sequence of hexes from start to goal
+## INCLUSIVE (first element is start, last is goal). Returns an empty Array
+## if goal is unreachable (impassable or no path exists).
+##
+## is_passable : Callable(HexCoord) -> bool
+## move_cost   : Callable(HexCoord) -> float  (1.0 normal, 2.0 difficult)
+##
+## Heuristic: hex cube distance (admissible and consistent on a hex grid).
+static func find_path(
+    start:       HexCoord,
+    goal:        HexCoord,
+    is_passable: Callable,
+    move_cost:   Callable
+) -> Array
+
+## find_path_via(waypoints, is_passable, move_cost) -> Array[HexCoord]
+##
+## Multi-waypoint path. `waypoints` is [start, pin1, pin2, ..., goal].
+## Runs find_path() on each consecutive pair and concatenates, deduplicating
+## the shared boundary hex between segments. Returns empty if any segment
+## is unreachable. This is the architectural hook for future shift-click
+## waypoint UX — the UX layer builds the waypoints array and calls this.
+static func find_path_via(
+    waypoints:   Array,
+    is_passable: Callable,
+    move_cost:   Callable
+) -> Array
+
+## reachable_area(origin, budget, is_passable, move_cost) -> Array[HexCoord]
+##
+## Dijkstra flood-fill: all hexes reachable from origin within `budget`
+## movement points. Used for the combat reachable-area glow. `budget` is a
+## float so difficult terrain (cost 2.0) naturally halves the effective range.
+static func reachable_area(
+    origin:      HexCoord,
+    budget:      float,
+    is_passable: Callable,
+    move_cost:   Callable
+) -> Array
+#+END_SRC
+
+TESTS (~tests/unit/core/geometry/test_hex_pathfinder.gd~):
+- Straight-line path on an open grid returns the expected hex sequence
+  including start and goal.
+- Path routes around a single impassable obstacle (detour is taken).
+- Impassable goal returns an empty Array.
+- Completely surrounded goal (no reachable path) returns an empty Array.
+- Difficult-terrain path has higher cost than an equivalent plain path
+  (verified by counting the detour chosen when a short difficult route and
+  a longer easy route are both available — the pathfinder prefers the
+  lower-cost route).
+- ~find_path_via~ with two waypoints returns a path that passes through the
+  pinned intermediate hex.
+- ~find_path_via~ where one segment is unreachable returns empty.
+- ~reachable_area~ on an open grid with budget 2.0 returns exactly the
+  hexes within distance 2 of origin.
+- ~reachable_area~ with a wall adjacent to origin excludes the wall hex and
+  the hexes behind it that would only be reachable through it.
+- ~reachable_area~ with difficult terrain returns fewer hexes than the same
+  budget on a plain grid (difficult hexes consume 2.0 per step).
+
+
+** S0-2: EncounterTileAdapter — tile Callables from EncounterResource
+
+New file: ~core/geometry/encounter_tile_adapter.gd~
+
+Thin, stateless adapter (static methods only). Builds the ~is_passable~ and
+~move_cost~ Callables ~HexPathfinder~ needs from a live ~EncounterResource~.
+This is the ONLY place ~HexTileDataResource.passable~ / ~.difficult~ are
+read by the pathfinding pipeline — change the tile schema here, not in the
+pathfinder.
+
+#+BEGIN_SRC gdscript
+class_name EncounterTileAdapter
+extends RefCounted
+
+## Returns a Callable(HexCoord) -> bool.
+## A tile with passable=false is impassable.
+## A hex with no authored tile is treated as passable (open-world assumption:
+## unedited hexes are floor, matching HexTileDataResource's default).
+static func make_is_passable(encounter: EncounterResource) -> Callable
+
+## Returns a Callable(HexCoord) -> float.
+## 1.0 for a normal (or unedited) tile; 2.0 for difficult terrain.
+## Impassable tiles return INF (never entered, but safe if called).
+static func make_move_cost(encounter: EncounterResource) -> Callable
+#+END_SRC
+
+TESTS (~tests/unit/core/geometry/test_encounter_tile_adapter.gd~):
+- A tile with ~passable=true, difficult=false~: is_passable returns true,
+  move_cost returns 1.0.
+- A tile with ~passable=false~: is_passable returns false, move_cost
+  returns INF.
+- A tile with ~passable=true, difficult=true~: is_passable returns true,
+  move_cost returns 2.0.
+- A HexCoord with no corresponding tile in the encounter: is_passable
+  returns true (open-world default), move_cost returns 1.0.
+
+
+* P0 items — Rendering overlays
+
+** S0-3: HexGridView — path line and area glow overlays
+
+Extend ~presentation/hex_grid_view.gd~ with two overlay draw methods and
+matching clear calls. Both are thin rendering additions; they do not affect
+any existing draw or input logic.
+
+#+BEGIN_SRC gdscript
+## Stores the current path overlay (Array[HexCoord]) and color.
+## Drawn in _draw() after the grid lines, before tokens.
+var _path_overlay: Array = []
+var _path_overlay_color: Color = Color.WHITE
+
+## Stores the current area overlay (Array[HexCoord]) and color.
+var _area_overlay: Array = []
+var _area_overlay_color: Color = Color.WHITE
+
+## Replace the path overlay and redraw. Pass [] to clear.
+func set_path_overlay(path: Array, color: Color) -> void
+
+## Replace the area overlay and redraw. Pass [] to clear.
+func set_area_overlay(area: Array, color: Color) -> void
+
+## Clear both overlays in one call and redraw.
+func clear_overlays() -> void
+#+END_SRC
+
+Draw specification:
+- *Area overlay*: for each hex in ~_area_overlay~, fill the hex polygon with
+  ~_area_overlay_color~ (translucent). Draw before the path overlay so the
+  path is visible on top.
+- *Path overlay*: for each consecutive pair in ~_path_overlay~, draw a line
+  between the pixel centers of those hexes in ~_path_overlay_color~ (line
+  width 3px). A single-hex path draws no line.
+
+Colors used by callers:
+- Exploration path preview: ~Color(0.40, 0.85, 0.40, 0.70)~ (green).
+- Combat reachable area glow: ~Color(0.40, 0.70, 1.00, 0.20)~ (blue-white).
+- Combat path in range: ~Color(0.40, 0.85, 0.40, 0.80)~ (green).
+- Combat path out of range: ~Color(0.85, 0.35, 0.35, 0.60)~ (red/dimmed).
+
+TESTS (~tests/unit/presentation/test_hex_grid_view_overlays.gd~):
+- ~set_path_overlay~ stores the path and color and calls ~queue_redraw()~.
+- ~set_area_overlay~ stores the area and color and calls ~queue_redraw()~.
+- ~clear_overlays~ empties both arrays and calls ~queue_redraw()~.
+- Calling ~set_path_overlay([])~ leaves ~_path_overlay~ empty (no crash on
+  empty draw loop).
+
+
+* P0 items — Exploration pathfinding
+
+** S0-4: ExplorationController — enforce passability + navigate_party_member
+
+Extend ~core/application/exploration_controller.gd~.
+
+**(a) Wire passability into move_party_member.**
+~ExplorationController~ is constructed with an optional ~encounter~
+(~EncounterResource~) injected alongside the existing session. When provided,
+~move_party_member()~ rejects moves to impassable tiles (closing the
+RISK-007/ADR-006 TODO). When no encounter is injected, the existing
+adjacency-only behaviour is preserved (no crash, no regression).
+
+#+BEGIN_SRC gdscript
+func _init(session: ScenarioSession, encounter = null) -> void
+#+END_SRC
+
+~move_party_member()~ new passability precondition (added after adjacency
+check, before position mutation):
+
+#+BEGIN_SRC gdscript
+if _encounter != null:
+    var is_passable := EncounterTileAdapterClass.make_is_passable(_encounter)
+    if not is_passable.call(target_hex):
+        return false
+#+END_SRC
+
+**(b) Add navigate_party_member.**
+Multi-hex navigation: accepts a pre-computed path and calls
+~move_party_member()~ for each step. Returns immediately (with the index of
+the last successfully completed step) if a step fails or if
+~combat_triggered~ fires mid-path. The caller detects a trigger by watching
+the signal; this method does not need to return it explicitly.
+
+#+BEGIN_SRC gdscript
+## Walks `path` (Array[HexCoord]) one hex at a time via move_party_member().
+## path[0] must equal the combatant's current hex; it is skipped.
+## Stops and returns the index of the last completed step when:
+##   - a move_party_member() call returns false, or
+##   - combat_triggered fires (the signal fires synchronously inside
+##     move_party_member() so the loop sees it on the same frame).
+## Returns -1 if path is empty or path[0] is not the combatant's current hex.
+func navigate_party_member(combatant_id: String, path: Array) -> int
+#+END_SRC
+
+TESTS (~tests/unit/core/application/test_exploration_controller_pathfinding.gd~):
+- ~navigate_party_member~ with a 3-hex path updates party position to the
+  third hex in the path.
+- ~navigate_party_member~ stops at the hex before an impassable tile (the
+  move to that tile returns false, the loop halts).
+- ~navigate_party_member~ with a trigger hex mid-path emits ~combat_triggered~
+  and returns the index of the triggering step (not the path's final hex).
+- Passing a path whose first element does not match the combatant's current
+  hex returns -1 with no state mutation.
+- ~move_party_member~ with an impassable target (encounter injected) returns
+  false and does not update ~party_hex_positions~.
+- ~move_party_member~ with no encounter injected still succeeds on an
+  adjacent hex regardless of tile data (backward compat).
+
+
+** S0-5: ExplorationModeController — hover preview + click-to-navigate
+
+Extend ~presentation/exploration_mode_controller.gd~.
+
+**(a) Inject encounter into ExplorationController construction.**
+Pass the active ~EncounterResource~ to ~ExplorationController.__init__()~
+when booting (wires passability from S0-4a).
+
+**(b) Hover path preview.**
+Connect ~hex_grid_view.hex_hovered~ (new signal added to HexGridView if not
+already present — a ~Signal(HexCoord)~ emitted on every hex-hover change,
+mirroring the existing ~hex_clicked~).
+
+On hover in exploration mode:
+#+BEGIN_SRC gdscript
+func _on_exploration_hex_hovered(hex: HexCoord) -> void:
+    if _game_mode != EXPLORATION: return
+    var start := _current_party_hex()   # current position of selected member
+    var path := HexPathfinderClass.find_path(
+        start, hex, _is_passable_fn, _move_cost_fn)
+    hex_grid_view.set_path_overlay(path, PATH_COLOR_EXPLORE)
+#+END_SRC
+
+Clear the path overlay when the mouse leaves the grid or the mode switches.
+
+**(c) Click-to-navigate.**
+Replace the single-step ~_on_exploration_hex_clicked~ logic (which called
+~exploration_controller.move_party_member()~ directly) with:
+
+#+BEGIN_SRC gdscript
+func _on_exploration_hex_clicked(hex: HexCoord) -> void:
+    if _game_mode != EXPLORATION: return
+    var start := _current_party_hex()
+    var path := HexPathfinderClass.find_path(
+        start, hex, _is_passable_fn, _move_cost_fn)
+    if path.is_empty(): return
+    hex_grid_view.clear_overlays()
+    await _execute_exploration_path(path)
+
+func _execute_exploration_path(path: Array) -> void:
+    for i in range(1, path.size()):
+        var step := path[i]
+        _exploration_controller.move_party_member(_selected_id, step)
+        await hex_grid_view.animate_token_to(_selected_id, step)
+        # combat_triggered fires synchronously inside move_party_member;
+        # if the mode has changed, abort the remaining path.
+        if _game_mode != EXPLORATION:
+            return
+#+END_SRC
+
+Note: ~animate_token_to~ is defined in S0-6. The signal check via ~_game_mode~
+is the encounter-interrupt mechanism — ~combat_triggered~ fires synchronously
+inside ~move_party_member()~, which causes ~MainScene._on_combat_triggered()~
+to set ~_game_mode = COMBAT~ before the loop resumes. The loop then sees the
+mode change and returns, leaving the token at the triggering hex.
+
+TESTS (~tests/boot/test_exploration_pathfinding.gd~, headless):
+- Clicking a hex 4 steps away causes the token to visit each intermediate
+  hex in order.
+- Clicking an impassable hex has no effect (empty path, no movement).
+- Clicking a path that crosses a trigger hex causes ~_game_mode == COMBAT~
+  after the triggering step; token is at the trigger hex, not the destination.
+- Hover over a distant hex shows a non-empty path overlay.
+- Mode switching (entering combat) calls ~clear_overlays()~.
+
+
+** S0-6: Token animation — animate_token_to
+
+Add to ~presentation/hex_grid_view.gd~:
+
+#+BEGIN_SRC gdscript
+## Tweens the named combatant's token from its current pixel position to
+## the pixel center of `target_hex`. Returns a Signal that resolves when
+## the tween completes (awaitable). Duration is TOKEN_MOVE_DURATION seconds
+## per hex (default 0.12s — tunable constant).
+const TOKEN_MOVE_DURATION: float = 0.12
+func animate_token_to(combatant_id: String, target_hex: HexCoord) -> Signal
+#+END_SRC
+
+Implementation: find the ~CombatantTokenView~ for ~combatant_id~, create a
+~Tween~, tween its ~position~ to ~axial_to_pixel(target_hex)~ over
+~TOKEN_MOVE_DURATION~ seconds, then call ~move_token()~ to finalise the
+domain-side position and return the tween's ~finished~ signal.
+
+Used by both exploration path execution (S0-5) and combat movement (S0-9).
+The duration constant is intentionally a single place to tune — do not
+hardcode 0.12 at call sites.
+
+TESTS: ~animate_token_to~ returns a Signal; after awaiting it, the token's
+reported pixel position matches ~axial_to_pixel(target_hex)~.
+
+
+* P0 items — Combat pathfinding
+
+** S0-7: Combat reachable-area glow
+
+Extend ~StrideActionController~ (~presentation/stride_action_controller.gd~)
+and ~StepActionController~ (~presentation/step_action_controller.gd~).
+
+When a movement verb becomes active (player selects Stride or Step):
+#+BEGIN_SRC gdscript
+func _show_reachable_glow() -> void:
+    var origin := _current_combatant_hex()
+    var budget := _movement_budget()   # Stride: remaining Speed in hexes; Step: 1.0
+    var area   := HexPathfinderClass.reachable_area(
+        origin, budget, _is_passable_fn, _move_cost_fn)
+    hex_grid_view.set_area_overlay(area, REACHABLE_AREA_COLOR)
+#+END_SRC
+
+Clear the area overlay when the verb is deselected or the turn ends.
+
+For Step, ~budget = 1.0~ gives the adjacent hexes (same as the current
+~get_selectable_step_hexes()~ result); this replaces that call rather than
+running both.
+
+TESTS: selecting Stride sets a non-empty area overlay; deselecting clears it;
+budget=1.0 gives exactly the 6 adjacent passable hexes; a wall adjacent to
+the combatant is excluded from the area.
+
+
+** S0-8: Combat path line preview on hover
+
+Extend ~StrideActionController~ and ~StepActionController~.
+
+When a movement verb is active, connect to ~hex_grid_view.hex_hovered~:
+#+BEGIN_SRC gdscript
+func _on_hex_hovered(hex: HexCoord) -> void:
+    if not _verb_active: return
+    var origin := _current_combatant_hex()
+    var path   := HexPathfinderClass.find_path(
+        origin, hex, _is_passable_fn, _move_cost_fn)
+    if path.is_empty():
+        hex_grid_view.set_path_overlay([], Color.WHITE); return
+    var cost   := _path_cost(path)
+    var color  := PATH_COLOR_IN_RANGE if cost <= _movement_budget() \
+                  else PATH_COLOR_OUT_OF_RANGE
+    hex_grid_view.set_path_overlay(path, color)
+#+END_SRC
+
+~_path_cost~ sums ~move_cost(hex)~ for each hex in the path (excluding
+start). Clear the path overlay on verb deselect.
+
+TESTS: hovering a hex within budget sets a green path overlay; hovering
+beyond budget sets a red/dimmed path overlay; hovering an unreachable hex
+clears the path overlay.
+
+
+** S0-9: Combat movement execution along path
+
+Extend ~StrideActionController.execute()~ and ~StepActionController.execute()~.
+
+Replace the current single-call ~movement_input_controller.stride_to()~ /
+~step_to()~ with path-based execution. The path is computed from the
+combatant's current hex to the clicked target hex before the OS check loop
+(S0-10) begins. After the path executes, the existing post-move bookkeeping
+(action-economy spend, status-panel refresh) runs unchanged.
+
+For Stride, if the clicked hex is unreachable (empty path) or beyond the
+movement budget, the execute returns early without committing anything (same
+behaviour as the existing "no legal destinations" guard).
+
+For Step, the path is always length 2 (origin + one adjacent hex); the path-
+execution loop degenerates to a single step, so no behaviour change for
+normal Steps.
+
+The ~_is_passable_fn~ / ~_move_cost_fn~ Callables are built from the active
+~EncounterResource~ via ~EncounterTileAdapter~ and injected into both
+controllers at construction (alongside the existing dependency set).
+
+TESTS: executing Stride to a hex 3 steps away causes the token to visit the
+intermediate hexes in order; the total movement cost is deducted from the
+action economy correctly; executing Step remains functionally identical to
+pre-iteration behaviour.
+
+
+* P0 items — Opportunistic Strike correctness
+
+** S0-10: OS per-traversed-hex
+
+Extend ~StrideActionController.execute()~ (Step does not open OS windows —
+this item is Stride-only, matching the existing design).
+
+Currently ~ResolveStrideUseCase.execute()~ is called once with
+~mover_start_hex~ before the move commits. With path-based movement, OS must
+be offered at every hex boundary the mover crosses, not just the first.
+
+New pattern in ~StrideActionController~:
+#+BEGIN_SRC gdscript
+for i in range(1, path.size()):
+    var from_hex := path[i - 1]
+    var to_hex   := path[i]
+
+    var result: Dictionary = await _resolve_stride_use_case.execute(
+        mover, from_hex, candidate_reactors,
+        reactor_spent_fn, reactor_resolver_fn,
+        strike_use_case, reactor_action_economy_fn,
+        round_number, cycle_index
+    )
+
+    if not result.get("stride_should_commit", true):
+        # Mover downed — abort remaining path, do not animate further.
+        break
+
+    # Deduct movement cost for this step before continuing.
+    _deduct_movement_cost(to_hex)
+    await hex_grid_view.animate_token_to(mover_id, to_hex)
+    _movement_input_controller.commit_hex(to_hex)
+#+END_SRC
+
+~from_hex~ is passed as ~mover_start_hex~ to ~ResolveStrideUseCase~: this is
+the hex the mover is *leaving*, which is what OS eligibility checks against
+(adjacent to the mover before they moved away, matching the Hollow World rule
+"you may strike as they pass adjacent to you"). The use case signature does
+not change.
+
+TESTS (~tests/unit/presentation/test_stride_per_hex_os.gd~):
+- An enemy adjacent to hex[1] (but not hex[0]) in a 3-hex path gets an OS
+  window on the second step.
+- An enemy adjacent to hex[0] only gets an OS window on the first step, not
+  on subsequent steps.
+- If a lethal OS downs the mover on step 1, steps 2 and 3 are never executed
+  (token stays at hex[1]).
+- A 1-step Stride (path length 2) behaves identically to the pre-iteration
+  implementation (single OS check, same outcome).
+
+
+* P0 items — Enemy AI
+
+** S0-11: Enemy AI pathfinding
+
+Modify ~core/combat/ai.gd~.
+
+Replace the current direct stride-toward-nearest-hex logic with a
+~HexPathfinder.find_path()~ call. The path is trimmed to the AI's remaining
+movement budget (sum of ~move_cost~ along the path up to the budget).
+The enemy moves to the last reachable hex on the path, not necessarily the
+full destination.
+
+#+BEGIN_SRC gdscript
+func _plan_stride(actor, party_members, encounter) -> Dictionary:
+    var target   := _nearest_party_member(actor, party_members)
+    if target == null: return _no_action()
+    var passable := EncounterTileAdapterClass.make_is_passable(encounter)
+    var cost_fn  := EncounterTileAdapterClass.make_move_cost(encounter)
+    var path     := HexPathfinderClass.find_path(
+        actor.hex_coord, target.hex_coord, passable, cost_fn)
+    if path.size() < 2: return _no_action()
+    var dest := _trim_path_to_budget(path, actor, cost_fn)
+    if dest == null: return _no_action()
+    return {"action_type": "STRIDE", "hex_coord": dest}
+#+END_SRC
+
+The ~encounter~ parameter is passed in by the existing AI caller in
+MainScene. If no encounter is available (nil), the AI falls back to the
+existing adjacent-hex behaviour unchanged.
+
+TESTS (~tests/unit/core/combat/test_ai_pathfinding.gd~):
+- AI targets the nearest party member and moves along the computed path.
+- AI stops at the budget boundary when the full path exceeds movement range.
+- AI routes around an impassable wall between itself and the target.
+- AI with no reachable path (completely walled off) returns ~_no_action()~.
+- Nil encounter falls back to prior adjacent-hex stride behaviour.
+
+
+* Out of scope for this iteration
+
+- Shift-click waypoint UX. ~find_path_via~ is the architectural hook; the
+  input layer that populates waypoints from shift-clicks is a follow-on.
+- Party member selection UI. The selected member is still ~_party[0]~;
+  multi-member selection is a separate feature.
+- Camera scroll / map panning for maps larger than GRID_RADIUS. The renderer
+  still draws a fixed-radius grid; large-map camera work is deferred.
+- Diagonal-cost or directional movement variants. All 6 hex neighbors cost
+  the same to enter (flat-top hex grid, no diagonals).
+- Pathfinding across scenario boundaries or floor transitions.
+- Fog of war / line-of-sight gating on the path preview.
+- Trap / hazard entities that modify movement cost at runtime.
+- Animated path trace (the route "drawing" itself visually before the token
+  moves). The overlay is static; animating the line is polish deferred.
+- Loss / defeat handling changes. ~mover_downed~ mid-path aborts the path;
+  the broader defeat flow is unchanged from Iteration Q's placeholder.
+
+* Follow-on (post-sprint)
+
+- Shift-click waypoint UX: build on ~find_path_via~; let players pin
+  intermediate hexes to route around enemies and avoid OS.
+- Multi-member exploration selection: player selects which party member to
+  move before clicking a destination.
+- Camera scroll for large dungeon-floor maps.
+- Fog of war: filter the path preview and reachable area by line-of-sight.
+- Trap/hazard entities with dynamic move-cost Callables.
+- Save/load ~ScenarioSession~ state (party positions survive game close).
