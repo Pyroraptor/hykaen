@@ -388,6 +388,45 @@ func remove_combatants(combatant_ids: Array) -> void:
 			_tokens.erase(combatant_id)
 
 
+## TOKEN_MOVE_DURATION -- FEAT-006 (US-006 / FR-011 / NFR-005): the SINGLE
+## source of animation duration for animate_token_to()'s tween, in seconds
+## per hex step. Every call site (exploration path execution, combat
+## movement) drives its tween off THIS constant -- never a second/duplicate
+## hardcoded duration literal anywhere else; retune movement animation speed
+## by changing this one value.
+const TOKEN_MOVE_DURATION: float = 0.12
+
+
+## animate_token_to(combatant_id, target_hex) → Signal — FEAT-006 (US-006 /
+## FR-011, ADR-005, mitigates RISK-002): tweens the already-instantiated
+## CombatantTokenView for `combatant_id` from its current pixel position to
+## axial_to_pixel_with_offset(target_hex) over TOKEN_MOVE_DURATION seconds.
+## Domain-side state is finalized via move_token() ONLY once the tween
+## genuinely completes -- never eagerly/synchronously -- so this view's
+## authoritative hex-space position (ADR-005) and its transiently-animating
+## pixel position can only diverge DURING the tween, never after a caller
+## observes completion.
+##
+## Returns the tween's `finished` Signal so callers (e.g. presentation/
+## exploration_mode_controller.gd, per S0-5/S0-9) can `await` genuine
+## completion rather than a fixed delay -- this is the RISK-008 test-
+## flakiness mitigation: both this method's own tests and its callers assert
+## on a real Signal firing, never a sleep/frame-count guess.
+##
+## Known gap (documented, not hardened this iteration, matching this view's
+## existing move_token()/get_token() convention): `combatant_id` with no
+## matching on-screen token is an unguarded programmer-error lookup failure,
+## not defended against here -- see move_token()'s own doc for the analogous,
+## already-accepted precedent.
+func animate_token_to(combatant_id: String, target_hex) -> Signal:
+	var token = _tokens.get(combatant_id, null)
+	var target_position: Vector2 = axial_to_pixel_with_offset(target_hex)
+	var tween: Tween = create_tween()
+	tween.tween_property(token, "position", target_position, TOKEN_MOVE_DURATION)
+	tween.finished.connect(func() -> void: move_token(combatant_id, target_hex))
+	return tween.finished
+
+
 ## get_token(combatant_id) → CombatantTokenView or null — test/inspection helper.
 func get_token(combatant_id: String):
 	return _tokens.get(combatant_id, null)
