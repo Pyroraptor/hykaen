@@ -45,6 +45,22 @@ extends GutTest
 ## authored proximity-trigger hexes (see that .tres's `trigger_hexes` list)
 ## so a click-to-navigate walk in these tests never also confounds itself
 ## with a combat handoff.
+##
+## FEAT-009 (US-008 / FR-010, ADR-004, mitigates RISK-002): this suite ALSO
+## covers the mid-path combat-interruption/cooperative-polling abort
+## mechanism -- the counterpart deliberately using a target hex BEYOND one of
+## prologue_scenario.tres's authored proximity-trigger hexes ((3, 0), also in
+## Titus/player_0's own r=0 row), so a straight-line click-to-navigate walk
+## genuinely passes THROUGH the trigger hex mid-path rather than merely
+## landing on it as the final destination. Because MainScene.gd itself is not
+## modified by this feature (see presentation/exploration_mode_controller.gd's
+## own file-level doc for why the fix lives entirely inside
+## ExplorationModeController's own boot()/`_on_domain_combat_triggered()`),
+## these tests exercise the REAL exploration_controller.combat_triggered
+## signal firing synchronously out of a real move_party_member() call --
+## never a hand-simulated notify_game_mode_changed() call -- proving the
+## whole ADR-004 cooperative-polling contract actually fires end-to-end
+## through the real, booted composition root.
 
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 const MainSceneClass = preload("res://MainScene.gd")
@@ -355,3 +371,184 @@ func test_a_three_hex_path_executes_sequentially_each_step_waits_for_the_previou
 		final_token.position, instance.hex_grid_view.axial_to_pixel_with_offset(target),
 		"the rendered token must visually end at the destination hex's pixel center"
 	)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# FEAT-009 (US-008 / FR-010, ADR-004, mitigates RISK-002): mid-path combat
+# interruption / cooperative-polling abort mechanism.
+# ══════════════════════════════════════════════════════════════════════════
+
+## _CallCountingExplorationControllerSpy — mirrors this file's own
+## _OrderTrackingExplorationControllerSpy convention (wrap the REAL
+## exploration_controller, forward every call so state genuinely mutates)
+## but records only a plain call COUNT for move_party_member(), so these
+## tests can assert exactly how many steps' domain finalization actually ran
+## -- never more than the steps up to and including the triggering hex.
+class _CallCountingExplorationControllerSpy:
+	var _real
+	var move_party_member_call_count: int = 0
+
+	func _init(real) -> void:
+		_real = real
+
+	func move_party_member(combatant_id: String, target_hex) -> bool:
+		move_party_member_call_count += 1
+		return _real.move_party_member(combatant_id, target_hex)
+
+
+## _CallCountingHexGridViewSpy — wraps the REAL, booted hex_grid_view,
+## forwarding every call ExplorationModeController issues against its own
+## `_hex_grid_view` field (animate_token_to()/clear_overlays()/
+## set_path_overlay()) while recording call COUNTS for each -- this suite's
+## own "no further animate_token_to calls past the trigger",
+## "clear_overlays() called exactly once, pre-loop", and "no further
+## hover-preview overlay drawn once mode has switched away" assertions.
+## animate_token_to() itself stays synchronous (mirrors HexGridView's own
+## animate_token_to() contract of returning a Signal for the CALLER to
+## await, never awaiting internally) so the count increments at the exact
+## instant the controller issues the call, not once the tween finishes.
+class _CallCountingHexGridViewSpy:
+	var _real
+	var animate_token_to_call_count: int = 0
+	var clear_overlays_call_count: int = 0
+	var set_path_overlay_call_count: int = 0
+
+	func _init(real) -> void:
+		_real = real
+
+	func animate_token_to(combatant_id: String, target_hex) -> Signal:
+		animate_token_to_call_count += 1
+		return _real.animate_token_to(combatant_id, target_hex)
+
+	func clear_overlays() -> void:
+		clear_overlays_call_count += 1
+		_real.clear_overlays()
+
+	func set_path_overlay(path: Array, color: Color) -> void:
+		set_path_overlay_call_count += 1
+		_real.set_path_overlay(path, color)
+
+
+## Titus' (player_0) authored start hex (0, 0) reaches (4, 0) via a
+## straight-line 4-hex walk that genuinely passes THROUGH (3, 0) -- one of
+## prologue_scenario.tres's authored proximity-trigger hexes (see this
+## file's own header doc) -- before (4, 0), a plain non-trigger hex one step
+## further. This is deliberately NOT the click target itself, so the walk's
+## halt at (3, 0) is a genuine MID-PATH abort, not merely "the destination
+## happened to be a trigger hex".
+func test_a_trigger_hex_mid_path_halts_the_walk_leaving_token_and_domain_state_at_the_trigger_hex() -> void:
+	var instance = _boot_main_scene()
+	await get_tree().process_frame
+
+	assert_eq(instance._exploration.selected_party_member_id, "player_0", "fixture assumption: the default click-to-navigate selection must be Titus (player_0)")
+	assert_true(instance._exploration.is_exploration_active(), "fixture assumption: exploration must start out active")
+
+	var start := HexCoordClass.new(0, 0)
+	var trigger_hex := HexCoordClass.new(3, 0)
+	var target := HexCoordClass.new(4, 0)
+	var path: Array = HexPathfinderClass.find_path(
+		start, target,
+		instance._exploration.get_is_passable_fn(), instance._exploration.get_move_cost_fn()
+	)
+	assert_eq(path.size(), 5, "fixture assumption: (0, 0) -> (4, 0) must be a straight 4-hex walk passing through the trigger hex (3, 0) at index 3")
+	assert_true(path[3].equals(trigger_hex), "fixture assumption: the trigger hex (3, 0) must be the SECOND-TO-LAST step, not the final destination")
+
+	var real_exploration_controller = instance._exploration.exploration_controller
+	var controller_spy := _CallCountingExplorationControllerSpy.new(real_exploration_controller)
+	instance._exploration.exploration_controller = controller_spy
+
+	var real_hex_grid_view = instance._exploration._hex_grid_view
+	var hex_grid_view_spy := _CallCountingHexGridViewSpy.new(real_hex_grid_view)
+	instance._exploration._hex_grid_view = hex_grid_view_spy
+
+	await instance._exploration._on_exploration_hex_clicked(target)
+
+	# ── Criterion: clear_overlays() called exactly once, pre-loop, per
+	#    click -- NOT once per step. This walk has 3 steps (to (1, 0),
+	#    (2, 0), and the triggering (3, 0)), so "once per step" would read
+	#    3; the actual count is 2 -- ONE from _on_exploration_hex_clicked()'s
+	#    own single pre-loop clear (US-008/FEAT-008), plus exactly ONE more
+	#    from _on_domain_combat_triggered()'s notify_game_mode_changed(false)
+	#    -> _clear_hover_preview() call (a DIFFERENT, already-covered FEAT-007
+	#    call site, fired once for the whole mode-switch, not per step). See
+	#    test_clear_overlays_is_called_exactly_once_before_the_walk_starts_
+	#    not_once_per_step below for this same criterion proven in isolation,
+	#    on an uninterrupted walk where the mode-switch call site never fires
+	#    at all.
+	assert_eq(hex_grid_view_spy.clear_overlays_call_count, 2, "clear_overlays() must be called exactly twice for this aborted click -- the single pre-loop click-clear plus the single mode-switch hover-clear -- never once per step")
+
+	# ── Criterion: no further move_party_member()/animate_token_to() calls
+	#    are issued once the mode has switched -- only the 3 steps up to and
+	#    including the triggering hex (3, 0) ever ran; the 4th step to the
+	#    eventual destination (4, 0) never did.
+	assert_eq(controller_spy.move_party_member_call_count, 3, "only the steps up to and including the triggering hex must invoke move_party_member() -- the step past it must never be issued")
+	assert_eq(hex_grid_view_spy.animate_token_to_call_count, 3, "only the steps up to and including the triggering hex must invoke animate_token_to() -- the step past it must never be issued")
+
+	# ── Criterion: token pixel position and party_hex_positions both
+	#    converge on exactly the trigger hex (RISK-002).
+	assert_eq(instance.scenario_session.party_hex_positions["player_0"].q, 3, "party_hex_positions must halt at exactly the trigger hex, not the eventual destination")
+	assert_eq(instance.scenario_session.party_hex_positions["player_0"].r, 0, "party_hex_positions must halt at exactly the trigger hex, not the eventual destination")
+
+	var token = real_hex_grid_view.get_token("player_0")
+	assert_eq(
+		token.position, real_hex_grid_view.axial_to_pixel_with_offset(trigger_hex),
+		"the rendered token's pixel position must halt at exactly the trigger hex's pixel center, matching party_hex_positions (RISK-002)"
+	)
+
+	# ── Criterion: once mode has switched to COMBAT mid-loop, the
+	#    cooperative-polling flag has genuinely flipped.
+	assert_false(instance._exploration.is_exploration_active(), "a mid-path trigger must flip this controller's own is_exploration_active() to false, ADR-004")
+
+	# ── Criterion: no further hover-preview overlay is drawn once mode has
+	#    switched away from EXPLORATION -- a hover received after the abort
+	#    must be a silent no-op (the guard clause in _on_hex_hovered() must
+	#    return before ever touching `_hex_grid_view` again).
+	real_hex_grid_view.hex_hovered.emit(HexCoordClass.new(2, 0))
+	assert_eq(hex_grid_view_spy.set_path_overlay_call_count, 0, "no hover-preview overlay must be drawn once mode has switched away from EXPLORATION")
+
+	# Let MainScene's own real _on_combat_triggered()/rewire_session() handoff
+	# (independently wired via boot()'s caller-supplied `on_combat_triggered`
+	# target, see exploration_mode_controller.gd's own header doc) settle
+	# before this instance is freed at test teardown, mirroring
+	# tests/gut/test_steel_thread_e2e.gd's own `_boot_main_scene_with_seed()`
+	# convention for driving a real combat handoff.
+	await get_tree().process_frame
+	await get_tree().process_frame
+
+
+## Regression proof that clear_overlays() being called exactly once, pre-loop,
+## is NOT specific to the mid-path-trigger scenario above -- an ordinary,
+## uninterrupted multi-step walk (Marigold/player_1's own established 3-hex
+## fixture, reused verbatim from
+## test_a_three_hex_path_executes_sequentially_each_step_waits_for_the_
+## previous_animation above) must ALSO only ever clear the overlay once, no
+## matter how many steps the path has.
+func test_clear_overlays_is_called_exactly_once_before_the_walk_starts_not_once_per_step() -> void:
+	var instance = _boot_main_scene()
+	await get_tree().process_frame
+
+	instance._exploration.selected_party_member_id = "player_1"
+	assert_eq(instance.scenario_session.party_hex_positions["player_1"].q, -1, "fixture assumption: Marigold (player_1) starts at (-1, 0)")
+	assert_eq(instance.scenario_session.party_hex_positions["player_1"].r, 0, "fixture assumption: Marigold (player_1) starts at (-1, 0)")
+
+	var start := HexCoordClass.new(-1, 0)
+	var target := HexCoordClass.new(-4, 0)
+	var path: Array = HexPathfinderClass.find_path(
+		start, target,
+		instance._exploration.get_is_passable_fn(), instance._exploration.get_move_cost_fn()
+	)
+	assert_eq(path.size(), 4, "fixture assumption: (-1, 0) -> (-4, 0) must be a 3-hex walk (a 4-element inclusive path)")
+
+	# A stale hover-preview overlay from before the click, so clear_overlays()
+	# actually has non-trivial state to clear.
+	instance.hex_grid_view.hex_hovered.emit(HexCoordClass.new(-2, 0))
+	assert_false(instance.hex_grid_view.get_path_overlay().is_empty(), "fixture assumption: a hover-preview overlay must be visible before the click below")
+
+	var real_hex_grid_view = instance._exploration._hex_grid_view
+	var hex_grid_view_spy := _CallCountingHexGridViewSpy.new(real_hex_grid_view)
+	instance._exploration._hex_grid_view = hex_grid_view_spy
+
+	await instance._exploration._on_exploration_hex_clicked(target)
+
+	assert_eq(hex_grid_view_spy.clear_overlays_call_count, 1, "clear_overlays() must be called exactly once for a 3-step walk, not once per step")
+	assert_eq(instance.scenario_session.party_hex_positions["player_1"].q, -4, "fixture assumption: the full uninterrupted path must still be walked to completion")

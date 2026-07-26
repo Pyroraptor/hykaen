@@ -280,6 +280,20 @@ func boot(hex_combatants: Array) -> void:
 		if not exploration_controller.combat_triggered.is_connected(_on_combat_triggered_target):
 			exploration_controller.combat_triggered.connect(_on_combat_triggered_target)
 
+	# FEAT-009 (US-008 / FR-010, ADR-004): connect this controller's OWN
+	# cooperative-polling flag directly to the domain-level
+	# exploration_controller.combat_triggered signal -- independent of
+	# whatever the caller-supplied `on_combat_triggered` target above does
+	# (e.g. MainScene._on_combat_triggered flips ITS OWN `_game_mode`, but
+	# never calls back into this controller's notify_game_mode_changed()).
+	# Without this connection, `_exploration_active` would never flip when a
+	# mid-path move triggers combat in the real, booted composition root,
+	# leaving _execute_exploration_path()'s "if not _exploration_active:
+	# return" abort check permanently dead code -- see _on_domain_combat_
+	# triggered()'s own doc below for the full mechanism.
+	if not exploration_controller.combat_triggered.is_connected(_on_domain_combat_triggered):
+		exploration_controller.combat_triggered.connect(_on_domain_combat_triggered)
+
 	if _hex_grid_view != null and _on_hex_clicked_target.is_valid():
 		if not _hex_grid_view.hex_clicked.is_connected(_on_hex_clicked_target):
 			_hex_grid_view.hex_clicked.connect(_on_hex_clicked_target)
@@ -418,6 +432,30 @@ func notify_game_mode_changed(is_exploration_mode: bool) -> void:
 		_clear_hover_preview()
 
 
+## _on_domain_combat_triggered(encounter_id) -> void — FEAT-009 (US-008 /
+## FR-010, ADR-004 cooperative-polling contract, mitigates RISK-002).
+## Connected directly to exploration_controller.combat_triggered by boot()
+## above, ALONGSIDE (never instead of) the caller-supplied `on_combat_
+## triggered` target -- this is this controller's OWN, self-contained half
+## of the mode-switch handoff, so the mid-path abort mechanism in
+## _execute_exploration_path() below works correctly even if the composition
+## root (MainScene.gd) never calls notify_game_mode_changed() itself.
+##
+## Because exploration_controller.combat_triggered is emitted SYNCHRONOUSLY
+## from inside move_party_member() (via _evaluate_triggers()), this handler
+## runs -- and `_exploration_active` is already false -- before that
+## move_party_member() call returns to _execute_exploration_path(). The
+## triggering step's own animate_token_to() (issued immediately after, for
+## that SAME step) still plays to completion, but every subsequent step's
+## move_party_member()/animate_token_to() pair is skipped: the loop's
+## post-animation `if not _exploration_active: return` check (see
+## _execute_exploration_path()'s own doc) observes the flipped flag and
+## halts immediately. `encounter_id` is unused -- this handler only cares
+## that a trigger fired, not which encounter.
+func _on_domain_combat_triggered(_encounter_id: String) -> void:
+	notify_game_mode_changed(false)
+
+
 ## _clear_hover_preview() -> void — the single shared overlay-clearing code
 ## path both _on_hex_hovered()'s null case and notify_game_mode_changed()'s
 ## active->inactive transition funnel through (ADR-006, no duplicated
@@ -496,10 +534,14 @@ func _on_exploration_hex_clicked(hex_coord) -> void:
 ## animations after) -- each step's move+animate pair completes in full
 ## before the next pair begins.
 ##
-## Mid-path mode-switch abort (error_handling #6, api_contracts #8): if
-## `_exploration_active` has gone false by the time a step's animation
-## completes (e.g. that step's move_party_member() synchronously fired
-## combat_triggered, and a caller's combat_triggered handler flipped mode via
+## Mid-path mode-switch abort (error_handling #6, api_contracts #8, FEAT-009
+## completes ADR-004's cooperative-polling contract): if `_exploration_active`
+## has gone false by the time a step's animation completes (e.g. that step's
+## move_party_member() synchronously fired combat_triggered, which this
+## controller's own _on_domain_combat_triggered() -- connected in boot() --
+## flips via notify_game_mode_changed(false) BEFORE that move_party_member()
+## call even returns; a caller's separately-injected combat_triggered handler
+## may ALSO independently flip mode via
 ## notify_game_mode_changed(false)), the loop stops immediately -- no further
 ## move_party_member()/animate_token_to() calls are issued, leaving the token
 ## at that step's hex rather than the eventual path destination.
