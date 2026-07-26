@@ -94,6 +94,20 @@
 ## away from exploration" requirement) -- both funnel through the SAME
 ## _clear_hover_preview() so there is exactly one overlay-clearing code path
 ## for this feature (ADR-006, no duplicated seam).
+##
+## FEAT-008 (US-008 / FR-010, ADR-005): _on_exploration_hex_clicked(hex_coord)
+## is this controller's own click-to-navigate entry point -- computes the
+## FULL path from the same cached Callables the hover preview above uses,
+## clears the overlay exactly once, then awaits _execute_exploration_path()
+## to walk every step, pairing exploration_controller.move_party_member()
+## (domain finalization) with hex_grid_view.animate_token_to() (awaited
+## presentation-side tween) one step at a time. See both methods' own doc
+## comments below for the full ordering/no-op contract. Not yet wired to
+## hex_grid_view.hex_clicked by boot() above -- that composition-root wiring
+## (replacing MainScene.gd's own single-step _on_exploration_hex_clicked
+## handler) is left to a later feature, mirroring this file's established
+## "declared here, wired by a future step" precedent (see
+## combat_won_return_to_exploration's own doc above).
 
 class_name ExplorationModeController
 extends RefCounted
@@ -411,6 +425,93 @@ func notify_game_mode_changed(is_exploration_mode: bool) -> void:
 func _clear_hover_preview() -> void:
 	if _hex_grid_view != null:
 		_hex_grid_view.clear_overlays()
+
+
+## _on_exploration_hex_clicked(hex_coord) -> void — FEAT-008 (US-008 / FR-010,
+## ADR-005). The click-to-navigate counterpart to _on_hex_hovered() above:
+## computes the FULL path (via HexPathfinderClass.find_path(), using the SAME
+## cached `_is_passable_fn`/`_move_cost_fn` Callables the hover preview
+## already uses, ADR-006 -- preview and execution can never disagree about
+## what is passable) from the selected party member's CURRENT hex to
+## `hex_coord`, then walks it via _execute_exploration_path() below.
+##
+## Guard clauses mirror _on_hex_hovered()'s own no-op cases exactly (never a
+## crash, ADR-006 shared-guard shape): not the active mode, no party member
+## selected, or an unknown selection all return immediately without touching
+## `_hex_grid_view` at all.
+##
+## Empty path (`hex_coord` unreachable/impassable under the cached
+## Callables, per HexPathfinderClass.find_path()'s own "goal impassable or
+## unreachable -> []" contract) is ALSO a silent no-op -- this feature's own
+## explicit requirement (US-008's "clicking an unreachable/impassable hex
+## results in no movement"): `_hex_grid_view.clear_overlays()` is never
+## called and _execute_exploration_path() is never entered, so a stale hover
+## preview overlay (if any) is left exactly as it was rather than being wiped
+## for a click that produces no movement.
+##
+## Otherwise: clears the overlay EXACTLY ONCE (before the walk starts, never
+## per-step) and awaits _execute_exploration_path(path) to walk every step in
+## order.
+func _on_exploration_hex_clicked(hex_coord) -> void:
+	if not _exploration_active:
+		return
+	if selected_party_member_id == "" or scenario_session == null:
+		return
+	if not scenario_session.party_hex_positions.has(selected_party_member_id):
+		return
+
+	var start_hex = scenario_session.party_hex_positions[selected_party_member_id]
+	var path: Array = HexPathfinderClass.find_path(start_hex, hex_coord, _is_passable_fn, _move_cost_fn)
+
+	if path.is_empty():
+		return
+
+	if _hex_grid_view != null:
+		_hex_grid_view.clear_overlays()
+
+	await _execute_exploration_path(path)
+
+
+## _execute_exploration_path(path) -> void — FEAT-008 (US-008 / FR-010,
+## ADR-005, mitigates RISK-005): walks `path` (INCLUSIVE of the starting hex
+## at path[0], as produced by HexPathfinderClass.find_path()) one step at a
+## time, i in range(1, path.size()):
+##
+##   1. exploration_controller.move_party_member(selected_party_member_id,
+##      path[i]) -- the DOMAIN-side finalization (scenario_session.
+##      party_hex_positions update + trigger evaluation) for this step, run
+##      to completion synchronously.
+##   2. ONLY once step 1 has fully returned: await
+##      _hex_grid_view.animate_token_to(selected_party_member_id, path[i]) --
+##      the PRESENTATION-side tween for this SAME step, awaited to genuine
+##      completion (never a fixed delay, RISK-008) before the loop proceeds
+##      to step i+1.
+##
+## This ordering (domain finalization strictly before that step's animation
+## begins, and that step's animation strictly complete before the next
+## step's domain finalization begins) is the ADR-005 invariant this feature
+## exists to establish: a caller inspecting party_hex_positions or the
+## rendered token pixel position at any point during the walk never observes
+## a torn/partial step, and steps are never batched (all moves upfront, all
+## animations after) -- each step's move+animate pair completes in full
+## before the next pair begins.
+##
+## Mid-path mode-switch abort (error_handling #6, api_contracts #8): if
+## `_exploration_active` has gone false by the time a step's animation
+## completes (e.g. that step's move_party_member() synchronously fired
+## combat_triggered, and a caller's combat_triggered handler flipped mode via
+## notify_game_mode_changed(false)), the loop stops immediately -- no further
+## move_party_member()/animate_token_to() calls are issued, leaving the token
+## at that step's hex rather than the eventual path destination.
+func _execute_exploration_path(path: Array) -> void:
+	for i in range(1, path.size()):
+		var step = path[i]
+		if exploration_controller != null:
+			exploration_controller.move_party_member(selected_party_member_id, step)
+		if _hex_grid_view != null:
+			await _hex_grid_view.animate_token_to(selected_party_member_id, step)
+		if not _exploration_active:
+			return
 
 
 ## get_is_passable_fn() / get_move_cost_fn() -> Callable — test/inspection
