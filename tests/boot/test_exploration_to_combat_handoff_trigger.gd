@@ -76,7 +76,7 @@ func test_failed_load_reconnects_hex_click_handling_so_exploration_continues() -
 	await get_tree().process_frame
 
 	assert_true(
-		instance.hex_grid_view.hex_clicked.is_connected(Callable(instance, "_on_exploration_hex_clicked")),
+		instance.hex_grid_view.hex_clicked.is_connected(Callable(instance._exploration, "_on_exploration_hex_clicked")),
 		"a failed handoff must re-connect hex_clicked -> _on_exploration_hex_clicked so exploration keeps working"
 	)
 
@@ -85,7 +85,7 @@ func test_failed_load_reconnects_hex_click_handling_so_exploration_continues() -
 	# tests/boot/test_exploration_click_to_move.gd already proves for a
 	# never-triggered boot.
 	var target := HexCoordClass.new(1, 0)
-	instance._on_exploration_hex_clicked(target)
+	await instance._exploration._on_exploration_hex_clicked(target)
 
 	var moved_token = instance.hex_grid_view.get_token("player_0")
 	assert_eq(moved_token.hex_coord.q, 1, "exploration movement must still work after a failed combat handoff")
@@ -123,7 +123,7 @@ func test_valid_trigger_places_enemy_tokens_and_preserves_party_token_positions(
 	# adjacent target -- so party token preservation is a MEANINGFUL
 	# assertion (not merely "never moved in the first place").
 	var target := HexCoordClass.new(1, 0)
-	instance._on_exploration_hex_clicked(target)
+	await instance._exploration._on_exploration_hex_clicked(target)
 	var titus_token_before = instance.hex_grid_view.get_token("player_0")
 	assert_eq(titus_token_before.hex_coord.q, 1, "fixture assumption: Titus must have moved off his authored start hex before the handoff")
 	assert_eq(titus_token_before.hex_coord.r, 0, "fixture assumption: Titus must have moved off his authored start hex before the handoff")
@@ -236,7 +236,7 @@ func test_hex_click_handling_is_disconnected_before_the_handoff_multistep_work_b
 	await get_tree().process_frame
 
 	assert_false(
-		instance.hex_grid_view.hex_clicked.is_connected(Callable(instance, "_on_exploration_hex_clicked")),
+		instance.hex_grid_view.hex_clicked.is_connected(Callable(instance._exploration, "_on_exploration_hex_clicked")),
 		"a successful handoff must leave hex_clicked disconnected from _on_exploration_hex_clicked"
 	)
 

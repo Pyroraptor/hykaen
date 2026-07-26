@@ -119,14 +119,20 @@ func test_combat_triggered_signal_is_connected_to_the_stub_handler() -> void:
 	)
 
 
+## FEAT-324 (resolves DEF-001): hex_clicked is now wired directly to
+## ExplorationModeController._on_exploration_hex_clicked (the FEAT-007/008/
+##009 pathfinding-driven, animated handler) -- MainScene no longer owns a
+## handler of its own for this signal at all (see tests/boot/
+## test_exploration_click_wiring.gd for the dedicated wiring suite this
+## feature adds).
 func test_hex_grid_view_hex_clicked_is_connected_to_the_exploration_stub_handler() -> void:
 	var instance = _boot_main_scene()
 	await get_tree().process_frame
 
 	assert_not_null(instance.hex_grid_view, "MainScene must wire a real $HexGridView")
 	assert_true(
-		instance.hex_grid_view.hex_clicked.is_connected(Callable(instance, "_on_exploration_hex_clicked")),
-		"hex_grid_view.hex_clicked must be connected to MainScene._on_exploration_hex_clicked"
+		instance.hex_grid_view.hex_clicked.is_connected(Callable(instance._exploration, "_on_exploration_hex_clicked")),
+		"hex_grid_view.hex_clicked must be connected to ExplorationModeController._on_exploration_hex_clicked"
 	)
 
 
@@ -152,12 +158,15 @@ func test_combat_triggered_handler_does_not_crash_when_emitted() -> void:
 	)
 
 
+## FEAT-324 (resolves DEF-001): MainScene no longer owns this handler --
+## ExplorationModeController._on_exploration_hex_clicked is the ONLY
+## click-to-navigate entry point now (see test_exploration_click_wiring.gd).
 func test_exploration_hex_clicked_stub_does_not_crash_when_emitted() -> void:
 	var instance = _boot_main_scene()
 	await get_tree().process_frame
 
-	instance._on_exploration_hex_clicked(HexCoordClass.new(2, -1))
-	assert_eq(instance._game_mode, MainSceneClass.GameMode.EXPLORATION, "the stub handler must not itself flip _game_mode")
+	await instance._exploration._on_exploration_hex_clicked(HexCoordClass.new(2, -1))
+	assert_eq(instance._game_mode, MainSceneClass.GameMode.EXPLORATION, "a non-trigger click must not itself flip _game_mode")
 
 
 # ══════════════════════════════════════════════════════════════════════════

@@ -269,7 +269,7 @@ func _ready() -> void:
 	_exploration.setup({
 		"hex_grid_view": hex_grid_view,
 		"scenario_path": PROLOGUE_SCENARIO_PATH,
-		"on_hex_clicked": Callable(self, "_on_exploration_hex_clicked"),
+		"on_hex_clicked": _exploration_hex_clicked_callable(),
 		"on_combat_triggered": Callable(self, "_on_combat_triggered"),
 	})
 	_exploration.boot(hex_combatants)
@@ -460,19 +460,30 @@ func _ready() -> void:
 
 ## Exploration→combat handoff: load encounter, commit COMBAT mode, await rewire_session().
 func _on_combat_triggered(encounter_id: String) -> void:
-	if hex_grid_view != null and hex_grid_view.hex_clicked.is_connected(_on_exploration_hex_clicked):
-		hex_grid_view.hex_clicked.disconnect(_on_exploration_hex_clicked)
+	if hex_grid_view != null and hex_grid_view.hex_clicked.is_connected(_exploration_hex_clicked_callable()):
+		hex_grid_view.hex_clicked.disconnect(_exploration_hex_clicked_callable())
 
 	var scenario = scenario_session.scenario if scenario_session != null else null
 	var ok: bool = load_encounter_from_scenario(scenario, encounter_id)
 	if not ok:
 		# load_encounter_from_scenario() has already push_error()'d the
-		if hex_grid_view != null and not hex_grid_view.hex_clicked.is_connected(_on_exploration_hex_clicked):
-			hex_grid_view.hex_clicked.connect(_on_exploration_hex_clicked)
+		if hex_grid_view != null and not hex_grid_view.hex_clicked.is_connected(_exploration_hex_clicked_callable()):
+			hex_grid_view.hex_clicked.connect(_exploration_hex_clicked_callable())
 		return
 
 	_game_mode = GameMode.COMBAT
 	_active_encounter_id = encounter_id
+	# FEAT-324 (resolves DEF-001): keep ExplorationModeController's own
+	# `_exploration_active` mirror in sync with this composition root's
+	# `_game_mode` the instant COMBAT is committed, so
+	# _on_exploration_hex_clicked()'s guard (now the ONLY gate on click-driven
+	# movement, since hex_clicked is wired directly to it) rejects any click
+	# that reaches it. In the real, signal-driven handoff this is already
+	# achieved a moment later by ExplorationModeController's own
+	# _on_domain_combat_triggered() (connected in boot()); this explicit call
+	# keeps that guarantee true even when _on_combat_triggered() is invoked
+	# directly (this codebase's established boot-test convention).
+	_exploration.notify_game_mode_changed(false)
 
 	if hex_grid_view != null:
 		hex_grid_view.add_combatants(_enemies)
@@ -502,18 +513,14 @@ func _on_combat_triggered(encounter_id: String) -> void:
 	selection_overlay.configure(_verb_registry, hex_grid_view)
 
 
-## Move party[0] to clicked hex in EXPLORATION mode.
-func _on_exploration_hex_clicked(hex_coord) -> void:
-	if _game_mode != GameMode.EXPLORATION:
-		return
-
-	if _party.is_empty() or exploration_controller == null:
-		return
-
-	var combatant_id: String = _party[0].combatant_id
-	var moved: bool = exploration_controller.move_party_member(combatant_id, hex_coord)
-	if moved and hex_grid_view != null:
-		hex_grid_view.move_token(combatant_id, hex_coord)
+## FEAT-324 (resolves DEF-001): the single Callable naming
+## ExplorationModeController._on_exploration_hex_clicked -- the ONLY
+## click-to-navigate handler hex_grid_view.hex_clicked is ever wired to.
+## Centralized here (rather than re-spelling the string literal at each of
+## setup()/_on_combat_triggered()/_on_combat_won()'s own connect/disconnect
+## call sites) so every wiring/unwiring point can never drift out of sync.
+func _exploration_hex_clicked_callable() -> Callable:
+	return Callable(_exploration, "_on_exploration_hex_clicked")
 
 
 ## Delegates to _exploration.load_encounter_from_scenario(); copies party/enemies/encounter back.
@@ -818,11 +825,18 @@ func _on_combat_won() -> void:
 
 	_game_mode = GameMode.EXPLORATION
 	_active_encounter_id = ""
+	# FEAT-324 (resolves DEF-001): re-activate ExplorationModeController's own
+	# `_exploration_active` mirror the instant EXPLORATION is resumed, so
+	# _on_exploration_hex_clicked()'s guard (the ONLY gate on click-driven
+	# movement now that hex_clicked is wired directly to it) stops rejecting
+	# clicks. Without this, exploration click-to-navigate would stay
+	# permanently dead after the first combat resolves.
+	_exploration.notify_game_mode_changed(true)
 
 	if hex_grid_view != null:
-		if hex_grid_view.hex_clicked.is_connected(_on_exploration_hex_clicked):
-			hex_grid_view.hex_clicked.disconnect(_on_exploration_hex_clicked)
-		hex_grid_view.hex_clicked.connect(_on_exploration_hex_clicked)
+		if hex_grid_view.hex_clicked.is_connected(_exploration_hex_clicked_callable()):
+			hex_grid_view.hex_clicked.disconnect(_exploration_hex_clicked_callable())
+		hex_grid_view.hex_clicked.connect(_exploration_hex_clicked_callable())
 
 
 ## Re-drive TurnController after player ends turn.
