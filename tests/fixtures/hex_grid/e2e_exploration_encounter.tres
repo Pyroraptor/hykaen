@@ -1,0 +1,166 @@
+[gd_resource type="Resource" script_class="EncounterResource" load_steps=14 format=3]
+
+[ext_resource type="Script" path="res://data/encounters/encounter_resource.gd" id="1_encrsc"]
+[ext_resource type="Script" path="res://data/tiles/hex_tile_data_resource.gd" id="2_hextil"]
+
+; ─────────────────────────────────────────────────────────────────────────
+; FEAT-010 (US-001..US-008 / FR-001, FR-004, FR-005, FR-007, FR-008,
+; FR-009, FR-010, FR-011) — the single steel-thread E2E fixture.
+;
+; Corridor along r=0, walked by the click-to-navigate happy path:
+;   (0, 0) hero start (not itself an authored tile -- open-world default)
+;   (1, 0) normal      -- Resource_normal1
+;   (2, 0) difficult   -- Resource_difficult1 (ADR-006 hover/click parity
+;                          proof: cost 2.0, still routed straight through
+;                          since it is the only corridor, never detoured)
+;   (3, 0) normal, doubles as the trigger hex authored in the test's own
+;          in-memory ProximityTriggerResource.trigger_hexes -- Resource_normal2
+;   (4, 0) normal, the eventual destination the click target passes
+;          THROUGH the trigger hex to reach (never actually arrived at --
+;          the walk halts at (3, 0)) -- Resource_normal3
+; ─────────────────────────────────────────────────────────────────────────
+
+[sub_resource type="Resource" id="Resource_normal1"]
+script = ExtResource("2_hextil")
+q = 1
+r = 0
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+
+[sub_resource type="Resource" id="Resource_difficult1"]
+script = ExtResource("2_hextil")
+q = 2
+r = 0
+passable = true
+difficult = true
+terrain_type = "rubble"
+elevation = 0
+cover = 0
+feature = ""
+
+[sub_resource type="Resource" id="Resource_normal2"]
+script = ExtResource("2_hextil")
+q = 3
+r = 0
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+
+[sub_resource type="Resource" id="Resource_normal3"]
+script = ExtResource("2_hextil")
+q = 4
+r = 0
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+
+; ─────────────────────────────────────────────────────────────────────────
+; Impassable ring fully surrounding (-3, 5) -- every one of its 6 hex
+; neighbors is authored impassable, so (-3, 5) itself is unreachable no
+; matter which route HexPathfinder.find_path() attempts (mirrors
+; tests/unit/core/geometry/test_hex_pathfinder.gd's own "fully-surrounded
+; goal" criterion, driven here through the real EncounterTileAdapter-built
+; Callables instead of a hand-written is_passable lambda).
+; ─────────────────────────────────────────────────────────────────────────
+
+[sub_resource type="Resource" id="Resource_wall1"]
+script = ExtResource("2_hextil")
+q = -2
+r = 5
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+
+[sub_resource type="Resource" id="Resource_wall2"]
+script = ExtResource("2_hextil")
+q = -2
+r = 4
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+
+[sub_resource type="Resource" id="Resource_wall3"]
+script = ExtResource("2_hextil")
+q = -3
+r = 4
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+
+[sub_resource type="Resource" id="Resource_wall4"]
+script = ExtResource("2_hextil")
+q = -4
+r = 5
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+
+[sub_resource type="Resource" id="Resource_wall5"]
+script = ExtResource("2_hextil")
+q = -4
+r = 6
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+
+[sub_resource type="Resource" id="Resource_wall6"]
+script = ExtResource("2_hextil")
+q = -3
+r = 6
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+
+[sub_resource type="Resource" id="Resource_walled_target"]
+script = ExtResource("2_hextil")
+q = -3
+r = 5
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+
+[resource]
+script = ExtResource("1_encrsc")
+party_resource_paths = ["res://data/characters/titus.tres"]
+enemy_resource_paths = ["res://data/enemies/skeleton.tres"]
+party_hex_positions = [{
+"q": 0,
+"r": 0
+}]
+enemy_hex_positions = [{
+"q": 4,
+"r": 0
+}]
+seed = 42
+tiles = Array[ExtResource("2_hextil")]([SubResource("Resource_normal1"), SubResource("Resource_difficult1"), SubResource("Resource_normal2"), SubResource("Resource_normal3"), SubResource("Resource_wall1"), SubResource("Resource_wall2"), SubResource("Resource_wall3"), SubResource("Resource_wall4"), SubResource("Resource_wall5"), SubResource("Resource_wall6"), SubResource("Resource_walled_target")])
