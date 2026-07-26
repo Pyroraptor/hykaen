@@ -82,6 +82,25 @@ var _origin_offset: Vector2 = Vector2.ZERO
 ## Movement.get_step_destinations()-derived selectable set.
 var _selectable_hexes: Array = []
 
+## FEAT-005 / US-005: the exploration path currently overlaid on the grid
+## (an Array of core/geometry/hex_coord.gd HexCoord instances, in walk
+## order), set via set_path_overlay() and rendered in _draw() as a 3px line
+## between the pixel centers of every consecutive pair. Empty by default —
+## nothing is drawn until a caller (e.g. presentation/
+## exploration_mode_controller.gd) supplies a path via set_path_overlay().
+var _path_overlay: Array = []
+
+## FEAT-005 / US-005: the color the currently-stored `_path_overlay` is
+## drawn with. Defaults to white purely so an (unlikely) accidental draw
+## before set_path_overlay() is ever called renders visibly rather than
+## invisibly transparent; set_path_overlay() always overwrites this before
+## any real overlay is drawn.
+var _path_overlay_color: Color = Color(1.0, 1.0, 1.0, 1.0)
+
+## Line width (px) the path overlay is drawn with (US-005/FR-005: "a 3px
+## line between consecutive hex pixel centers").
+const PATH_OVERLAY_WIDTH: float = 3.0
+
 ## hex_clicked(hex_coord) -- FEAT-013 / US-013: emitted whenever the player
 ## left-clicks anywhere on this view, carrying the HexCoord the click maps
 ## to (pixel_to_axial()). This view performs NO movement-rule validation of
@@ -105,6 +124,21 @@ func _draw() -> void:
 			var s: int = -q - r
 			if absi(s) <= GRID_RADIUS:
 				_draw_hex_cell(HexCoordClass.new(q, r))
+	_draw_path_overlay()
+
+
+## _draw_path_overlay() → void — FEAT-005 / US-005: draws a
+## PATH_OVERLAY_WIDTH-px line between the pixel centers of every consecutive
+## pair of hexes in `_path_overlay`, in `_path_overlay_color`. Safe (draws
+## nothing, never crashes) when `_path_overlay` is empty or holds a single
+## hex — there is no "consecutive pair" to draw a segment for in either case.
+func _draw_path_overlay() -> void:
+	if _path_overlay.size() < 2:
+		return
+	for i in range(_path_overlay.size() - 1):
+		var from_center: Vector2 = axial_to_pixel_with_offset(_path_overlay[i])
+		var to_center: Vector2 = axial_to_pixel_with_offset(_path_overlay[i + 1])
+		draw_line(from_center, to_center, _path_overlay_color, PATH_OVERLAY_WIDTH)
 
 
 func _draw_hex_cell(coord) -> void:
@@ -224,6 +258,49 @@ func pixel_to_axial_with_offset(pixel: Vector2):
 func set_selectable_hexes(hexes: Array) -> void:
 	_selectable_hexes = hexes
 	queue_redraw()
+
+
+## set_path_overlay(path, color) → void — FEAT-005 / US-005 (FR-005): stores
+## `path` (an Array of HexCoord, in walk order) and `color` as this view's
+## current path overlay and queues a redraw, so _draw() renders a
+## PATH_OVERLAY_WIDTH-px line between every consecutive pair of hexes' pixel
+## centers (via axial_to_pixel_with_offset(), honoring this view's currently
+## configured origin offset -- ADR-003, matching every other drawing path on
+## this view). Always succeeds -- no error path (API contract #6): an empty
+## `path` or a single-hex `path` is stored exactly as given and simply draws
+## nothing (there is no consecutive pair to draw a segment for), never a
+## crash. Normally called by presentation/exploration_mode_controller.gd
+## with a HexPathfinder.find_path() result ahead of animating a party token
+## along it.
+func set_path_overlay(path: Array, color: Color) -> void:
+	_path_overlay = path
+	_path_overlay_color = color
+	queue_redraw()
+
+
+## clear_overlays() → void — FEAT-005 / US-005: resets the stored path
+## overlay to empty (so a subsequent _draw() renders no path-overlay
+## segment) and queues a redraw. Idempotent/safe to call even when no
+## overlay was ever set (API contract #6: always succeeds, no error path).
+## Normally called by presentation/exploration_mode_controller.gd once,
+## before starting a new navigate_party_member() walk, so a stale overlay
+## from a prior click never lingers alongside (or after) the new one.
+func clear_overlays() -> void:
+	_path_overlay = []
+	queue_redraw()
+
+
+## get_path_overlay() → Array — test/inspection helper: the HexCoord path
+## most recently supplied to set_path_overlay() (empty if never called, or
+## after clear_overlays()).
+func get_path_overlay() -> Array:
+	return _path_overlay
+
+
+## get_path_overlay_color() → Color — test/inspection helper: the color most
+## recently supplied to set_path_overlay() (Color(1,1,1,1) if never called).
+func get_path_overlay_color() -> Color:
+	return _path_overlay_color
 
 
 ## move_token(combatant_id, new_hex_coord) → bool — FEAT-013 / US-013:
