@@ -545,11 +545,27 @@ func _on_exploration_hex_clicked(hex_coord) -> void:
 ## notify_game_mode_changed(false)), the loop stops immediately -- no further
 ## move_party_member()/animate_token_to() calls are issued, leaving the token
 ## at that step's hex rather than the eventual path destination.
+##
+## Mid-path move_party_member() rejection abort (FEAT-325, DEF-002 closure):
+## if exploration_controller.move_party_member() returns false for a step
+## (currently unreachable via real terrain, which is static during a walk,
+## but a live risk for any future dynamic-hazard feature -- e.g. a hazard
+## that becomes impassable between the click-time HexPathfinder.find_path()
+## call and this step's execution), the loop halts IMMEDIATELY, BEFORE
+## animate_token_to() is ever called for that same step -- mirroring
+## core/application/exploration_controller.gd's own navigate_party_member()
+## halt-on-failure guard. The token is left at the pixel position of the
+## last successfully completed hex, and party_hex_positions reflects exactly
+## that same completed progress (no torn write, no token visually animating
+## to a hex the domain layer never recorded).
 func _execute_exploration_path(path: Array) -> void:
 	for i in range(1, path.size()):
 		var step = path[i]
+		var moved: bool = true
 		if exploration_controller != null:
-			exploration_controller.move_party_member(selected_party_member_id, step)
+			moved = exploration_controller.move_party_member(selected_party_member_id, step)
+		if not moved:
+			return
 		if _hex_grid_view != null:
 			await _hex_grid_view.animate_token_to(selected_party_member_id, step)
 		if not _exploration_active:

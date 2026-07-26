@@ -552,3 +552,87 @@ func test_clear_overlays_is_called_exactly_once_before_the_walk_starts_not_once_
 
 	assert_eq(hex_grid_view_spy.clear_overlays_call_count, 1, "clear_overlays() must be called exactly once for a 3-step walk, not once per step")
 	assert_eq(instance.scenario_session.party_hex_positions["player_1"].q, -4, "fixture assumption: the full uninterrupted path must still be walked to completion")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# FEAT-325 (DEF-002 closure): a mid-path move_party_member() rejection halts
+# _execute_exploration_path() BEFORE that step's animate_token_to() is ever
+# called, leaving the token/domain state at the last successfully completed
+# hex. This is currently unreachable via real terrain (static during a walk)
+# so it is exercised via an injectable move_party_member() stub, mirroring
+# this file's own established spy conventions.
+# ══════════════════════════════════════════════════════════════════════════
+
+## _RejectStepExplorationControllerSpy — wraps the REAL exploration_controller
+## (forwarding every non-rejected call so state genuinely mutates, mirroring
+## this file's own _CallCountingExplorationControllerSpy/_OrderTracking
+## ExplorationControllerSpy convention) but returns false WITHOUT forwarding
+## to the real controller whenever `target_hex` matches the injected
+## `_reject_hex` -- simulating a mid-path passability rejection (e.g. a
+## future dynamic-hazard feature) without depending on any authored
+## impassable tile data.
+class _RejectStepExplorationControllerSpy:
+	var _real
+	var _reject_hex
+	var move_party_member_call_count: int = 0
+
+	func _init(real, reject_hex) -> void:
+		_real = real
+		_reject_hex = reject_hex
+
+	func move_party_member(combatant_id: String, target_hex) -> bool:
+		move_party_member_call_count += 1
+		if target_hex.equals(_reject_hex):
+			return false
+		return _real.move_party_member(combatant_id, target_hex)
+
+
+## Titus' (player_0) authored start hex (0, 0) reaches (2, 0) via a clean
+## 2-hex walk -- (1, 0) and (2, 0) are neither of them one of the prologue
+## scenario's authored proximity-trigger hexes (reusing this file's own
+## established fixture from test_clicking_a_reachable_distant_hex_walks_the_
+## full_path_to_the_destination above). The SECOND step, to (2, 0), is
+## rejected by the spy above, so the walk must halt after the FIRST step
+## completes -- never calling animate_token_to() for the rejected (2, 0) step.
+func test_a_mid_path_move_party_member_rejection_halts_before_that_steps_animate_token_to() -> void:
+	var instance = _boot_main_scene()
+	await get_tree().process_frame
+
+	assert_eq(instance._exploration.selected_party_member_id, "player_0", "fixture assumption: the default click-to-navigate selection must be Titus (player_0)")
+
+	var start := HexCoordClass.new(0, 0)
+	var rejected_step := HexCoordClass.new(2, 0)
+	var target := HexCoordClass.new(2, 0)
+	var path: Array = HexPathfinderClass.find_path(
+		start, target,
+		instance._exploration.get_is_passable_fn(), instance._exploration.get_move_cost_fn()
+	)
+	assert_eq(path.size(), 3, "fixture assumption: (0, 0) -> (2, 0) must be a 2-hex walk (a 3-element inclusive path)")
+
+	var real_exploration_controller = instance._exploration.exploration_controller
+	var controller_spy := _RejectStepExplorationControllerSpy.new(real_exploration_controller, rejected_step)
+	instance._exploration.exploration_controller = controller_spy
+
+	var real_hex_grid_view = instance._exploration._hex_grid_view
+	var hex_grid_view_spy := _CallCountingHexGridViewSpy.new(real_hex_grid_view)
+	instance._exploration._hex_grid_view = hex_grid_view_spy
+
+	await instance._exploration._on_exploration_hex_clicked(target)
+
+	# ── Criterion: the halt happens BEFORE animate_token_to() is called for
+	#    the rejected step -- only the first (successful) step's animation
+	#    was ever issued.
+	assert_eq(hex_grid_view_spy.animate_token_to_call_count, 1, "animate_token_to() must be called for the first (successful) step only -- never for the rejected second step")
+
+	# ── Criterion: token pixel position matches axial_to_pixel() of the last
+	#    successfully completed hex, not the rejected step.
+	var token = real_hex_grid_view.get_token("player_0")
+	assert_eq(
+		token.position, real_hex_grid_view.axial_to_pixel_with_offset(HexCoordClass.new(1, 0)),
+		"the rendered token's pixel position must halt at the last successfully completed hex (1, 0), not the rejected step (2, 0)"
+	)
+
+	# ── Criterion: party_hex_positions reflects exactly the completed steps,
+	#    with no entry for the rejected step.
+	assert_eq(instance.scenario_session.party_hex_positions["player_0"].q, 1, "party_hex_positions must halt at exactly the last successfully completed hex, not the rejected step")
+	assert_eq(instance.scenario_session.party_hex_positions["player_0"].r, 0, "party_hex_positions must halt at exactly the last successfully completed hex, not the rejected step")
