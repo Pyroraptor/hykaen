@@ -107,6 +107,22 @@ const PROLOGUE_SEED: int = 42
 
 const FIXTURE_ENCOUNTER_PATH: String = "res://tests/fixtures/hex_grid/e2e_exploration_encounter.tres"
 
+## FEAT-332 (resolves DEPLOY-BLOCKER-001/DEPLOY-BLOCKER-002): the committed
+## (FIX-001, tests/boot/test_dripping_cave_scenario_boot.gd's own proof)
+## data/scenarios/dripping_cave_scenario.tres -- unlike FIXTURE_ENCOUNTER_PATH
+## above (a synthetic, hand-authored fixture built solely for this suite),
+## this is the SAME real, disk-persisted, fully-committed scenario resource
+## a fresh `git checkout` now ships with no dangling-reference risk. The two
+## dedicated tests below swap it into the REAL, booted MainScene.tscn
+## composition root exactly like _swap_in_fixture_scenario() does for the
+## synthetic fixture (same technique, different, now-committed data source),
+## proving the complete click-to-navigate steel thread -- driven exclusively
+## through the real hex_grid_view.hex_clicked signal -- still runs correctly
+## against this project's actual shipped content, not merely a test-only
+## fixture, with the committed FIX-002 GRID_RADIUS=12/TERRAIN_FILL_COLORS
+## HexGridView additions rendering/animating alongside it.
+const DRIPPING_CAVE_SCENARIO_PATH: String = "res://data/scenarios/dripping_cave_scenario.tres"
+
 ## The party member the booted MainScene.tscn already renders at (0, 0)
 ## (Titus) -- reused verbatim as this suite's hero, so no second token needs
 ## to be instantiated on the real, booted hex_grid_view.
@@ -190,6 +206,51 @@ func _swap_in_fixture_scenario(instance) -> Dictionary:
 	instance._exploration._move_cost_fn = EncounterTileAdapterClass.make_move_cost(fixture_encounter)
 
 	return {"encounter": fixture_encounter}
+
+
+## _swap_in_dripping_cave_scenario(instance, start_hex) -> Dictionary — FEAT-332
+## (resolves DEPLOY-BLOCKER-001). The same technique as
+## _swap_in_fixture_scenario() above (replace the booted MainScene's
+## `scenario_session`/`exploration_controller` proxies + rebuild the cached
+## PassabilityQuery/MoveCostQuery Callables via the real EncounterTileAdapter),
+## but sourced from the REAL, committed data/scenarios/dripping_cave_scenario.tres
+## (FIX-001) and its wrapped data/encounters/dripping_cave.tres EncounterResource
+## instead of this suite's own synthetic FIXTURE_ENCOUNTER_PATH -- proving the
+## steel thread works against this project's actual shipped content on a clean
+## checkout, with zero reliance on any untracked file. `start_hex` seeds
+## HERO_ID's starting position for the walk the caller is about to drive.
+## Returns {"scenario": ScenarioResource, "encounter": EncounterResource} for
+## fixture-derived assertions.
+func _swap_in_dripping_cave_scenario(instance, start_hex) -> Dictionary:
+	assert_true(
+		ResourceLoader.exists(DRIPPING_CAVE_SCENARIO_PATH),
+		"data/scenarios/dripping_cave_scenario.tres must exist on disk -- no reliance on an untracked/dangling working-tree-only file (DEPLOY-BLOCKER-001)"
+	)
+	var dripping_cave_scenario = ResourceLoader.load(DRIPPING_CAVE_SCENARIO_PATH)
+	assert_not_null(dripping_cave_scenario, "the committed dripping_cave_scenario.tres must load from the committed working tree")
+	assert_false(dripping_cave_scenario.encounter_entries.is_empty(), "the committed dripping_cave_scenario.tres must carry at least one encounter entry")
+
+	var dripping_cave_encounter = dripping_cave_scenario.encounter_entries[0].encounter
+	assert_not_null(dripping_cave_encounter, "the committed dripping_cave_scenario.tres's first encounter entry must wrap a real EncounterResource")
+
+	var fresh_session := ScenarioSessionClass.new()
+	fresh_session.scenario = dripping_cave_scenario
+	fresh_session.party_hex_positions[HERO_ID] = start_hex
+
+	instance.scenario_session = fresh_session
+	instance.exploration_controller = ExplorationControllerClass.new(fresh_session)
+
+	# Mirrors _swap_in_fixture_scenario()'s own reconnection -- a fresh
+	# ExplorationController instance's combat_triggered signal starts with
+	# zero connections, so it must be reconnected here for a mid-path
+	# trigger-halt scenario to have any effect on
+	# `_exploration.is_exploration_active()`.
+	instance.exploration_controller.combat_triggered.connect(instance._exploration._on_domain_combat_triggered)
+
+	instance._exploration._is_passable_fn = EncounterTileAdapterClass.make_is_passable(dripping_cave_encounter)
+	instance._exploration._move_cost_fn = EncounterTileAdapterClass.make_move_cost(dripping_cave_encounter)
+
+	return {"scenario": dripping_cave_scenario, "encounter": dripping_cave_encounter}
 
 
 ## _CapturingHexGridViewSpy — FEAT-327. Wraps the REAL, booted hex_grid_view
@@ -507,3 +568,104 @@ func test_a_trigger_hex_mid_path_halts_the_walk_flips_mode_and_clears_overlays()
 	assert_eq(instance.hex_grid_view.get_path_overlay(), [], "no hover-preview overlay must be drawn once mode has switched away from EXPLORATION")
 
 	assert_eq(get_logger().get_errors().size(), 0, "a mid-path trigger halt must never itself produce an engine error")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# FEAT-332 (resolves DEPLOY-BLOCKER-001/DEPLOY-BLOCKER-002): the complete
+# click-to-navigate steel thread against the REAL, committed
+# data/scenarios/dripping_cave_scenario.tres -- not merely this suite's own
+# synthetic FIXTURE_ENCOUNTER_PATH -- proving both post-remediation fixes
+# (FIX-001's committed scenario file, FIX-002's committed
+# GRID_RADIUS=12/TERRAIN_FILL_COLORS HexGridView additions) genuinely
+# compose together on a clean, fully-committed working tree.
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_real_composition_root_boots_the_committed_dripping_cave_scenario_with_no_untracked_file_dependency() -> void:
+	var instance = _boot_main_scene()
+	await get_tree().process_frame
+	var fixture := _swap_in_dripping_cave_scenario(instance, HexCoordClass.new(0, -1))
+
+	assert_eq(get_logger().get_errors().size(), 0, "booting MainScene.tscn and swapping in the committed dripping-cave scenario must produce zero engine errors")
+
+	assert_not_null(instance.exploration_controller, "a real ExplorationController must be constructed against the committed dripping-cave scenario")
+	assert_not_null(instance.scenario_session, "a real ScenarioSession must be constructed against the committed dripping-cave scenario")
+	assert_eq(instance.scenario_session.scenario.scenario_id, "dripping_cave", "the swapped-in scenario_session must wrap the committed dripping_cave scenario, not a dangling/untracked reference")
+	assert_true(instance._exploration.is_exploration_active(), "the real composition root must reach an active EXPLORATION state using ONLY the committed dripping-cave scenario (US-008 / DEPLOY-BLOCKER-001)")
+	assert_true(instance._exploration.get_is_passable_fn().is_valid(), "the real EncounterTileAdapter-built is_passable Callable must be valid against the committed dripping_cave encounter")
+	assert_true(instance._exploration.get_move_cost_fn().is_valid(), "the real EncounterTileAdapter-built move_cost Callable must be valid against the committed dripping_cave encounter")
+
+	assert_not_null(fixture["encounter"], "the committed dripping_cave.tres EncounterResource must be genuinely populated")
+
+
+func test_real_signal_click_on_a_distant_reachable_hex_drives_a_full_multi_hex_walk_against_the_committed_dripping_cave_scenario() -> void:
+	var instance = _boot_main_scene()
+	await get_tree().process_frame
+	_swap_in_dripping_cave_scenario(instance, HexCoordClass.new(0, -1))
+
+	# (0, -1) -> (4, -1) is a genuinely distant, reachable 4-hex walk on the
+	# committed dripping_cave encounter (crossing the committed rubble/
+	# difficult tile at (3, -1)), never touching any of the committed
+	# scenario's authored trigger hexes -- see this file's own probe-verified
+	# fixture assumption below.
+	var start := HexCoordClass.new(0, -1)
+	var target := HexCoordClass.new(4, -1)
+
+	var expected_path: Array = HexPathfinderClass.find_path(
+		start, target, instance._exploration.get_is_passable_fn(), instance._exploration.get_move_cost_fn()
+	)
+	assert_eq(expected_path.size(), 5, "fixture assumption: (0,-1) -> (4,-1) on the committed dripping_cave encounter must be a genuinely distant, reachable 4-hex walk")
+
+	await _emit_hex_clicked_and_await(instance, target)
+
+	assert_eq(instance.scenario_session.party_hex_positions[HERO_ID].q, target.q, "the real hex_clicked signal must drive party_hex_positions[combatant_id] to equal the clicked hex on the committed dripping-cave scenario")
+	assert_eq(instance.scenario_session.party_hex_positions[HERO_ID].r, target.r, "the real hex_clicked signal must drive party_hex_positions[combatant_id] to equal the clicked hex on the committed dripping-cave scenario")
+
+	var hero_token = instance.hex_grid_view.get_token(HERO_ID)
+	assert_eq(
+		hero_token.position, instance.hex_grid_view.axial_to_pixel_with_offset(target),
+		"the token must be visibly animated (via the committed GRID_RADIUS=12/TERRAIN_FILL_COLORS HexGridView, FIX-002) all the way to the destination hex's pixel center"
+	)
+	assert_eq(instance.hex_grid_view.get_path_overlay(), [], "the completed click-to-navigate walk must leave no stale path overlay rendered")
+	assert_true(instance._exploration.is_exploration_active(), "a fully-completed, trigger-free walk must never flip mode away from EXPLORATION")
+
+	assert_eq(get_logger().get_errors().size(), 0, "a complete real-signal multi-hex walk against the committed dripping-cave scenario must produce zero engine errors")
+
+
+func test_real_signal_click_crossing_a_trigger_hex_halts_the_walk_on_the_committed_dripping_cave_scenario() -> void:
+	var instance = _boot_main_scene()
+	await get_tree().process_frame
+	_swap_in_dripping_cave_scenario(instance, HexCoordClass.new(0, -1))
+
+	assert_true(instance._exploration.is_exploration_active(), "fixture assumption: exploration must start out active")
+
+	# (0, -1) -> (-2, 3) on the committed dripping_cave encounter routes
+	# through the committed scenario's own authored trigger hex (-2, 1) --
+	# data/triggers/dripping_cave_trigger.tres -- at index 2 of 4, one hop
+	# before the eventual (never-reached) destination.
+	var trigger_hex := HexCoordClass.new(-2, 1)
+	var beyond_trigger := HexCoordClass.new(-2, 3)
+
+	var full_path: Array = HexPathfinderClass.find_path(
+		HexCoordClass.new(0, -1), beyond_trigger, instance._exploration.get_is_passable_fn(), instance._exploration.get_move_cost_fn()
+	)
+	assert_eq(full_path.size(), 5, "fixture assumption: (0,-1) -> (-2,3) on the committed dripping_cave encounter must be a straight 4-hex walk passing through the committed trigger hex (-2,1) at index 2")
+	assert_true(full_path[2].equals(trigger_hex), "fixture assumption: the committed trigger hex (-2,1) must be mid-path, not the final destination")
+
+	await _emit_hex_clicked_and_await(instance, beyond_trigger)
+
+	assert_eq(instance.scenario_session.party_hex_positions[HERO_ID].q, trigger_hex.q, "party_hex_positions must halt at exactly the committed scenario's trigger hex, not the eventual destination")
+	assert_eq(instance.scenario_session.party_hex_positions[HERO_ID].r, trigger_hex.r, "party_hex_positions must halt at exactly the committed scenario's trigger hex, not the eventual destination")
+
+	var hero_token = instance.hex_grid_view.get_token(HERO_ID)
+	assert_eq(
+		hero_token.position, instance.hex_grid_view.axial_to_pixel_with_offset(trigger_hex),
+		"the rendered token's pixel position must halt at exactly the committed trigger hex's pixel center, matching party_hex_positions"
+	)
+	assert_false(
+		instance.scenario_session.party_hex_positions[HERO_ID].equals(beyond_trigger),
+		"the walk must never have reached the eventual destination past the committed trigger hex"
+	)
+	assert_false(instance._exploration.is_exploration_active(), "a mid-path trigger on the committed scenario must flip the controller's own game-mode mirror away from EXPLORATION")
+	assert_eq(instance.hex_grid_view.get_path_overlay(), [], "a mid-path trigger abort on the committed scenario must leave no path overlay rendered")
+
+	assert_eq(get_logger().get_errors().size(), 0, "a mid-path trigger halt on the committed dripping-cave scenario must never itself produce an engine error")
