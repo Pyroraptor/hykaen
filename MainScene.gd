@@ -276,6 +276,7 @@ func _ready() -> void:
 	_enemies = session.get("enemies", [])
 
 	_seed_party_hex_positions_from_current_game_state(hex_combatants) # FEAT-005 (US-004/FR-004/ADR-003)
+	_seed_combatant_snapshots_from_current_game_state(hex_combatants) # FEAT-006 (US-004/FR-004/ADR-003)
 
 	centering_offset = _compute_boot_centering_offset(hex_combatants)
 	if hex_grid_view != null:
@@ -976,6 +977,83 @@ func _seed_party_hex_positions_from_current_game_state(hex_combatants: Array) ->
 			if c.display_id() == id:
 				c.move_to(hex)
 				break
+
+
+## FEAT-006 (US-004/FR-004/ADR-003, mitigates RISK-004): combatant HP/
+## stamina/conditions snapshot restoration (scenario-agnostic, mirrors
+## _seed_party_hex_positions_from_current_game_state()'s branching shape).
+## Empty CurrentGameState.data.combatant_snapshots -> no-op: every combatant
+## keeps its encounter-authored default hp_current/hp_max/stamina/
+## conditions (new-game path). Non-empty -> restores hp_current/stamina/
+## conditions onto every entry across `hex_combatants`, `_party`, and
+## `_enemies` whose display_id() (combatant_id, falling back to name)
+## matches the snapshot entry's combatant_id (loaded-save path).
+##
+## Per-entry fail-closed handling (logged, never silent, mismatch
+## handling):
+##   - a combatant_id absent from the live encounter -> push_warning()
+##     naming the id; the entry is skipped entirely (no mutation, no
+##     crash).
+##   - a present-but-malformed field (e.g. hp_current as a String instead
+##     of a number, or conditions as something other than an Array) ->
+##     the WHOLE entry is rejected via _combatant_snapshot_entry_is_well_
+##     formed() with a logged push_warning() naming the combatant_id and
+##     the offending field; the combatant keeps its encounter-authored
+##     defaults for every field (never a partial apply of that same
+##     entry's other, well-typed fields).
+##   - a missing OPTIONAL key (e.g. no "conditions" key at all) is NOT
+##     malformed: the present fields are still restored and the missing
+##     field is simply left at whatever value the combatant already
+##     carried (safe-default, no crash).
+func _seed_combatant_snapshots_from_current_game_state(hex_combatants: Array) -> void:
+	var snapshots: Array = _current_game_state().data.combatant_snapshots
+	if snapshots.is_empty():
+		return
+
+	var all_combatants: Array = hex_combatants + _party + _enemies
+	for entry in snapshots:
+		var id: String = String(entry.get("combatant_id", ""))
+		var matches: Array = []
+		for c in all_combatants:
+			if c.display_id() == id:
+				matches.append(c)
+
+		if matches.is_empty():
+			push_warning("MainScene: combatant_snapshots entry references combatant_id '%s' not present in the live encounter -- skipped" % id)
+			continue
+
+		if not _combatant_snapshot_entry_is_well_formed(entry, id):
+			continue
+
+		for c in matches:
+			if entry.has("hp_current"):
+				c.hp_current = int(entry["hp_current"])
+			if entry.has("stamina"):
+				c.stamina = int(entry["stamina"])
+			if entry.has("conditions"):
+				c.conditions = (entry["conditions"] as Array).duplicate()
+
+
+## _combatant_snapshot_entry_is_well_formed(entry, combatant_id) -> bool —
+## FEAT-006 per-entry type validation (RISK-004 mitigation): a present
+## "hp_current"/"stamina" key must be numeric (int or float -- float is
+## accepted too because a save round-tripped through JSON.parse_string()
+## decodes every JSON number as float, per this project's JSON persistence
+## strategy); a present "conditions" key must be an Array. Logs a
+## push_warning() naming both the combatant_id and the offending field,
+## then returns false so the caller rejects the ENTIRE entry (never a
+## partial apply of its other fields).
+func _combatant_snapshot_entry_is_well_formed(entry: Dictionary, combatant_id: String) -> bool:
+	if entry.has("hp_current") and not (entry["hp_current"] is int or entry["hp_current"] is float):
+		push_warning("MainScene: combatant_snapshots entry for combatant_id '%s' has malformed hp_current (expected a number) -- entry rejected, encounter-authored defaults used" % combatant_id)
+		return false
+	if entry.has("stamina") and not (entry["stamina"] is int or entry["stamina"] is float):
+		push_warning("MainScene: combatant_snapshots entry for combatant_id '%s' has malformed stamina (expected a number) -- entry rejected, encounter-authored defaults used" % combatant_id)
+		return false
+	if entry.has("conditions") and not (entry["conditions"] is Array):
+		push_warning("MainScene: combatant_snapshots entry for combatant_id '%s' has malformed conditions (expected an Array) -- entry rejected, encounter-authored defaults used" % combatant_id)
+		return false
+	return true
 
 
 ## _resolve_boot_scenario_path() -> String — FEAT-004 (US-004; FR-004,
