@@ -2,10 +2,19 @@ extends GutTest
 ## tests/unit/test_main_scene_entry_point.gd
 ##
 ## GUT test suite for FEAT-005 (US-004): Main scene entry point and project
-## wiring. Verifies MainScene.tscn is the project's composition root
-## (ADR-006) -- wiring the repository/random/event-sink adapters and
-## reusing prologue_encounter.tres / the existing party -- and that
-## project.godot boots directly into it.
+## wiring. Verifies MainScene.tscn is the project's gameplay composition
+## root (ADR-006) -- wiring the repository/random/event-sink adapters and
+## reusing prologue_encounter.tres / the existing party.
+##
+## FEAT-337 (DEF-001): project.godot's run/main_scene now boots into
+## res://scenes/TitleScreen.tscn (Title Screen: New Game / Continue /
+## Dev: Pick Scenario), per the steel thread's declared entry_point and
+## FR-006 AC1 -- TitleScreen transitions into MainScene.tscn once a game is
+## started/continued. See test_project_godot_run_main_scene_references_
+## title_screen_tscn() below for that boot-target assertion; the remaining
+## tests in this file instantiate MainScene.tscn directly (ADR-002 pattern)
+## to verify its own composition-root wiring, independent of project.godot's
+## main_scene setting.
 
 const GodotRandomAdapterClass          = preload("res://core/combat/godot_random_adapter.gd")
 const ResourceEncounterRepositoryClass = preload("res://infrastructure/resource_encounter_repository.gd")
@@ -14,20 +23,50 @@ const EncounterClass                   = preload("res://core/combat/encounter.gd
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 const MAIN_SCENE_SCRIPT_PATH: String = "res://MainScene.gd"
 const PROJECT_GODOT_PATH: String = "res://project.godot"
+const TITLE_SCREEN_PATH: String = "res://scenes/TitleScreen.tscn"
 
 
-# ── Criterion 1: project.godot run/main_scene references MainScene.tscn ─────
+# ── Criterion 1 (FEAT-337 / DEF-001): project.godot run/main_scene ──────────
+# references TitleScreen.tscn, not MainScene.tscn. A real launched build
+# (editor Play or exported binary) must boot into the Title Screen (New
+# Game / Continue / Dev: Pick Scenario) first, per the steel thread's
+# declared entry_point and FR-006 AC1 -- booting straight into MainScene
+# would silently bypass those flows via ADR-005's uninitialized-
+# CurrentGameState fallback. This test file's remaining MainScene
+# composition-root assertions below are unaffected: they instantiate
+# MainScene.tscn directly (add_child_autofree), which is the same
+# ADR-002 pattern MainScene itself is reached by once TitleScreen
+# transitions into it, independent of project.godot's main_scene setting.
 
-func test_project_godot_run_main_scene_references_main_scene_tscn() -> void:
+func test_project_godot_run_main_scene_references_title_screen_tscn() -> void:
 	var file := FileAccess.open(PROJECT_GODOT_PATH, FileAccess.READ)
 	assert_not_null(file, "project.godot must be readable")
 	if file == null:
 		return
 	var content: String = file.get_as_text()
 	file.close()
-	assert_true(
+	assert_false(
 		content.contains('run/main_scene="res://MainScene.tscn"'),
-		"project.godot must set run/main_scene to res://MainScene.tscn (FEAT-005 / US-004)"
+		"project.godot must NOT set run/main_scene to res://MainScene.tscn -- that bypasses "
+		+ "TitleScreen entirely (FEAT-337 / DEF-001)"
+	)
+	assert_true(
+		content.contains('run/main_scene="res://scenes/TitleScreen.tscn"'),
+		"project.godot must set run/main_scene to res://scenes/TitleScreen.tscn (FEAT-337 / "
+		+ "US-006, ADR-002's original intent)"
+	)
+
+
+## FEAT-337 (DEF-001): positive runtime assertion via the live ProjectSettings
+## singleton -- proves the composition-root wiring Godot actually boots with
+## resolves to TitleScreen.tscn, not merely that project.godot's raw text
+## looks right.
+func test_project_settings_run_main_scene_resolves_to_title_screen_at_runtime() -> void:
+	var configured_main_scene: String = ProjectSettings.get_setting("application/run/main_scene", "")
+	assert_eq(
+		configured_main_scene, TITLE_SCREEN_PATH,
+		"ProjectSettings.get_setting('application/run/main_scene') must resolve to "
+		+ "res://scenes/TitleScreen.tscn at runtime (FEAT-337 / DEF-001)"
 	)
 
 

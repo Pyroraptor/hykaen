@@ -7,14 +7,26 @@ extends GutTest
 ## test_headless_boot_smoke.py's pytest suite (which already proves the
 ## identical guarantee): spawns a SECOND, independent, real
 ## `godot --headless` process booting this project's actual
-## run/main_scene target (project.godot's run/main_scene=res://MainScene.tscn,
-## no GUT harness/HeadlessRunner involvement beyond the autoload every
-## launch of this project always carries) and reads that process's own real
-## stdout+stderr directly -- the one vantage point from which "zero ERROR/
-## WARNING console output" can actually be observed (mirrors tests/ci/
-## test_static_checks.gd's established OS.execute-based real-subprocess
-## convention, and tests/integration/test_headless_boot_smoke.py's own
-## `bare_headless_boot` fixture rationale).
+## run/main_scene target (project.godot's run/main_scene=
+## res://scenes/TitleScreen.tscn as of FEAT-337/DEF-001 -- see that fix's
+## own doc below -- no GUT harness/HeadlessRunner involvement beyond the
+## autoload every launch of this project always carries) and reads that
+## process's own real stdout+stderr directly -- the one vantage point from
+## which "zero ERROR/WARNING console output" can actually be observed
+## (mirrors tests/ci/test_static_checks.gd's established OS.execute-based
+## real-subprocess convention, and tests/integration/
+## test_headless_boot_smoke.py's own `bare_headless_boot` fixture
+## rationale).
+##
+## FEAT-337 (DEF-001): project.godot's run/main_scene was repointed from
+## res://MainScene.tscn to res://scenes/TitleScreen.tscn -- a real launched
+## build must reach the Title Screen (New Game / Continue / Dev: Pick
+## Scenario) first, per the steel thread's declared entry_point and FR-006
+## AC1, rather than bypassing it straight into MainScene via ADR-005's
+## uninitialized-CurrentGameState fallback. This suite's "reaches an
+## interactive boot state" marker below is updated accordingly to
+## TitleScreen's own boot-confirmation print (presentation/title_screen.gd's
+## _ready()), not MainScene's.
 ##
 ## Design note -- why a SEPARATE bare boot, never `godot --headless --
 ## --gut-run-all`/`-s addons/gut/gut_cmdln.gd`: in this project's pinned
@@ -67,22 +79,24 @@ extends GutTest
 
 const SeedPolicyClass = preload("res://infrastructure/seed_policy.gd")
 
-## The real boot-confirmation log line MainScene.gd's own _ready() prints
-## (see MainScene.gd's `print("INFO: Hykaen MainScene booted...")` call) --
-## used below to guard against a degenerate "silently empty/no-op boot"
-## trivially satisfying "zero ERROR/WARNING output".
+## The real boot-confirmation log line presentation/title_screen.gd's own
+## _ready() prints (see TitleScreen.gd's
+## `print("INFO: Hykaen TitleScreen booted...")` call) -- used below to
+## guard against a degenerate "silently empty/no-op boot" trivially
+## satisfying "zero ERROR/WARNING output".
 ##
-## FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): a real,
+## FEAT-337 (DEF-001): project.godot's run/main_scene now boots into
+## res://scenes/TitleScreen.tscn, not res://MainScene.tscn -- a real,
 ## non-test launch (this file's bare `godot --headless` subprocess never
-## drives a combat trigger) now boots into GameMode.EXPLORATION with
-## round_session left null -- MainScene.gd's _ready() prints the
-## EXPLORATION-mode boot line ("...booted into EXPLORATION mode -- no active
-## round_session yet (FEAT-316)") in that branch instead of the old
-## "...booted into the prologue encounter (interactive)..." line, which now
-## only ever prints once a real combat trigger fires. EXPLORATION mode IS
-## this feature's new "interactive, input-awaiting boot state" -- update the
-## marker to match.
-const MAIN_SCENE_BOOT_MARKER: String = "Hykaen MainScene booted into EXPLORATION mode"
+## presses New Game/Continue) reaches TitleScreen's own interactive,
+## input-awaiting boot state and stops there, so this suite's marker is
+## TitleScreen's boot-confirmation line, not MainScene's. (MainScene's own
+## "...booted into EXPLORATION mode..." print, previously asserted here
+## pre-FEAT-337, only ever fires now once TitleScreen's New Game/Continue/
+## Dev:Pick Scenario transitions into MainScene.tscn -- see tests/boot/
+## test_title_screen_boot_performance.gd and tests/unit/
+## test_title_screen_buttons.gd for that later-stage coverage.)
+const MAIN_SCENE_BOOT_MARKER: String = "Hykaen TitleScreen booted -- interactive, input-awaiting boot state"
 
 ## The ONE pre-existing, documented, out-of-scope warning shape this suite
 ## allowlists (see file-level design note above) -- the specific
@@ -313,7 +327,7 @@ func test_bare_headless_boot_produces_zero_error_level_console_output() -> void:
 	var classified: Dictionary = _classify_console_lines(result["output"])
 	assert_eq(
 		classified["errors"], [],
-		"booting the real res://MainScene.tscn composition root headlessly must produce ZERO ERROR-level console lines; full output:\n%s" % result["output"]
+		"booting the real res://scenes/TitleScreen.tscn composition root headlessly (FEAT-337 / DEF-001) must produce ZERO ERROR-level console lines; full output:\n%s" % result["output"]
 	)
 
 
@@ -327,7 +341,7 @@ func test_bare_headless_boot_produces_zero_unallowlisted_warning_level_console_o
 	var classified: Dictionary = _classify_console_lines(result["output"])
 	assert_eq(
 		classified["warnings"], [],
-		"booting the real res://MainScene.tscn composition root headlessly must produce ZERO WARNING-level console lines beyond the one documented, "
+		"booting the real res://scenes/TitleScreen.tscn composition root headlessly (FEAT-337 / DEF-001) must produce ZERO WARNING-level console lines beyond the one documented, "
 		+ "pre-existing, out-of-scope resource-UID warning shape; full output:\n%s" % result["output"]
 	)
 
@@ -341,7 +355,7 @@ func test_bare_headless_boot_actually_reaches_the_interactive_prologue_encounter
 	var result: Dictionary = _run_bare_headless_boot(godot_bin)
 	assert_true(
 		result["output"].contains(MAIN_SCENE_BOOT_MARKER),
-		"the real MainScene.tscn composition root must actually reach its interactive, input-awaiting boot state within "
+		"the real TitleScreen.tscn composition root (FEAT-337 / DEF-001: project.godot's run/main_scene) must actually reach its interactive, input-awaiting boot state within "
 		+ "%d frames -- its own boot-confirmation log line was not observed; full output:\n%s" % [_QUIT_AFTER_FRAMES, result["output"]]
 	)
 
@@ -369,5 +383,5 @@ func test_multiple_consecutive_pinned_seed_headless_boots_all_produce_zero_error
 		)
 		assert_true(
 			result["output"].contains(MAIN_SCENE_BOOT_MARKER),
-			"run %d: the real MainScene.tscn composition root must reach its interactive boot state every single consecutive run" % i
+			"run %d: the real TitleScreen.tscn composition root (FEAT-337 / DEF-001) must reach its interactive boot state every single consecutive run" % i
 		)

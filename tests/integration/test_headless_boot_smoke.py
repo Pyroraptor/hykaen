@@ -3,10 +3,13 @@ tests/integration/test_headless_boot_smoke.py
 
 Pytest suite for FEAT-180 (US-015/FR-015; the headless-boot portion of
 US-017/NFR-003/NFR-004) — the mandatory final smoke test proving the REAL,
-shipped res://MainScene.tscn composition root (project.godot's own
-run/main_scene target) boots under `godot --headless` with ZERO ERROR/
-WARNING-level Godot console output, and that every combatant token renders
-within viewport bounds at boot.
+shipped res://scenes/TitleScreen.tscn composition root (project.godot's own
+run/main_scene target as of FEAT-337/DEF-001 -- see that fix's own note
+below) boots under `godot --headless` with ZERO ERROR/WARNING-level Godot
+console output, and that every combatant token renders within viewport
+bounds at boot (via the real MainScene.tscn instance TitleScreen's New
+Game/Continue/Dev:Pick Scenario transitions into, exercised separately
+below via a direct GUT-scoped subprocess call).
 
 This is a Python-level, real-subprocess complement to the existing in-process
 GDScript headless-boot smoke tests (tests/gut/test_smoke_boot.gd, tests/
@@ -91,16 +94,21 @@ from typing import Optional
 
 import pytest
 
-# FEAT-316 (US-005/US-007 / FR-004, resolves DEF-001/PR-001): MainScene.gd's
-# _ready() print() line changed from "...booted into the prologue encounter
-# (interactive)..." to "...booted into EXPLORATION mode..." because the
-# legacy combat pipeline (round_session/verb bar/selection overlay/turn
-# controller signals) is no longer wired unconditionally at boot -- it now
-# stays dormant until a real _on_combat_triggered() handoff fires. A bare,
-# zero-manual-setup headless boot genuinely reaches EXPLORATION mode, not an
-# interactive combat round, so this marker is updated to match (mirrors
-# tests/integration/test_headless_boot.gd's identical FEAT-316 fix).
-MAIN_SCENE_BOOT_MARKER = "Hykaen MainScene booted into EXPLORATION mode"
+# FEAT-337 (DEF-001): project.godot's run/main_scene was repointed from
+# res://MainScene.tscn to res://scenes/TitleScreen.tscn -- a real launched
+# build must reach the Title Screen (New Game / Continue / Dev: Pick
+# Scenario) first, per the steel thread's declared entry_point and FR-006
+# AC1, rather than bypassing it straight into MainScene via ADR-005's
+# uninitialized-CurrentGameState fallback. A bare, zero-manual-setup
+# headless boot (this suite's own scenario -- no button is ever pressed)
+# therefore now genuinely reaches TitleScreen's own interactive,
+# input-awaiting boot state and stops there, so this marker is
+# TitleScreen.gd's own boot-confirmation print (presentation/title_screen.gd's
+# _ready()), not MainScene's (mirrors tests/integration/test_headless_boot.gd's
+# identical FEAT-337 fix). MainScene's previous "...booted into EXPLORATION
+# mode..." marker (FEAT-316) only ever prints now once TitleScreen's New
+# Game/Continue/Dev:Pick Scenario transitions into MainScene.tscn.
+MAIN_SCENE_BOOT_MARKER = "Hykaen TitleScreen booted -- interactive, input-awaiting boot state"
 
 VIEWPORT_CENTERING_TEST_FILE = "test_viewport_centering.gd"
 VIEWPORT_CENTERING_TEST_DIR = "res://tests/gut"

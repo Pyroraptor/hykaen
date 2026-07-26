@@ -13,7 +13,7 @@ config_version=5
 config/name="Hykaen"
 config/description="A turn-based narrative CRPG set in the world of Hykaen."
 config/version="0.2.0"
-run/main_scene="res://MainScene.tscn"
+run/main_scene="res://scenes/TitleScreen.tscn"
 config/features=PackedStringArray("4.3")
 config/icon="res://icon.svg"
 

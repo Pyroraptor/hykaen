@@ -11,9 +11,12 @@ extends GutTest
 ##
 ##   1. All autoload singletons declared in project.godot's [autoload]
 ##      section resolve to non-null instances.
-##   2. project.godot's run/main_scene points at MainScene.tscn, so the
-##      Godot editor's Play button launches directly into the prologue
-##      encounter with no manual setup.
+##   2. project.godot's run/main_scene points at TitleScreen.tscn (FEAT-337 /
+##      DEF-001), so the Godot editor's Play button -- and a real exported
+##      binary -- launches into the Title Screen (New Game / Continue /
+##      Dev: Pick Scenario) first, per the steel thread's declared
+##      entry_point and FR-006 AC1, rather than bypassing it straight into
+##      MainScene's ADR-005 uninitialized-CurrentGameState fallback.
 ##   3. A freshly instantiated MainScene.tscn completes first-frame
 ##      processing with no exception and no null composition-root field --
 ##      each composition-root field (encounter_repository/random_port/
@@ -41,6 +44,7 @@ extends GutTest
 
 const PROJECT_GODOT_PATH: String = "res://project.godot"
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
+const TITLE_SCREEN_PATH: String = "res://scenes/TitleScreen.tscn"
 const MainSceneClass = preload("res://MainScene.gd")
 
 
@@ -71,20 +75,46 @@ func _get_configured_autoload_names() -> Array:
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Criterion 2: project.godot run/main_scene points at MainScene.tscn, so
-# Godot editor Play launches directly into the prologue encounter.
+# Criterion 2 (FEAT-337 / DEF-001): project.godot run/main_scene points at
+# TitleScreen.tscn -- NOT MainScene.tscn -- so the Godot editor's Play
+# button (and a real exported binary) boots into Title Screen first,
+# matching the steel thread's declared entry_point ("Title Screen (New
+# Game button)") and FR-006 AC1 ("Title screen is the first thing
+# displayed when the project runs"). Booting straight into MainScene would
+# silently skip New Game/Continue/Dev:Pick Scenario via ADR-005's
+# uninitialized-CurrentGameState fallback.
 # ══════════════════════════════════════════════════════════════════════════
 
-func test_project_godot_run_main_scene_points_at_main_scene_tscn() -> void:
+func test_project_godot_run_main_scene_points_at_title_screen_tscn() -> void:
 	var file := FileAccess.open(PROJECT_GODOT_PATH, FileAccess.READ)
 	assert_not_null(file, "project.godot must be readable")
 	if file == null:
 		return
 	var content: String = file.get_as_text()
 	file.close()
-	assert_true(
+	assert_false(
 		content.contains('run/main_scene="res://MainScene.tscn"'),
-		"project.godot must set run/main_scene to res://MainScene.tscn (FEAT-001 / US-001)"
+		"project.godot must NOT set run/main_scene to res://MainScene.tscn -- that bypasses "
+		+ "TitleScreen entirely (FEAT-337 / DEF-001)"
+	)
+	assert_true(
+		content.contains('run/main_scene="res://scenes/TitleScreen.tscn"'),
+		"project.godot must set run/main_scene to res://scenes/TitleScreen.tscn so the project "
+		+ "boots into the Title Screen first (FEAT-337 / DEF-001 / ADR-002)"
+	)
+
+
+## FEAT-337 (DEF-001): a positive, runtime assertion that the LIVE
+## ProjectSettings singleton (not just the raw project.godot text) resolves
+## application/run/main_scene to TitleScreen.tscn -- proving the
+## composition-root wiring Godot actually boots with is correct, not merely
+## that the source file's text looks right.
+func test_project_settings_run_main_scene_resolves_to_title_screen_at_runtime() -> void:
+	var configured_main_scene: String = ProjectSettings.get_setting("application/run/main_scene", "")
+	assert_eq(
+		configured_main_scene, TITLE_SCREEN_PATH,
+		"ProjectSettings.get_setting('application/run/main_scene') must resolve to "
+		+ "res://scenes/TitleScreen.tscn at runtime (FEAT-337 / DEF-001)"
 	)
 
 
