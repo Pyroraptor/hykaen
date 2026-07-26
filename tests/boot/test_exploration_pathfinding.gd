@@ -267,7 +267,7 @@ func test_clicking_a_reachable_distant_hex_walks_the_full_path_to_the_destinatio
 	assert_false(instance.hex_grid_view.get_path_overlay().is_empty(), "fixture assumption: a hover-preview overlay must be visible before the click below")
 
 	var target := HexCoordClass.new(2, 0)
-	await instance._exploration._on_exploration_hex_clicked(target)
+	await _emit_hex_clicked_and_await(instance, target)
 
 	assert_eq(instance.scenario_session.party_hex_positions["player_0"].q, 2, "the full path must be walked, ending with party_hex_positions at the destination")
 	assert_eq(instance.scenario_session.party_hex_positions["player_0"].r, 0, "the full path must be walked, ending with party_hex_positions at the destination")
@@ -309,7 +309,7 @@ func test_clicking_an_impassable_hex_produces_no_movement_and_leaves_the_overlay
 
 	instance._exploration._is_passable_fn = func(_hex_coord): return false
 
-	await instance._exploration._on_exploration_hex_clicked(target)
+	await _emit_hex_clicked_and_await(instance, target)
 
 	assert_eq(instance.scenario_session.party_hex_positions["player_0"].q, 0, "an impassable click target must produce zero party_hex_positions mutation")
 	assert_eq(instance.scenario_session.party_hex_positions["player_0"].r, 0, "an impassable click target must produce zero party_hex_positions mutation")
@@ -353,7 +353,7 @@ func test_a_three_hex_path_executes_sequentially_each_step_waits_for_the_previou
 	var spy := _OrderTrackingExplorationControllerSpy.new(real_exploration_controller, instance.hex_grid_view, "player_1")
 	instance._exploration.exploration_controller = spy
 
-	await instance._exploration._on_exploration_hex_clicked(target)
+	await _emit_hex_clicked_and_await(instance, target)
 
 	assert_eq(spy.token_position_log.size(), 3, "all 3 steps' move_party_member() must have been invoked exactly once each")
 
@@ -407,18 +407,28 @@ class _CallCountingExplorationControllerSpy:
 ## animate_token_to() contract of returning a Signal for the CALLER to
 ## await, never awaiting internally) so the count increments at the exact
 ## instant the controller issues the call, not once the tween finishes.
+##
+## FEAT-327: ALSO records each animate_token_to() call's own real Tween
+## `finished` Signal, in call order, in `animate_calls` -- this is this
+## suite's sole mechanism for detecting genuine completion of a
+## REAL-signal-driven click-to-navigate walk (see
+## _drain_click_to_navigate_walk()'s own doc below for why a spy is
+## necessary at all instead of simply awaiting the emit_signal() call).
 class _CallCountingHexGridViewSpy:
 	var _real
 	var animate_token_to_call_count: int = 0
 	var clear_overlays_call_count: int = 0
 	var set_path_overlay_call_count: int = 0
+	var animate_calls: Array = []
 
 	func _init(real) -> void:
 		_real = real
 
 	func animate_token_to(combatant_id: String, target_hex) -> Signal:
 		animate_token_to_call_count += 1
-		return _real.animate_token_to(combatant_id, target_hex)
+		var finished_signal: Signal = _real.animate_token_to(combatant_id, target_hex)
+		animate_calls.append(finished_signal)
+		return finished_signal
 
 	func clear_overlays() -> void:
 		clear_overlays_call_count += 1
@@ -427,6 +437,49 @@ class _CallCountingHexGridViewSpy:
 	func set_path_overlay(path: Array, color: Color) -> void:
 		set_path_overlay_call_count += 1
 		_real.set_path_overlay(path, color)
+
+
+## _drain_click_to_navigate_walk(spy) -> void — FEAT-327. Godot signal
+## emission never itself awaits a connected coroutine handler to completion,
+## so `hex_grid_view.emit_signal("hex_clicked", ...)` below returns the
+## instant ExplorationModeController._on_exploration_hex_clicked's own
+## coroutine first suspends (at its own `await
+## _hex_grid_view.animate_token_to(...)`, registered against the SAME Signal
+## instance `spy.animate_calls` already recorded by then, since a GDScript
+## coroutine runs synchronously up to its first genuine suspension point).
+## This helper awaits each recorded Signal in order: when a step's Tween
+## fires, EVERY slot connected to it runs synchronously within that single
+## emit -- including the controller's own suspended coroutine's resumption,
+## which registered strictly BEFORE this helper's own subsequent await on
+## the same signal -- so the controller has already run through to its own
+## next suspension (or fully finished, halted, or completed) by the time
+## this loop's condition is next evaluated. The loop naturally terminates
+## once no further step is issued (full completion, an impassable-halt, a
+## rejected-step halt, or a mid-path trigger-mode-switch halt). Never a
+## fixed sleep/frame-count guess (RISK-008).
+func _drain_click_to_navigate_walk(spy: _CallCountingHexGridViewSpy) -> void:
+	var i := 0
+	while i < spy.animate_calls.size():
+		await spy.animate_calls[i]
+		i += 1
+
+
+## _emit_hex_clicked_and_await(instance, target_hex) -> _CallCountingHexGridViewSpy
+## — FEAT-327. Installs a _CallCountingHexGridViewSpy in place of
+## `instance._exploration._hex_grid_view` (the presentation-layer
+## collaborator ExplorationModeController actually calls animate_token_to()/
+## clear_overlays()/set_path_overlay() on -- a genuine reference to the SAME
+## booted `instance.hex_grid_view` node the "hex_clicked" signal below is
+## emitted on), emits the REAL hex_clicked signal (never an internal method
+## call), and drains the resulting walk to genuine completion before
+## returning the spy for any further call-count/order assertions the caller
+## needs.
+func _emit_hex_clicked_and_await(instance, target_hex) -> _CallCountingHexGridViewSpy:
+	var spy := _CallCountingHexGridViewSpy.new(instance._exploration._hex_grid_view)
+	instance._exploration._hex_grid_view = spy
+	instance.hex_grid_view.emit_signal("hex_clicked", target_hex)
+	await _drain_click_to_navigate_walk(spy)
+	return spy
 
 
 ## Titus' (player_0) authored start hex (0, 0) reaches (4, 0) via a
@@ -458,10 +511,7 @@ func test_a_trigger_hex_mid_path_halts_the_walk_leaving_token_and_domain_state_a
 	instance._exploration.exploration_controller = controller_spy
 
 	var real_hex_grid_view = instance._exploration._hex_grid_view
-	var hex_grid_view_spy := _CallCountingHexGridViewSpy.new(real_hex_grid_view)
-	instance._exploration._hex_grid_view = hex_grid_view_spy
-
-	await instance._exploration._on_exploration_hex_clicked(target)
+	var hex_grid_view_spy := await _emit_hex_clicked_and_await(instance, target)
 
 	# ── Criterion: clear_overlays() called exactly once, pre-loop, per
 	#    click -- NOT once per step. This walk has 3 steps (to (1, 0),
@@ -544,11 +594,7 @@ func test_clear_overlays_is_called_exactly_once_before_the_walk_starts_not_once_
 	instance.hex_grid_view.hex_hovered.emit(HexCoordClass.new(-2, 0))
 	assert_false(instance.hex_grid_view.get_path_overlay().is_empty(), "fixture assumption: a hover-preview overlay must be visible before the click below")
 
-	var real_hex_grid_view = instance._exploration._hex_grid_view
-	var hex_grid_view_spy := _CallCountingHexGridViewSpy.new(real_hex_grid_view)
-	instance._exploration._hex_grid_view = hex_grid_view_spy
-
-	await instance._exploration._on_exploration_hex_clicked(target)
+	var hex_grid_view_spy := await _emit_hex_clicked_and_await(instance, target)
 
 	assert_eq(hex_grid_view_spy.clear_overlays_call_count, 1, "clear_overlays() must be called exactly once for a 3-step walk, not once per step")
 	assert_eq(instance.scenario_session.party_hex_positions["player_1"].q, -4, "fixture assumption: the full uninterrupted path must still be walked to completion")
