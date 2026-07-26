@@ -35,6 +35,16 @@
 ##     at the ScenarioSession boundary, per design notes' error_handling #3
 ##     "the invariant is enforced once ... not re-checked ad hoc").
 ##
+## FEAT-004 (US-004 / FR-008): navigate_party_member(combatant_id, path) -> int
+##     Walks a precomputed multi-hex path (path[0] == the combatant's
+##     current hex) via repeated move_party_member() calls, one step at a
+##     time. Returns -1 with zero mutation on a mismatched/empty path;
+##     otherwise returns the index of the last step actually reached
+##     (path.size() - 1 on full completion, or an earlier index if halted
+##     by an impassable step or a synchronous combat_triggered emission).
+##     See navigate_party_member()'s own doc comment below for the full
+##     outcome table.
+##
 ## FEAT-003 (US-003 / FR-007, ADR-003): move_party_member() now ALSO
 ## enforces tile passability, but ONLY when an EncounterResource is
 ## injected via the constructor's optional trailing `encounter` parameter.
@@ -144,6 +154,77 @@ func move_party_member(combatant_id: String, target_hex) -> bool:
 	_session.party_hex_positions[combatant_id] = target_hex
 	_evaluate_triggers(target_hex)
 	return true
+
+
+## navigate_party_member(combatant_id, path) -> int
+##
+## FEAT-004 (US-004 / FR-008): walks a precomputed multi-hex `path` (an
+## Array of HexCoord, INCLUSIVE of the combatant's starting hex at
+## path[0], as produced by core/geometry/hex_pathfinder.gd's
+## HexPathfinder.find_path()) one step at a time via repeated
+## move_party_member() calls. This establishes the domain-side
+## finalization ordering contract later consumed by animation code
+## (mitigates RISK-002): each step is fully finalized in
+## _session.party_hex_positions (and any trigger evaluated) strictly
+## BEFORE the next step is attempted, so a caller inspecting
+## party_hex_positions between steps never observes a torn/partial hex.
+##
+## Outcomes (design notes' api_contracts #4):
+##   - path.is_empty(), OR combatant_id is unknown, OR path[0] does not
+##     equal the combatant's CURRENT hex -> returns -1, with ZERO mutation
+##     (not even the first step is attempted).
+##   - every step succeeds -> returns path.size() - 1 (the goal's index),
+##     with _session.party_hex_positions[combatant_id] left at the goal
+##     hex.
+##   - a move_party_member() call mid-path returns false (e.g. an
+##     impassable step, FEAT-003) -> navigation halts immediately; returns
+##     the index of the LAST successfully completed step;
+##     _session.party_hex_positions reflects exactly that partial progress
+##     (no torn writes -- each completed step was already fully finalized
+##     by move_party_member() itself before the next step began).
+##   - combat_triggered fires SYNCHRONOUSLY inside a move_party_member()
+##     call mid-path -> navigation halts immediately after that step;
+##     returns the triggering step's index (that step's move already
+##     completed fully -- party_hex_positions IS updated to that step's
+##     hex; the caller/controller layer observes the mode flip via
+##     game-mode state, not via this return value).
+func navigate_party_member(combatant_id: String, path: Array) -> int:
+	if path.is_empty():
+		return -1
+	if not _session.party_hex_positions.has(combatant_id):
+		return -1
+
+	var current_hex = _session.party_hex_positions[combatant_id]
+	if not path[0].equals(current_hex):
+		return -1
+
+	# Watches combat_triggered for the duration of this call only, so a
+	# synchronous emission from _evaluate_triggers() (invoked inside
+	# move_party_member() below) can be observed immediately after each
+	# step, without navigate_party_member() itself needing any knowledge of
+	# trigger/encounter internals (Clean Architecture: this stays a pure
+	# orchestration loop over the existing move_party_member() contract).
+	# `trigger_fired` is a single-element-appended Array (not a plain bool)
+	# because GDScript lambdas capture outer scalars by value, not by
+	# reference -- appending to a captured Array/container is the
+	# established mutable-closure pattern this codebase already uses (see
+	# e.g. core/application/combine_queue_build_session.gd's
+	# `aborted.connect(func(): abort_signals.append(true))`).
+	var trigger_fired: Array = []
+	var on_trigger := func(_encounter_id): trigger_fired.append(true)
+	combat_triggered.connect(on_trigger)
+
+	var last_completed_index := 0
+	for i in range(1, path.size()):
+		var moved: bool = move_party_member(combatant_id, path[i])
+		if not moved:
+			break
+		last_completed_index = i
+		if not trigger_fired.is_empty():
+			break
+
+	combat_triggered.disconnect(on_trigger)
+	return last_completed_index
 
 
 ## _evaluate_triggers(target_hex) -> void
