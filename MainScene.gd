@@ -254,9 +254,8 @@ func _ready() -> void:
 		status_panel_view.load_combatants(status_view_models)
 		_refresh_off_guard_conditions()
 
-	var initiative_view_models: Array = _view_model_builder.build_initiative_view_models(hex_combatants, _party, _enemies, encounter)
 	if initiative_view != null:
-		initiative_view.load_combatants(initiative_view_models)
+		initiative_view.visible = false
 
 	event_sink.forward_to = _presentation_event_subscribers()
 
@@ -302,7 +301,7 @@ func _ready() -> void:
 
 	_core_combine_action_controller = CoreCombineActionControllerClass.new({
 		"verb_registry_port": GdVerbRegistryPortClass.new(),
-		"action_economy_port": GdCombineActionEconomyPortClass.new(self),
+		"action_economy_port": GdCombineActionEconomyPortClass.new(verb_dispatch_controller),
 		"controller_for": Callable(self, "_controller"),
 	})
 	_combine_controller_registry = {
@@ -438,6 +437,12 @@ func _on_combat_triggered(encounter_id: String) -> void:
 
 	ROUND_NUMBER = 1
 	await rewire_session()
+
+	if initiative_view != null:
+		var all_combatants: Array = _party + _enemies
+		var ivm: Array = _view_model_builder.build_initiative_view_models(all_combatants, _party, _enemies, encounter)
+		initiative_view.load_combatants(ivm)
+		initiative_view.visible = true
 
 	if verb_bar_view != null:
 		verb_bar_view.configure(_verb_registry)
@@ -738,6 +743,10 @@ func _on_combat_won() -> void:
 		if turn_controller.round_over.is_connected(_on_round_over):
 			turn_controller.round_over.disconnect(_on_round_over)
 		turn_controller.round_over.connect(_on_round_over)
+
+	if initiative_view != null:
+		initiative_view.load_combatants([])
+		initiative_view.visible = false
 
 	_game_mode = GameMode.EXPLORATION
 	_active_encounter_id = ""

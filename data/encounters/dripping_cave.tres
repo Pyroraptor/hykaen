@@ -1105,8 +1105,8 @@ feature = ""
 
 [resource]
 script = ExtResource("1_dmoyi")
-party_resource_paths = []
-enemy_resource_paths = []
+party_resource_paths = ["res://data/characters/titus.tres", "res://data/characters/marigold.tres"]
+enemy_resource_paths = ["res://data/enemies/skeleton.tres", "res://data/enemies/skeleton.tres"]
 party_hex_positions = [{
 "q": -5,
 "r": 2
