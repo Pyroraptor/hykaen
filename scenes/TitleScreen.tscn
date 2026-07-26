@@ -1,0 +1,45 @@
+[gd_scene load_steps=2 format=3 uid="uid://hykaen_titlescreen"]
+
+[ext_resource type="Script" path="res://presentation/title_screen.gd" id="1_titlescreen"]
+
+[node name="TitleScreen" type="Control"]
+layout_mode = 3
+anchors_preset = 0
+offset_left = 0.0
+offset_top = 0.0
+offset_right = 512.0
+offset_bottom = 768.0
+script = ExtResource("1_titlescreen")
+
+[node name="NewGameButton" type="Button" parent="."]
+layout_mode = 2
+offset_left = 160.0
+offset_top = 200.0
+offset_right = 352.0
+offset_bottom = 232.0
+text = "New Game"
+
+[node name="ContinueButton" type="Button" parent="."]
+layout_mode = 2
+offset_left = 160.0
+offset_top = 248.0
+offset_right = 352.0
+offset_bottom = 280.0
+text = "Continue"
+
+[node name="DevScenarioLabel" type="Label" parent="."]
+layout_mode = 2
+offset_left = 160.0
+offset_top = 320.0
+offset_right = 352.0
+offset_bottom = 344.0
+text = "Dev: Pick Scenario"
+visible = false
+
+[node name="DevScenarioList" type="ItemList" parent="."]
+layout_mode = 2
+offset_left = 160.0
+offset_top = 352.0
+offset_right = 352.0
+offset_bottom = 480.0
+visible = false
