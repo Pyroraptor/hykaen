@@ -105,7 +105,7 @@ const PROLOGUE_ENCOUNTER_PATH: String = "res://data/encounters/prologue_encounte
 
 ## PROLOGUE_SCENARIO_PATH — FEAT-006 (US-005 / FR-004): the ScenarioResource
 ## (data/scenarios/scenario_resource.gd, FEAT-006/Iteration-P) this
-const PROLOGUE_SCENARIO_PATH: String = "res://data/scenarios/dripping_cave_scenario.tres"
+const PROLOGUE_SCENARIO_PATH: String = "res://data/scenarios/prologue_scenario.tres"
 
 ## FEAT-002 (US-002 / FR-012, ADR-003): fallback viewport dimensions used to
 ## derive the boot-time centering offset (see _compute_boot_centering_offset())
