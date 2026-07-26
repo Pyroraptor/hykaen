@@ -1,0 +1,196 @@
+#+TITLE: Iteration U — Test API Migration (Post-FEAT-324 / Iter-K follow-ups)
+#+DATE: 2026-07-26
+#+VERSION: 0.2.1-dev (sprint 29)
+
+* Overview
+
+After Iterations K (MainScene decompose: CombatQueryService extraction) and Q
+(FEAT-324: ExplorationModeController hex-click wiring), several test files were
+not fully updated to match the new production API.  The result is 19 failing
+GUT tests (out of 2969) that fail purely because the tests call the wrong
+methods or check for the wrong symbol strings—the production code is correct.
+
+The pre-existing ~LateSpawnHighRoll~ initiative-ordering failure
+(~tests/unit/test_opportunistic_strike_initiative_ordering.gd~) is a known
+domain-logic gap; do NOT touch it.
+
+* Deferred scope
+
+- Any production-code changes to MainScene.gd or ExplorationModeController.gd
+- The LateSpawnHighRoll initiative ordering test
+- Any tests not in the five files listed below
+
+* Steel thread
+
+Running ~godot --headless --path /workspace/hykaen -- --gut-run-all~ and seeing
+~Failing Tests: 1~ (only the pre-existing LateSpawnHighRoll), ~Passing Tests:
+2968~, exit code 0.
+
+* Acceptance criteria
+
+** FR-001: Fix source-scan assertion in boot characterization test
+
+~tests/boot/test_main_scene_boot_characterization.gd~,
+~test_main_scene_source_reads_scenario_path_from_current_game_state~:
+
+The test asserts ~content.contains("CurrentGameState.data.scenario_path") or
+content.contains("CurrentGameState.data")~.  MainScene.gd accesses the autoload
+via the private ~_current_game_state()~ helper, so the string ~CurrentGameState~
+(capital C) never appears bare in the source—the local variable is lowercase
+~current_game_state~.
+
+Fix: update the assertion to check for ~_current_game_state()~ or
+~current_game_state~, e.g.:
+
+#+begin_src gdscript
+assert_true(
+    content.contains("_current_game_state()") or content.contains("current_game_state.data"),
+    "MainScene._ready() must read scenario_path through _current_game_state() (ADR-005)"
+)
+#+end_src
+
+** FR-002: Fix _click() helper in exploration handoff test
+
+~tests/boot/test_exploration_to_combat_handoff.gd~, ~_click()~ helper (line ~75~):
+
+~instance._on_exploration_hex_clicked(...)~ is called on MainScene, but the
+method lives on ~_exploration~ (ExplorationModeController), not on MainScene
+itself (FEAT-324 moved it).
+
+Fix: change ~_click()~ to delegate to ~_exploration~:
+
+#+begin_src gdscript
+func _click(instance, hex: Vector2i):
+    return instance._exploration._on_exploration_hex_clicked(HexCoordClass.new(hex.x, hex.y))
+#+end_src
+
+Then update every call site of ~_click()~ in this file to ~await _click(...)~,
+since ~_on_exploration_hex_clicked~ is a coroutine (it awaits animations
+internally).  The ~_drive_titus_into_the_trigger_ring()~ helper and all test
+functions that call ~_click()~ directly must use ~await~.
+
+Also add ~before_each()~ / ~after_each()~ to seed and reset
+~CurrentGameState.data~:
+
+#+begin_src gdscript
+const GameStateDataClass = preload("res://data/game_state/game_state_data.gd")
+
+func before_each() -> void:
+    CurrentGameState.data = GameStateDataClass.new()
+
+func after_each() -> void:
+    CurrentGameState.data = GameStateDataClass.new()
+#+end_src
+
+** FR-003: Fix post-combat return test—wrong connection target and wrong click calls
+
+~tests/boot/test_post_combat_return_to_exploration.gd~:
+
+Three kinds of errors:
+
+1. ~_count_connections(instance.hex_grid_view, "hex_clicked", instance, "_on_exploration_hex_clicked")~
+   checks whether ~instance~ (MainScene) owns the connection, but the connection
+   is on ~instance._exploration~ (ExplorationModeController).  Fix: replace
+   ~instance~ with ~instance._exploration~ in all three ~_count_connections~
+   calls (lines ~205~, ~227~, ~236~).
+
+2. Direct calls ~instance._on_exploration_hex_clicked(...)~ at lines ~151~, ~168~,
+   ~171~: same FEAT-324 migration issue.  Fix: change to
+   ~await instance._exploration._on_exploration_hex_clicked(...)~.
+
+3. Add ~before_each()~/~after_each()~ with ~CurrentGameState.data~ seeding (same
+   pattern as FR-002).
+
+** FR-004: Fix highlight triggers test—null _combat_query_service
+
+~tests/business_logic/test_clear_highlight_triggers.gd~:
+
+~before_each()~ creates ~MainSceneClass.new()~ without calling ~_ready()~, so
+~_combat_query_service~ remains ~null~.  When ~_on_active_actor_changed()~ calls
+~_turn_presentation()~, it passes ~Callable(null, "other_living_combatants")~—an
+invalid Callable.  ~MovementInputController.configure()~ then receives ~null~ for
+its typed ~Array~ parameter, causing ~_recompute_selectable_destinations()~ to
+compute an empty set.  Every "highlights a non-empty set" assertion then fails.
+
+Fix: in ~before_each()~, initialize ~_combat_query_service~ with a stub that
+returns an empty array:
+
+#+begin_src gdscript
+const CombatQueryServiceClass = preload("res://presentation/combat_query_service.gd")
+
+func before_each() -> void:
+    _instance = MainSceneClass.new()
+    _hex_grid_view = SpyHexGridView.new()
+    _instance.hex_grid_view = _hex_grid_view
+    _instance._combat_query_service = CombatQueryServiceClass.new(
+        func(_x): return [],
+        func(_x): return []
+    )
+#+end_src
+
+The stub returns ~[]~ (no other combatants), which is sufficient for all tests
+in this file: movement legal hexes are computed from the actor's own position,
+not from opponent positions.
+
+** FR-005: Fix exploration handoff trigger test—add CurrentGameState seeding
+
+~tests/boot/test_exploration_to_combat_handoff_trigger.gd~:
+
+Tests fail because ~combat_triggered~ is never emitted after calling
+~instance._exploration._on_exploration_hex_clicked(trigger_hex)~.  Root cause:
+if a prior test leaves ~CurrentGameState.data.scenario_path~ pointing at a path
+that causes ~_ready()~ to exit early (before ~_exploration.setup()~ / ~.boot()~
+run), ~_exploration~ is a bare uninitialized ~ExplorationModeControllerClass.new()~
+with no scenario, no trigger hexes, and no hex_grid_view connection.  Clicking
+any hex then does nothing.
+
+Fix: add ~before_each()~/~after_each()~ seeding:
+
+#+begin_src gdscript
+const GameStateDataClass = preload("res://data/game_state/game_state_data.gd")
+
+func before_each() -> void:
+    CurrentGameState.data = GameStateDataClass.new()
+
+func after_each() -> void:
+    CurrentGameState.data = GameStateDataClass.new()
+#+end_src
+
+This guarantees ~_ready()~ always triggers the prologue fallback and completes
+successfully, regardless of what any prior test left in the singleton.
+
+* Implementation notes
+
+- All five files are TEST files only.  Do not modify any production script.
+- ~_on_exploration_hex_clicked~ is a coroutine on ~ExplorationModeController~.
+  Every call site that previously called it without ~await~ must now use
+  ~await~.  A call without ~await~ starts the coroutine but doesn't wait;
+  subsequent assertions run before token positions update, causing false failures.
+- The fix for ~test_clear_highlight_triggers.gd~ uses GDScript 4 lambda syntax
+  (~func(_x): return []~).  If the project's Godot 4.3 target does not support
+  anonymous functions in ~Callable()~, use a named static helper instead:
+  #+begin_src gdscript
+  static func _empty_array(_x = null) -> Array:
+      return []
+  #+end_src
+  and pass ~Callable(self, "_empty_array")~.
+- Do NOT change the pre-existing LateSpawnHighRoll failure.  It is a known
+  domain-logic gap tracked separately.
+
+* Files to modify
+
+- ~tests/boot/test_main_scene_boot_characterization.gd~
+- ~tests/boot/test_exploration_to_combat_handoff.gd~
+- ~tests/boot/test_post_combat_return_to_exploration.gd~
+- ~tests/boot/test_exploration_to_combat_handoff_trigger.gd~
+- ~tests/business_logic/test_clear_highlight_triggers.gd~
+
+* Gate
+
+#+begin_src bash
+python -m pytest -q --tb=short && \
+  PATH=$HOME/.local/bin:$PATH godot --headless --path /workspace/hykaen -- --gut-run-all
+#+end_src
+
+Expected final state: pytest green, GUT ~Failing Tests: 1~ (LateSpawnHighRoll
+only), exit code 0.
