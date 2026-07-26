@@ -19,6 +19,7 @@ config/icon="res://icon.svg"
 
 [autoload]
 
+CurrentGameState="*res://autoload/current_game_state.gd"
 HeadlessRunner="*res://tests/runner/headless_runner.gd"
 
 [editor_plugins]
