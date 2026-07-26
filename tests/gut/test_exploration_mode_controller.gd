@@ -39,11 +39,19 @@ const CombatantClass = preload("res://core/domain/combatant.gd")
 const EncounterClass = preload("res://core/combat/encounter.gd")
 const HexCoordClass = preload("res://core/geometry/hex_coord.gd")
 const HexGridViewScene: PackedScene = preload("res://presentation/hex_grid_view.tscn")
+const NewGameFactoryClass = preload("res://core/application/new_game_factory.gd")
 
 const MAIN_SCENE_SCRIPT_PATH: String = "res://MainScene.gd"
-const PROLOGUE_SCENARIO_PATH: String = "res://data/scenarios/prologue_scenario.tres"
 const PROLOGUE_ENCOUNTER_ID: String = "prologue"
 const PROLOGUE_SEED: int = 42
+
+## FEAT-009 (FR-007/ADR-007): this suite drives ExplorationModeController
+## directly (never boots MainScene.tscn), so there is no CurrentGameState to
+## seed via NewGameFactory here -- but the fixture scenario path itself must
+## still come from NewGameFactory.PROLOGUE_SCENARIO_PATH_CONST rather than a
+## locally re-declared constant, per the permanent source-scan regression
+## guard (tests/unit/test_no_hardcoded_scenario_constants.gd) -- every call
+## site below reads NewGameFactoryClass.PROLOGUE_SCENARIO_PATH_CONST directly.
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -103,7 +111,7 @@ func _make_controller(hex_grid_view, tracker) -> ExplorationModeControllerClass:
 	var controller := ExplorationModeControllerClass.new()
 	controller.setup({
 		"hex_grid_view": hex_grid_view,
-		"scenario_path": PROLOGUE_SCENARIO_PATH,
+		"scenario_path": NewGameFactoryClass.PROLOGUE_SCENARIO_PATH_CONST,
 		"on_hex_clicked": Callable(tracker, "on_hex_clicked"),
 		"on_combat_triggered": Callable(tracker, "on_combat_triggered"),
 	})
@@ -209,7 +217,7 @@ func test_boot_called_a_second_time_is_a_safe_no_op() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_load_encounter_from_scenario_unknown_encounter_id_returns_false_without_crash_or_mutation() -> void:
-	var scenario = ResourceLoader.load(PROLOGUE_SCENARIO_PATH)
+	var scenario = ResourceLoader.load(NewGameFactoryClass.PROLOGUE_SCENARIO_PATH_CONST)
 	assert_not_null(scenario, "fixture assumption: prologue_scenario.tres must load")
 
 	var controller := ExplorationModeControllerClass.new()
@@ -226,7 +234,7 @@ func test_load_encounter_from_scenario_unknown_encounter_id_returns_false_withou
 
 
 func test_load_encounter_from_scenario_valid_encounter_id_returns_true_and_emits_combat_triggered() -> void:
-	var scenario = ResourceLoader.load(PROLOGUE_SCENARIO_PATH)
+	var scenario = ResourceLoader.load(NewGameFactoryClass.PROLOGUE_SCENARIO_PATH_CONST)
 	assert_not_null(scenario, "fixture assumption: prologue_scenario.tres must load")
 
 	var controller := ExplorationModeControllerClass.new()
@@ -357,7 +365,7 @@ func _make_controller_with_real_hex_grid_view(hex_grid_view):
 	var controller := ExplorationModeControllerClass.new()
 	controller.setup({
 		"hex_grid_view": hex_grid_view,
-		"scenario_path": PROLOGUE_SCENARIO_PATH,
+		"scenario_path": NewGameFactoryClass.PROLOGUE_SCENARIO_PATH_CONST,
 	})
 	return controller
 

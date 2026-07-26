@@ -54,6 +54,7 @@ extends GutTest
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 const MainSceneClass = preload("res://MainScene.gd")
 const GameStateDataClass = preload("res://data/game_state/game_state_data.gd")
+const NewGameFactoryClass = preload("res://core/application/new_game_factory.gd")
 const HexCoordClass = preload("res://core/geometry/hex_coord.gd")
 
 ## PROLOGUE_SEED — this project's established known-good fixture seed
@@ -62,7 +63,6 @@ const HexCoordClass = preload("res://core/geometry/hex_coord.gd")
 const PROLOGUE_SEED: int = 42
 
 const PROLOGUE_ENCOUNTER_ID: String = "prologue"
-const PROLOGUE_SCENARIO_PATH: String = "res://data/scenarios/prologue_scenario.tres"
 
 const SAVES_DIR: String = "user://saves"
 const SLOT_0_PATH: String = "user://saves/slot_0.json"
@@ -72,8 +72,11 @@ const SLOT_0_PATH: String = "user://saves/slot_0.json"
 # Fixture isolation
 # ══════════════════════════════════════════════════════════════════════════
 
+## FEAT-009 (FR-007/ADR-002): seed CurrentGameState.data via
+## NewGameFactory.create_prologue_state() before every boot, replacing the
+## former reliance on MainScene's own ADR-005 never-initialized fallback.
 func _cleanup_fixtures() -> void:
-	CurrentGameState.data = GameStateDataClass.new()
+	CurrentGameState.data = NewGameFactoryClass.create_prologue_state()
 	if DirAccess.dir_exists_absolute(SAVES_DIR):
 		var dir := DirAccess.open(SAVES_DIR)
 		if dir != null:
@@ -257,7 +260,7 @@ func test_winning_combat_writes_slot_0_json_with_correct_scenario_and_completed_
 	assert_true(FileAccess.file_exists(SLOT_0_PATH), "winning combat must write user://saves/slot_0.json")
 
 	var parsed: Dictionary = _read_slot_0_json()
-	assert_eq(parsed.get("scenario_path", ""), PROLOGUE_SCENARIO_PATH, "the saved slot must carry the booted scenario_path")
+	assert_eq(parsed.get("scenario_path", ""), NewGameFactoryClass.PROLOGUE_SCENARIO_PATH_CONST, "the saved slot must carry the booted scenario_path")
 
 	var completed_ids: Array = parsed.get("completed_encounter_ids", [])
 	assert_true(
@@ -307,7 +310,7 @@ func test_load_after_save_boots_party_at_post_combat_win_positions_and_marks_enc
 	# Simulate a fresh process: wipe in-memory state, then load the just-saved slot.
 	CurrentGameState.data = GameStateDataClass.new()
 	assert_true(CurrentGameState.load_from_slot(0), "load_from_slot(0) must succeed after the auto-save")
-	assert_eq(CurrentGameState.data.scenario_path, PROLOGUE_SCENARIO_PATH)
+	assert_eq(CurrentGameState.data.scenario_path, NewGameFactoryClass.PROLOGUE_SCENARIO_PATH_CONST)
 
 	var instance_b = _boot_main_scene()
 	await get_tree().process_frame

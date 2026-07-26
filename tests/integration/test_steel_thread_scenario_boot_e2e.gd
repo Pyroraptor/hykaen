@@ -57,7 +57,8 @@ extends GutTest
 ##      test_this_suite_loads_cleanly_and_registers_the_expected_gut_test_count().
 
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
-const PROLOGUE_SCENARIO_PATH: String = "res://data/scenarios/prologue_scenario.tres"
+const NewGameFactoryClass = preload("res://core/application/new_game_factory.gd")
+const GameStateDataClass = preload("res://data/game_state/game_state_data.gd")
 const PROLOGUE_ENCOUNTER_ID: String = "prologue"
 const THIS_SUITE_PATH: String = "res://tests/integration/test_steel_thread_scenario_boot_e2e.gd"
 
@@ -70,6 +71,19 @@ const KNOWN_PREEXISTING_PARSE_FAILURE_PATH: String = "res://tests/test_encounter
 
 const CombatantClass = preload("res://core/domain/combatant.gd")
 const EncounterClass = preload("res://core/combat/encounter.gd")
+
+## FEAT-009 (FR-007/ADR-002): seed CurrentGameState.data via
+## NewGameFactory.create_prologue_state() before every boot -- explicit,
+## rather than relying on MainScene's own ADR-005 never-initialized fallback
+## -- and reset it afterward so this suite never leaks state into another
+## test file sharing the same autoload singleton across the one GUT process.
+func before_each() -> void:
+	CurrentGameState.data = NewGameFactoryClass.create_prologue_state()
+
+
+func after_each() -> void:
+	CurrentGameState.data = GameStateDataClass.new()
+
 
 ## This suite defines exactly 3 test_ methods below. A mismatch here would
 ## mean GUT silently discovered MORE or FEWER tests than this file actually
@@ -112,7 +126,7 @@ func test_load_encounter_from_scenario_boot_real_populates_live_combatants_and_i
 	assert_not_null(instance.encounter, "fixture assumption: the legacy _ready() boot path must have already built an Encounter before load_encounter_from_scenario() is called")
 	assert_not_null(instance._verb_registry, "fixture assumption: the legacy _ready() boot path must have already built the real _verb_registry")
 
-	var scenario = ResourceLoader.load(PROLOGUE_SCENARIO_PATH)
+	var scenario = ResourceLoader.load(NewGameFactoryClass.PROLOGUE_SCENARIO_PATH_CONST)
 	assert_not_null(scenario, "fixture assumption: prologue_scenario.tres must load as a real ScenarioResource")
 
 	var ok: bool = instance.load_encounter_from_scenario(scenario, PROLOGUE_ENCOUNTER_ID)
@@ -161,7 +175,7 @@ func test_load_encounter_from_scenario_boot_real_combat_pipeline_is_playable_via
 	var instance = _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
-	var scenario = ResourceLoader.load(PROLOGUE_SCENARIO_PATH)
+	var scenario = ResourceLoader.load(NewGameFactoryClass.PROLOGUE_SCENARIO_PATH_CONST)
 	assert_not_null(scenario, "fixture assumption: prologue_scenario.tres must load as a real ScenarioResource")
 
 	var ok: bool = instance.load_encounter_from_scenario(scenario, PROLOGUE_ENCOUNTER_ID)

@@ -120,6 +120,7 @@ const RNGClass = preload("res://core/rules/rng.gd")
 const EncounterClass = preload("res://core/combat/encounter.gd")
 const HexPathfinderClass = preload("res://core/geometry/hex_pathfinder.gd")
 const EncounterTileAdapterClass = preload("res://core/geometry/encounter_tile_adapter.gd")
+const HexCoordClass = preload("res://core/geometry/hex_coord.gd")
 
 ## Emitted by load_encounter_from_scenario() on success, carrying the
 ## encounter_id that was just loaded.
@@ -272,6 +273,16 @@ func boot(hex_combatants: Array) -> void:
 	if pathfinding_encounter != null:
 		_is_passable_fn = EncounterTileAdapterClass.make_is_passable(pathfinding_encounter)
 		_move_cost_fn = EncounterTileAdapterClass.make_move_cost(pathfinding_encounter)
+		# FEAT-009 (FR-007 test-migration criterion): paint the encounter's
+		# authored terrain onto hex_grid_view via the SAME per-tile data
+		# (data/tiles/hex_tile_data_resource.gd's q/r/terrain_type) the
+		# EncounterTileAdapter above already reads for pathfinding -- so the
+		# terrain a scenario's boot encounter authors is actually rendered,
+		# not merely used for passability math. A no-op for any encounter
+		# with an empty `tiles` array (e.g. the authored prologue encounter).
+		if _hex_grid_view != null:
+			for tile in pathfinding_encounter.tiles:
+				_hex_grid_view.set_tile_terrain(HexCoordClass.new(tile.q, tile.r), tile.terrain_type)
 	else:
 		_is_passable_fn = func(_hex_coord): return true
 		_move_cost_fn = func(_hex_coord): return 1.0

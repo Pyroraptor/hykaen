@@ -30,6 +30,7 @@ extends GutTest
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 const MainSceneClass = preload("res://MainScene.gd")
 const GameStateDataClass = preload("res://data/game_state/game_state_data.gd")
+const NewGameFactoryClass = preload("res://core/application/new_game_factory.gd")
 const HexCoordClass = preload("res://core/geometry/hex_coord.gd")
 
 ## PROLOGUE_SEED — this project's established known-good fixture seed
@@ -37,7 +38,6 @@ const HexCoordClass = preload("res://core/geometry/hex_coord.gd")
 ## -named/valued constant).
 const PROLOGUE_SEED: int = 42
 
-const PROLOGUE_SCENARIO_PATH: String = "res://data/scenarios/prologue_scenario.tres"
 const DRIPPING_CAVE_SCENARIO_PATH: String = "res://data/scenarios/dripping_cave_scenario.tres"
 
 
@@ -119,7 +119,7 @@ func test_empty_party_hex_positions_seeds_from_encounter_authored_positions() ->
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_non_empty_party_hex_positions_seeds_from_current_game_state() -> void:
-	CurrentGameState.data.scenario_path = PROLOGUE_SCENARIO_PATH
+	CurrentGameState.data = NewGameFactoryClass.create_prologue_state()
 	CurrentGameState.data.party_hex_positions = [
 		{"combatant_id": "player_0", "q": 5, "r": -3},
 		{"combatant_id": "player_1", "q": 2, "r": 2},
@@ -220,7 +220,7 @@ func test_dripping_cave_scenario_boots_via_generic_code_path_with_terrain_and_pa
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_unknown_combatant_id_entry_is_skipped_with_push_warning_not_a_crash() -> void:
-	CurrentGameState.data.scenario_path = PROLOGUE_SCENARIO_PATH
+	CurrentGameState.data = NewGameFactoryClass.create_prologue_state()
 	CurrentGameState.data.party_hex_positions = [
 		{"combatant_id": "player_0", "q": 5, "r": -3},
 		{"combatant_id": "ghost_combatant_not_in_encounter", "q": 9, "r": 9},

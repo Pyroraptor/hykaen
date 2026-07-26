@@ -51,13 +51,12 @@ extends GutTest
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 const MainSceneClass = preload("res://MainScene.gd")
 const GameStateDataClass = preload("res://data/game_state/game_state_data.gd")
+const NewGameFactoryClass = preload("res://core/application/new_game_factory.gd")
 
 ## PROLOGUE_SEED — mirrors this project's established known-good fixture
 ## seed (tests/boot/test_main_scene_boot_characterization.gd /
 ## test_main_scene_party_position_seeding.gd).
 const PROLOGUE_SEED: int = 42
-
-const PROLOGUE_SCENARIO_PATH: String = "res://data/scenarios/prologue_scenario.tres"
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -129,7 +128,7 @@ func test_empty_combatant_snapshots_keeps_encounter_authored_defaults() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_non_empty_combatant_snapshots_restores_hp_and_stamina_exactly() -> void:
-	CurrentGameState.data.scenario_path = PROLOGUE_SCENARIO_PATH
+	CurrentGameState.data = NewGameFactoryClass.create_prologue_state()
 	CurrentGameState.data.combatant_snapshots = [
 		{"combatant_id": "player_0", "hp_current": 3, "stamina": 1, "conditions": []},
 		{"combatant_id": "player_1", "hp_current": 5, "stamina": 2, "conditions": []},
@@ -159,7 +158,7 @@ func test_non_empty_combatant_snapshots_restores_hp_and_stamina_exactly() -> voi
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_unknown_combatant_id_entry_is_skipped_with_push_warning_not_a_crash() -> void:
-	CurrentGameState.data.scenario_path = PROLOGUE_SCENARIO_PATH
+	CurrentGameState.data = NewGameFactoryClass.create_prologue_state()
 	CurrentGameState.data.combatant_snapshots = [
 		{"combatant_id": "player_0", "hp_current": 3, "stamina": 1},
 		{"combatant_id": "ghost_combatant_not_in_encounter", "hp_current": 99, "stamina": 99},
@@ -199,7 +198,7 @@ func test_main_scene_source_contains_unknown_combatant_id_push_warning_for_snaps
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_malformed_hp_current_type_rejects_entry_and_boot_continues_with_defaults() -> void:
-	CurrentGameState.data.scenario_path = PROLOGUE_SCENARIO_PATH
+	CurrentGameState.data = NewGameFactoryClass.create_prologue_state()
 	CurrentGameState.data.combatant_snapshots = [
 		{"combatant_id": "player_0", "hp_current": "not-a-number", "stamina": 1},
 	]

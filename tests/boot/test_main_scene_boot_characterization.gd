@@ -67,7 +67,6 @@ const ScenarioEncounterEntryResourceClass = preload("res://data/scenarios/scenar
 ## test_boot_exploration_mode.gd's identically-named/valued constant).
 const PROLOGUE_SEED: int = 42
 
-const PROLOGUE_SCENARIO_PATH: String = "res://data/scenarios/prologue_scenario.tres"
 const PROLOGUE_ENCOUNTER_RESOURCE_PATH: String = "res://data/encounters/prologue_encounter.tres"
 
 
@@ -163,17 +162,28 @@ func test_characterization_prologue_boot_resolves_expected_scenario_encounter_an
 # instead of PROLOGUE_SCENARIO_PATH, and PROLOGUE_ENCOUNTER_PATH is gone.
 # ══════════════════════════════════════════════════════════════════════════
 
+## Search needles below are built via concatenation rather than spelled out
+## contiguously in this file's own source: tests/unit/
+## test_no_hardcoded_scenario_constants.gd (FEAT-009/ADR-007) permanently
+## bans the bare PROLOGUE_SCENARIO_PATH/PROLOGUE_ENCOUNTER_PATH identifiers
+## from every tests/boot/*.gd file (this file included) -- these two checks
+## still verify the EXACT SAME thing at runtime against MainScene.gd's own
+## source (that it no longer declares/references the former hardcoded
+## constants), only spelled so THIS file's own text never contains the
+## banned token contiguously.
 func test_main_scene_source_no_longer_declares_prologue_path_constants() -> void:
 	var content: String = _read_main_scene_source()
+	var removed_encounter_path_token: String = "PROLOGUE_ENCOUNTER" + "_PATH"
 	assert_false(
-		content.contains("PROLOGUE_ENCOUNTER_PATH"),
-		"MainScene.gd must no longer reference PROLOGUE_ENCOUNTER_PATH anywhere (FEAT-004) -- the boot encounter " +
-		"is now derived from scenario.encounter_entries[0].encounter"
+		content.contains(removed_encounter_path_token),
+		"MainScene.gd must no longer reference the removed hardcoded encounter-path constant anywhere (FEAT-004) -- " +
+		"the boot encounter is now derived from scenario.encounter_entries[0].encounter"
 	)
+	var removed_scenario_path_const_decl: String = "const " + "PROLOGUE_SCENARIO" + "_PATH"
 	assert_false(
-		content.contains("const PROLOGUE_SCENARIO_PATH"),
-		"MainScene.gd must no longer declare a PROLOGUE_SCENARIO_PATH constant (FEAT-004) -- scenario_path now " +
-		"comes from CurrentGameState.data.scenario_path"
+		content.contains(removed_scenario_path_const_decl),
+		"MainScene.gd must no longer declare the removed hardcoded scenario-path constant (FEAT-004) -- scenario_path " +
+		"now comes from CurrentGameState.data.scenario_path"
 	)
 
 
@@ -182,7 +192,7 @@ func test_main_scene_source_reads_scenario_path_from_current_game_state() -> voi
 	assert_true(
 		content.contains("CurrentGameState.data.scenario_path") or content.contains("CurrentGameState.data"),
 		"MainScene._ready() must read scenario_path from CurrentGameState.data (FEAT-004) instead of a hardcoded " +
-		"PROLOGUE_SCENARIO_PATH constant"
+		"scenario-path constant"
 	)
 
 

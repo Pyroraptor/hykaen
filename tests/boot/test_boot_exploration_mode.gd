@@ -34,11 +34,24 @@ const MainSceneClass = preload("res://MainScene.gd")
 const ScenarioSessionClass = preload("res://core/application/scenario_session.gd")
 const ExplorationControllerClass = preload("res://core/application/exploration_controller.gd")
 const HexCoordClass = preload("res://core/geometry/hex_coord.gd")
+const GameStateDataClass = preload("res://data/game_state/game_state_data.gd")
+const NewGameFactoryClass = preload("res://core/application/new_game_factory.gd")
 
 ## PROLOGUE_SEED — this project's established known-good fixture seed
 ## (mirrors tests/boot/test_caster_loads_in_prologue.gd's identically-named/
 ## valued constant).
 const PROLOGUE_SEED: int = 42
+
+
+## FEAT-009 (FR-007/ADR-002): seed CurrentGameState.data via
+## NewGameFactory.create_prologue_state() before every boot -- explicit,
+## rather than relying on MainScene's own ADR-005 never-initialized fallback.
+func before_each() -> void:
+	CurrentGameState.data = NewGameFactoryClass.create_prologue_state()
+
+
+func after_each() -> void:
+	CurrentGameState.data = GameStateDataClass.new()
 
 
 func _boot_main_scene():
@@ -74,7 +87,7 @@ func test_scenario_session_is_a_real_instance_with_the_prologue_scenario_loaded(
 
 	assert_not_null(instance.scenario_session, "MainScene must construct a real scenario_session at boot")
 	assert_true(instance.scenario_session is ScenarioSessionClass, "scenario_session must be a real ScenarioSession instance")
-	assert_not_null(instance.scenario_session.scenario, "scenario_session.scenario must be populated from PROLOGUE_SCENARIO_PATH")
+	assert_not_null(instance.scenario_session.scenario, "scenario_session.scenario must be populated from the booted CurrentGameState.data.scenario_path")
 	assert_eq(instance.scenario_session.scenario.scenario_id, "prologue", "the loaded scenario must be the authored prologue scenario")
 
 

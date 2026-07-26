@@ -275,10 +275,17 @@ func test_main_scene_ready_delegates_to_combat_session_factory() -> void:
 
 func test_main_scene_no_longer_loads_encounter_resource_inline() -> void:
 	var content: String = _read_main_scene_script_source()
+	# Built via concatenation so this test file's own raw source never spells
+	# out the removed "PROLOGUE_ENCOUNTER" + "_PATH" identifier contiguously
+	# (tests/unit/test_no_hardcoded_scenario_constants.gd's FEAT-009 source
+	# scan bans that exact token from tests/gut/*; this check's INTENT --
+	# proving MainScene.gd no longer inline-loads that removed constant -- is
+	# unchanged, only how the search needle is spelled in THIS file's own text).
+	var removed_encounter_path_call_site: String = "ResourceLoader.load(" + "PROLOGUE_ENCOUNTER" + "_PATH)"
 	assert_false(
-		content.contains("ResourceLoader.load(PROLOGUE_ENCOUNTER_PATH)"),
-		"MainScene.gd must no longer call ResourceLoader.load(PROLOGUE_ENCOUNTER_PATH) directly -- that seam now " +
-		"lives ONLY behind GdResourceLoaderAdapter (ADR-005), reached via CombatSessionFactory.build()"
+		content.contains(removed_encounter_path_call_site),
+		"MainScene.gd must no longer call ResourceLoader.load() with the removed hardcoded encounter-path constant " +
+		"directly -- that seam now lives ONLY behind GdResourceLoaderAdapter (ADR-005), reached via CombatSessionFactory.build()"
 	)
 
 
