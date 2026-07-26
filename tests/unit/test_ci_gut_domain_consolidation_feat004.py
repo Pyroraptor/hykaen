@@ -477,6 +477,16 @@ class TestConsolidatedGutConfig:
 # ORIGINAL regression (the -gconfig-ignored full-project fallback) without
 # falsely flagging this expected growth.
 
+# FEAT-002 (US-002 / FR-004, EncounterTileAdapter tile-to-pathfinding bridge)
+# note: tests/unit/core/geometry/test_encounter_tile_adapter.gd was added
+# under tests/unit/core/geometry/ by the same established convention (its
+# sibling test_architecture_purity.gd was extended in-place to also cover
+# core/geometry/encounter_tile_adapter.gd, so it added no additional script),
+# so the consolidated domain suite now legitimately collects 29 scripts, not
+# 28; the assertion below was updated 28 -> 29 so this guard still catches
+# its ORIGINAL regression (the -gconfig-ignored full-project fallback)
+# without falsely flagging this expected growth.
+
 # FEAT-136 / DEF-002 / DEF-003: the domain-suite command is now extracted
 # from scripts/test_command.sh (the canonical script), not from the
 # delegating root `test_command` wrapper, since that's where the stage
@@ -547,18 +557,18 @@ class TestConsolidatedDomainSuiteReallyPasses:
         self, repo_root, canonical_script_text
     ):
         """US-014's consolidated domain suite must actually be SCOPED to the
-        domain/application test scripts under tests/unit/core (28, as of
-        FEAT-001's hex pathfinder + architecture-purity suites -- see the
-        module-level note above), not silently fall back to running the
-        whole project's ~46 GUT scripts. This guards against the
-        -gconfig-ignored regression described above."""
+        domain/application test scripts under tests/unit/core (29, as of
+        FEAT-002's EncounterTileAdapter suite -- see the module-level note
+        above), not silently fall back to running the whole project's ~46
+        GUT scripts. This guards against the -gconfig-ignored regression
+        described above."""
         result = self._run(repo_root, canonical_script_text)
         output = result.stdout + result.stderr
         match = re.search(r"Scripts\s+(\d+)", output)
         assert match, f"Could not find a 'Scripts  N' summary line. Output:\n{output}"
         scripts_run = int(match.group(1))
-        assert scripts_run == 28, (
-            "The consolidated domain GUT suite stage must run exactly the 28 "
+        assert scripts_run == 29, (
+            "The consolidated domain GUT suite stage must run exactly the 29 "
             f"domain/application test scripts under tests/unit/core, but ran "
             f"{scripts_run}. This means scripts/test_command.sh's domain "
             f"suite stage is not actually scoped via tests/.gutconfig.json."
