@@ -1,0 +1,422 @@
+#+TITLE: Iteration T — Game State & Scenario Boot
+#+SPRINT: 28
+#+VERSION: 0.4.0
+#+STATUS: ready-for-aef
+
+* Overview
+
+The game currently boots by reading two hardcoded GDScript constants in
+=MainScene.gd=: =PROLOGUE_ENCOUNTER_PATH= and =PROLOGUE_SCENARIO_PATH=. These
+constants simultaneously serve as the production entry point, the test fixture
+anchor, and the only mechanism for selecting which scenario is active. This
+creates a hard coupling: any attempt to boot a different scenario (e.g. for dev
+testing on an authored map) breaks ~130 boot, integration, and e2e tests that
+hardcode the prologue scenario's encounter ID and trigger hex positions.
+
+This iteration removes that coupling by introducing a =CurrentGameState=
+autoload whose =scenario_path= field drives the boot sequence instead. A minimal
+title screen sets this field before handing off to =MainScene=. Tests inject a
+prologue preset via the autoload without touching any constant. Save/load v1
+(single save slot, save-point only — no mid-combat saves) rounds out the
+iteration.
+
+* Steel Thread
+
+A developer launches the game, sees the title screen, clicks "Dev: Pick
+Scenario", selects dripping_cave from the list of authored scenarios, and is
+placed in exploration mode with the cave terrain rendered and passability
+respected — without touching any hardcoded constant in =MainScene.gd=. The same
+entry point ("New Game") boots the prologue scenario exactly as before.
+
+* Personas
+
+** Player — New Game
+Clicks "New Game" on the title screen and expects to be placed immediately in
+the prologue in exploration mode, with the party at the prologue spawn positions.
+Has no awareness of internal scenario path constants.
+
+** Player — Continue
+Returns to the game and expects "Continue" to restore their exact position on
+the map, completed encounters, and current HP. Accepts save-point semantics
+(last save-point, not last frame).
+
+** Developer / QA
+Needs to boot the game on any authored scenario to test terrain, pathfinding,
+and trigger placement without modifying committed code or rerunning a 130-test
+suite on every iteration.
+
+* Functional Requirements
+
+** FR-001  GameStateData resource
+A custom Resource (=data/game_state/game_state_data.gd=) that captures all
+runtime game state needed to restore a play session:
+- =scenario_path: String= — res:// path to the active ScenarioResource.
+- =party_hex_positions: Array= — Array of ={combatant_id, q, r}= Dictionaries.
+- =completed_encounter_ids: Array[String]=.
+- =combatant_snapshots: Array= — Array of ={combatant_id, hp_current, stamina,
+  conditions}= Dictionaries capturing per-combatant mutable state that diverges
+  from the base character .tres resource.
+
+Acceptance criteria:
+- All fields serialise/deserialise round-trip via =ResourceSaver=/=ResourceLoader=
+  or JSON without data loss.
+- =GameStateData.new()= with no arguments produces a valid empty state (all fields
+  at sensible defaults; =scenario_path= empty, arrays empty).
+
+** FR-002  CurrentGameState autoload
+A GDScript autoload Node (=autoload/current_game_state.gd=, registered in
+=project.godot= under the name =CurrentGameState=) that owns the single live
+=GameStateData= instance for the running session.
+
+Required API:
+#+BEGIN_SRC gdscript
+## The live game state. Always non-null after initialize_*() is called.
+var data: GameStateData
+
+## Build a fresh state for a new game on the given scenario.
+## scenario_path must be a valid res:// path to a ScenarioResource.
+func initialize_new_game(scenario_path: String) -> void
+
+## Overwrite data from a snapshot taken mid-session (called after
+## each save-point event).
+func snapshot_from_session(
+    scenario_path: String,
+    session: ScenarioSession,
+    combatants: Array
+) -> void
+
+## Persist data to a JSON file in user://saves/.
+## Returns true on success, false on any IO error (emits an error signal).
+func save_to_slot(slot: int = 0) -> bool
+
+## Load a previously saved slot into data.
+## Returns true on success; data is unchanged on failure.
+func load_from_slot(slot: int = 0) -> bool
+
+## True iff a save file for slot exists on disk.
+func has_save(slot: int = 0) -> bool
+#+END_SRC
+
+Acceptance criteria:
+- =CurrentGameState= is accessible as a global singleton from any GDScript after
+  the project boots (the autoload is registered).
+- Calling =initialize_new_game()= followed by =save_to_slot()= followed by
+  =load_from_slot()= on a fresh =CurrentGameState= instance round-trips the
+  scenario_path and all fields without mutation.
+- =has_save(0)= returns false before any save, true after =save_to_slot(0)=.
+
+** FR-003  NewGameFactory
+A pure static domain service (=core/application/new_game_factory.gd=, extends
+=RefCounted=, no engine imports) with two entry points:
+
+#+BEGIN_SRC gdscript
+## Build a GameStateData for a fresh prologue game, seeding party positions
+## from the scenario's first encounter entry's authored party_hex_positions.
+static func create_prologue_state() -> GameStateData
+
+## Build a GameStateData for an arbitrary scenario by path.
+## Party positions are seeded from the scenario's first encounter entry's
+## authored party_hex_positions (same logic as create_prologue_state()).
+static func create_state_for_scenario(scenario_path: String) -> GameStateData
+#+END_SRC
+
+Acceptance criteria:
+- =create_prologue_state()= returns a =GameStateData= whose =scenario_path= equals
+  =PROLOGUE_SCENARIO_PATH_CONST= (a module-level constant in this file that
+  tests can also import), with party_hex_positions drawn from the prologue
+  scenario's first encounter entry.
+- =create_state_for_scenario(dripping_cave_scenario_path)= returns a
+  =GameStateData= with =scenario_path= set to the cave path and positions from
+  that scenario.
+- Neither function imports Node, Control, CanvasItem, or any engine type — pure
+  domain.
+
+** FR-004  MainScene boots from CurrentGameState
+=MainScene._ready()= reads =CurrentGameState.data.scenario_path= instead of the
+=PROLOGUE_SCENARIO_PATH= constant. The =PROLOGUE_SCENARIO_PATH= and
+=PROLOGUE_ENCOUNTER_PATH= constants are removed from MainScene; any residual
+default (for the edge case where CurrentGameState was never initialized) is
+handled by a guard that calls =NewGameFactory.create_prologue_state()= and logs a
+warning.
+
+The encounter used to build party and enemy combatants is now derived from the
+scenario's first encounter entry rather than =PROLOGUE_ENCOUNTER_PATH=. Party hex
+positions are seeded from =CurrentGameState.data.party_hex_positions= when
+non-empty, falling back to the encounter's authored =party_hex_positions=.
+
+Combatant HP and stamina are restored from =CurrentGameState.data.combatant_snapshots=
+when present (i.e., on "Continue"), and from base character resources otherwise
+(i.e., on "New Game").
+
+Acceptance criteria:
+- Booting with =CurrentGameState.data.scenario_path= set to =prologue_scenario.tres=
+  reproduces exactly the pre-iteration boot behaviour (same party, same enemy,
+  same trigger hexes).
+- Booting with =CurrentGameState.data.scenario_path= set to
+  =dripping_cave_scenario.tres= renders the cave terrain and respects cave
+  passability without any code change.
+- =PROLOGUE_ENCOUNTER_PATH= and =PROLOGUE_SCENARIO_PATH= no longer appear anywhere
+  in =MainScene.gd=.
+
+** FR-005  Save point — auto-save after combat won
+When =_on_combat_won()= fires, call =CurrentGameState.snapshot_from_session()= to
+capture the updated session state (completed encounter, new party positions) and
+immediately call =CurrentGameState.save_to_slot(0)=. This is the only automatic
+save trigger in v1; no mid-combat saves.
+
+Acceptance criteria:
+- After winning a combat encounter, a save file exists on disk.
+- Loading that save file and booting places the party at their post-combat
+  positions with the encounter marked complete in ScenarioSession.
+- The save does not fire mid-combat (during any round before =_on_combat_won()=).
+
+** FR-006  Title screen
+A new scene =scenes/TitleScreen.tscn= (with =presentation/title_screen.gd=)
+displayed as the initial scene (=project.godot= application/run/main_scene
+updated). Buttons:
+
+- *New Game* — calls =NewGameFactory.create_prologue_state()=, assigns to
+  =CurrentGameState.data=, transitions to =MainScene.tscn=.
+- *Continue* — visible and enabled only when =CurrentGameState.has_save(0)=;
+  calls =CurrentGameState.load_from_slot(0)= then transitions to =MainScene.tscn=.
+- *Dev: Pick Scenario* — visible only when =OS.is_debug_build()= (hidden in
+  production exports); presents a list of all =.tres= files under
+  =res://data/scenarios/= via a simple =ItemList= popup; selecting one calls
+  =NewGameFactory.create_state_for_scenario(chosen_path)=, assigns to
+  =CurrentGameState.data=, transitions to =MainScene.tscn=.
+
+Acceptance criteria:
+- Title screen is the first thing displayed when the project runs.
+- "Continue" is greyed out / hidden when no save slot 0 file exists.
+- "Dev: Pick Scenario" is absent in non-debug builds.
+- All three paths result in a correct =CurrentGameState.data= before scene
+  transition, confirmed by booting cleanly without the guard warning from FR-004.
+
+** FR-007  Test migration — decouple boot tests from PROLOGUE_SCENARIO_PATH
+Update all tests that boot =MainScene.tscn= (boot/, gut/, integration/ suites)
+to set =CurrentGameState.data= via =NewGameFactory.create_prologue_state()=
+before =add_child_autofree(instance)=, replacing the implicit reliance on the
+former hardcoded constant.
+
+Acceptance criteria:
+- All tests that previously passed continue to pass with no assertion changes
+  (the prologue session state is identical to the pre-iteration boot state).
+- No test references =PROLOGUE_ENCOUNTER_PATH= or =PROLOGUE_SCENARIO_PATH= as
+  string literals (source scan assertion in a new
+  =tests/unit/test_no_hardcoded_scenario_constants.gd=).
+- The existing =tests/boot/test_dripping_cave_scenario_boot.gd= (from FEAT-330)
+  is updated to use =NewGameFactory.create_state_for_scenario()= and verify that
+  booting with the cave scenario renders the cave terrain (calls
+  =hex_grid_view.set_tile_terrain()= with a non-null encounter that has a
+  non-empty =tiles= array).
+
+* Non-Functional Requirements
+
+** NFR-001  No breaking change to ScenarioSession
+=ScenarioSession= is not modified. =CurrentGameState= reads from it but does not
+own it; =MainScene= continues to own the live session.
+
+** NFR-002  CurrentGameState is never imported by domain layer
+Domain and application layer files (=core/=) must not import or reference
+=CurrentGameState= — it is an infrastructure/presentation concern. Enforced by a
+source-scan test.
+
+** NFR-003  NewGameFactory is pure domain (no engine imports)
+Enforced by the same architecture-purity pattern used for =HexPathfinder=.
+
+** NFR-004  Save format is JSON
+Persisted to =user://saves/slot_N.json=. JSON is chosen over =.tres= for
+portability and resilience to script path changes across engine versions. The
+JSON schema is flat (no nested Resources): all HexCoord fields serialise as
+={"q": int, "r": int}= Dictionaries, matching the existing
+=ProximityTriggerResource= convention.
+
+** NFR-005  Title screen loads in under one second
+The title screen has no async loads; it only checks =has_save()= (a disk stat).
+It must not preload =MainScene.tscn= at startup.
+
+** NFR-006  Dev: Pick Scenario is stripped from release builds
+The "Dev: Pick Scenario" button and its =ItemList= popup must be wrapped in
+=if OS.is_debug_build()= guards; it must not appear in any exported build.
+
+* Architecture Decision Records
+
+** ADR-001  CurrentGameState is an autoload Node, not a Resource
+*Context:* The game state needs to be accessible globally, persist across scene
+transitions, and provide lifecycle methods (save/load IO). GDScript Resources
+don't participate in the autoload/scene tree lifecycle.
+
+*Decision:* =CurrentGameState= is registered as an autoload Node in
+=project.godot=. It holds a =GameStateData= Resource as its =data= field.
+
+*Consequences:* Tests can set =CurrentGameState.data= before a scene is added to
+the tree. The autoload is always present in the global scope; tests that do NOT
+want to exercise game-state logic should call
+=CurrentGameState.initialize_new_game(PROLOGUE_PATH)= in their setup to guarantee
+a known-clean state.
+
+** ADR-002  Boot entry point changes from MainScene.tscn to TitleScreen.tscn
+*Context:* MainScene currently boots directly (=application/run/main_scene= in
+=project.godot= points at =MainScene.tscn=). With the new flow, the title screen
+must run first to initialize =CurrentGameState.data= before =MainScene._ready()=
+reads it.
+
+*Decision:* =project.godot= =main_scene= is updated to =TitleScreen.tscn=. Tests
+that instantiate =MainScene.tscn= directly (not via scene boot) are unaffected
+because they set =CurrentGameState.data= themselves before =add_child_autofree()=.
+
+*Consequences:* Any test that relied on =MainScene.tscn= being the autostart scene
+(e.g. the integration headless-boot test) must be updated to either boot
+=TitleScreen.tscn= or directly set =CurrentGameState.data= and instantiate
+=MainScene.tscn= — the latter is preferred (simpler, no UI interaction).
+
+** ADR-003  Party hex positions are seeded from GameStateData, with encounter fallback
+*Context:* Previously, party positions came from the encounter's
+=party_hex_positions= array. On a loaded game, positions must come from the
+save. On a new game, the encounter's authored positions are the right default.
+
+*Decision:* =MainScene._ready()= checks
+=CurrentGameState.data.party_hex_positions.is_empty()=. If empty (new game), it
+seeds from the encounter resource (existing behaviour). If non-empty (loaded
+save), it uses the saved positions instead.
+
+*Consequences:* The same logic applies to combatant HP snapshots (empty =
+use base resource stats; non-empty = restore from snapshot). The
+=CombatSessionFactory= interface is unchanged; it still takes =encounter_path= and
+produces a fully-constructed session — but the encounter path now comes from the
+scenario's first entry rather than a constant.
+
+** ADR-004  Save slot 0 is the only slot for v1; slot API is extensible
+*Context:* Multiple save slots, cloud sync, and autosave-on-every-step are
+deferred. The API takes =slot: int= so the signature is stable when those
+features land.
+
+*Decision:* v1 only uses slot 0. The file path is =user://saves/slot_0.json=.
+
+** ADR-005  Encounter path is derived from the scenario, not a separate constant
+*Context:* =PROLOGUE_ENCOUNTER_PATH= was a separate constant that pointed to the
+encounter resource used for combat-session construction. After this iteration,
+the encounter is always =scenario.encounter_entries[0].encounter=.
+
+*Decision:* Remove =PROLOGUE_ENCOUNTER_PATH=. =MainScene._ready()= loads the
+scenario from =CurrentGameState.data.scenario_path=, then passes
+=scenario.encounter_entries[0].encounter= to =CombatSessionFactory.build()= (or
+passes the encounter resource path directly if the factory requires a path
+string — the factory's signature may need a minor update to accept either).
+
+*Consequences:* Any scenario used as the boot scenario must have at least one
+encounter entry with a non-null encounter resource. This invariant is asserted
+at boot with a =push_error()= guard (the same fail-closed pattern used throughout
+this codebase).
+
+* User Stories
+
+** US-001  GameStateData resource + CurrentGameState autoload (FR-001, FR-002)
+As an infrastructure foundation, the game needs a globally accessible,
+serialisable game-state container before any boot refactor is possible.
+
+Tasks:
+- Create =data/game_state/game_state_data.gd= with all four fields; write unit
+  tests covering round-trip serialisation and =new()= defaults.
+- Create =autoload/current_game_state.gd=; register in =project.godot=; write unit
+  tests covering =initialize_new_game()=, =save_to_slot()=, =load_from_slot()=,
+  =has_save()=, and =snapshot_from_session()=.
+
+Story points: 5
+
+** US-002  NewGameFactory (FR-003)
+Provides the pure-domain entry point for constructing initial game states.
+
+Tasks:
+- Create =core/application/new_game_factory.gd=; implement =create_prologue_state()=
+  and =create_state_for_scenario()=.
+- Write architecture-purity test (no engine imports).
+- Write unit tests for both factory methods.
+
+Story points: 3
+
+** US-003  MainScene boots from CurrentGameState (FR-004, ADR-003, ADR-005)
+The hardcoded constants are removed; MainScene reads all boot parameters from
+the autoload.
+
+Tasks:
+- Remove =PROLOGUE_ENCOUNTER_PATH= and =PROLOGUE_SCENARIO_PATH= from =MainScene.gd=.
+- Derive encounter resource from =scenario.encounter_entries[0].encounter=
+  (add fail-closed guard).
+- Seed party positions from =CurrentGameState.data.party_hex_positions= when
+  non-empty; fall back to encounter's authored positions.
+- Restore combatant HP/stamina from =combatant_snapshots= when non-empty.
+- Add the guard: if =CurrentGameState.data= is null/empty at boot, call
+  =NewGameFactory.create_prologue_state()= and log a warning.
+
+Story points: 8
+
+** US-004  Save point after combat won (FR-005)
+Auto-save after every combat victory so progress is never lost.
+
+Tasks:
+- Call =CurrentGameState.snapshot_from_session()= then =save_to_slot(0)= inside
+  =_on_combat_won()= in MainScene.
+- Write an integration test that wins a combat, then loads the save and asserts
+  the encounter is marked complete in the restored session.
+
+Story points: 3
+
+** US-005  Title screen (FR-006, ADR-002)
+The game's entry point, replacing the direct MainScene boot.
+
+Tasks:
+- Create =scenes/TitleScreen.tscn= + =presentation/title_screen.gd= with the three
+  buttons wired per FR-006.
+- Update =project.godot= =main_scene= to =TitleScreen.tscn=.
+- Write a boot test that confirms =CurrentGameState.data= is non-null after each
+  button is pressed (without transitioning to MainScene — intercept the scene
+  change).
+- Dev picker: enumerate =res://data/scenarios/*.tres= via =DirAccess=; display
+  scenario display_name (read from the resource) in the ItemList; guard behind
+  =OS.is_debug_build()=.
+
+Story points: 5
+
+** US-006  Test migration (FR-007)
+Decouple the ~130 boot/integration/e2e tests from the former hardcoded
+constants.
+
+Tasks:
+- Scan all test files for =PROLOGUE_SCENARIO_PATH= / =PROLOGUE_ENCOUNTER_PATH=
+  string literals; replace each with a =CurrentGameState.initialize_new_game(
+  NewGameFactory.PROLOGUE_SCENARIO_PATH_CONST)= setup call.
+- Add =tests/unit/test_no_hardcoded_scenario_constants.gd= source-scan test.
+- Update =tests/boot/test_dripping_cave_scenario_boot.gd= per FR-007's third
+  criterion.
+- Confirm zero net-new test failures after migration.
+
+Story points: 8
+
+* Constraints
+
+- =ScenarioSession= must not be modified (NFR-001).
+- =CurrentGameState= must not be imported by any file under =core/= (NFR-002).
+- =NewGameFactory= must have zero engine imports (NFR-003).
+- Save format is JSON, stored under =user://saves/= (NFR-004).
+- "Dev: Pick Scenario" button must be absent from non-debug builds (NFR-006).
+- Per CLAUDE.md: any files written under =data/= must be staged and committed
+  before the session ends.
+- Do not add =@export= fields to =MainScene= for scenario override — this was
+  explored and rejected because the .tscn serialisation would be read by tests
+  that instantiate the scene. The autoload pattern (ADR-001) is the correct
+  injection point.
+
+* Out of Scope
+
+- Multiple save slots (v1 is slot 0 only; the API is extensible).
+- Mid-combat saves (save-point only; no round/turn serialisation).
+- Party member equipment and inventory persistence beyond HP/stamina/conditions.
+- Cross-scenario travel and overworld (the scenario selector covers dev needs;
+  a proper "open world" map screen is a separate iteration).
+- Cloud save sync.
+- Combat pathfinding (reachable-area glow, combat path preview/execution, OS
+  per-traversed-hex, enemy AI pathfinding — these are Iteration U, after this
+  work unlocks map-level testing).
+- Isometric rendering.
+- Any change to the rules layer (actions, reactions, spells, combinations).
