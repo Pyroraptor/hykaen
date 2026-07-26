@@ -275,6 +275,8 @@ func _ready() -> void:
 	_party = session.get("party", [])
 	_enemies = session.get("enemies", [])
 
+	_seed_party_hex_positions_from_current_game_state(hex_combatants) # FEAT-005 (US-004/FR-004/ADR-003)
+
 	centering_offset = _compute_boot_centering_offset(hex_combatants)
 	if hex_grid_view != null:
 		hex_grid_view.set_origin_offset(centering_offset)
@@ -948,6 +950,32 @@ func _build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String 
 func _current_game_state() -> Node:
 	var tree: SceneTree = Engine.get_main_loop()
 	return tree.root.get_node("CurrentGameState")
+
+
+## FEAT-005 (US-004/FR-004/ADR-003): party-position branching (scenario-
+## agnostic). Empty CurrentGameState.data.party_hex_positions -> no-op (new
+## game). Non-empty -> overrides hex_combatants/_party hex_coord (loaded
+## save) via Combatant.move_to(). Unknown combatant_id -> push_warning(), skipped.
+func _seed_party_hex_positions_from_current_game_state(hex_combatants: Array) -> void:
+	var positions: Array = _current_game_state().data.party_hex_positions
+	if positions.is_empty():
+		return
+	for entry in positions:
+		var id: String = String(entry.get("combatant_id", ""))
+		var hex := HexCoordClass.new(int(entry.get("q", 0)), int(entry.get("r", 0)))
+		var found := false
+		for c in hex_combatants:
+			if c.combatant_id == id:
+				c.move_to(hex)
+				found = true
+				break
+		if not found:
+			push_warning("MainScene: party_hex_positions entry references combatant_id '%s' not present in the live encounter -- skipped" % id)
+			continue
+		for c in _party:
+			if c.display_id() == id:
+				c.move_to(hex)
+				break
 
 
 ## _resolve_boot_scenario_path() -> String — FEAT-004 (US-004; FR-004,
