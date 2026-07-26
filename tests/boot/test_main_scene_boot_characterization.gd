@@ -311,7 +311,7 @@ func test_first_encounter_resource_path_returns_empty_when_no_encounter_entries(
 
 
 func test_first_encounter_resource_path_returns_resource_path_for_a_valid_scenario() -> void:
-	var scenario = ResourceLoader.load(PROLOGUE_SCENARIO_PATH)
+	var scenario = ResourceLoader.load(NewGameFactoryClass.PROLOGUE_SCENARIO_PATH_CONST)
 	assert_not_null(scenario, "fixture assumption: prologue_scenario.tres must load")
 
 	var instance := MainSceneClass.new()
