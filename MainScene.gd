@@ -12,6 +12,11 @@ const CombatantClass                   = preload("res://core/domain/combatant.gd
 const CombatSessionFactoryClass        = preload("res://core/application/combat_session_factory.gd")
 const GdResourceLoaderAdapterClass     = preload("res://presentation/adapters/gd_resource_loader_adapter.gd")
 
+## FEAT-004 (US-004; FR-004, ADR-005): the APPLICATION-layer factory the
+## never-initialized-CurrentGameState boot fallback delegates to (see
+## _resolve_boot_scenario_path() below).
+const NewGameFactoryClass              = preload("res://core/application/new_game_factory.gd")
+
 const ExplorationModeControllerClass   = preload("res://presentation/exploration_mode_controller.gd")
 const ViewModelBuilderClass            = preload("res://presentation/view_model_builder.gd")
 const RoundSessionHolderClass          = preload("res://infrastructure/round_session_holder.gd")
@@ -99,13 +104,6 @@ const ResolveDodgeStepUseCaseClass     = preload("res://core/application/resolve
 const AIHexChoiceResolverClass         = preload("res://infrastructure/ai_hex_choice_resolver.gd")
 
 const AIReactionPolicyClass            = preload("res://infrastructure/ai_reaction_policy.gd")
-
-## The steel-thread's entry_point: the one encounter this composition root boots into.
-const PROLOGUE_ENCOUNTER_PATH: String = "res://data/encounters/prologue_encounter.tres"
-
-## PROLOGUE_SCENARIO_PATH — FEAT-006 (US-005 / FR-004): the ScenarioResource
-## (data/scenarios/scenario_resource.gd, FEAT-006/Iteration-P) this
-const PROLOGUE_SCENARIO_PATH: String = "res://data/scenarios/prologue_scenario.tres"
 
 ## FEAT-002 (US-002 / FR-012, ADR-003): fallback viewport dimensions used to
 ## derive the boot-time centering offset (see _compute_boot_centering_offset())
@@ -247,11 +245,28 @@ var spell_combat_log_port = null
 func _ready() -> void:
 	encounter_repository = ResourceEncounterRepositoryClass.new()
 
+	# FEAT-004 (US-004; FR-004, ADR-005): boot scenario/encounter resolution
+	# now reads from CurrentGameState.data.scenario_path (falling back to
+	# NewGameFactory.create_prologue_state() when never initialized) instead
+	# of the former hardcoded prologue-scenario/prologue-encounter path
+	# constants -- see _resolve_boot_scenario_path()/_first_encounter_resource_path()
+	# below for the full fail-closed contract.
+	var boot_scenario_path: String = _resolve_boot_scenario_path()
+	var boot_scenario = ResourceLoader.load(boot_scenario_path)
+	if boot_scenario == null:
+		push_error("MainScene: unresolvable boot scenario resource at '%s'" % boot_scenario_path)
+		return
+
+	var boot_encounter_path: String = _first_encounter_resource_path(boot_scenario)
+	if boot_encounter_path == "":
+		push_error("MainScene: boot scenario has no usable encounter entry")
+		return
+
 	var session: Dictionary = CombatSessionFactoryClass.build({
 		"resource_loader": GdResourceLoaderAdapterClass.new(),
 		"encounter_repository": encounter_repository,
 		"combatant_factory": _combatant_factory,
-		"encounter_path": PROLOGUE_ENCOUNTER_PATH,
+		"encounter_path": boot_encounter_path,
 	})
 	if session.is_empty():
 		return
@@ -268,7 +283,7 @@ func _ready() -> void:
 	_game_mode = GameMode.EXPLORATION
 	_exploration.setup({
 		"hex_grid_view": hex_grid_view,
-		"scenario_path": PROLOGUE_SCENARIO_PATH,
+		"scenario_path": boot_scenario_path,
 		"on_hex_clicked": _exploration_hex_clicked_callable(),
 		"on_combat_triggered": Callable(self, "_on_combat_triggered"),
 	})
@@ -908,3 +923,71 @@ func _build_party_combatant(character_path: String, hex_coord, combatant_id: Str
 ## Test seam — called directly by test_intuition_*.gd and test_build_enemy_combatant_defenses.gd.
 func _build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String = "") -> Dictionary:
 	return _combatant_factory.build_enemy_combatant(enemy_path, hex_coord, combatant_id)
+
+
+## _current_game_state() -> Node — resolves the live CurrentGameState
+## autoload singleton via Engine.get_main_loop().root.get_node(...) rather
+## than referencing the bare `CurrentGameState` global identifier directly.
+##
+## Why: this project's pinned Godot 4.3 `godot --headless -s <script>
+## --check-only` static-compile mode (the "Entry-Point Smoke Test" CI gate,
+## tests/unit/test_ci_entry_point_smoke_feat135.py) does NOT resolve project
+## autoload singletons as global identifiers — verified to be a genuine,
+## script-agnostic engine limitation of that exact flag combination (ANY
+## autoload referenced by bare name fails the same way there, not just
+## CurrentGameState), not something specific to this file. Looking the
+## singleton up by absolute node path instead sidesteps that limitation
+## entirely (no compile-time global-identifier resolution involved) while
+## resolving to the exact SAME live singleton instance at real runtime —
+## Godot registers every autoload as a child of the SceneTree root named
+## exactly after its autoload key (see project.godot's [autoload] section:
+## `CurrentGameState="*res://autoload/current_game_state.gd"`). Also means
+## this seam works correctly even when called on a MainScene instance that
+## is not itself (yet) inside the SceneTree, since it never depends on
+## `self`'s own tree membership.
+func _current_game_state() -> Node:
+	var tree: SceneTree = Engine.get_main_loop()
+	return tree.root.get_node("CurrentGameState")
+
+
+## _resolve_boot_scenario_path() -> String — FEAT-004 (US-004; FR-004,
+## ADR-005, mitigates RISK-006): resolves the boot scenario_path from the
+## CurrentGameState autoload's live `data` field. When CurrentGameState was
+## never initialized (data.scenario_path == "" — the default, safe-empty
+## GameStateData.new() shape), falls back to NewGameFactory.
+## create_prologue_state(), assigns the result back onto CurrentGameState.data
+## (so the running game genuinely has a valid game state from this point on,
+## not just a locally-resolved path), and push_warning()s exactly once so a
+## dropped/never-set CurrentGameState is observable without a debugger.
+## Never returns "" itself — an unloadable prologue scenario is
+## NewGameFactory's own fail-loud concern (see its file doc), not this
+## method's.
+func _resolve_boot_scenario_path() -> String:
+	var current_game_state := _current_game_state()
+	if current_game_state.data == null or current_game_state.data.scenario_path == "":
+		push_warning("MainScene: CurrentGameState was uninitialized; falling back to prologue")
+		current_game_state.data = NewGameFactoryClass.create_prologue_state()
+	return current_game_state.data.scenario_path
+
+
+## _first_encounter_resource_path(scenario) -> String — FEAT-004 (US-004;
+## FR-004, ADR-005): resolves the boot encounter's res:// path from
+## `scenario.encounter_entries[0].encounter` (replacing the former hardcoded
+## prologue-encounter path constant). Fail-closed: push_error()s and returns
+## "" (never a partial/garbage path) when `scenario` has no encounter_entries
+## at all, or its first entry carries no usable `.encounter` resource —
+## _ready() aborts boot entirely on an empty return (fail-closed, matches
+## this codebase's established "no safe fallback content exists" convention
+## for an authoring-time error).
+func _first_encounter_resource_path(scenario) -> String:
+	if scenario.encounter_entries.is_empty():
+		push_error("MainScene: boot scenario has no usable encounter entry")
+		return ""
+
+	var first_entry = scenario.encounter_entries[0]
+	var encounter = first_entry.encounter if first_entry != null else null
+	if encounter == null:
+		push_error("MainScene: boot scenario has no usable encounter entry")
+		return ""
+
+	return encounter.resource_path

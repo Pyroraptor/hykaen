@@ -122,12 +122,42 @@ func test_main_scene_source_wires_event_sink_adapter() -> void:
 	)
 
 
-func test_main_scene_source_loads_prologue_encounter_resource() -> void:
-	var content: String = _read_main_scene_script_source()
-	assert_true(
-		content.contains("data/encounters/prologue_encounter.tres"),
-		"MainScene must load data/encounters/prologue_encounter.tres (US-004 entry_point)"
+## FEAT-004 (US-004; FR-004, ADR-005) superseded the literal, hardcoded
+## "data/encounters/prologue_encounter.tres" source string this test used to
+## assert on: MainScene._ready() now resolves its boot encounter dynamically
+## from CurrentGameState.data.scenario_path's ScenarioResource.
+## encounter_entries[0].encounter (falling back to NewGameFactory.
+## create_prologue_state() when CurrentGameState was never initialized) --
+## see MainScene.gd's own _resolve_boot_scenario_path()/
+## _first_encounter_resource_path() and tests/boot/
+## test_main_scene_boot_characterization.gd for that dedicated coverage.
+## This test now asserts the SAME "US-004 entry_point: MainScene boots into
+## the prologue encounter" contract behaviourally -- a real, booted
+## MainScene.tscn instance still ends up with a live, resolved prologue
+## encounter -- rather than via a now-obsolete literal source-text match.
+func test_main_scene_boots_and_resolves_the_prologue_encounter() -> void:
+	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
+	assert_not_null(packed, "MainScene.tscn must load for instantiation")
+	if packed == null:
+		return
+
+	var instance = packed.instantiate()
+	assert_not_null(instance, "MainScene.tscn must instantiate")
+	if instance == null:
+		return
+
+	add_child_autofree(instance)
+	await get_tree().process_frame
+
+	assert_not_null(instance.encounter, "MainScene must resolve a live encounter at boot (US-004 entry_point)")
+	assert_not_null(
+		instance.scenario_session, "MainScene must resolve a live scenario_session at boot (US-004 entry_point)"
 	)
+	if instance.scenario_session != null:
+		assert_eq(
+			instance.scenario_session.scenario.scenario_id, "prologue",
+			"a bare, zero-manual-setup boot must resolve the authored prologue scenario/encounter (US-004 entry_point)"
+		)
 
 
 func _read_main_scene_script_source() -> String:

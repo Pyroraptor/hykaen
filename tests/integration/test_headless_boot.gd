@@ -91,6 +91,21 @@ const MAIN_SCENE_BOOT_MARKER: String = "Hykaen MainScene booted into EXPLORATION
 const _ALLOWLISTED_WARNING_MARKER_A: String = "ext_resource, invalid UID"
 const _ALLOWLISTED_WARNING_MARKER_B: String = "using text path instead"
 
+## FEAT-004 (US-004; FR-004, ADR-005, mitigates RISK-006): a SECOND,
+## deliberately narrow, documented warning shape allowlisted alongside the
+## resource-UID one above -- mirrors tests/integration/
+## test_headless_boot_smoke.py's identical
+## _ALLOWLISTED_CURRENT_GAME_STATE_FALLBACK_WARNING_PATTERN addition. A bare
+## headless boot never goes through a title screen / "New Game" flow (that
+## composition-root wiring is TitleScreen.gd, a LATER, not-yet-implemented
+## feature), so CurrentGameState.data is genuinely, correctly uninitialized
+## here every time, and MainScene._ready()'s single push_warning() fallback
+## call site (see MainScene.gd) is expected, intentional steel-thread
+## behavior -- an explicit FEAT-004 test_criterion, not a regression.
+const _ALLOWLISTED_WARNING_MARKER_CURRENT_GAME_STATE_FALLBACK: String = (
+	"MainScene: CurrentGameState was uninitialized; falling back to prologue"
+)
+
 ## The pinned deterministic-test fixture seed (matches
 ## data/encounters/prologue_encounter.tres' own `seed` field, 42) -- this
 ## codebase's established integration/E2E convention. Threaded through to
@@ -167,7 +182,8 @@ func _classify_console_lines(text: String) -> Dictionary:
 			errors.append(line)
 		elif line.begins_with("WARNING:"):
 			var is_allowlisted: bool = (
-				line.contains(_ALLOWLISTED_WARNING_MARKER_A) and line.contains(_ALLOWLISTED_WARNING_MARKER_B)
+				(line.contains(_ALLOWLISTED_WARNING_MARKER_A) and line.contains(_ALLOWLISTED_WARNING_MARKER_B))
+				or line.contains(_ALLOWLISTED_WARNING_MARKER_CURRENT_GAME_STATE_FALLBACK)
 			)
 			if not is_allowlisted:
 				warnings.append(line)
@@ -216,6 +232,21 @@ func test_allowlisted_uid_warning_is_excluded() -> void:
 	var classified: Dictionary = _classify_console_lines(sample)
 	assert_eq(classified["errors"], [])
 	assert_eq(classified["warnings"], [], "the documented pre-existing resource-UID warning shape must be allowlisted, not flagged")
+
+
+func test_allowlisted_current_game_state_fallback_warning_is_excluded() -> void:
+	## FEAT-004 (US-004; FR-004, ADR-005): the SECOND allowlisted warning
+	## shape -- MainScene's own uninitialized-CurrentGameState fallback --
+	## is expected, intentional steel-thread behavior on a bare headless
+	## boot, so it must be excluded exactly like the pre-existing
+	## resource-UID warning above.
+	var sample: String = (
+		"WARNING: MainScene: CurrentGameState was uninitialized; falling back to prologue\n"
+		+ "     at: push_warning (core/variant/variant_utility.cpp:1112)"
+	)
+	var classified: Dictionary = _classify_console_lines(sample)
+	assert_eq(classified["errors"], [])
+	assert_eq(classified["warnings"], [], "the documented CurrentGameState-uninitialized fallback warning must be allowlisted, not flagged")
 
 
 func test_an_unrelated_warning_is_still_flagged() -> void:

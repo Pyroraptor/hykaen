@@ -48,6 +48,19 @@ shape (asserted, below, to not swallow anything else) and requires TRUE ZERO
 tolerance for every other WARNING and for every ERROR line, with no allowlist
 at all.
 
+Design note -- FEAT-004's second allowlisted warning shape (US-004; FR-004,
+ADR-005): MainScene._ready() now resolves its boot scenario/encounter from
+CurrentGameState.data, falling back to NewGameFactory.create_prologue_state()
+with exactly one push_warning() when CurrentGameState was never initialized.
+A bare headless boot (this suite's own scenario -- no title screen has run)
+always hits that fallback today, since TitleScreen.gd (the future feature
+that actually calls CurrentGameState.initialize_new_game()/load_from_slot()
+before MainScene loads) does not exist yet. That warning is therefore
+expected, intentional steel-thread behavior -- an explicit FEAT-004
+test_criterion, not a regression -- so it is allowlisted narrowly by its own
+exact message text (_ALLOWLISTED_CURRENT_GAME_STATE_FALLBACK_WARNING_PATTERN,
+below), the same way the resource-UID shape above is.
+
 Design note -- viewport-bounds check reuses existing coverage, rather than
 forking a second implementation of it (this codebase's established ADR-002/
 CR-001 "no duplicate logic" discipline): tests/gut/test_viewport_centering.gd's
@@ -101,6 +114,26 @@ _ALLOWLISTED_WARNING_PATTERN = re.compile(
     r"ext_resource, invalid UID:.*using text path instead"
 )
 
+# FEAT-004 (US-004; FR-004, ADR-005, mitigates RISK-006): a SECOND,
+# deliberately narrow, documented warning shape allowlisted alongside the
+# resource-UID one above. MainScene._ready() now resolves its boot
+# scenario/encounter from the CurrentGameState autoload's live `data`
+# field, falling back to NewGameFactory.create_prologue_state() (with
+# exactly one push_warning()) whenever CurrentGameState was never
+# initialized. This bare, zero-manual-setup headless boot never goes
+# through a title screen / "New Game" flow (that composition-root wiring
+# is TitleScreen.gd, a LATER, not-yet-implemented feature per this
+# project's story graph -- see US-004/US-006's dependency ordering in the
+# design notes), so CurrentGameState.data is genuinely, correctly
+# uninitialized here every time -- this warning is expected, intentional
+# steel-thread behavior (an explicit test_criterion of FEAT-004), not a
+# regression. Anchored to the exact, single push_warning() call site's
+# message text (MainScene.gd) so an unrelated future WARNING can never
+# match it.
+_ALLOWLISTED_CURRENT_GAME_STATE_FALLBACK_WARNING_PATTERN = re.compile(
+    r"MainScene: CurrentGameState was uninitialized; falling back to prologue"
+)
+
 # Safety bound on how many frames the bare headless boot is allowed to run
 # before Godot's own `--quit-after` flag terminates it (CWE-835 "never loop
 # unbounded" guard, mirroring this codebase's established `_MAX_*` /
@@ -122,12 +155,12 @@ def _find_godot_binary() -> Optional[str]:
 
 def _classify_console_lines(text: str) -> tuple[list[str], list[str]]:
     """Splits raw Godot console output (stdout+stderr concatenated) into
-    (errors, warnings), where `warnings` EXCLUDES any line matching the one
-    documented, pre-existing allowlisted warning shape above. Both stdout and
-    stderr are scanned (mirroring `_run_bare_headless_boot()`'s callers,
-    below) since Godot's WARNING/ERROR lines are observed to land on stderr
-    while INFO/DEBUG project `print()` calls land on stdout -- but this
-    function itself is agnostic to which stream a line came from, so it
+    (errors, warnings), where `warnings` EXCLUDES any line matching one of
+    the two documented, pre-existing allowlisted warning shapes above. Both
+    stdout and stderr are scanned (mirroring `_run_bare_headless_boot()`'s
+    callers, below) since Godot's WARNING/ERROR lines are observed to land
+    on stderr while INFO/DEBUG project `print()` calls land on stdout -- but
+    this function itself is agnostic to which stream a line came from, so it
     remains correct even if that split ever changes.
     """
     errors: list[str] = []
@@ -137,7 +170,9 @@ def _classify_console_lines(text: str) -> tuple[list[str], list[str]]:
         if line.startswith("ERROR:"):
             errors.append(line)
         elif line.startswith("WARNING:"):
-            if not _ALLOWLISTED_WARNING_PATTERN.search(line):
+            if not _ALLOWLISTED_WARNING_PATTERN.search(line) and not (
+                _ALLOWLISTED_CURRENT_GAME_STATE_FALLBACK_WARNING_PATTERN.search(line)
+            ):
                 warnings.append(line)
     return errors, warnings
 
@@ -230,6 +265,21 @@ class TestConsoleLineClassification:
         errors, warnings = _classify_console_lines(sample)
         assert errors == []
         assert warnings == [], "the documented pre-existing resource-UID warning shape must be allowlisted, not flagged"
+
+    def test_allowlisted_current_game_state_fallback_warning_is_excluded(self):
+        """FEAT-004 (US-004; FR-004, ADR-005): the SECOND allowlisted warning
+        shape -- MainScene's own uninitialized-CurrentGameState fallback --
+        is expected, intentional steel-thread behavior on a bare headless
+        boot (no title screen has run to initialize CurrentGameState yet),
+        so it must be excluded exactly like the pre-existing resource-UID
+        warning above."""
+        sample = (
+            "WARNING: MainScene: CurrentGameState was uninitialized; falling back to prologue\n"
+            "     at: push_warning (core/variant/variant_utility.cpp:1112)"
+        )
+        errors, warnings = _classify_console_lines(sample)
+        assert errors == []
+        assert warnings == [], "the documented CurrentGameState-uninitialized fallback warning must be allowlisted, not flagged"
 
     def test_an_unrelated_warning_is_still_flagged(self):
         """Regression guard (mirrors tests/ci/test_pipeline_e2e_stage_config.py's
