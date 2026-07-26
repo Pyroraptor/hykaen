@@ -1,6 +1,5 @@
 extends Node
-## MainScene.gd — composition root (ADR-002: single DI wiring point, no framework).
-## FEAT-316: combat pipeline dormant until _on_combat_triggered(); boots into EXPLORATION.
+## Composition root — single DI wiring point, no framework.
 const ResourceEncounterRepositoryClass = preload("res://infrastructure/resource_encounter_repository.gd")
 const SeedPolicyClass                  = preload("res://infrastructure/seed_policy.gd")
 const GodotRandomAdapterClass          = preload("res://core/combat/godot_random_adapter.gd")
@@ -11,10 +10,6 @@ const CombatantClass                   = preload("res://core/domain/combatant.gd
 
 const CombatSessionFactoryClass        = preload("res://core/application/combat_session_factory.gd")
 const GdResourceLoaderAdapterClass     = preload("res://presentation/adapters/gd_resource_loader_adapter.gd")
-
-## FEAT-004 (US-004; FR-004, ADR-005): the APPLICATION-layer factory the
-## never-initialized-CurrentGameState boot fallback delegates to (see
-## _resolve_boot_scenario_path() below).
 const NewGameFactoryClass              = preload("res://core/application/new_game_factory.gd")
 
 const ExplorationModeControllerClass   = preload("res://presentation/exploration_mode_controller.gd")
@@ -34,34 +29,24 @@ const CombineActionControllerClass     = preload("res://presentation/combine_act
 
 const MultiPhaseTargetingControllerClass = preload("res://core/application/combine/multi_phase_targeting_controller.gd")
 const CoreCombineActionControllerClass = preload("res://core/controllers/combine_action_controller.gd")
-const CoreStrideActionControllerClass = preload("res://core/controllers/stride_action_controller.gd")
-const CoreStrikeActionControllerClass = preload("res://core/controllers/strike_action_controller.gd")
+const CoreStrideActionControllerClass  = preload("res://core/controllers/stride_action_controller.gd")
+const CoreStrikeActionControllerClass  = preload("res://core/controllers/strike_action_controller.gd")
 
-const CoreCastSpellAdapterClass = preload("res://presentation/adapters/core_cast_spell_adapter.gd")
-const GdVerbRegistryPortClass = preload("res://presentation/adapters/gd_verb_registry_port.gd")
-const GdCombineActionEconomyPortClass = preload("res://presentation/adapters/gd_combine_action_economy_port.gd")
+const CoreCastSpellAdapterClass        = preload("res://presentation/adapters/core_cast_spell_adapter.gd")
+const GdVerbRegistryPortClass          = preload("res://presentation/adapters/gd_verb_registry_port.gd")
+const GdCombineActionEconomyPortClass  = preload("res://presentation/adapters/gd_combine_action_economy_port.gd")
 
-const CombineQueueBuildSessionClass = preload("res://presentation/combine_queue_build_session.gd")
-
-const CombineTargetingSessionClass = preload("res://presentation/combine_targeting_session.gd")
-
-const RoundFlowControllerClass = preload("res://presentation/round_flow_controller.gd")
-## VerbDispatchControllerClass — FEAT-007/FEAT-320 (US-005/US-009; FR-006/
-## FR-009; ADR-002): owns verb-bar dispatch (build_verb_registry()/
-const VerbDispatchControllerClass = preload("res://presentation/verb_dispatch_controller.gd")
-const CombatQueryServiceClass = preload("res://presentation/combat_query_service.gd")
-
-
-const SpellPickerPanelControllerClass = preload("res://presentation/spell_picker_panel_controller.gd")
+const CombineQueueBuildSessionClass    = preload("res://presentation/combine_queue_build_session.gd")
+const CombineTargetingSessionClass     = preload("res://presentation/combine_targeting_session.gd")
+const RoundFlowControllerClass         = preload("res://presentation/round_flow_controller.gd")
+const VerbDispatchControllerClass      = preload("res://presentation/verb_dispatch_controller.gd")
+const CombatQueryServiceClass          = preload("res://presentation/combat_query_service.gd")
+const SpellPickerPanelControllerClass  = preload("res://presentation/spell_picker_panel_controller.gd")
 
 const TargetingPortClass               = preload("res://core/application/ports/targeting_port.gd")
-
 const ResolutionPortClass              = preload("res://core/application/ports/resolution_port.gd")
-
 const CombatLogPanelAdapterClass       = preload("res://presentation/ui/combat_log_panel_adapter.gd")
 
-## VERB_TABLE — the single data-driven verb registry (composition-root de-bloat,
-## 2026-07-11): verb_id → concrete ActionController subclass. This one table is
 const VERB_TABLE := {
 	"STRIKE": StrikeActionControllerClass,
 	"STEP": StepActionControllerClass,
@@ -94,49 +79,26 @@ const PlayerReactionChooserClass       = preload("res://presentation/player_reac
 const HexChoiceResolverPortClass       = preload("res://core/application/ports/hex_choice_resolver_port.gd")
 const AttackEventClass                 = preload("res://core/log/attack_event.gd")
 const RenderCombatLogUseCaseClass      = preload("res://core/application/render_combat_log_use_case.gd")
-
 const OpenReactionWindowUseCaseClass   = preload("res://core/application/open_reaction_window_use_case.gd")
-
 const ResolveStrideUseCaseClass        = preload("res://core/application/use_cases/resolve_stride_use_case.gd")
-
 const ResolveDodgeStepUseCaseClass     = preload("res://core/application/resolve_dodge_step_use_case.gd")
-
 const AIHexChoiceResolverClass         = preload("res://infrastructure/ai_hex_choice_resolver.gd")
-
 const AIReactionPolicyClass            = preload("res://infrastructure/ai_reaction_policy.gd")
 
-## FEAT-002 (US-002 / FR-012, ADR-003): fallback viewport dimensions used to
-## derive the boot-time centering offset (see _compute_boot_centering_offset())
-const DEFAULT_VIEWPORT_WIDTH: int = 1152
+const DEFAULT_VIEWPORT_WIDTH: int  = 1152
 const DEFAULT_VIEWPORT_HEIGHT: int = 648
+
+const ACTION_NAME_STRIKE: String = "Strike"
 
 var ROUND_NUMBER: int = 1
 
-## ACTION_NAME_STRIKE — FEAT-006: the action name passed to
-## resolve_action_use_case.resolve() for a Strike, mirroring the removed
-const ACTION_NAME_STRIKE: String = "Strike"
-
-
 var seed_override = null
-
 var resolved_seed: int = -1
 
-## GameMode — FEAT-006 (US-005 / FR-004): the two top-level modes this
-## composition root can be in. EXPLORATION is the primary user-facing entry
 enum GameMode { EXPLORATION, COMBAT }
 
 var _game_mode: GameMode = GameMode.EXPLORATION
-
 var _active_encounter_id: String = ""
-
-## FEAT-007 (US-005 / FR-005): the boot-time scenario_path resolved by
-## _resolve_boot_scenario_path() in _ready() -- cached here so
-## _on_combat_won()'s auto-save hook can hand it straight to
-## CurrentGameState.snapshot_from_session() without re-deriving it from
-## scenario_session.scenario (which would tie the auto-save path to
-## ScenarioResource carrying its own resource_path correctly, an
-## incidental Godot behaviour rather than this explicit, already-resolved
-## value).
 var _boot_scenario_path: String = ""
 
 var _exploration = ExplorationModeControllerClass.new()
@@ -154,11 +116,8 @@ var exploration_controller:
 		_exploration.exploration_controller = value
 
 var encounter_repository
-
 var random_port
-
 var event_sink
-
 var encounter
 
 var _round_session_holder := RoundSessionHolderClass.new()
@@ -176,93 +135,62 @@ var round_history_port
 
 var outcome: String = ""
 
-@onready var hex_grid_view = $HexGridView
-
-@onready var status_panel_view = $StatusPanelView
-
-@onready var initiative_view = $InitiativeView
-
-@onready var event_log_view = $EventLogView
+@onready var hex_grid_view       = $HexGridView
+@onready var status_panel_view   = $StatusPanelView
+@onready var initiative_view     = $InitiativeView
+@onready var event_log_view      = $EventLogView
+@onready var turn_controller     = $TurnController
+@onready var end_turn_control    = $EndTurnControl
+@onready var verb_bar_view       = $VerbBarView
+@onready var reaction_prompt_ui  = $ReactionPromptUI
+@onready var result_screen_view  = $ResultScreenView
 
 var movement_input_controller = MovementInputControllerClass.new()
 
-@onready var turn_controller = $TurnController
-
-@onready var end_turn_control = $EndTurnControl
-
-@onready var verb_bar_view = $VerbBarView
-
 var _verb_registry = null
-
 var selection_overlay = SelectionOverlayClass.new()
-
 var cancel_controller = CancelControllerClass.new()
 
-@onready var reaction_prompt_ui = $ReactionPromptUI
-
 var player_reaction_chooser = null
-
-var enemy_reaction_chooser = null
-
-var hex_choice_resolver = null
-
-var reaction_window = null
-
-@onready var result_screen_view = $ResultScreenView
+var enemy_reaction_chooser  = null
+var hex_choice_resolver     = null
+var reaction_window         = null
 
 var _turn_presentation_instance = null
+var _reaction_instance          = null
 
-var _reaction_instance = null
-
-var _controllers: Dictionary = {}
-var _verb_deps_cache = null
-
-var _combat_query_service = null
-
-var multi_phase_targeting_controller = null
-var _core_combine_action_controller = null
-
+var _controllers: Dictionary           = {}
+var _verb_deps_cache                   = null
+var _combat_query_service              = null
+var multi_phase_targeting_controller   = null
+var _core_combine_action_controller    = null
 var _combine_controller_registry: Dictionary = {}
+var combine_targeting_session          = null
+var combine_queue_build_session        = null
 
-var combine_targeting_session = null
-
-var combine_queue_build_session = null
-
-var round_flow_controller = RoundFlowControllerClass.new()
+var round_flow_controller  = RoundFlowControllerClass.new()
 var verb_dispatch_controller = VerbDispatchControllerClass.new()
 
 var _spell_picker = SpellPickerPanelControllerClass.new()
 
-var _party: Array = []
+var _party: Array   = []
 var _enemies: Array = []
-var _combatant_factory := CombatantFactoryClass.new()
+var _combatant_factory  := CombatantFactoryClass.new()
 var _view_model_builder := ViewModelBuilderClass.new()
-
 
 var centering_offset: Vector2 = Vector2.ZERO
 
-
-## _FirstLegalTargetingPort — SUPERSEDED by presentation/ui/player_targeting_port.gd
-## PlayerTargetingPort (wired below). Retained only to avoid breaking any
-
-
-var spell_targeting_port = null
-var spell_resolution_port = null
-var spell_combat_log_port = null
+var spell_targeting_port   = null
+var spell_resolution_port  = null
+var spell_combat_log_port  = null
 
 
 ## Boot: load encounter, wire all controllers, start EXPLORATION mode.
 func _ready() -> void:
 	encounter_repository = ResourceEncounterRepositoryClass.new()
 
-	# FEAT-004 (US-004; FR-004, ADR-005): boot scenario/encounter resolution
-	# now reads from CurrentGameState.data.scenario_path (falling back to
-	# NewGameFactory.create_prologue_state() when never initialized) instead
-	# of the former hardcoded prologue-scenario/prologue-encounter path
-	# constants -- see _resolve_boot_scenario_path()/_first_encounter_resource_path()
-	# below for the full fail-closed contract.
 	var boot_scenario_path: String = _resolve_boot_scenario_path()
-	_boot_scenario_path = boot_scenario_path # FEAT-007 (US-005/FR-005): cached for _on_combat_won()'s auto-save hook
+	_boot_scenario_path = boot_scenario_path
 	var boot_scenario = ResourceLoader.load(boot_scenario_path)
 	if boot_scenario == null:
 		push_error("MainScene: unresolvable boot scenario resource at '%s'" % boot_scenario_path)
@@ -270,7 +198,6 @@ func _ready() -> void:
 
 	var boot_encounter_path: String = _first_encounter_resource_path(boot_scenario)
 	if boot_encounter_path == "":
-		push_error("MainScene: boot scenario has no usable encounter entry")
 		return
 
 	var session: Dictionary = CombatSessionFactoryClass.build({
@@ -283,11 +210,11 @@ func _ready() -> void:
 		return
 
 	var hex_combatants: Array = session.get("hex_combatants", [])
-	_party = session.get("party", [])
+	_party   = session.get("party", [])
 	_enemies = session.get("enemies", [])
 
-	_seed_party_hex_positions_from_current_game_state(hex_combatants) # FEAT-005 (US-004/FR-004/ADR-003)
-	_seed_combatant_snapshots_from_current_game_state(hex_combatants) # FEAT-006 (US-004/FR-004/ADR-003)
+	_seed_party_hex_positions_from_current_game_state(hex_combatants)
+	_seed_combatant_snapshots_from_current_game_state(hex_combatants)
 
 	centering_offset = _compute_boot_centering_offset(hex_combatants)
 	if hex_grid_view != null:
@@ -306,9 +233,9 @@ func _ready() -> void:
 	resolved_seed = SeedPolicyClass.resolve_from_environment(seed_override, int(Time.get_ticks_usec()))
 
 	random_port = GodotRandomAdapterClass.new(resolved_seed)
-	event_sink = ConsoleEventSinkAdapterClass.new()
+	event_sink  = ConsoleEventSinkAdapterClass.new()
 
-	spell_targeting_port = PlayerTargetingPortClass.new(hex_grid_view)
+	spell_targeting_port  = PlayerTargetingPortClass.new(hex_grid_view)
 	spell_resolution_port = ResolutionPortClass.ResolutionRulesAdapter.new(random_port)
 	spell_combat_log_port = CombatLogPanelAdapterClass.new()
 	if event_log_view != null:
@@ -323,23 +250,21 @@ func _ready() -> void:
 	)
 
 	var status_view_models: Array = _view_model_builder.build_status_view_models(hex_combatants, _party, _enemies, encounter)
-
 	if status_panel_view != null:
 		status_panel_view.load_combatants(status_view_models)
 		_refresh_off_guard_conditions()
 
 	var initiative_view_models: Array = _view_model_builder.build_initiative_view_models(hex_combatants, _party, _enemies, encounter)
-
 	if initiative_view != null:
 		initiative_view.load_combatants(initiative_view_models)
 
 	event_sink.forward_to = _presentation_event_subscribers()
 
 	var turn_order_port = EncounterTurnOrderAdapterClass.new(encounter)
-	round_history_port = InMemoryRoundHistoryAdapterClass.new()
-	resolve_action_use_case = ResolveActionUseCaseClass.new(random_port, event_sink, round_history_port)
+	round_history_port  = InMemoryRoundHistoryAdapterClass.new()
+	resolve_action_use_case   = ResolveActionUseCaseClass.new(random_port, event_sink, round_history_port)
 	determine_outcome_use_case = DetermineOutcomeUseCaseClass.new()
-	enemy_reaction_chooser = AIReactionPolicyClass.new()
+	enemy_reaction_chooser    = AIReactionPolicyClass.new()
 	_reaction_instance = ReactionControllerClass.new(
 		Callable(self, "_action_economy_for"),
 		Callable(self, "_current_round_number"),
@@ -350,7 +275,6 @@ func _ready() -> void:
 	)
 
 	var ai_decision_port = AIClass.new()
-
 	ai_decision_port.set_stride_reaction_resolver_fn(Callable(_reaction_instance, "resolve_enemy_stride_opportunistic_window"))
 
 	run_round_use_case = RunRoundUseCaseClass.new(
@@ -359,9 +283,7 @@ func _ready() -> void:
 	)
 
 	if result_screen_view != null:
-		# FEAT-006: no strike_action_control node exists anymore -- its
 		result_screen_view.configure(null, end_turn_control, movement_input_controller, null, verb_bar_view, selection_overlay)
-
 
 	reaction_window = ReactionWindowClass.new(event_sink)
 	if reaction_prompt_ui != null:
@@ -374,9 +296,7 @@ func _ready() -> void:
 
 	if end_turn_control != null:
 		end_turn_control.turn_ended.connect(_on_end_turn_control_turn_ended)
-		# BUGFIX (post-iteration-E): End Turn is now a first-class verb in the
 		end_turn_control.visible = false
-
 
 	_verb_registry = verb_dispatch_controller.build_verb_registry(VERB_TABLE)
 
@@ -385,7 +305,6 @@ func _ready() -> void:
 		"action_economy_port": GdCombineActionEconomyPortClass.new(self),
 		"controller_for": Callable(self, "_controller"),
 	})
-	# FEAT-007 (US-007; NFR-001): built as its own named field
 	_combine_controller_registry = {
 		"STRIDE": CoreStrideActionControllerClass.new({
 			"other_combatants_fn": func(): return _party + _enemies,
@@ -401,20 +320,17 @@ func _ready() -> void:
 		"controller_registry": _combine_controller_registry,
 		"combine_action_controller": _core_combine_action_controller,
 	})
-	# FEAT-004 (US-003; FR-003; ADR-005): the extracted interactive Combine
 	combine_queue_build_session = CombineQueueBuildSessionClass.new()
 	combine_queue_build_session.setup({
 		"combine_action_controller": _core_combine_action_controller,
 		"selection_overlay": selection_overlay,
 		"hex_grid_view": hex_grid_view,
 		"verb_registry": _verb_registry,
-		# FEAT-008 (US-007 / FR-002): these Callables now point at the
 		"show_spell_picker_fn": Callable(_spell_picker, "show").bind(Callable(selection_overlay, "choose_option")),
 		"hide_spell_picker_fn": Callable(_spell_picker, "hide"),
 	})
 	combine_queue_build_session.queue_built.connect(_on_combine_queue_built)
 
-	# FEAT-005 (US-004; FR-004; ADR-003): the extracted interactive Combine
 	combine_targeting_session = CombineTargetingSessionClass.new()
 	combine_targeting_session.setup({
 		"controller_registry": _combine_controller_registry,
@@ -422,7 +338,6 @@ func _ready() -> void:
 		"selection_overlay": selection_overlay,
 		"hex_grid_view": hex_grid_view,
 		"verb_registry": _verb_registry,
-		# FEAT-008 (US-007 / FR-002): see the identical comment on
 		"show_spell_picker_fn": Callable(_spell_picker, "show").bind(Callable(selection_overlay, "choose_option")),
 	})
 	combine_targeting_session.targeting_complete.connect(_on_combine_targeting_complete)
@@ -455,18 +370,17 @@ func _ready() -> void:
 		verb_bar_view.verb_selection_entered.connect(verb_dispatch_controller._on_verb_bar_selection_entered)
 	selection_overlay.selection_resolved.connect(verb_dispatch_controller._on_selection_overlay_resolved)
 
-	# FEAT-008 (US-007 / FR-002): this composition root still creates/
 	var spell_picker_panel := Panel.new()
 	spell_picker_panel.name = "SpellPickerPanel"
 	spell_picker_panel.visible = false
 	spell_picker_panel.custom_minimum_size = Vector2(220, 40)
-	spell_picker_panel.anchor_left = 0.5
-	spell_picker_panel.anchor_right = 0.5
-	spell_picker_panel.anchor_top = 1.0
+	spell_picker_panel.anchor_left   = 0.5
+	spell_picker_panel.anchor_right  = 0.5
+	spell_picker_panel.anchor_top    = 1.0
 	spell_picker_panel.anchor_bottom = 1.0
-	spell_picker_panel.offset_left = -110
-	spell_picker_panel.offset_right = 110
-	spell_picker_panel.offset_top = -220
+	spell_picker_panel.offset_left   = -110
+	spell_picker_panel.offset_right  = 110
+	spell_picker_panel.offset_top    = -220
 	spell_picker_panel.offset_bottom = -100
 	add_child(spell_picker_panel)
 	_spell_picker.setup(spell_picker_panel)
@@ -474,7 +388,6 @@ func _ready() -> void:
 
 	cancel_controller.configure(selection_overlay)
 
-	# FEAT-316 (resolves DEF-001/PR-001): round_session is no longer
 	if round_session != null:
 		print(
 			"INFO: Hykaen MainScene booted into the prologue encounter (interactive) -- "
@@ -482,7 +395,7 @@ func _ready() -> void:
 			+ " round_over=" + str(round_session.is_round_over())
 		)
 	else:
-		print("INFO: Hykaen MainScene booted into EXPLORATION mode -- no active round_session yet (FEAT-316)")
+		print("INFO: Hykaen MainScene booted into EXPLORATION mode -- no active round_session yet")
 
 	print("DEBUG: viewport_centering centering_offset=" + str(centering_offset))
 
@@ -495,23 +408,12 @@ func _on_combat_triggered(encounter_id: String) -> void:
 	var scenario = scenario_session.scenario if scenario_session != null else null
 	var ok: bool = load_encounter_from_scenario(scenario, encounter_id)
 	if not ok:
-		# load_encounter_from_scenario() has already push_error()'d the
 		if hex_grid_view != null and not hex_grid_view.hex_clicked.is_connected(_exploration_hex_clicked_callable()):
 			hex_grid_view.hex_clicked.connect(_exploration_hex_clicked_callable())
 		return
 
 	_game_mode = GameMode.COMBAT
 	_active_encounter_id = encounter_id
-	# FEAT-324 (resolves DEF-001): keep ExplorationModeController's own
-	# `_exploration_active` mirror in sync with this composition root's
-	# `_game_mode` the instant COMBAT is committed, so
-	# _on_exploration_hex_clicked()'s guard (now the ONLY gate on click-driven
-	# movement, since hex_clicked is wired directly to it) rejects any click
-	# that reaches it. In the real, signal-driven handoff this is already
-	# achieved a moment later by ExplorationModeController's own
-	# _on_domain_combat_triggered() (connected in boot()); this explicit call
-	# keeps that guarantee true even when _on_combat_triggered() is invoked
-	# directly (this codebase's established boot-test convention).
 	_exploration.notify_game_mode_changed(false)
 
 	if hex_grid_view != null:
@@ -526,7 +428,7 @@ func _on_combat_triggered(encounter_id: String) -> void:
 			turn_controller.round_over.disconnect(_on_round_over)
 		turn_controller.round_over.connect(_on_round_over)
 
-	var turn_order_port = EncounterTurnOrderAdapterClass.new(encounter)
+	var turn_order_port  = EncounterTurnOrderAdapterClass.new(encounter)
 	var ai_decision_port = AIClass.new()
 	ai_decision_port.set_stride_reaction_resolver_fn(Callable(_reaction_instance, "resolve_enemy_stride_opportunistic_window"))
 	run_round_use_case = RunRoundUseCaseClass.new(
@@ -542,12 +444,6 @@ func _on_combat_triggered(encounter_id: String) -> void:
 	selection_overlay.configure(_verb_registry, hex_grid_view)
 
 
-## FEAT-324 (resolves DEF-001): the single Callable naming
-## ExplorationModeController._on_exploration_hex_clicked -- the ONLY
-## click-to-navigate handler hex_grid_view.hex_clicked is ever wired to.
-## Centralized here (rather than re-spelling the string literal at each of
-## setup()/_on_combat_triggered()/_on_combat_won()'s own connect/disconnect
-## call sites) so every wiring/unwiring point can never drift out of sync.
 func _exploration_hex_clicked_callable() -> Callable:
 	return Callable(_exploration, "_on_exploration_hex_clicked")
 
@@ -556,7 +452,7 @@ func _exploration_hex_clicked_callable() -> Callable:
 func load_encounter_from_scenario(scenario, encounter_id: String) -> bool:
 	var ok: bool = _exploration.load_encounter_from_scenario(scenario, encounter_id, resolved_seed)
 	if ok:
-		_party = _exploration.party
+		_party   = _exploration.party
 		_enemies = _exploration.enemies
 		encounter = _exploration.encounter
 	return ok
@@ -579,26 +475,20 @@ func rewire_session() -> void:
 
 	if round_session != null and turn_controller != null:
 		round_session.set_reaction_resolver_fn(Callable(turn_controller, "resolve_reaction"))
-
-		# ── FEAT-005 (US-005 / FR-005, Iteration J Part A): wire RoundSession's
 		round_session.set_prehit_avoidance_resolver_fn(Callable(turn_controller, "resolve_reaction"))
 		round_session.set_onhit_mitigation_resolver_fn(Callable(turn_controller, "resolve_reaction"))
 
-		# FEAT-213 (Iteration J V&V fix): wire the structured combat-log recorder
 		if event_log_view != null:
 			round_session.set_event_log_record_attack_fn(Callable(event_log_view, "record_attack"))
 			round_session.set_event_log_entry_count_fn(Callable(event_log_view, "get_entry_count"))
 			round_session.set_event_log_render_attack_entry_fn(Callable(event_log_view, "render_attack_entry"))
 			round_session.set_event_log_overwrite_entry_fn(Callable(event_log_view, "overwrite_entry_as_rich"))
-			# FEAT-008 (US-008 / FR-007): wire the structured reaction recorder
 			round_session.set_event_log_record_reaction_fn(Callable(event_log_view, "record_reaction"))
 
-		# ── FEAT-002 (US-002, Dodge-Step steel thread): wire RoundSession's
 		round_session.set_hex_choice_resolver_fn(Callable(self, "resolve_hex_choice"))
 		round_session.set_step_hex_query_fn(Callable(self, "_query_selectable_step_hexes"))
 
 	if turn_controller != null:
-		# FEAT-006: strike_action_control no longer exists; set_session()'s
 		await turn_controller.set_session(round_session, end_turn_control, null, verb_bar_view)
 
 	outcome = round_session.outcome()
@@ -621,7 +511,6 @@ func _compute_boot_centering_offset(hex_combatants: Array) -> Vector2:
 		ProjectSettings.get_setting("display/window/size/viewport_width", DEFAULT_VIEWPORT_WIDTH),
 		ProjectSettings.get_setting("display/window/size/viewport_height", DEFAULT_VIEWPORT_HEIGHT)
 	)
-
 	return CoordinateTransformClass.compute_centering_offset(extent_hexes, viewport_size, HexGridViewClass.HEX_SIZE)
 
 
@@ -641,9 +530,7 @@ func _grid_extent_corner_hexes() -> Array:
 ## Non-null view nodes that subscribe to event_sink broadcasts.
 func _presentation_event_subscribers() -> Array:
 	var subscribers: Array = []
-	for view in [
-		status_panel_view, initiative_view, event_log_view, result_screen_view,
-	]:
+	for view in [status_panel_view, initiative_view, event_log_view, result_screen_view]:
 		if view != null:
 			subscribers.append(view)
 	return subscribers
@@ -678,8 +565,6 @@ func _action_economy_for(combatant):
 				return encounter.get_action_economy(i)
 
 	return null
-
-
 
 
 ## Route confirmed combine queue → combine_targeting_session.start().
@@ -725,7 +610,6 @@ func _turn_presentation():
 ## Live ROUND_NUMBER accessor — injected into ReactionController as Callable.
 func _current_round_number() -> int:
 	return ROUND_NUMBER
-
 
 
 ## Memoized deps dict for all ActionControllers (data-driven VERB_TABLE).
@@ -777,12 +661,10 @@ func _living_enemy_reactors() -> Array:
 	return _combat_query_service.living_combatants(_enemies)
 
 
-## Fresh _party read (never a snapshot) — injected as party_fn Callable.
 func _current_party() -> Array:
 	return _party
 
 
-## Fresh _enemies read.
 func _current_enemies() -> Array:
 	return _enemies
 
@@ -807,19 +689,16 @@ func _on_round_over() -> void:
 	outcome = round_session.outcome()
 
 	movement_input_controller.configure({}, [])
-	# FEAT-004 / US-004/FR-001: re-gate the verb bar now that no actor/targets
 	if verb_bar_view != null:
 		verb_bar_view.refresh_availability()
 
 	if outcome == "":
 		ROUND_NUMBER += 1
-		# FEAT-003: rewire_session() is now a coroutine — awaited (see this
 		await rewire_session()
 	elif outcome == "won":
 		_on_combat_won()
 	elif outcome == "lost":
-		# FEAT-009 placeholder (US-008): a genuinely unexpected/unhandled
-		push_error("MainScene: 'lost' outcome handling is not yet implemented (FEAT-009 placeholder)")
+		push_error("MainScene: 'lost' outcome handling is not yet implemented")
 
 	round_flow_controller.notify_round_concluded()
 
@@ -835,14 +714,7 @@ func _on_combat_won() -> void:
 	if scenario_session != null and _active_encounter_id != "":
 		scenario_session.mark_encounter_complete(_active_encounter_id)
 
-	# FEAT-007 (US-005 / FR-005): sync each party member's CURRENT (i.e.
-	# post-combat-win) hex_coord into scenario_session.party_hex_positions
-	# BEFORE snapshotting below. scenario_session.party_hex_positions is
-	# otherwise only ever written by exploration-mode movement
-	# (ExplorationModeController.move_party_member()) -- without this sync
-	# it would still hold each party member's PRE-combat exploration
-	# position, not wherever combat itself left them, and the auto-save
-	# below would silently persist stale positions.
+	# sync post-combat hex positions before snapshotting — exploration only writes on movement
 	if scenario_session != null:
 		for combatant in _party:
 			scenario_session.party_hex_positions[combatant.combatant_id] = combatant.hex_coord
@@ -854,18 +726,10 @@ func _on_combat_won() -> void:
 		hex_grid_view.remove_combatants(enemy_ids)
 	_enemies = []
 
-	# FEAT-007 (US-005 / FR-005): auto-save immediately on winning combat --
-	# snapshot_from_session() THEN save_to_slot(0), in that exact order (this
-	# feature's own dedicated test_criterion). This is the ONLY call site in
-	# the whole codebase for either method -- never invoked from
-	# _on_round_over()'s undecided branch, mid-combat, or anywhere else --
-	# proven by tests/integration/test_auto_save_on_combat_won.gd's dedicated
-	# guard test asserting zero premature user://saves/slot_0.json writes.
 	var current_game_state := _current_game_state()
 	current_game_state.snapshot_from_session(_boot_scenario_path, scenario_session, _party)
 	current_game_state.save_to_slot(0)
 
-	# RISK-010 mitigation: explicit unsubscribe-before-resubscribe for every
 	if turn_controller != null:
 		if turn_controller.active_actor_changed.is_connected(_on_active_actor_changed):
 			turn_controller.active_actor_changed.disconnect(_on_active_actor_changed)
@@ -877,12 +741,6 @@ func _on_combat_won() -> void:
 
 	_game_mode = GameMode.EXPLORATION
 	_active_encounter_id = ""
-	# FEAT-324 (resolves DEF-001): re-activate ExplorationModeController's own
-	# `_exploration_active` mirror the instant EXPLORATION is resumed, so
-	# _on_exploration_hex_clicked()'s guard (the ONLY gate on click-driven
-	# movement now that hex_clicked is wired directly to it) stops rejecting
-	# clicks. Without this, exploration click-to-navigate would stay
-	# permanently dead after the first combat resolves.
 	_exploration.notify_game_mode_changed(true)
 
 	if hex_grid_view != null:
@@ -895,7 +753,6 @@ func _on_combat_won() -> void:
 func _on_end_turn_control_turn_ended(_result: Dictionary) -> void:
 	if turn_controller == null or round_session == null:
 		return
-	# FEAT-006 (round-stall fix): when end_current_turn() above ALREADY drove
 	if round_session.is_round_over():
 		await _on_round_over()
 		return
@@ -908,7 +765,6 @@ func _after_successful_move() -> void:
 		hex_grid_view.set_selectable_hexes([])
 	_refresh_off_guard_conditions()
 	if round_session != null:
-		# Phase C.3/C.4: on_active_actor_changed is instance-native (configures the
 		_on_active_actor_changed(round_session.current_actor_entity())
 
 
@@ -934,7 +790,7 @@ func _assert_candidate_reactors_ordering(ordered_candidates: Array, turn_order: 
 ## Recompute Off-Guard for all combatants via Flanking rules.
 ## Writes into combatant.conditions (affects live Strike resolution) AND pushes to StatusPanelView.
 func _refresh_off_guard_conditions() -> void:
-	var living_party: Array = _combat_query_service.living_combatants(_party)
+	var living_party:   Array = _combat_query_service.living_combatants(_party)
 	var living_enemies: Array = _combat_query_service.living_combatants(_enemies)
 
 	for combatant in _party:
@@ -962,43 +818,21 @@ func _build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String 
 	return _combatant_factory.build_enemy_combatant(enemy_path, hex_coord, combatant_id)
 
 
-## _current_game_state() -> Node — resolves the live CurrentGameState
-## autoload singleton via Engine.get_main_loop().root.get_node(...) rather
-## than referencing the bare `CurrentGameState` global identifier directly.
-##
-## Why: this project's pinned Godot 4.3 `godot --headless -s <script>
-## --check-only` static-compile mode (the "Entry-Point Smoke Test" CI gate,
-## tests/unit/test_ci_entry_point_smoke_feat135.py) does NOT resolve project
-## autoload singletons as global identifiers — verified to be a genuine,
-## script-agnostic engine limitation of that exact flag combination (ANY
-## autoload referenced by bare name fails the same way there, not just
-## CurrentGameState), not something specific to this file. Looking the
-## singleton up by absolute node path instead sidesteps that limitation
-## entirely (no compile-time global-identifier resolution involved) while
-## resolving to the exact SAME live singleton instance at real runtime —
-## Godot registers every autoload as a child of the SceneTree root named
-## exactly after its autoload key (see project.godot's [autoload] section:
-## `CurrentGameState="*res://autoload/current_game_state.gd"`). Also means
-## this seam works correctly even when called on a MainScene instance that
-## is not itself (yet) inside the SceneTree, since it never depends on
-## `self`'s own tree membership.
+# Godot 4.3 headless --check-only doesn't resolve autoload globals by bare name;
+# node-path lookup sidesteps that CI limitation while resolving the same singleton at runtime.
 func _current_game_state() -> Node:
 	var tree: SceneTree = Engine.get_main_loop()
 	return tree.root.get_node("CurrentGameState")
 
 
-## FEAT-005 (US-004/FR-004/ADR-003): party-position branching (scenario-
-## agnostic). Empty CurrentGameState.data.party_hex_positions -> no-op (new
-## game). Non-empty -> overrides hex_combatants/_party hex_coord (loaded
-## save) via Combatant.move_to(). Unknown combatant_id -> push_warning(), skipped.
 func _seed_party_hex_positions_from_current_game_state(hex_combatants: Array) -> void:
 	var positions: Array = _current_game_state().data.party_hex_positions
 	if positions.is_empty():
 		return
 	for entry in positions:
-		var id: String = String(entry.get("combatant_id", ""))
-		var hex := HexCoordClass.new(int(entry.get("q", 0)), int(entry.get("r", 0)))
-		var found := false
+		var id: String  = String(entry.get("combatant_id", ""))
+		var hex        := HexCoordClass.new(int(entry.get("q", 0)), int(entry.get("r", 0)))
+		var found      := false
 		for c in hex_combatants:
 			if c.combatant_id == id:
 				c.move_to(hex)
@@ -1013,32 +847,6 @@ func _seed_party_hex_positions_from_current_game_state(hex_combatants: Array) ->
 				break
 
 
-## FEAT-006 (US-004/FR-004/ADR-003, mitigates RISK-004): combatant HP/
-## stamina/conditions snapshot restoration (scenario-agnostic, mirrors
-## _seed_party_hex_positions_from_current_game_state()'s branching shape).
-## Empty CurrentGameState.data.combatant_snapshots -> no-op: every combatant
-## keeps its encounter-authored default hp_current/hp_max/stamina/
-## conditions (new-game path). Non-empty -> restores hp_current/stamina/
-## conditions onto every entry across `hex_combatants`, `_party`, and
-## `_enemies` whose display_id() (combatant_id, falling back to name)
-## matches the snapshot entry's combatant_id (loaded-save path).
-##
-## Per-entry fail-closed handling (logged, never silent, mismatch
-## handling):
-##   - a combatant_id absent from the live encounter -> push_warning()
-##     naming the id; the entry is skipped entirely (no mutation, no
-##     crash).
-##   - a present-but-malformed field (e.g. hp_current as a String instead
-##     of a number, or conditions as something other than an Array) ->
-##     the WHOLE entry is rejected via _combatant_snapshot_entry_is_well_
-##     formed() with a logged push_warning() naming the combatant_id and
-##     the offending field; the combatant keeps its encounter-authored
-##     defaults for every field (never a partial apply of that same
-##     entry's other, well-typed fields).
-##   - a missing OPTIONAL key (e.g. no "conditions" key at all) is NOT
-##     malformed: the present fields are still restored and the missing
-##     field is simply left at whatever value the combatant already
-##     carried (safe-default, no crash).
 func _seed_combatant_snapshots_from_current_game_state(hex_combatants: Array) -> void:
 	var snapshots: Array = _current_game_state().data.combatant_snapshots
 	if snapshots.is_empty():
@@ -1046,7 +854,7 @@ func _seed_combatant_snapshots_from_current_game_state(hex_combatants: Array) ->
 
 	var all_combatants: Array = hex_combatants + _party + _enemies
 	for entry in snapshots:
-		var id: String = String(entry.get("combatant_id", ""))
+		var id: String     = String(entry.get("combatant_id", ""))
 		var matches: Array = []
 		for c in all_combatants:
 			if c.display_id() == id:
@@ -1068,15 +876,7 @@ func _seed_combatant_snapshots_from_current_game_state(hex_combatants: Array) ->
 				c.conditions = (entry["conditions"] as Array).duplicate()
 
 
-## _combatant_snapshot_entry_is_well_formed(entry, combatant_id) -> bool —
-## FEAT-006 per-entry type validation (RISK-004 mitigation): a present
-## "hp_current"/"stamina" key must be numeric (int or float -- float is
-## accepted too because a save round-tripped through JSON.parse_string()
-## decodes every JSON number as float, per this project's JSON persistence
-## strategy); a present "conditions" key must be an Array. Logs a
-## push_warning() naming both the combatant_id and the offending field,
-## then returns false so the caller rejects the ENTIRE entry (never a
-## partial apply of its other fields).
+# JSON round-trip decodes all numbers as float; accept both int and float for numeric fields.
 func _combatant_snapshot_entry_is_well_formed(entry: Dictionary, combatant_id: String) -> bool:
 	if entry.has("hp_current") and not (entry["hp_current"] is int or entry["hp_current"] is float):
 		push_warning("MainScene: combatant_snapshots entry for combatant_id '%s' has malformed hp_current (expected a number) -- entry rejected, encounter-authored defaults used" % combatant_id)
@@ -1090,18 +890,6 @@ func _combatant_snapshot_entry_is_well_formed(entry: Dictionary, combatant_id: S
 	return true
 
 
-## _resolve_boot_scenario_path() -> String — FEAT-004 (US-004; FR-004,
-## ADR-005, mitigates RISK-006): resolves the boot scenario_path from the
-## CurrentGameState autoload's live `data` field. When CurrentGameState was
-## never initialized (data.scenario_path == "" — the default, safe-empty
-## GameStateData.new() shape), falls back to NewGameFactory.
-## create_prologue_state(), assigns the result back onto CurrentGameState.data
-## (so the running game genuinely has a valid game state from this point on,
-## not just a locally-resolved path), and push_warning()s exactly once so a
-## dropped/never-set CurrentGameState is observable without a debugger.
-## Never returns "" itself — an unloadable prologue scenario is
-## NewGameFactory's own fail-loud concern (see its file doc), not this
-## method's.
 func _resolve_boot_scenario_path() -> String:
 	var current_game_state := _current_game_state()
 	if current_game_state.data == null or current_game_state.data.scenario_path == "":
@@ -1110,24 +898,15 @@ func _resolve_boot_scenario_path() -> String:
 	return current_game_state.data.scenario_path
 
 
-## _first_encounter_resource_path(scenario) -> String — FEAT-004 (US-004;
-## FR-004, ADR-005): resolves the boot encounter's res:// path from
-## `scenario.encounter_entries[0].encounter` (replacing the former hardcoded
-## prologue-encounter path constant). Fail-closed: push_error()s and returns
-## "" (never a partial/garbage path) when `scenario` has no encounter_entries
-## at all, or its first entry carries no usable `.encounter` resource —
-## _ready() aborts boot entirely on an empty return (fail-closed, matches
-## this codebase's established "no safe fallback content exists" convention
-## for an authoring-time error).
 func _first_encounter_resource_path(scenario) -> String:
 	if scenario.encounter_entries.is_empty():
 		push_error("MainScene: boot scenario has no usable encounter entry")
 		return ""
 
 	var first_entry = scenario.encounter_entries[0]
-	var encounter = first_entry.encounter if first_entry != null else null
-	if encounter == null:
+	var enc = first_entry.encounter if first_entry != null else null
+	if enc == null:
 		push_error("MainScene: boot scenario has no usable encounter entry")
 		return ""
 
-	return encounter.resource_path
+	return enc.resource_path
