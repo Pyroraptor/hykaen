@@ -399,6 +399,17 @@ func test_application_layer_contains_no_new_port_or_use_case_class() -> void:
 	# flat, non-recursive dir.list_dir_begin() scan never descends into (see
 	# the FEAT-009 note above) so it never appears in actual_files and needs
 	# no whitelist entry of its own.
+	#
+	# FEAT-002 (US-003 / FR-003, NFR-002, NFR-003, game-state/new-game steel
+	# thread) deliberately extends this whitelist by ONE more file:
+	# core/application/new_game_factory.gd (NewGameFactory) -- the pure
+	# APPLICATION-layer use-case service that seeds a fresh GameStateData for
+	# the prologue or an arbitrary scenario path, per that feature's own
+	# explicit files_to_create. Not a port (no ports/ subdirectory entry), a
+	# static-only RefCounted use-case service depending only on the DOMAIN
+	# GameStateData/ScenarioResource/EncounterResource/PartyResource types,
+	# whitelisted here purely because this check's dir.list_dir_begin() scan
+	# is name-based, not type-based.
 	var expected_files: Array = [
 		"_build_defense_context.gd",
 		"ai_decision_port.gd",
@@ -407,6 +418,7 @@ func test_application_layer_contains_no_new_port_or_use_case_class() -> void:
 		"determine_outcome_use_case.gd",
 		"event_sink_port.gd",
 		"exploration_controller.gd",
+		"new_game_factory.gd",
 		"open_reaction_window_use_case.gd",
 		"reaction_window.gd",
 		"render_combat_log_use_case.gd",
