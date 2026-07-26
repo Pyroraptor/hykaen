@@ -487,6 +487,15 @@ class TestConsolidatedGutConfig:
 # its ORIGINAL regression (the -gconfig-ignored full-project fallback)
 # without falsely flagging this expected growth.
 
+# FEAT-003 (US-003 / FR-007, ExplorationController tile-passability
+# enforcement) note: tests/unit/core/application/
+# test_exploration_controller_pathfinding.gd was added under
+# tests/unit/core/application/ by the same established convention, so the
+# consolidated domain suite now legitimately collects 30 scripts, not 29;
+# the assertion below was updated 29 -> 30 so this guard still catches its
+# ORIGINAL regression (the -gconfig-ignored full-project fallback) without
+# falsely flagging this expected growth.
+
 # FEAT-136 / DEF-002 / DEF-003: the domain-suite command is now extracted
 # from scripts/test_command.sh (the canonical script), not from the
 # delegating root `test_command` wrapper, since that's where the stage
@@ -548,6 +557,7 @@ class TestConsolidatedDomainSuiteReallyPasses:
             "test_opportunistic_strike_eligibility",
             "test_resolve_stride_use_case",
             "test_resolve_dodge_step_use_case",
+            "test_exploration_controller_pathfinding",
         ):
             assert expected in output, (
                 f"Consolidated GUT run output must mention {expected}.gd"
@@ -557,18 +567,18 @@ class TestConsolidatedDomainSuiteReallyPasses:
         self, repo_root, canonical_script_text
     ):
         """US-014's consolidated domain suite must actually be SCOPED to the
-        domain/application test scripts under tests/unit/core (29, as of
-        FEAT-002's EncounterTileAdapter suite -- see the module-level note
-        above), not silently fall back to running the whole project's ~46
-        GUT scripts. This guards against the -gconfig-ignored regression
-        described above."""
+        domain/application test scripts under tests/unit/core (30, as of
+        FEAT-003's ExplorationController tile-passability suite -- see the
+        module-level note above), not silently fall back to running the
+        whole project's ~46 GUT scripts. This guards against the
+        -gconfig-ignored regression described above."""
         result = self._run(repo_root, canonical_script_text)
         output = result.stdout + result.stderr
         match = re.search(r"Scripts\s+(\d+)", output)
         assert match, f"Could not find a 'Scripts  N' summary line. Output:\n{output}"
         scripts_run = int(match.group(1))
-        assert scripts_run == 29, (
-            "The consolidated domain GUT suite stage must run exactly the 29 "
+        assert scripts_run == 30, (
+            "The consolidated domain GUT suite stage must run exactly the 30 "
             f"domain/application test scripts under tests/unit/core, but ran "
             f"{scripts_run}. This means scripts/test_command.sh's domain "
             f"suite stage is not actually scoped via tests/.gutconfig.json."
