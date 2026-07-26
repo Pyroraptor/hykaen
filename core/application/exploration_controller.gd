@@ -35,17 +35,31 @@
 ##     at the ScenarioSession boundary, per design notes' error_handling #3
 ##     "the invariant is enforced once ... not re-checked ad hoc").
 ##
-## TODO (deferred, RISK-007 / ADR-006 mitigation): move_party_member()'s
-## adjacency check does NOT enforce hex passability/terrain blocking this
-## iteration — any adjacent hex is a legal move target regardless of
-## authored tile data (e.g. HexTileDataResource walkability). Passability
-## enforcement is an explicitly deferred backlog item; when it lands it
-## belongs here, as an additional precondition alongside the adjacency
-## check below, not bolted on elsewhere.
+## FEAT-003 (US-003 / FR-007, ADR-003): move_party_member() now ALSO
+## enforces tile passability, but ONLY when an EncounterResource is
+## injected via the constructor's optional trailing `encounter` parameter.
+## When no encounter is injected (the parameter stays null, its default),
+## behavior is byte-for-byte identical to pre-iteration: adjacency is the
+## only precondition (RISK-007 mitigation, see this feature's explicit
+## regression test in
+## tests/unit/core/application/test_exploration_controller_pathfinding.gd).
+## When an encounter IS injected, the constructor builds a PassabilityQuery
+## Callable via core/geometry/encounter_tile_adapter.gd's
+## EncounterTileAdapter.make_is_passable(encounter) — the application layer
+## never touches EncounterResource/HexTileDataResource's schema directly,
+## only the Callable port shape (Clean Architecture: this file stays
+## application-layer, EncounterTileAdapter is the infrastructure/adapter
+## translation boundary). Ordering invariant (S0-4a): the passability check
+## runs strictly AFTER the adjacency check and strictly BEFORE any
+## party_hex_positions mutation — see move_party_member() below.
 ##
 ## Usage:
 ##   var controller := ExplorationController.new(session)
 ##   controller.combat_triggered.connect(_on_combat_triggered)
+##   var moved: bool = controller.move_party_member("hero", HexCoord.new(1, 0))
+##
+##   # With passability enforcement (FEAT-003):
+##   var controller := ExplorationController.new(session, encounter)
 ##   var moved: bool = controller.move_party_member("hero", HexCoord.new(1, 0))
 
 class_name ExplorationController
@@ -53,6 +67,7 @@ extends RefCounted
 
 const HexMathClass = preload("res://core/geometry/hex_math.gd")
 const TriggerTypeClass = preload("res://core/domain/trigger_type.gd")
+const EncounterTileAdapterClass = preload("res://core/geometry/encounter_tile_adapter.gd")
 
 ## Emitted at most once per successful move (first-match-wins, ADR-005),
 ## carrying the encounter_id of the ScenarioEncounterEntryResource whose
@@ -66,21 +81,46 @@ signal combat_triggered(encounter_id: String)
 ## holder of the same session instance.
 var _session
 
+## PassabilityQuery port Callable (HexCoord) -> bool, built from the
+## injected `encounter` at construction time via EncounterTileAdapter
+## (FEAT-003). Stays null when no encounter is injected — move_party_member()
+## treats a null _is_passable as "passability enforcement is inert",
+## preserving pre-iteration no-encounter behavior exactly (RISK-007).
+var _is_passable
+
 ## The ScenarioSession is a REQUIRED collaborator (there is no meaningful
 ## "no session" mode for an exploration controller), injected via the
 ## constructor rather than defaulted, matching this codebase's established
 ## constructor-injection convention for mandatory dependencies.
-func _init(session) -> void:
+##
+## `encounter` (FEAT-003 / US-003, ADR-003) is an OPTIONAL trailing
+## parameter defaulting to null — existing single-argument call sites
+## (`ExplorationController.new(session)`) are entirely unaffected. When a
+## non-null EncounterResource is supplied, this constructor builds the
+## PassabilityQuery Callable used by move_party_member() below via
+## EncounterTileAdapter.make_is_passable(encounter); when null, passability
+## enforcement stays inert (NFR-001).
+func _init(session, encounter = null) -> void:
 	_session = session
+	if encounter != null:
+		_is_passable = EncounterTileAdapterClass.make_is_passable(encounter)
 
 
 ## move_party_member(combatant_id, target_hex) -> bool
 ##
-## FAIL-CLOSED, no-exception movement (design notes' api_contracts #1):
+## FAIL-CLOSED, no-exception movement (design notes' api_contracts #1 and
+## #3, FEAT-003 extension):
 ##   - combatant_id not present in _session.party_hex_positions -> returns
 ##     false, no mutation.
 ##   - target_hex not exactly hex-distance 1 from the combatant's current
 ##     hex -> returns false, no mutation.
+##   - an encounter was injected (constructor's optional `encounter` param)
+##     AND _is_passable.call(target_hex) is false -> returns false, no
+##     mutation. This check runs strictly AFTER the adjacency check above
+##     and strictly BEFORE the mutation below (S0-4a ordering invariant).
+##     When no encounter was injected, _is_passable is null and this check
+##     is entirely skipped — adjacency remains the only precondition,
+##     byte-for-byte matching pre-iteration behavior (RISK-007).
 ##   - otherwise: _session.party_hex_positions[combatant_id] is updated to
 ##     target_hex, _evaluate_triggers(target_hex) runs (which may emit
 ##     combat_triggered at most once), and true is returned.
@@ -90,10 +130,15 @@ func move_party_member(combatant_id: String, target_hex) -> bool:
 
 	var current_hex = _session.party_hex_positions[combatant_id]
 
-	# TODO(RISK-007 / ADR-006): passability/terrain-blocking enforcement is
-	# deferred — this only checks adjacency, never authored tile
-	# walkability. See file-level doc for the full deferred-scope note.
 	if HexMathClass.hex_distance(current_hex, target_hex) != 1:
+		return false
+
+	# FEAT-003 / US-003 / FR-007 (ADR-003, S0-4a ordering invariant): the
+	# passability check runs strictly AFTER the adjacency check above and
+	# strictly BEFORE any party_hex_positions mutation below. Inert
+	# (_is_passable == null) when no encounter was injected, preserving
+	# pre-iteration no-encounter behavior exactly (RISK-007).
+	if _is_passable != null and not _is_passable.call(target_hex):
 		return false
 
 	_session.party_hex_positions[combatant_id] = target_hex
