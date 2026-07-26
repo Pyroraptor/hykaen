@@ -190,9 +190,10 @@ func test_main_scene_source_no_longer_declares_prologue_path_constants() -> void
 func test_main_scene_source_reads_scenario_path_from_current_game_state() -> void:
 	var content: String = _read_main_scene_source()
 	assert_true(
-		content.contains("CurrentGameState.data.scenario_path") or content.contains("CurrentGameState.data"),
-		"MainScene._ready() must read scenario_path from CurrentGameState.data (FEAT-004) instead of a hardcoded " +
-		"scenario-path constant"
+		content.contains("_current_game_state()") or content.contains("current_game_state.data"),
+		"MainScene._ready() must read scenario_path through the _current_game_state() private accessor " +
+		"(FEAT-004) instead of a hardcoded scenario-path constant -- MainScene no longer references the bare " +
+		"CurrentGameState autoload symbol directly; it is encapsulated behind _current_game_state() per ADR-005"
 	)
 
 
