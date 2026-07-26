@@ -66,6 +66,15 @@ const GameStateDataClass = preload("res://data/game_state/game_state_data.gd")
 const NewGameFactoryClass = preload("res://core/application/new_game_factory.gd")
 const HexCoordClass = preload("res://core/geometry/hex_coord.gd")
 
+## TITLE_SCREEN_PATH — the composition-root contract FIX-001 established and
+## fixed in project.godot's `application/run/main_scene` setting (resolving
+## DEF-001). This constant is used ONLY as the expected value the live
+## ProjectSettings entry is asserted against below (test_criteria #1) — it is
+## deliberately NOT used to load/instantiate the Title Screen scene anywhere
+## in this file (that would silently reintroduce DEF-002's drift risk: the
+## test's own instantiation path must be sourced from the SAME ProjectSettings
+## value project.godot actually boots with, so the two can never drift apart
+## again undetected). See _instantiate_title_screen() below.
 const TITLE_SCREEN_PATH: String = "res://scenes/TitleScreen.tscn"
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 
@@ -103,9 +112,25 @@ func after_each() -> void:
 	_cleanup_fixtures()
 
 
+## _instantiate_title_screen() — FEAT-338 (DEF-002 fix): loads the Title
+## Screen scene from `ProjectSettings.get_setting("application/run/main_scene")`
+## — the SAME composition-root contract project.godot's real boot sequence
+## uses (fixed under FIX-001) — rather than an independently hardcoded
+## TITLE_SCREEN_PATH constant. This is what turns this helper into a genuine
+## end-to-end smoke check of the project's actual entry point: if
+## project.godot's run/main_scene were ever reverted/pointed elsewhere, this
+## helper (and every assertion that follows it) would immediately load and
+## exercise whatever THAT points at instead of silently continuing to load
+## the "right" scene from a stale local constant — surfacing the drift
+## instantly rather than letting the suite pass anyway (the exact gap DEF-002
+## identified in the pre-fix version of this file).
 func _instantiate_title_screen():
-	var packed: PackedScene = ResourceLoader.load(TITLE_SCREEN_PATH)
-	assert_not_null(packed, "res://scenes/TitleScreen.tscn (the project's real title/entry scene) must load as a PackedScene")
+	var configured_main_scene: String = ProjectSettings.get_setting("application/run/main_scene", "")
+	var packed: PackedScene = ResourceLoader.load(configured_main_scene)
+	assert_not_null(
+		packed,
+		"ProjectSettings' application/run/main_scene ('%s') must load as a PackedScene" % configured_main_scene
+	)
 	var instance = packed.instantiate()
 	add_child_autofree(instance)
 	return instance
@@ -154,6 +179,28 @@ func _read_slot_0_json() -> Dictionary:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_title_screen_new_game_win_combat_relaunch_continue_reloads_exact_saved_state() -> void:
+	# ── Criterion 0 (FEAT-338 / DEF-002 fix): the project's REAL boot
+	# configuration must target TitleScreen.tscn as its composition root
+	# (the FIX-001 contract for DEF-001), asserted BEFORE any New Game/
+	# Continue flow is exercised below. Without this explicit early
+	# assertion, the rest of this steel thread could pass purely because
+	# _instantiate_title_screen() happened to load the right scene from its
+	# own hardcoded constant -- even if project.godot's actual
+	# `application/run/main_scene` had regressed back to res://MainScene.tscn
+	# (DEF-001 re-injected). Asserting it here, directly against the live
+	# ProjectSettings singleton the real engine boots with, turns this test
+	# into a genuine end-to-end smoke check of the steel thread's entry
+	# point: a reverted project.godot fails THIS assertion immediately,
+	# rather than the suite silently passing anyway.
+	var configured_main_scene: String = ProjectSettings.get_setting("application/run/main_scene", "")
+	assert_eq(
+		configured_main_scene, TITLE_SCREEN_PATH,
+		"ProjectSettings.get_setting('application/run/main_scene') must equal "
+		+ "res://scenes/TitleScreen.tscn (FIX-001's composition-root contract) BEFORE any "
+		+ "New Game/Continue flow is exercised -- a regression here (e.g. DEF-001 "
+		+ "re-injected) must fail this steel thread immediately, not silently pass (DEF-002)"
+	)
+
 	# ── Criterion 1: Title Screen -> New Game -> MainScene boots seeded
 	# prologue party/encounter from CurrentGameState.data. ───────────────────
 	var title_a = _instantiate_title_screen()
