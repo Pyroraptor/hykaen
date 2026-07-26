@@ -109,6 +109,24 @@ const PATH_OVERLAY_WIDTH: float = 3.0
 ## decide whether the clicked hex is actually a legal Step destination.
 signal hex_clicked(hex_coord)
 
+## hex_hovered(hex_coord) -- FEAT-007 (US-007 / FR-009): mirrors hex_clicked's
+## contract/shape (a single HexCoord parameter, no movement-rule validation
+## of its own -- ADR-001), but fires on mouse MOTION rather than a click, and
+## ONLY when the hovered hex actually changes (see _last_hovered_hex below)
+## -- never once per motion-event/frame, so a caller wiring this straight
+## into a per-hover pathfinding call (e.g. presentation/
+## exploration_mode_controller.gd's ExplorationModeController) never
+## recomputes a path redundantly while the mouse sits still within the same
+## hex.
+##
+## `hex_coord` is `null` exactly once per hover-then-leave gesture -- the
+## "mouse left this view" case (this view's NOTIFICATION_WM_MOUSE_EXIT
+## handler, see _notification() below, and the directly-callable
+## notify_mouse_exited() test/inspection hook) -- so a consumer can treat a
+## single signal as BOTH "hovering this hex" (non-null) and "no longer
+## hovering anything" (null) without a second, separate signal.
+signal hex_hovered(hex_coord)
+
 ## token_move_failed(combatant_id) -- FEAT-226 / US-005 (resolves FIND-222):
 ## emitted by move_token() whenever `combatant_id` has no on-screen token on
 ## record (e.g. load_combatants() was never called, or the id is unknown/
@@ -116,6 +134,13 @@ signal hex_clicked(hex_coord)
 ## rather than (or in addition to) checking move_token()'s own bool return
 ## value -- see move_token()'s own doc for the full TOKEN_NOT_FOUND contract.
 signal token_move_failed(combatant_id)
+
+## FEAT-007 (US-007 / FR-009): the HexCoord most recently emitted via
+## hex_hovered (null when no hex is currently considered "hovered", i.e.
+## before the first motion event or after a mouse-leave). Used purely to
+## de-duplicate hex_hovered emissions ("on every hover-target CHANGE", not
+## on every motion event/frame) -- never read by any caller.
+var _last_hovered_hex = null
 
 
 func _draw() -> void:
@@ -168,6 +193,63 @@ func _is_selectable_hex(coord) -> bool:
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		hex_clicked.emit(pixel_to_axial_with_offset(get_local_mouse_position()))
+	elif event is InputEventMouseMotion:
+		_handle_mouse_motion(event)
+
+
+## _handle_mouse_motion(event) -> void -- FEAT-007 (US-007 / FR-009): decodes
+## the CURRENT mouse position into a HexCoord (pixel_to_axial_with_offset()
+## applied to get_local_mouse_position() -- the SAME offset-aware transform
+## + local-position convention _unhandled_input()'s click handling already
+## uses above, so a hover and a click over the same on-screen point always
+## resolve to the same hex) and delegates the "did the hovered hex actually
+## change" decision to _report_hovered_hex() below.
+func _handle_mouse_motion(_event: InputEventMouseMotion) -> void:
+	_report_hovered_hex(pixel_to_axial_with_offset(get_local_mouse_position()))
+
+
+## _report_hovered_hex(hovered_hex) -> void -- FEAT-007 (US-007 / FR-009):
+## emits hex_hovered(hovered_hex) ONLY when `hovered_hex` differs from
+## `_last_hovered_hex` -- de-duplicating so a caller wiring hex_hovered
+## straight into a per-hover pathfinding call never recomputes on every
+## motion event/frame while the mouse sits still within the same hex.
+## Factored out from _handle_mouse_motion() specifically so this
+## de-duplication rule is directly unit-testable against an explicit
+## HexCoord, without depending on this view's real (headless-unreliable)
+## get_local_mouse_position() -- mirrors this codebase's established
+## "call the handler directly" test convention (e.g. tests/boot/
+## test_exploration_click_to_move.gd calling `_on_exploration_hex_clicked()`
+## directly rather than simulating a real OS click).
+func _report_hovered_hex(hovered_hex) -> void:
+	if _last_hovered_hex != null and hovered_hex.equals(_last_hovered_hex):
+		return
+	_last_hovered_hex = hovered_hex
+	hex_hovered.emit(hovered_hex)
+
+
+## _notification(what) -> void -- FEAT-007 (US-007 / FR-009): on
+## NOTIFICATION_WM_MOUSE_EXIT (the mouse leaving the game window), emits
+## hex_hovered(null) -- see hex_hovered's own doc for why `null` is this
+## signal's "no longer hovering anything" case -- and resets
+## `_last_hovered_hex` so the very next motion event (even one that maps
+## back to the same hex the mouse was over before it left) is treated as a
+## genuine hover-target change and re-emitted. Delegates to
+## notify_mouse_exited() so both the real engine notification AND a direct,
+## test/inspection-friendly call site share exactly one implementation
+## (ADR-006, no duplicated seam).
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_MOUSE_EXIT:
+		notify_mouse_exited()
+
+
+## notify_mouse_exited() -> void -- FEAT-007 (US-007 / FR-009): the
+## directly-callable counterpart to _notification()'s
+## NOTIFICATION_WM_MOUSE_EXIT handling (ADR-006 shared-callable pattern) --
+## always safe to call, idempotent (a second call with no intervening
+## hover is a harmless re-emission of hex_hovered(null)).
+func notify_mouse_exited() -> void:
+	_last_hovered_hex = null
+	hex_hovered.emit(null)
 
 
 ## _hex_corner_offset(size, corner_index) → Vector2 — the offset of one of

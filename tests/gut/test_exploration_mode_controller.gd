@@ -38,6 +38,7 @@ const ExplorationControllerClass = preload("res://core/application/exploration_c
 const CombatantClass = preload("res://core/domain/combatant.gd")
 const EncounterClass = preload("res://core/combat/encounter.gd")
 const HexCoordClass = preload("res://core/geometry/hex_coord.gd")
+const HexGridViewScene: PackedScene = preload("res://presentation/hex_grid_view.tscn")
 
 const MAIN_SCENE_SCRIPT_PATH: String = "res://MainScene.gd"
 const PROLOGUE_SCENARIO_PATH: String = "res://data/scenarios/prologue_scenario.tres"
@@ -49,12 +50,23 @@ const PROLOGUE_SEED: int = 42
 # Test doubles
 # ══════════════════════════════════════════════════════════════════════════
 
-## _FakeHexGridView — a hand-written fake exposing only the `hex_clicked`
-## signal boot() connects to (this codebase's established "small real fake"
-## convention) — no real HexGridView node/rendering required.
+## _FakeHexGridView — a hand-written fake exposing the `hex_clicked` AND
+## (FEAT-007 / US-007 / FR-009) `hex_hovered` signals boot() connects to
+## (this codebase's established "small real fake" convention) — no real
+## HexGridView node/rendering required. set_path_overlay()/clear_overlays()
+## are harmless no-op stubs, present only so a stray _on_hex_hovered()
+## invocation against THIS fake (none of the pre-FEAT-007 tests below
+## actually trigger one) could never crash on a missing method.
 class _FakeHexGridView:
 	extends RefCounted
 	signal hex_clicked(hex_coord)
+	signal hex_hovered(hex_coord)
+
+	func set_path_overlay(_path: Array, _color: Color) -> void:
+		pass
+
+	func clear_overlays() -> void:
+		pass
 
 
 ## _FakeHexCombatant — a minimal duck-typed stand-in for the
@@ -323,3 +335,178 @@ func test_main_scene_boot_exploration_mode_delegates_construction_to_exploration
 	assert_true(body.contains("_exploration.boot("), "_boot_exploration_mode() must delegate construction to _exploration.boot()")
 	assert_false(body.contains("ScenarioSessionClass.new("), "MainScene must not directly construct a ScenarioSession itself (duplicated logic)")
 	assert_false(body.contains("ExplorationControllerClass.new("), "MainScene must not directly construct an ExplorationController itself (duplicated logic)")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# FEAT-007 (US-007 / FR-009): hover-driven path preview.
+#
+# Uses a REAL, instantiated HexGridView (rather than _FakeHexGridView) for
+# every test below, because these behaviors are only observable through
+# HexGridView's real set_path_overlay()/get_path_overlay()/clear_overlays()
+# surface (mirrors tests/unit/presentation/test_hex_grid_view_overlays.gd's
+# own "real scene, not a fake" convention for overlay assertions).
+# ══════════════════════════════════════════════════════════════════════════
+
+func _make_real_hex_grid_view():
+	var hex_grid_view = HexGridViewScene.instantiate()
+	add_child_autofree(hex_grid_view)
+	return hex_grid_view
+
+
+func _make_controller_with_real_hex_grid_view(hex_grid_view):
+	var controller := ExplorationModeControllerClass.new()
+	controller.setup({
+		"hex_grid_view": hex_grid_view,
+		"scenario_path": PROLOGUE_SCENARIO_PATH,
+	})
+	return controller
+
+
+# ── Criterion — selected_party_member_id defaults to the first seeded party member ──
+
+func test_boot_defaults_selected_party_member_id_to_the_first_seeded_hex_combatant() -> void:
+	var hex_grid_view := _make_real_hex_grid_view()
+	var controller := _make_controller_with_real_hex_grid_view(hex_grid_view)
+
+	controller.boot([
+		_FakeHexCombatant.new("hero_a", HexCoordClass.new(0, 0)),
+		_FakeHexCombatant.new("hero_b", HexCoordClass.new(-1, 0)),
+	])
+
+	assert_eq(
+		controller.selected_party_member_id, "hero_a",
+		"boot() must default selected_party_member_id to the FIRST seeded hex_combatants entry"
+	)
+
+
+func test_boot_does_not_override_an_already_assigned_selected_party_member_id() -> void:
+	var hex_grid_view := _make_real_hex_grid_view()
+	var controller := _make_controller_with_real_hex_grid_view(hex_grid_view)
+	controller.selected_party_member_id = "hero_b"
+
+	controller.boot([
+		_FakeHexCombatant.new("hero_a", HexCoordClass.new(0, 0)),
+		_FakeHexCombatant.new("hero_b", HexCoordClass.new(-1, 0)),
+	])
+
+	assert_eq(
+		controller.selected_party_member_id, "hero_b",
+		"boot() must never overwrite an already-assigned selected_party_member_id"
+	)
+
+
+# ── Criterion — hovering computes+displays a path via HexPathfinder.find_path ──
+
+func test_hovering_a_reachable_hex_displays_a_path_from_the_selected_party_member() -> void:
+	var hex_grid_view := _make_real_hex_grid_view()
+	var controller := _make_controller_with_real_hex_grid_view(hex_grid_view)
+	controller.boot([_FakeHexCombatant.new("player_0", HexCoordClass.new(0, 0))])
+
+	hex_grid_view.hex_hovered.emit(HexCoordClass.new(2, 0))
+
+	var path: Array = hex_grid_view.get_path_overlay()
+	assert_false(path.is_empty(), "hovering a reachable hex must display a non-empty path overlay")
+	assert_true(path[0].equals(HexCoordClass.new(0, 0)), "the displayed path must start at the selected party member's current hex")
+	assert_true(path[path.size() - 1].equals(HexCoordClass.new(2, 0)), "the displayed path must end at the hovered hex")
+
+
+# ── Criterion — the overlay clears on mouse-leave (hex_hovered(null)) ──
+
+func test_hovering_null_clears_the_path_overlay() -> void:
+	var hex_grid_view := _make_real_hex_grid_view()
+	var controller := _make_controller_with_real_hex_grid_view(hex_grid_view)
+	controller.boot([_FakeHexCombatant.new("player_0", HexCoordClass.new(0, 0))])
+
+	hex_grid_view.hex_hovered.emit(HexCoordClass.new(2, 0))
+	assert_false(hex_grid_view.get_path_overlay().is_empty(), "fixture assumption: a path must be displayed before the mouse-leave assertion")
+
+	hex_grid_view.notify_mouse_exited()
+
+	assert_eq(hex_grid_view.get_path_overlay(), [], "notify_mouse_exited() (mouse-leave) must clear the hover-preview path overlay")
+
+
+# ── Criterion — the overlay clears when game mode switches away from EXPLORATION ──
+
+func test_notify_game_mode_changed_false_clears_the_path_overlay() -> void:
+	var hex_grid_view := _make_real_hex_grid_view()
+	var controller := _make_controller_with_real_hex_grid_view(hex_grid_view)
+	controller.boot([_FakeHexCombatant.new("player_0", HexCoordClass.new(0, 0))])
+
+	hex_grid_view.hex_hovered.emit(HexCoordClass.new(2, 0))
+	assert_false(hex_grid_view.get_path_overlay().is_empty(), "fixture assumption: a path must be displayed before the mode-switch assertion")
+
+	controller.notify_game_mode_changed(false)
+
+	assert_eq(hex_grid_view.get_path_overlay(), [], "notify_game_mode_changed(false) must clear the hover-preview path overlay")
+	assert_false(controller.is_exploration_active(), "notify_game_mode_changed(false) must mark exploration as no longer active")
+
+
+func test_hover_is_a_no_op_once_exploration_mode_is_inactive() -> void:
+	var hex_grid_view := _make_real_hex_grid_view()
+	var controller := _make_controller_with_real_hex_grid_view(hex_grid_view)
+	controller.boot([_FakeHexCombatant.new("player_0", HexCoordClass.new(0, 0))])
+	controller.notify_game_mode_changed(false)
+
+	hex_grid_view.hex_hovered.emit(HexCoordClass.new(2, 0))
+
+	assert_eq(
+		hex_grid_view.get_path_overlay(), [],
+		"a hover received while exploration mode is inactive must not (re)display a path overlay"
+	)
+
+
+func test_notify_game_mode_changed_true_re_enables_hover() -> void:
+	var hex_grid_view := _make_real_hex_grid_view()
+	var controller := _make_controller_with_real_hex_grid_view(hex_grid_view)
+	controller.boot([_FakeHexCombatant.new("player_0", HexCoordClass.new(0, 0))])
+	controller.notify_game_mode_changed(false)
+
+	controller.notify_game_mode_changed(true)
+	hex_grid_view.hex_hovered.emit(HexCoordClass.new(1, 0))
+
+	assert_false(
+		hex_grid_view.get_path_overlay().is_empty(),
+		"re-activating exploration mode must let a subsequent hover display a path overlay again"
+	)
+
+
+# ── Criterion — passability/cost Callables are built ONCE, never per hover ──
+
+func test_is_passable_and_move_cost_callables_are_never_rebuilt_across_multiple_hovers() -> void:
+	var hex_grid_view := _make_real_hex_grid_view()
+	var controller := _make_controller_with_real_hex_grid_view(hex_grid_view)
+	controller.boot([_FakeHexCombatant.new("player_0", HexCoordClass.new(0, 0))])
+
+	var is_passable_fn_after_boot: Callable = controller.get_is_passable_fn()
+	var move_cost_fn_after_boot: Callable = controller.get_move_cost_fn()
+	assert_true(is_passable_fn_after_boot.is_valid(), "boot() must build a valid is_passable Callable")
+	assert_true(move_cost_fn_after_boot.is_valid(), "boot() must build a valid move_cost Callable")
+
+	# Several distinct hovers -- if the Callables were rebuilt per hover
+	# event (violating ADR-006's shared-callable/"built once" contract),
+	# get_is_passable_fn()/get_move_cost_fn() would no longer be the SAME
+	# Callable object after this loop.
+	for target in [HexCoordClass.new(1, 0), HexCoordClass.new(1, -1), HexCoordClass.new(0, -1)]:
+		hex_grid_view.hex_hovered.emit(target)
+
+	assert_eq(
+		controller.get_is_passable_fn(), is_passable_fn_after_boot,
+		"the is_passable Callable must be the SAME object after multiple hovers (constructed once per controller lifetime, ADR-006)"
+	)
+	assert_eq(
+		controller.get_move_cost_fn(), move_cost_fn_after_boot,
+		"the move_cost Callable must be the SAME object after multiple hovers (constructed once per controller lifetime, ADR-006)"
+	)
+
+
+# ── Defensive: hover with no/unknown selected party member is a safe no-op ──
+
+func test_hover_with_no_selected_party_member_is_a_safe_no_op() -> void:
+	var hex_grid_view := _make_real_hex_grid_view()
+	var controller := _make_controller_with_real_hex_grid_view(hex_grid_view)
+	controller.boot([])  # no hex_combatants -> selected_party_member_id stays ""
+
+	hex_grid_view.hex_hovered.emit(HexCoordClass.new(1, 0))
+
+	# no crash -- reaching this line is part of the assertion.
+	assert_eq(hex_grid_view.get_path_overlay(), [], "a hover with no selected party member must never display a path overlay")

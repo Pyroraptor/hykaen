@@ -58,6 +58,42 @@
 ## the first a no-op, so scenario_session/exploration_controller are never
 ## reconstructed (which would reset party_hex_positions) and hex_clicked/
 ## combat_triggered are never double-connected.
+##
+## FEAT-007 (US-007 / FR-009): boot() ALSO wires hex_grid_view.hex_hovered ->
+## this controller's own _on_hex_hovered() (idempotency-guarded exactly like
+## hex_clicked above) and builds this controller's cached PassabilityQuery/
+## MoveCostQuery Callables (_is_passable_fn/_move_cost_fn) EXACTLY ONCE, via
+## core/geometry/encounter_tile_adapter.gd's EncounterTileAdapter -- never
+## rebuilt per hover event (ADR-006 shared-callable pattern: the SAME
+## Callables a future execution/movement path would use, so preview and
+## execution can never disagree about what's passable). The tile source is
+## the scenario's first active encounter entry's EncounterResource (the
+## terrain the party is walking through BEFORE any proximity trigger fires
+## -- see data/scenarios/prologue_scenario.tres's own encounter_entries[0].
+## encounter, which authors exactly this terrain); when the scenario has no
+## encounter entries at all (or no scenario loaded), the Callables fall back
+## to the open-world default (always passable, cost 1.0), mirroring
+## core/application/exploration_controller.gd's own "no encounter injected"
+## NFR-001 precedent.
+##
+## On every hex_hovered(hex_coord) with hex_coord non-null, while exploration
+## is active (see notify_game_mode_changed()) and `selected_party_member_id`
+## names a party member with a known scenario_session.party_hex_positions
+## entry, computes core/geometry/hex_pathfinder.gd's
+## HexPathfinder.find_path() from that member's current hex to the hovered
+## hex using the cached Callables, and displays the result via
+## hex_grid_view.set_path_overlay() -- an unreachable/impassable hover target
+## resolves to an empty path, which set_path_overlay([]) always renders as
+## "nothing" (no crash, API contract #6), so an unreachable hover is a silent
+## no-preview no-op rather than a stale/wrong overlay.
+##
+## The overlay is cleared (hex_grid_view.clear_overlays()) on a `null`
+## hex_hovered emission (HexGridView's own "mouse left this view" case, see
+## its own doc) and when notify_game_mode_changed(false) transitions
+## exploration from active to inactive (US-007's own "clear on mode switch
+## away from exploration" requirement) -- both funnel through the SAME
+## _clear_hover_preview() so there is exactly one overlay-clearing code path
+## for this feature (ADR-006, no duplicated seam).
 
 class_name ExplorationModeController
 extends RefCounted
@@ -68,6 +104,8 @@ const LoadScenarioEncounterUseCaseClass = preload("res://core/application/use_ca
 const CombatantClass = preload("res://core/domain/combatant.gd")
 const RNGClass = preload("res://core/rules/rng.gd")
 const EncounterClass = preload("res://core/combat/encounter.gd")
+const HexPathfinderClass = preload("res://core/geometry/hex_pathfinder.gd")
+const EncounterTileAdapterClass = preload("res://core/geometry/encounter_tile_adapter.gd")
 
 ## Emitted by load_encounter_from_scenario() on success, carrying the
 ## encounter_id that was just loaded.
@@ -101,6 +139,43 @@ var _scenario_path: String = ""
 var _on_hex_clicked_target: Callable = Callable()
 var _on_combat_triggered_target: Callable = Callable()
 var _booted: bool = false
+
+## FEAT-007 (US-007 / FR-009): the party member whose hex the hover-preview
+## path is computed FROM. Defaults empty ("no selection" -- hover is a
+## no-op); boot() defaults this to the FIRST hex_combatants entry seeded
+## into scenario_session.party_hex_positions (mirroring MainScene.gd's own
+## `_party[0]` "the active party member" convention used by hex-click
+## movement) whenever it is still empty, so a caller never has to select a
+## party member explicitly just to see the default steel-thread behavior --
+## but MAY reassign this field directly (this codebase's established
+## "settable public field, not a dedicated setter method" convention, see
+## `exploration_controller`/`scenario_session` above) to preview a path from
+## a different party member.
+var selected_party_member_id: String = ""
+
+## FEAT-007 (US-007 / FR-009, ADR-006): the cached PassabilityQuery/
+## MoveCostQuery Callables this controller's own _on_hex_hovered() hands to
+## HexPathfinder.find_path(), built EXACTLY ONCE by boot() (see boot()'s own
+## doc) via EncounterTileAdapterClass.make_is_passable()/make_move_cost(), or
+## a trivial always-passable/unit-cost pair when no encounter data is
+## available. Invalid (Callable()) until boot() has run.
+var _is_passable_fn: Callable = Callable()
+var _move_cost_fn: Callable = Callable()
+
+## FEAT-007 (US-007 / FR-009): true while EXPLORATION mode is the active game
+## mode (this controller's own local mirror of MainScene.gd's `_game_mode`,
+## kept intentionally decoupled from MainScene's GameMode enum -- Clean
+## Architecture: this presentation-layer controller only needs a boolean,
+## never MainScene's own type). Defaults true (mirrors MainScene.gd's own
+## `_game_mode` defaulting to GameMode.EXPLORATION at boot). See
+## notify_game_mode_changed().
+var _exploration_active: bool = true
+
+## FEAT-007 (US-007 / FR-009): the preview path color the hover-preview
+## overlay is drawn with -- distinct from a future click-to-navigate
+## execution overlay's own color (not introduced by this feature), so a
+## later feature can tell the two apart on hex_grid_view at a glance.
+const HOVER_PREVIEW_COLOR: Color = Color(1.0, 1.0, 1.0, 0.6)
 
 
 ## setup(deps) -> void — injects this controller's collaborators. Recognized
@@ -157,8 +232,35 @@ func boot(hex_combatants: Array) -> void:
 			for i in range(min(party_count, hex_combatants.size())):
 				var party_hex_combatant = hex_combatants[i]
 				scenario_session.party_hex_positions[party_hex_combatant.combatant_id] = party_hex_combatant.hex_coord
+				# FEAT-007 (US-007 / FR-009): default `selected_party_member_id`
+				# to the FIRST seeded party member (mirrors MainScene.gd's own
+				# `_party[0]` convention for hex-click movement) so hover
+				# preview works out of the box without a caller having to
+				# select a party member explicitly. Never overwrites an
+				# already-set selection (e.g. one assigned before boot()).
+				if selected_party_member_id == "":
+					selected_party_member_id = party_hex_combatant.combatant_id
 
 	exploration_controller = ExplorationControllerClass.new(scenario_session)
+
+	# FEAT-007 (US-007 / FR-009, ADR-006): build the cached PassabilityQuery/
+	# MoveCostQuery Callables EXACTLY ONCE for this controller's lifetime --
+	# never rebuilt inside _on_hex_hovered(), no matter how many hover events
+	# arrive. Sourced from the scenario's first active encounter entry's
+	# EncounterResource (the terrain the party is walking through before any
+	# proximity trigger fires); falls back to the open-world default
+	# (always passable, cost 1.0) when no such entry/encounter exists,
+	# mirroring ExplorationController's own "no encounter injected" NFR-001
+	# precedent.
+	var pathfinding_encounter = null
+	if scenario_session.scenario != null and not scenario_session.scenario.encounter_entries.is_empty():
+		pathfinding_encounter = scenario_session.scenario.encounter_entries[0].encounter
+	if pathfinding_encounter != null:
+		_is_passable_fn = EncounterTileAdapterClass.make_is_passable(pathfinding_encounter)
+		_move_cost_fn = EncounterTileAdapterClass.make_move_cost(pathfinding_encounter)
+	else:
+		_is_passable_fn = func(_hex_coord): return true
+		_move_cost_fn = func(_hex_coord): return 1.0
 
 	if _on_combat_triggered_target.is_valid():
 		if not exploration_controller.combat_triggered.is_connected(_on_combat_triggered_target):
@@ -167,6 +269,16 @@ func boot(hex_combatants: Array) -> void:
 	if _hex_grid_view != null and _on_hex_clicked_target.is_valid():
 		if not _hex_grid_view.hex_clicked.is_connected(_on_hex_clicked_target):
 			_hex_grid_view.hex_clicked.connect(_on_hex_clicked_target)
+
+	# FEAT-007 (US-007 / FR-009): wire HexGridView's hex_hovered straight into
+	# this controller's own _on_hex_hovered() -- unlike hex_clicked/
+	# combat_triggered above, this target is never caller-injected (no
+	# "on_hex_hovered" setup() key), because the hover-preview behavior
+	# itself belongs entirely to this controller (US-007's own scope), not to
+	# a caller-supplied handler.
+	if _hex_grid_view != null:
+		if not _hex_grid_view.hex_hovered.is_connected(_on_hex_hovered):
+			_hex_grid_view.hex_hovered.connect(_on_hex_hovered)
 
 
 ## load_encounter_from_scenario(scenario, encounter_id, seed) -> bool —
@@ -228,3 +340,93 @@ func resume_after_combat_won(encounter_id: String) -> void:
 			_hex_grid_view.hex_clicked.connect(_on_hex_clicked_target)
 
 	combat_won_return_to_exploration.emit()
+
+
+## _on_hex_hovered(hex_coord) -> void — FEAT-007 (US-007 / FR-009): connected
+## to hex_grid_view.hex_hovered by boot() above. `hex_coord == null`
+## (HexGridView's own "mouse left this view" case) always clears the
+## preview overlay via _clear_hover_preview() and returns.
+##
+## Otherwise a NO-OP no-preview case (never a crash, mirrors this
+## codebase's established fail-closed conventions) when:
+##   - exploration is not the active mode (see notify_game_mode_changed()),
+##   - no party member is selected (`selected_party_member_id == ""`), or
+##   - `selected_party_member_id` has no entry in
+##     scenario_session.party_hex_positions (e.g. boot() never ran, or the
+##     id was reassigned to something unknown).
+##
+## Otherwise: computes HexPathfinder.find_path() from the selected party
+## member's CURRENT scenario_session.party_hex_positions hex to `hex_coord`,
+## using this controller's cached `_is_passable_fn`/`_move_cost_fn` (built
+## exactly once by boot(), never rebuilt here — ADR-006), and hands the
+## result straight to hex_grid_view.set_path_overlay(). An unreachable/
+## impassable `hex_coord` resolves to find_path()'s empty-Array contract,
+## which set_path_overlay([]) always renders as "nothing" — so hovering an
+## unreachable hex is a silent no-preview outcome, never a stale/wrong
+## overlay left over from a previous, reachable hover target.
+func _on_hex_hovered(hex_coord) -> void:
+	if hex_coord == null:
+		_clear_hover_preview()
+		return
+
+	if not _exploration_active:
+		return
+	if selected_party_member_id == "" or scenario_session == null:
+		return
+	if not scenario_session.party_hex_positions.has(selected_party_member_id):
+		return
+
+	var start_hex = scenario_session.party_hex_positions[selected_party_member_id]
+	var path: Array = HexPathfinderClass.find_path(start_hex, hex_coord, _is_passable_fn, _move_cost_fn)
+
+	if _hex_grid_view != null:
+		_hex_grid_view.set_path_overlay(path, HOVER_PREVIEW_COLOR)
+
+
+## notify_game_mode_changed(is_exploration_mode) -> void — FEAT-007 (US-007 /
+## FR-009): the caller-driven counterpart to this controller's own local
+## `_exploration_active` mirror of MainScene.gd's `_game_mode` (see that
+## field's own doc for why this stays a plain bool rather than importing
+## MainScene's GameMode enum). Intended to be called by a composition root
+## whenever its own game mode flips (e.g. MainScene.gd's `_on_combat_
+## triggered()`/post-combat handoff, though wiring that call site is left to
+## a future feature per this feature's own file-scope — see this file's own
+## header doc). Transitioning from active (true) to inactive (false) clears
+## the hover-preview overlay via _clear_hover_preview() (US-007's own "clear
+## on mode switch away from exploration" requirement); every other
+## transition (inactive -> active, or no change at all) is a safe no-op —
+## re-activating exploration does NOT eagerly redraw a preview, since no
+## current hover-target is known until the next hex_hovered emission.
+func notify_game_mode_changed(is_exploration_mode: bool) -> void:
+	var was_active: bool = _exploration_active
+	_exploration_active = is_exploration_mode
+	if was_active and not is_exploration_mode:
+		_clear_hover_preview()
+
+
+## _clear_hover_preview() -> void — the single shared overlay-clearing code
+## path both _on_hex_hovered()'s null case and notify_game_mode_changed()'s
+## active->inactive transition funnel through (ADR-006, no duplicated
+## seam). Safe to call before boot() has run (`_hex_grid_view` still null).
+func _clear_hover_preview() -> void:
+	if _hex_grid_view != null:
+		_hex_grid_view.clear_overlays()
+
+
+## get_is_passable_fn() / get_move_cost_fn() -> Callable — test/inspection
+## helpers (mirrors HexGridView's own get_path_overlay()/get_path_overlay_
+## color() convention): the cached PassabilityQuery/MoveCostQuery Callables
+## boot() built exactly once. Invalid (Callable()) until boot() has run.
+func get_is_passable_fn() -> Callable:
+	return _is_passable_fn
+
+
+func get_move_cost_fn() -> Callable:
+	return _move_cost_fn
+
+
+## is_exploration_active() -> bool — test/inspection helper: this
+## controller's current local mirror of "is EXPLORATION the active game
+## mode" (see notify_game_mode_changed()).
+func is_exploration_active() -> bool:
+	return _exploration_active
