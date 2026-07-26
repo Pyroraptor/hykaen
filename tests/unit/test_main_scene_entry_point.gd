@@ -156,8 +156,8 @@ func test_main_scene_source_wires_random_port_adapter() -> void:
 func test_main_scene_source_wires_event_sink_adapter() -> void:
 	var content: String = _read_main_scene_script_source()
 	assert_true(
-		content.contains("EventSinkPort"),
-		"MainScene must instantiate an EventSinkPort adapter (ADR-006)"
+		content.contains("ConsoleEventSinkAdapter"),
+		"MainScene must instantiate a ConsoleEventSinkAdapter (ADR-006)"
 	)
 
 

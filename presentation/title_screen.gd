@@ -110,13 +110,6 @@ func _ready() -> void:
 	if _dev_scenario_list != null:
 		_dev_scenario_list.item_selected.connect(_on_dev_scenario_item_selected)
 	refresh()
-	# FEAT-337 (DEF-001): boot-confirmation log line, mirroring MainScene.gd's
-	# own established "print an INFO line once _ready() reaches its
-	# interactive, input-awaiting state" convention -- now that project.godot
-	# boots into TitleScreen.tscn (not MainScene.tscn) first, this is the
-	# real entry point's own proxy for "reached an interactive boot state
-	# with no unhandled error", consumed by tests/integration/
-	# test_headless_boot.gd and tests/integration/test_headless_boot_smoke.py.
 	print("INFO: Hykaen TitleScreen booted -- interactive, input-awaiting boot state (New Game / Continue / Dev: Pick Scenario)")
 
 

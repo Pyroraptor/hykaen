@@ -256,14 +256,14 @@ func test_cancelling_at_queue_build_step_via_live_entry_point_returns_to_verb_ba
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_main_scene_source_never_hardcodes_stride_strike_queue_in_the_live_combine_entry_point() -> void:
-	var file := FileAccess.open(MAIN_SCENE_SCRIPT_PATH, FileAccess.READ)
-	assert_not_null(file, "MainScene.gd must be readable as plain source text for this static scan")
+	var file := FileAccess.open(VERB_DISPATCH_CONTROLLER_SCRIPT_PATH, FileAccess.READ)
+	assert_not_null(file, "presentation/verb_dispatch_controller.gd must be readable as plain source text for this static scan")
 	var source: String = file.get_as_text()
 	file.close()
 
 	var start_marker: String = "func _verb_bar_combine_enter_selection() -> Dictionary:"
 	var start_index: int = source.find(start_marker)
-	assert_true(start_index >= 0, "MainScene.gd must still declare _verb_bar_combine_enter_selection()")
+	assert_true(start_index >= 0, "presentation/verb_dispatch_controller.gd must declare _verb_bar_combine_enter_selection()")
 
 	var next_func_index: int = source.find("\nfunc ", start_index + start_marker.length())
 	assert_true(next_func_index > start_index, "the scan must be able to locate the end of _verb_bar_combine_enter_selection()'s own body")

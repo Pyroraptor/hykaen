@@ -224,8 +224,8 @@ func test_selection_overlay_is_never_modified_by_the_combine_targeting_wiring_se
 	# never by reaching into a private (`_`-prefixed) member of
 	# SelectionOverlay itself, which would be a de-facto modification of
 	# that class's contract even with zero bytes changed in its own file.
-	var main_scene_content: String = _read_file("res://MainScene.gd")
+	var proxy_content: String = _read_file("res://presentation/adapters/combine_targeting_registry_proxy.gd")
 	assert_true(
-		main_scene_content.contains("_CombineTargetingRegistryProxy"),
-		"MainScene.gd must define its own presentation-layer proxy for the Combine targeting loop, rather than special-casing SelectionOverlay's own _registry field directly"
+		proxy_content.contains("CombineTargetingRegistryProxy"),
+		"presentation/adapters/combine_targeting_registry_proxy.gd must define the CombineTargetingRegistryProxy presentation-layer proxy for the Combine targeting loop"
 	)
