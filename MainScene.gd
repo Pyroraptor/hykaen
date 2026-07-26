@@ -508,6 +508,12 @@ func _on_combat_triggered(encounter_id: String) -> void:
 	ROUND_NUMBER = 1
 	await rewire_session()
 
+	if initiative_view != null:
+		var all_combatants: Array = _party + _enemies
+		var initiative_view_models: Array = _view_model_builder.build_initiative_view_models(
+			all_combatants, _party, _enemies, encounter)
+		initiative_view.load_combatants(initiative_view_models)
+
 	if verb_bar_view != null:
 		verb_bar_view.configure(_verb_registry)
 	selection_overlay.configure(_verb_registry, hex_grid_view)
