@@ -466,6 +466,16 @@ class TestConsolidatedGutConfig:
 # scripts, not 25; the assertion below was updated 25 -> 26 so this guard
 # still catches its ORIGINAL regression (the -gconfig-ignored full-project
 # fallback) without falsely flagging this expected growth.
+#
+# FEAT-001 (US-001, core hex A* pathfinder) note:
+# tests/unit/core/geometry/test_hex_pathfinder.gd (the HexPathfinder.find_path()
+# domain suite) and tests/unit/core/geometry/test_architecture_purity.gd (the
+# RISK-006/NFR-002 static-only-API check) were added under
+# tests/unit/core/geometry/ by the same established convention, so the
+# consolidated domain suite now legitimately collects 28 scripts, not 26; the
+# assertion below was updated 26 -> 28 so this guard still catches its
+# ORIGINAL regression (the -gconfig-ignored full-project fallback) without
+# falsely flagging this expected growth.
 
 # FEAT-136 / DEF-002 / DEF-003: the domain-suite command is now extracted
 # from scripts/test_command.sh (the canonical script), not from the
@@ -537,8 +547,8 @@ class TestConsolidatedDomainSuiteReallyPasses:
         self, repo_root, canonical_script_text
     ):
         """US-014's consolidated domain suite must actually be SCOPED to the
-        domain/application test scripts under tests/unit/core (26, as of the
-        FEAT-009 LoadScenarioEncounterUseCase error-branch suite -- see the
+        domain/application test scripts under tests/unit/core (28, as of
+        FEAT-001's hex pathfinder + architecture-purity suites -- see the
         module-level note above), not silently fall back to running the
         whole project's ~46 GUT scripts. This guards against the
         -gconfig-ignored regression described above."""
@@ -547,8 +557,8 @@ class TestConsolidatedDomainSuiteReallyPasses:
         match = re.search(r"Scripts\s+(\d+)", output)
         assert match, f"Could not find a 'Scripts  N' summary line. Output:\n{output}"
         scripts_run = int(match.group(1))
-        assert scripts_run == 26, (
-            "The consolidated domain GUT suite stage must run exactly the 26 "
+        assert scripts_run == 28, (
+            "The consolidated domain GUT suite stage must run exactly the 28 "
             f"domain/application test scripts under tests/unit/core, but ran "
             f"{scripts_run}. This means scripts/test_command.sh's domain "
             f"suite stage is not actually scoped via tests/.gutconfig.json."
