@@ -17,6 +17,14 @@ extends GutTest
 ##   6. Heuristic non-overestimation (admissibility) assertion vs the same
 ##      Dijkstra baseline on a small grid (RISK-004, NFR-006).
 ##   7. start == goal returns a single-element array containing start.
+##   8. FEAT-326 (DEF-003): a long U-shaped wall detour whose farthest
+##      required hex from `start` sits just UNDER the documented
+##      _SEARCH_RADIUS_MARGIN-derived search bound still returns a valid,
+##      connected path.
+##   9. FEAT-326 (DEF-003): the same U-shaped wall shape, stretched just
+##      OVER that bound, correctly (and silently) returns an empty array,
+##      pinning the intentional/accepted boundary limitation rather than
+##      leaving it unverified.
 ##
 ## The architecture-purity check (RISK-006, NFR-002) lives in its own file,
 ## tests/unit/core/geometry/test_architecture_purity.gd, per this feature's
@@ -270,3 +278,130 @@ func test_start_equals_goal_does_not_require_start_to_be_passable() -> void:
 	var path: Array = HexPathfinderClass.find_path(start, goal, is_passable, _UNIT_COST)
 
 	assert_eq(path.size(), 1, "start == goal must short-circuit before any is_passable check")
+
+
+# ── FEAT-326 (DEF-003): pin the _SEARCH_RADIUS_MARGIN boundary behavior ─────
+##
+## HexPathfinder.find_path() bounds its search to a finite disk around
+## `start` -- max(hex_distance(start, goal) + _SEARCH_RADIUS_MARGIN,
+## _MIN_SEARCH_RADIUS) hexes -- so that a genuinely unreachable goal on the
+## domain's unbounded grid still terminates (see hex_pathfinder.gd's header
+## comment). That bound is an intentional, documented tradeoff: any real
+## detour that would require straying further than the margin from `start`
+## is treated as unreachable, even if a path technically exists on the
+## unbounded plane. No prior test in this suite exercised a detour anywhere
+## near that boundary, so a regression that silently shrunk the margin (or
+## widened it) would go undetected -- that's DEF-003.
+##
+## _make_u_wall_is_passable(arm_length, q_left) builds a U-shaped wall
+## (an infinite base wall along r == 0 for every q >= q_left, closed off
+## by a single left arm at q == q_left spanning r in [-arm_length, -1]):
+##
+##                      ...wall (r=0, q>=q_left) is infinite to the right...
+##      r=0    ##########################################################>
+##      r=-1   #    <-- pocket interior (q > q_left) -->
+##      ...    #
+##      r=-arm_length
+##             #
+##      r=-(arm_length+1)   <-- only unwalled row at q=q_left; the sole exit
+##
+## `start` sits inside the pocket just south of the base wall; `goal` sits
+## just north of it, straight-line distance 2 away, but the base wall is
+## impassable directly between them. The ONLY route from start to goal is:
+## south inside the pocket to r <= -(arm_length+1), west past q_left to
+## q <= q_left-1 (the only column never walled), north across r=0 (open
+## once q < q_left), then back east to goal. Every other row/column is
+## open, so this is a forced, single detour route (no shorter alternative
+## exists). Note the hex grid's diagonal step lets the route "cut the
+## corner" when crossing from q_left back to q_left-1 (one step both
+## decrements q and increments r), so the detour's farthest hex from
+## `start` is empirically/analytically hex_distance arm_length + 2 away
+## from start -- NOT arm_length + 3, as a naive "go straight down, straight
+## across, straight up" reading of the ASCII diagram above would suggest.
+## This exact constant (+2) was derived by brute-force search (an
+## independent Dijkstra sweep over arm_length, see this feature's
+## development notes) and is re-verified implicitly every time these two
+## tests run, since both assert the expected reachable/unreachable outcome
+## at the boundary computed from it.
+func _make_u_wall_is_passable(arm_length: int, q_left: int) -> Callable:
+	return func(hex_coord):
+		if hex_coord.r == 0 and hex_coord.q >= q_left:
+			return false
+		if hex_coord.q == q_left and hex_coord.r >= -arm_length and hex_coord.r <= -1:
+			return false
+		return true
+
+
+## _u_wall_detour_scenario(arm_length) → Dictionary{start, goal, is_passable}
+## — shared scenario builder for both margin-boundary tests below. `q_left`
+## is fixed at -2 so the forced detour's farthest hex from `start` is
+## always exactly (arm_length + 2) away (see derivation above).
+func _u_wall_detour_scenario(arm_length: int) -> Dictionary:
+	var q_left: int = -2
+	return {
+		"start": HexCoordClass.new(0, -1),
+		"goal": HexCoordClass.new(0, 1),
+		"is_passable": _make_u_wall_is_passable(arm_length, q_left),
+	}
+
+
+func test_u_shaped_wall_detour_just_under_search_radius_margin_still_finds_path() -> void:
+	var margin: int = HexPathfinderClass._SEARCH_RADIUS_MARGIN
+	var min_radius: int = HexPathfinderClass._MIN_SEARCH_RADIUS
+
+	var probe = _u_wall_detour_scenario(0)
+	var distance: int = HexMathClass.hex_distance(probe.start, probe.goal)
+	var max_search_radius: int = max(distance + margin, min_radius)
+
+	# Choose arm_length so the detour's farthest required hex from `start`
+	# (arm_length + 2, see header derivation) lands exactly ONE hex UNDER
+	# max_search_radius -- as close to the documented margin boundary as
+	# possible while still being guaranteed reachable.
+	var arm_length: int = max_search_radius - 1 - 2
+	var scenario = _u_wall_detour_scenario(arm_length)
+
+	var farthest_required_distance: int = arm_length + 2
+	assert_true(
+		farthest_required_distance < max_search_radius,
+		"test setup sanity check: the detour must require straying just UNDER max_search_radius"
+	)
+
+	var path: Array = HexPathfinderClass.find_path(
+		scenario.start, scenario.goal, scenario.is_passable, _UNIT_COST
+	)
+
+	_assert_valid_path(path, scenario.start, scenario.goal, scenario.is_passable)
+
+
+func test_u_shaped_wall_detour_beyond_search_radius_margin_returns_empty_array() -> void:
+	var margin: int = HexPathfinderClass._SEARCH_RADIUS_MARGIN
+	var min_radius: int = HexPathfinderClass._MIN_SEARCH_RADIUS
+
+	var probe = _u_wall_detour_scenario(0)
+	var distance: int = HexMathClass.hex_distance(probe.start, probe.goal)
+	var max_search_radius: int = max(distance + margin, min_radius)
+
+	# Choose arm_length so the detour's farthest required hex from `start`
+	# (arm_length + 2) lands exactly ONE hex BEYOND max_search_radius --
+	# a detour that is, on the unbounded plane, still perfectly reachable,
+	# but falls just outside this domain service's documented, accepted
+	# search-bound tradeoff. This must return [] (never throw), pinning the
+	# current intentional limitation rather than treating it as a bug.
+	var arm_length: int = max_search_radius + 1 - 2
+	var scenario = _u_wall_detour_scenario(arm_length)
+
+	var farthest_required_distance: int = arm_length + 2
+	assert_true(
+		farthest_required_distance > max_search_radius,
+		"test setup sanity check: the detour must require straying just BEYOND max_search_radius"
+	)
+
+	var path: Array = HexPathfinderClass.find_path(
+		scenario.start, scenario.goal, scenario.is_passable, _UNIT_COST
+	)
+
+	assert_true(
+		path.is_empty(),
+		"a detour just beyond the documented _SEARCH_RADIUS_MARGIN bound must return [] (never throw), " +
+		"pinning the accepted search-radius limitation rather than silently changing behavior"
+	)
