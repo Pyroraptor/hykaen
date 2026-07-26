@@ -68,9 +68,6 @@ class _FakeHexGridView:
 	func clear_overlays() -> void:
 		pass
 
-	func set_tile_terrain(_encounter) -> void:
-		pass
-
 
 ## _FakeHexCombatant — a minimal duck-typed stand-in for the
 ## `hex_combatants` entries boot() reads (`combatant_id`/`hex_coord`), so

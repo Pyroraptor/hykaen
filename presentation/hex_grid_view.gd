@@ -50,9 +50,9 @@ const CoordinateTransformClass = preload("res://presentation/infrastructure/coor
 const HEX_SIZE: float = 48.0
 
 ## Number of concentric rings of hex cells drawn around the origin for the
-## background battlefield grid. 12 comfortably covers maps authored at the
-## editor's default radius of 10.
-const GRID_RADIUS: int = 12
+## background battlefield grid — a fixed, generous bound; the prologue
+## encounter's authored positions all fall well within it.
+const GRID_RADIUS: int = 5
 
 const GRID_LINE_COLOR: Color = Color(0.35, 0.35, 0.4, 1.0)
 
@@ -61,29 +61,6 @@ const GRID_LINE_COLOR: Color = Color(0.35, 0.35, 0.4, 1.0)
 ## affordance, never a source of movement-rule truth (core/rules/movement.gd
 ## remains that source; this view only reads/derives from it, ADR-001).
 const SELECTABLE_HEX_FILL_COLOR: Color = Color(0.35, 0.75, 0.35, 0.35)
-
-## Terrain type → fill Color for authored tiles. Matches the map editor palette.
-const TERRAIN_FILL_COLORS: Dictionary = {
-	"floor":         Color(0.40, 0.40, 0.45, 0.85),
-	"rubble":        Color(0.50, 0.45, 0.40, 0.85),
-	"wall":          Color(0.25, 0.25, 0.28, 0.95),
-	"pit":           Color(0.08, 0.08, 0.12, 0.95),
-	"grass":         Color(0.30, 0.55, 0.25, 0.85),
-	"stone":         Color(0.45, 0.45, 0.50, 0.85),
-	"sand":          Color(0.80, 0.75, 0.50, 0.85),
-	"forest":        Color(0.20, 0.42, 0.20, 0.85),
-	"undergrowth":   Color(0.35, 0.50, 0.25, 0.85),
-	"mud":           Color(0.45, 0.38, 0.30, 0.85),
-	"shallow_water": Color(0.40, 0.60, 0.80, 0.75),
-	"deep_water":    Color(0.20, 0.35, 0.65, 0.90),
-	"water":         Color(0.30, 0.50, 0.75, 0.85),
-	"lava":          Color(0.90, 0.40, 0.10, 0.90),
-	"ice":           Color(0.75, 0.85, 0.95, 0.80),
-}
-
-## Terrain fill colors keyed by "q,r" string, populated by set_tile_terrain().
-## Empty until an encounter with tile data is supplied.
-var _tile_terrain_colors: Dictionary = {}
 
 ## combatant_id (String) -> CombatantTokenView, populated by load_combatants().
 var _tokens: Dictionary = {}
@@ -197,9 +174,6 @@ func _draw_hex_cell(coord) -> void:
 	var points: PackedVector2Array = PackedVector2Array()
 	for i in range(7):
 		points.append(center + _hex_corner_offset(HEX_SIZE, i % 6))
-	var terrain_key: String = str(coord.q) + "," + str(coord.r)
-	if _tile_terrain_colors.has(terrain_key):
-		draw_colored_polygon(points, _tile_terrain_colors[terrain_key])
 	if _is_selectable_hex(coord):
 		draw_colored_polygon(points, SELECTABLE_HEX_FILL_COLOR)
 	draw_polyline(points, GRID_LINE_COLOR, 1.0)
@@ -403,22 +377,6 @@ func clear_overlays() -> void:
 ## after clear_overlays()).
 func get_path_overlay() -> Array:
 	return _path_overlay
-
-
-## set_tile_terrain(encounter) — populate terrain fill colors from an
-## EncounterResource's tiles array. Each tile's terrain_type is looked up in
-## TERRAIN_FILL_COLORS; unknown types are silently skipped (hex falls back to
-## the plain grid-outline look). Triggers a redraw.
-func set_tile_terrain(encounter) -> void:
-	_tile_terrain_colors.clear()
-	if encounter == null:
-		queue_redraw()
-		return
-	for tile in encounter.tiles:
-		var key: String = str(tile.q) + "," + str(tile.r)
-		if TERRAIN_FILL_COLORS.has(tile.terrain_type):
-			_tile_terrain_colors[key] = TERRAIN_FILL_COLORS[tile.terrain_type]
-	queue_redraw()
 
 
 ## get_path_overlay_color() → Color — test/inspection helper: the color most

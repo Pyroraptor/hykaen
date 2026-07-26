@@ -275,8 +275,6 @@ func boot(hex_combatants: Array) -> void:
 	else:
 		_is_passable_fn = func(_hex_coord): return true
 		_move_cost_fn = func(_hex_coord): return 1.0
-	if _hex_grid_view != null:
-		_hex_grid_view.set_tile_terrain(pathfinding_encounter)
 
 	if _on_combat_triggered_target.is_valid():
 		if not exploration_controller.combat_triggered.is_connected(_on_combat_triggered_target):
