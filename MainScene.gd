@@ -129,6 +129,16 @@ var _game_mode: GameMode = GameMode.EXPLORATION
 
 var _active_encounter_id: String = ""
 
+## FEAT-007 (US-005 / FR-005): the boot-time scenario_path resolved by
+## _resolve_boot_scenario_path() in _ready() -- cached here so
+## _on_combat_won()'s auto-save hook can hand it straight to
+## CurrentGameState.snapshot_from_session() without re-deriving it from
+## scenario_session.scenario (which would tie the auto-save path to
+## ScenarioResource carrying its own resource_path correctly, an
+## incidental Godot behaviour rather than this explicit, already-resolved
+## value).
+var _boot_scenario_path: String = ""
+
 var _exploration = ExplorationModeControllerClass.new()
 
 var scenario_session:
@@ -252,6 +262,7 @@ func _ready() -> void:
 	# constants -- see _resolve_boot_scenario_path()/_first_encounter_resource_path()
 	# below for the full fail-closed contract.
 	var boot_scenario_path: String = _resolve_boot_scenario_path()
+	_boot_scenario_path = boot_scenario_path # FEAT-007 (US-005/FR-005): cached for _on_combat_won()'s auto-save hook
 	var boot_scenario = ResourceLoader.load(boot_scenario_path)
 	if boot_scenario == null:
 		push_error("MainScene: unresolvable boot scenario resource at '%s'" % boot_scenario_path)
@@ -824,12 +835,35 @@ func _on_combat_won() -> void:
 	if scenario_session != null and _active_encounter_id != "":
 		scenario_session.mark_encounter_complete(_active_encounter_id)
 
+	# FEAT-007 (US-005 / FR-005): sync each party member's CURRENT (i.e.
+	# post-combat-win) hex_coord into scenario_session.party_hex_positions
+	# BEFORE snapshotting below. scenario_session.party_hex_positions is
+	# otherwise only ever written by exploration-mode movement
+	# (ExplorationModeController.move_party_member()) -- without this sync
+	# it would still hold each party member's PRE-combat exploration
+	# position, not wherever combat itself left them, and the auto-save
+	# below would silently persist stale positions.
+	if scenario_session != null:
+		for combatant in _party:
+			scenario_session.party_hex_positions[combatant.combatant_id] = combatant.hex_coord
+
 	if hex_grid_view != null:
 		var enemy_ids: Array = []
 		for enemy in _enemies:
 			enemy_ids.append(enemy.combatant_id)
 		hex_grid_view.remove_combatants(enemy_ids)
 	_enemies = []
+
+	# FEAT-007 (US-005 / FR-005): auto-save immediately on winning combat --
+	# snapshot_from_session() THEN save_to_slot(0), in that exact order (this
+	# feature's own dedicated test_criterion). This is the ONLY call site in
+	# the whole codebase for either method -- never invoked from
+	# _on_round_over()'s undecided branch, mid-combat, or anywhere else --
+	# proven by tests/integration/test_auto_save_on_combat_won.gd's dedicated
+	# guard test asserting zero premature user://saves/slot_0.json writes.
+	var current_game_state := _current_game_state()
+	current_game_state.snapshot_from_session(_boot_scenario_path, scenario_session, _party)
+	current_game_state.save_to_slot(0)
 
 	# RISK-010 mitigation: explicit unsubscribe-before-resubscribe for every
 	if turn_controller != null:
