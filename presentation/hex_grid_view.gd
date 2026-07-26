@@ -52,9 +52,56 @@ const HEX_SIZE: float = 48.0
 ## Number of concentric rings of hex cells drawn around the origin for the
 ## background battlefield grid — a fixed, generous bound; the prologue
 ## encounter's authored positions all fall well within it.
-const GRID_RADIUS: int = 5
+##
+## FEAT-331 (resolves DEPLOY-BLOCKER-002): widened from 5 to 12 so
+## larger, terrain-authored encounters (see TERRAIN_FILL_COLORS /
+## set_tile_terrain() below) have room to render without hitting the grid
+## edge. is_hex_in_grid_bounds() below is the single test/inspection hook
+## exposing this boundary condition (a hex at cube-distance GRID_RADIUS is
+## in-bounds; GRID_RADIUS + 1 is rejected) without depending on a real
+## _draw() dispatch.
+const GRID_RADIUS: int = 12
 
 const GRID_LINE_COLOR: Color = Color(0.35, 0.35, 0.4, 1.0)
+
+## FEAT-331 (resolves DEPLOY-BLOCKER-002): terrain_type (String, matching
+## data/tiles/hex_tile_data_resource.gd's `terrain_type` field convention,
+## e.g. "floor"/"water"/"wall") -> fill Color, the single lookup table
+## _draw_hex_cell() consults for a hex's terrain fill (via
+## get_tile_fill_color(), see set_tile_terrain() below). Mirrors the
+## naming/color convention already established by tools/map_editor_scene.gd's
+## `_TERRAIN_COLORS` (this view intentionally does not import that tool
+## script — Presentation stays independent of the authoring tool — but
+## reuses the same String-keyed Dictionary(String -> Color) shape and the
+## same terrain vocabulary so an authored .tres's terrain_type values
+## resolve to a consistent color both in the editor tool and here at
+## runtime).
+const TERRAIN_FILL_COLORS: Dictionary = {
+	"floor":         Color(0.82, 0.82, 0.82, 0.85),
+	"rubble":        Color(0.65, 0.55, 0.40, 0.88),
+	"wall":          Color(0.28, 0.26, 0.26, 0.92),
+	"pit":           Color(0.10, 0.08, 0.08, 0.96),
+	"grass":         Color(0.35, 0.62, 0.25, 0.85),
+	"stone":         Color(0.60, 0.58, 0.54, 0.85),
+	"sand":          Color(0.85, 0.78, 0.52, 0.85),
+	"forest":        Color(0.15, 0.42, 0.15, 0.90),
+	"undergrowth":   Color(0.32, 0.55, 0.22, 0.85),
+	"mud":           Color(0.45, 0.33, 0.18, 0.88),
+	"shallow_water": Color(0.48, 0.72, 0.90, 0.82),
+	"deep_water":    Color(0.10, 0.22, 0.65, 0.92),
+	"water":         Color(0.25, 0.55, 0.85, 0.88),
+	"lava":          Color(0.95, 0.35, 0.05, 0.90),
+	"ice":           Color(0.80, 0.92, 0.98, 0.88),
+}
+
+## FEAT-331: fill color resolved for a hex with no assigned terrain type
+## (get_tile_terrain() returns "" — set_tile_terrain() was never called for
+## it) or an unrecognized terrain_type string not present in
+## TERRAIN_FILL_COLORS. Fully transparent so _draw_hex_cell() draws no
+## terrain fill at all for such a hex (matching this view's pre-FEAT-331
+## rendering exactly — an untouched hex renders as just its grid outline,
+## same as before this feature existed).
+const NO_TERRAIN_FILL_COLOR: Color = Color(0.0, 0.0, 0.0, 0.0)
 
 ## FEAT-013 / US-013: fill color for hexes currently reported as selectable
 ## Step destinations (via set_selectable_hexes()) -- a purely visual
@@ -81,6 +128,17 @@ var _origin_offset: Vector2 = Vector2.ZERO
 ## presentation/movement_input_controller.gd's
 ## Movement.get_step_destinations()-derived selectable set.
 var _selectable_hexes: Array = []
+
+## FEAT-331 (resolves DEPLOY-BLOCKER-002): "q,r" String key (see
+## _tile_terrain_key()) -> terrain_type String, populated by
+## set_tile_terrain(). A HexCoord itself is not used directly as the
+## Dictionary key -- two distinct HexCoord instances with the same (q, r)
+## are not `==` to each other (RefCounted identity, no operator overload),
+## so a String key derived from the coordinate value is what actually
+## gives value-equality lookup semantics here (mirrors the value-equality
+## HexCoord.equals() already provides for the Array-based
+## _selectable_hexes above, just Dictionary-keyed instead of scanned).
+var _tile_terrain: Dictionary = {}
 
 ## FEAT-005 / US-005: the exploration path currently overlaid on the grid
 ## (an Array of core/geometry/hex_coord.gd HexCoord instances, in walk
@@ -146,9 +204,9 @@ var _last_hovered_hex = null
 func _draw() -> void:
 	for q in range(-GRID_RADIUS, GRID_RADIUS + 1):
 		for r in range(-GRID_RADIUS, GRID_RADIUS + 1):
-			var s: int = -q - r
-			if absi(s) <= GRID_RADIUS:
-				_draw_hex_cell(HexCoordClass.new(q, r))
+			var coord = HexCoordClass.new(q, r)
+			if is_hex_in_grid_bounds(coord):
+				_draw_hex_cell(coord)
 	_draw_path_overlay()
 
 
@@ -168,12 +226,20 @@ func _draw_path_overlay() -> void:
 
 func _draw_hex_cell(coord) -> void:
 	# FEAT-001: ONE offset-aware center Vector2, reused for BOTH the grid
-	# outline AND (when selectable) the highlight fill below -- highlight
-	# rendering has no separate transform of its own to drift out of sync.
+	# outline AND (when selectable/terrain-painted) the highlight/fill
+	# below -- highlight/terrain rendering has no separate transform of its
+	# own to drift out of sync.
 	var center: Vector2 = axial_to_pixel_with_offset(coord)
 	var points: PackedVector2Array = PackedVector2Array()
 	for i in range(7):
 		points.append(center + _hex_corner_offset(HEX_SIZE, i % 6))
+	# FEAT-331 (resolves DEPLOY-BLOCKER-002): draw the terrain fill (if any)
+	# FIRST, so the FEAT-013 selectable-hex highlight below still layers
+	# visibly on top of it -- terrain is the "background" a Step-
+	# destination highlight overlays, never the other way around.
+	var terrain_fill_color: Color = get_tile_fill_color(coord)
+	if terrain_fill_color.a > 0.0:
+		draw_colored_polygon(points, terrain_fill_color)
 	if _is_selectable_hex(coord):
 		draw_colored_polygon(points, SELECTABLE_HEX_FILL_COLOR)
 	draw_polyline(points, GRID_LINE_COLOR, 1.0)
@@ -383,6 +449,72 @@ func get_path_overlay() -> Array:
 ## recently supplied to set_path_overlay() (Color(1,1,1,1) if never called).
 func get_path_overlay_color() -> Color:
 	return _path_overlay_color
+
+
+## is_hex_in_grid_bounds(hex_coord) → bool — FEAT-331 (resolves
+## DEPLOY-BLOCKER-002): true when `hex_coord`'s cube-coordinate distance
+## from the origin (0, 0) is within GRID_RADIUS — the SAME bound _draw()
+## uses to decide which hex cells to render (the loop above delegates to
+## THIS method rather than re-deriving the check, so there is exactly one
+## place the boundary condition is expressed). Exposed as a public
+## test/inspection hook so the GRID_RADIUS boundary (cube-distance
+## GRID_RADIUS is in-bounds/renderable, GRID_RADIUS + 1 is rejected) is
+## directly unit-testable without depending on a real _draw() dispatch.
+## `hex_coord` is duck-typed: any object exposing integer q/r fields and a
+## get_s() method (i.e. a core/geometry/hex_coord.gd HexCoord instance).
+func is_hex_in_grid_bounds(hex_coord) -> bool:
+	return (
+		absi(hex_coord.q) <= GRID_RADIUS
+		and absi(hex_coord.r) <= GRID_RADIUS
+		and absi(hex_coord.get_s()) <= GRID_RADIUS
+	)
+
+
+## _tile_terrain_key(hex_coord) → String — the "q,r" String key
+## _tile_terrain is keyed by (see _tile_terrain's own doc for why a String
+## key, rather than the HexCoord object itself, is used).
+static func _tile_terrain_key(hex_coord) -> String:
+	return "%d,%d" % [hex_coord.q, hex_coord.r]
+
+
+## set_tile_terrain(hex_coord, terrain_type) → void — FEAT-331 (resolves
+## DEPLOY-BLOCKER-002): assigns `terrain_type` (a String, matching
+## data/tiles/hex_tile_data_resource.gd's `terrain_type` field convention)
+## to `hex_coord` and queues a redraw, so _draw_hex_cell() renders that
+## hex filled with TERRAIN_FILL_COLORS[terrain_type] (or
+## NO_TERRAIN_FILL_COLOR — no fill drawn — for a terrain_type not present
+## in TERRAIN_FILL_COLORS). A second call for the same hex_coord overwrites
+## (never appends to) the previously assigned terrain type. Always
+## succeeds — no error path, matching this view's established
+## set_path_overlay()/set_selectable_hexes() convention (ADR-001: this
+## view never validates gameplay-rule terrain data, it only renders
+## whichever terrain type it is told about).
+func set_tile_terrain(hex_coord, terrain_type: String) -> void:
+	_tile_terrain[_tile_terrain_key(hex_coord)] = terrain_type
+	queue_redraw()
+
+
+## get_tile_terrain(hex_coord) → String — test/inspection helper: the
+## terrain_type String most recently supplied to set_tile_terrain() for
+## `hex_coord` ("" — no defined terrain type maps to an empty string here —
+## if set_tile_terrain() was never called for that hex).
+func get_tile_terrain(hex_coord) -> String:
+	return _tile_terrain.get(_tile_terrain_key(hex_coord), "")
+
+
+## get_tile_fill_color(hex_coord) → Color — the fill Color _draw_hex_cell()
+## resolves for `hex_coord`: TERRAIN_FILL_COLORS[get_tile_terrain(hex_coord)]
+## when that terrain type is a recognized TERRAIN_FILL_COLORS key,
+## NO_TERRAIN_FILL_COLOR (fully transparent — no fill drawn) otherwise
+## (no terrain assigned, or an assigned terrain_type not present in
+## TERRAIN_FILL_COLORS). The single source of truth both _draw_hex_cell()
+## and this feature's tests read from, so rendering and test assertions
+## can never drift out of sync (mirrors get_path_overlay()/
+## get_path_overlay_color()'s established "read back exactly what
+## _draw() itself reads" convention).
+func get_tile_fill_color(hex_coord) -> Color:
+	var terrain_type: String = get_tile_terrain(hex_coord)
+	return TERRAIN_FILL_COLORS.get(terrain_type, NO_TERRAIN_FILL_COLOR)
 
 
 ## move_token(combatant_id, new_hex_coord) → bool — FEAT-013 / US-013:
