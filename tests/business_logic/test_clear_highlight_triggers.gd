@@ -42,11 +42,30 @@ extends GutTest
 ## avoids reaching into presentation/hex_grid_view.gd's private
 ## `_selectable_hexes` field, which has no dedicated public getter.
 
-const MainSceneClass        = preload("res://MainScene.gd")
-const HexCoordClass         = preload("res://core/geometry/hex_coord.gd")
-const ActionEconomyClass    = preload("res://core/rules/action_economy.gd")
-const ResultScreenViewScene = preload("res://presentation/result_screen_view.tscn")
-const CombatantClass        = preload("res://core/domain/combatant.gd")
+const MainSceneClass          = preload("res://MainScene.gd")
+const HexCoordClass           = preload("res://core/geometry/hex_coord.gd")
+const ActionEconomyClass      = preload("res://core/rules/action_economy.gd")
+const ResultScreenViewScene   = preload("res://presentation/result_screen_view.tscn")
+const CombatantClass          = preload("res://core/domain/combatant.gd")
+const CombatQueryServiceClass = preload("res://presentation/combat_query_service.gd")
+
+
+## FEAT-004 (US-004/FR-004, RISK-001 mitigation): named static fallback used
+## to build the stub CombatQueryService's two Callables below. MainScene's
+## real `_combat_query_service` (presentation/combat_query_service.gd) is only
+## constructed inside `_ready()`'s composition-root boot sequence, which a
+## `.new()`-constructed (not scene-tree-booted) MainScene instance -- as this
+## suite's before_each() builds -- never runs, leaving
+## `_instance._combat_query_service` null. MainScene._turn_presentation()
+## then builds an invalid `Callable(null, "other_living_combatants")`, which
+## GDScript treats as an inert Callable rather than raising an error --
+## surfacing only as cascading "highlights a non-empty set" assertion
+## failures further down the call chain. A named static helper (rather than
+## an inline `func(_x): return []` lambda passed straight into `Callable()`)
+## is used for Godot 4.3 compatibility, per this feature's documented
+## fallback contract.
+static func _empty_array(_x = null) -> Array:
+	return []
 
 
 ## SpyHexGridView -- a minimal stand-in for presentation/hex_grid_view.gd that
@@ -88,6 +107,9 @@ class FakeRoundSession:
 
 var _instance = null
 var _hex_grid_view: SpyHexGridView = null
+var _combat_query_service_party_fn: Callable
+var _combat_query_service_enemies_fn: Callable
+var _combat_query_service = null
 
 
 func before_each() -> void:
@@ -95,12 +117,29 @@ func before_each() -> void:
 	_hex_grid_view = SpyHexGridView.new()
 	_instance.hex_grid_view = _hex_grid_view
 
+	# FEAT-004 (US-004/FR-004, ADR-009): stub CombatQueryService constructed
+	# and assigned BEFORE any behavior is exercised, so
+	# MainScene._turn_presentation() always builds a valid
+	# Callable(CombatQueryService, "other_living_combatants") instead of an
+	# invalid Callable(null, ...), and MovementInputController.configure()
+	# always receives a real (possibly empty) Array rather than null.
+	_combat_query_service_party_fn = Callable(self, "_empty_array")
+	_combat_query_service_enemies_fn = Callable(self, "_empty_array")
+	_combat_query_service = CombatQueryServiceClass.new(
+		_combat_query_service_party_fn,
+		_combat_query_service_enemies_fn
+	)
+	_instance._combat_query_service = _combat_query_service
+
 
 func after_each() -> void:
 	if _instance != null:
 		_instance.free()
 	_instance = null
 	_hex_grid_view = null
+	_combat_query_service_party_fn = Callable()
+	_combat_query_service_enemies_fn = Callable()
+	_combat_query_service = null
 
 
 func _origin_actor(combatant_id: String, is_enemy: bool, hex_coord = null):
@@ -114,6 +153,32 @@ func _origin_actor(combatant_id: String, is_enemy: bool, hex_coord = null):
 
 func _last_call() -> Array:
 	return _hex_grid_view.set_selectable_calls[_hex_grid_view.set_selectable_calls.size() - 1]
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# FEAT-004 (US-004/FR-004) smoke test: fail fast on lambda/Callable
+# incompatibility BEFORE the behavioral (Criterion 1-3) tests below run, by
+# directly invoking both Callables the stub CombatQueryService was
+# constructed with in before_each() and asserting each returns a typed empty
+# Array (never null).
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_stub_combat_query_service_callables_return_typed_empty_arrays() -> void:
+	assert_true(_instance._combat_query_service != null, "before_each() must construct a stub CombatQueryService and assign it to _instance._combat_query_service before any behavior is exercised")
+
+	var party_result = _combat_query_service_party_fn.call()
+	var enemies_result = _combat_query_service_enemies_fn.call()
+
+	assert_eq(typeof(party_result), TYPE_ARRAY, "the stub CombatQueryService's party Callable must return a typed Array, never null")
+	assert_eq(typeof(enemies_result), TYPE_ARRAY, "the stub CombatQueryService's enemies Callable must return a typed Array, never null")
+	assert_eq(party_result, [], "the stub CombatQueryService's party Callable must return an empty Array")
+	assert_eq(enemies_result, [], "the stub CombatQueryService's enemies Callable must return an empty Array")
+
+	# Also confirm the same fallback helper is directly reachable and returns
+	# a typed empty Array on its own, independent of the Callable wrapping.
+	var direct_result: Array = _empty_array()
+	assert_eq(typeof(direct_result), TYPE_ARRAY, "the named static _empty_array fallback helper must itself return a typed Array")
+	assert_eq(direct_result, [], "the named static _empty_array fallback helper must return an empty Array")
 
 
 # ══════════════════════════════════════════════════════════════════════════
