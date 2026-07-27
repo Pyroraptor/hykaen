@@ -328,8 +328,8 @@ func test_hex_clicked_signal_is_wired_to_the_selection_overlay() -> void:
 		"HexGridView.hex_clicked must still be connected to MainScene's own selection_overlay (presentation/selection_overlay.gd), not a re-introduced legacy handler"
 	)
 	assert_true(
-		targets.has(instance),
-		"HexGridView.hex_clicked must be connected to MainScene itself for the EXPLORATION-mode click-to-move handler (_on_exploration_hex_clicked)"
+		targets.has(instance._exploration),
+		"HexGridView.hex_clicked must be connected to ExplorationModeController (_exploration) for the EXPLORATION-mode click-to-move handler (FEAT-324)"
 	)
 
 

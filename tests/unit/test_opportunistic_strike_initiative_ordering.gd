@@ -47,6 +47,7 @@ extends GutTest
 ##      not merely that a helper function sorts correctly in isolation.
 
 const MainSceneClass = preload("res://MainScene.gd")
+const ReactionControllerClass = preload("res://presentation/reaction_controller.gd")
 const ResolveStrideUseCaseClass = preload("res://core/application/use_cases/resolve_stride_use_case.gd")
 const HexCoord = preload("res://core/geometry/hex_coord.gd")
 const CombatantClass = preload("res://core/domain/combatant.gd")
@@ -56,6 +57,9 @@ var _instance = null
 
 func before_each() -> void:
 	_instance = MainSceneClass.new()
+	_instance._reaction_instance = ReactionControllerClass.new(
+		Callable(), Callable(), null, null, null, null
+	)
 
 
 func after_each() -> void:

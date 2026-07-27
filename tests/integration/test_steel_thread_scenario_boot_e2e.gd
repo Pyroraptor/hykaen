@@ -175,23 +175,12 @@ func test_load_encounter_from_scenario_boot_real_combat_pipeline_is_playable_via
 	var instance = _boot_main_scene_with_seed(42)
 	await get_tree().process_frame
 
-	var scenario = ResourceLoader.load(NewGameFactoryClass.PROLOGUE_SCENARIO_PATH_CONST)
-	assert_not_null(scenario, "fixture assumption: prologue_scenario.tres must load as a real ScenarioResource")
+	# _on_combat_triggered() is the REAL production path: it calls
+	# load_encounter_from_scenario(), rebuilds run_round_use_case with the
+	# initialized encounter's turn order, and awaits rewire_session().
+	await instance._on_combat_triggered(PROLOGUE_ENCOUNTER_ID)
 
-	var ok: bool = instance.load_encounter_from_scenario(scenario, PROLOGUE_ENCOUNTER_ID)
-	assert_true(ok, "fixture assumption: load_encounter_from_scenario() must succeed before this criterion can be exercised")
-
-	# rewire_session() -- the SAME single reusable composition-root method
-	# _ready() (for round 1) and _on_round_over() (for every automatic round
-	# continuation, FEAT-006/ADR-012) already call -- reused verbatim here
-	# to seat a real RoundSession/ActionEconomy set over the FRESH live
-	# combatants load_encounter_from_scenario() just assigned to
-	# `_party`/`_enemies`. No new/duplicated wiring is introduced by this test
-	# (ADR-002/CR-001 guardrail); this is the production call path a future
-	# scenario-boot menu flow would drive too.
-	instance.rewire_session()
-
-	assert_not_null(instance.round_session, "rewire_session() must seat a real RoundSession over the scenario-loaded combatants")
+	assert_not_null(instance.round_session, "_on_combat_triggered() must seat a real RoundSession over the scenario-loaded combatants")
 	assert_false(instance.round_session.is_round_over(), "the freshly-seated RoundSession must not already be over with no player input")
 	assert_false(
 		instance.round_session.current_actor().is_enemy,

@@ -46,12 +46,21 @@ extends GutTest
 
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 const RoundEventsClass = preload("res://core/rules/round_events.gd")
+const GameStateDataClass = preload("res://data/game_state/game_state_data.gd")
 
 ## PROLOGUE_SEED — this project's established known-good fixture seed:
 ## Titus acts first and the sole enemy (Skeleton) starts adjacent to him
 ## (mirrors tests/e2e/test_reactions_fully_live.gd's / tests/integration/
 ## test_mainscene_hit_reaction_apply.gd's identically-named/valued constant).
 const PROLOGUE_SEED: int = 42
+
+
+func before_each() -> void:
+	CurrentGameState.data = GameStateDataClass.new()
+
+
+func after_each() -> void:
+	CurrentGameState.data = GameStateDataClass.new()
 
 ## RANGED_WEAPON_RANGE_HEXES — an arbitrary positive range; only the KEY's
 ## presence matters to _is_ranged_weapon()/_has_melee_reach(), never this
@@ -106,6 +115,12 @@ func _reaction_window_opened_events_for(instance, reactor_name: String) -> Array
 func test_ranged_reactor_adjacent_to_mover_is_never_offered_opportunistic_strike_window() -> void:
 	var instance = _boot_main_scene()
 	await get_tree().process_frame
+	# Transition to COMBAT mode so encounter.initialize() runs and
+	# _action_economy_for() returns live ActionEconomy objects (FEAT-324 /
+	# Iter T: _ready() boots in EXPLORATION mode with an uninitialized encounter;
+	# _on_combat_triggered() is the production path that calls
+	# load_encounter_from_scenario() → encounter.initialize() → rewire_session()).
+	await instance._on_combat_triggered("prologue")
 
 	assert_true(instance._enemies.size() > 0, "fixture assumption: the prologue encounter has at least one enemy")
 	var skeleton = instance._enemies[0]
@@ -127,7 +142,7 @@ func test_ranged_reactor_adjacent_to_mover_is_never_offered_opportunistic_strike
 
 	assert_false(instance.reaction_prompt_ui.is_open(), "fixture assumption: no reaction pop-up is open before this Stride is driven")
 
-	var stride_reaction_result: Dictionary = await instance._resolve_enemy_stride_opportunistic_window(
+	var stride_reaction_result: Dictionary = await instance._reaction_instance.resolve_enemy_stride_opportunistic_window(
 		skeleton, mover_start_hex, [titus]
 	)
 
