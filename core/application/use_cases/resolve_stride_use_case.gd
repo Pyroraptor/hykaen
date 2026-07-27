@@ -267,12 +267,11 @@ func execute(
 		var context: Dictionary = {"melee_reach": true}
 		var result: Dictionary = await reactor_resolver_fn.call(reactor, context)
 		var choice: String = result.get("choice", "none")
-		print("OS_DEBUG: reactor_resolver_fn returned choice='%s'" % [choice])
 		var reaction_entry: Dictionary = {"reactor": reactor, "choice": choice}
 
 		if choice == REACTION_OPPORTUNISTIC_STRIKE:
 			var strike_result: Dictionary = _resolve_opportunistic_strike_effect(
-				reactor, mover, strike_use_case, reactor_action_economy_fn, round_number, cycle_index
+				reactor, mover, mover_start_hex, strike_use_case, reactor_action_economy_fn, round_number, cycle_index
 			)
 			if not strike_result.is_empty():
 				reaction_entry["strike_result"] = strike_result
@@ -306,35 +305,42 @@ func execute(
 	}
 
 
-## _resolve_opportunistic_strike_effect(reactor, mover, strike_use_case,
-## reactor_action_economy_fn, round_number, cycle_index) -> Dictionary —
-## iteration K FEAT-007: the effect-resolution helper execute() above
-## delegates to once a reactor's choice comes back
+## _resolve_opportunistic_strike_effect(reactor, mover, mover_effective_hex,
+## strike_use_case, reactor_action_economy_fn, round_number, cycle_index) ->
+## Dictionary — iteration K FEAT-007: the effect-resolution helper execute()
+## above delegates to once a reactor's choice comes back
 ## REACTION_OPPORTUNISTIC_STRIKE. Returns {} (empty — no strike_result key
 ## added to the reaction entry) when either collaborator is unwired/answers
 ## null, exactly matching this method's own doc's "degrades safely" contract
 ## — never a crash. Otherwise returns `strike_use_case.resolve()`'s own
 ## result Dictionary verbatim (resolved/ok/event/target_defeated/damage_final/...
 ## — see core/application/resolve_action_use_case.gd's resolve() doc).
+##
+## `mover_effective_hex` is the transit hex from which the OS was triggered
+## (the hex the mover is LEAVING). For multi-hex strides this differs from
+## `mover.hex_coord` (the mover's actual start position). The adjacency check
+## inside strike_use_case.resolve() reads mover.hex_coord directly, so this
+## method temporarily swaps it to mover_effective_hex for the call then
+## restores it — the mover's actual stored position is never mutated.
 func _resolve_opportunistic_strike_effect(
 	reactor,
 	mover,
+	mover_effective_hex,
 	strike_use_case,
 	reactor_action_economy_fn: Callable,
 	round_number: int,
 	cycle_index: int
 ) -> Dictionary:
-	print("OS_DEBUG: _resolve_opportunistic_strike_effect called strike_use_case_null=%s fn_valid=%s" % [str(strike_use_case == null), str(reactor_action_economy_fn.is_valid())])
 	if strike_use_case == null or not reactor_action_economy_fn.is_valid():
-		print("OS_DEBUG: early exit - unwired collaborator")
 		return {}
 
 	var reactor_action_economy = reactor_action_economy_fn.call(reactor)
 	if reactor_action_economy == null:
-		print("OS_DEBUG: reactor_action_economy is null")
 		return {}
 
 	var paid_economy = ActionEconomyPortClass.ReactionPaidActionEconomy.new(reactor_action_economy)
+	var saved_hex = mover.hex_coord
+	mover.hex_coord = mover_effective_hex
 	var result: Dictionary = strike_use_case.resolve(reactor, paid_economy, mover, "Strike", round_number, cycle_index)
-	print("OS_DEBUG: strike resolved ok=%s error=%s target_defeated=%s" % [str(result.get("ok", "?")), str(result.get("error", "none")), str(result.get("target_defeated", false))])
+	mover.hex_coord = saved_hex
 	return result
