@@ -834,7 +834,8 @@ class TestCapturedEvidenceArtifact:
 
     def test_artifact_is_greppable_for_the_gut_summary_lines(self, captured_evidence_log):
         content = captured_evidence_log.read_text()
-        assert "Failing Tests" in content
+        # "Passing Tests" is always present. "Failing Tests" is only printed
+        # by GUT when the count is non-zero (see parse_gut_summary FEAT-346 note).
         assert "Passing Tests" in content
 
     def test_artifact_is_greppable_for_the_pytest_result_line(self, captured_evidence_log):
