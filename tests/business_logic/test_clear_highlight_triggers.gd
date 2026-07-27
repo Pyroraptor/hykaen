@@ -48,6 +48,7 @@ const ActionEconomyClass      = preload("res://core/rules/action_economy.gd")
 const ResultScreenViewScene   = preload("res://presentation/result_screen_view.tscn")
 const CombatantClass          = preload("res://core/domain/combatant.gd")
 const CombatQueryServiceClass = preload("res://presentation/combat_query_service.gd")
+const ReactionControllerClass = preload("res://presentation/reaction_controller.gd")
 
 
 ## FEAT-004 (US-004/FR-004, RISK-001 mitigation): named static fallback used
@@ -84,12 +85,12 @@ class SpyHexGridView:
 
 ## FakeRoundSession -- minimal stand-in for core/application/round_session.gd,
 ## exposing only what _on_active_actor_changed()/_after_successful_move() read
-## (current_action_economy() / current_actor()). `current_actor()`
-## returns the SAME live Dictionary handed to _init() -- Dictionaries are
-## reference types in GDScript, so a successful Step/Stride's in-place
-## "hex_coord" mutation (core/rules/movement.gd Movement._set_hex()) is
-## observed immediately, exactly like the real RoundSession/live-combatant
-## relationship this mirrors.
+## (current_action_economy() / current_actor() / current_actor_entity()).
+## `current_actor()`/`current_actor_entity()` return the SAME live Combatant
+## handed to _init() -- Combatant is a reference type in GDScript, so a
+## successful Step/Stride's in-place "hex_coord" mutation (core/rules/
+## movement.gd Movement._set_hex()) is observed immediately, exactly like the
+## real RoundSession/live-combatant relationship this mirrors.
 class FakeRoundSession:
 	var _actor
 	var _action_economy
@@ -99,6 +100,14 @@ class FakeRoundSession:
 		_action_economy = action_economy
 
 	func current_actor():
+		return _actor
+
+	## current_actor_entity() -- MainScene.gd's _after_successful_move() (invoked
+	## by StepActionController/StrideActionController.execute() on a successful
+	## move) reads this to re-derive the post-move highlight via
+	## _on_active_actor_changed(). Returns the SAME live Combatant instance as
+	## current_actor(), mirroring RoundSession's own documented contract.
+	func current_actor_entity():
 		return _actor
 
 	func current_action_economy():
@@ -130,6 +139,40 @@ func before_each() -> void:
 		_combat_query_service_enemies_fn
 	)
 	_instance._combat_query_service = _combat_query_service
+
+	# FEAT-007 regression repair (this suite drives a `.new()`-constructed --
+	# not scene-tree-booted -- MainScene instance, so _ready()'s own
+	# `verb_dispatch_controller.setup({...})` / `_reaction_instance = ...`
+	# composition-root wiring never runs): Criterion 2's Step/Stride sanity
+	# checks call `_instance.verb_dispatch_controller._verb_bar_step_execute()`/
+	# `_verb_bar_stride_execute()` directly, which require `_controller_fn` to
+	# be a REAL bound Callable (MainScene's own `_controller()` -- unchanged by
+	# FEAT-007's extraction, still the sole VERB_TABLE[verb_id].new(_verb_deps())
+	# resolver) rather than the default unbound Callable() `verb_dispatch_
+	# controller.gd`'s own vars default to. Only STEP/STRIDE/END_TURN's own
+	# collaborators are exercised by this suite; combine/spell-picker
+	# collaborators are irrelevant to Criterion 1-3 and are left null.
+	_instance._reaction_instance = ReactionControllerClass.new(
+		Callable(_instance, "_action_economy_for"),
+		Callable(_instance, "_current_round_number"),
+		null,
+		null,
+		null,
+		_hex_grid_view
+	)
+	_instance.verb_dispatch_controller.setup({
+		"controller_fn": Callable(_instance, "_controller"),
+		"round_session_fn": func(): return _instance.round_session,
+		"combine_queue_build_session": null,
+		"combine_targeting_session": null,
+		"selection_overlay": null,
+		"spell_picker": null,
+		"verb_bar_view": null,
+		"status_panel_view": null,
+		"party_fn": func(): return [],
+		"enemies_fn": func(): return [],
+		"turn_presentation_fn": Callable(_instance, "_turn_presentation"),
+	})
 
 
 func after_each() -> void:
