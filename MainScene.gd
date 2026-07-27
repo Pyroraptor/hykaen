@@ -84,6 +84,8 @@ const ResolveStrideUseCaseClass        = preload("res://core/application/use_cas
 const ResolveDodgeStepUseCaseClass     = preload("res://core/application/resolve_dodge_step_use_case.gd")
 const AIHexChoiceResolverClass         = preload("res://infrastructure/ai_hex_choice_resolver.gd")
 const AIReactionPolicyClass            = preload("res://infrastructure/ai_reaction_policy.gd")
+const EncounterTileAdapterClass        = preload("res://core/geometry/encounter_tile_adapter.gd")
+const HexPathfinderClass               = preload("res://core/geometry/hex_pathfinder.gd")
 
 const DEFAULT_VIEWPORT_WIDTH: int  = 1152
 const DEFAULT_VIEWPORT_HEIGHT: int = 648
@@ -302,7 +304,7 @@ func _ready() -> void:
 	_core_combine_action_controller = CoreCombineActionControllerClass.new({
 		"verb_registry_port": GdVerbRegistryPortClass.new(),
 		"action_economy_port": GdCombineActionEconomyPortClass.new(verb_dispatch_controller),
-		"controller_for": Callable(self, "_controller"),
+		"controller_for": Callable(self, "_combine_sub_action_controller"),
 	})
 	_combine_controller_registry = {
 		"STRIDE": CoreStrideActionControllerClass.new({
@@ -430,6 +432,7 @@ func _on_combat_triggered(encounter_id: String) -> void:
 	var turn_order_port  = EncounterTurnOrderAdapterClass.new(encounter)
 	var ai_decision_port = AIClass.new()
 	ai_decision_port.set_stride_reaction_resolver_fn(Callable(_reaction_instance, "resolve_enemy_stride_opportunistic_window"))
+	_rewire_combat_pathfinder(ai_decision_port, encounter_id)
 	run_round_use_case = RunRoundUseCaseClass.new(
 		turn_order_port, event_sink, round_history_port, ai_decision_port,
 		resolve_action_use_case, determine_outcome_use_case
@@ -477,6 +480,7 @@ func rewire_session() -> void:
 
 	if round_session != null and hex_grid_view != null:
 		round_session.set_token_reposition_fn(Callable(hex_grid_view, "move_token"))
+		round_session.set_token_animate_path_fn(Callable(self, "_animate_token_along_stride_path"))
 
 	if round_session != null and turn_controller != null:
 		round_session.set_reaction_resolver_fn(Callable(turn_controller, "resolve_reaction"))
@@ -497,6 +501,46 @@ func rewire_session() -> void:
 		await turn_controller.set_session(round_session, end_turn_control, null, verb_bar_view)
 
 	outcome = round_session.outcome()
+
+
+## Builds pathfinder_fn from EncounterTileAdapter + HexPathfinder and injects
+## it into both the player Stride controller and the AI decision port (FEAT-007).
+func _rewire_combat_pathfinder(ai_decision_port, encounter_id: String) -> void:
+	var encounter_resource = _active_encounter_resource(encounter_id)
+	if encounter_resource == null:
+		return
+
+	var all_combatants: Array = _party + _enemies
+	var is_passable_fn: Callable = EncounterTileAdapterClass.make_combat_is_passable(
+		encounter_resource, all_combatants, "", false
+	)
+	var move_cost_fn: Callable = EncounterTileAdapterClass.make_move_cost(encounter_resource)
+	var pathfinder_fn: Callable = Callable(HexPathfinderClass, "find_path").bind(is_passable_fn, move_cost_fn)
+
+	_verb_deps()["pathfinder_fn"] = pathfinder_fn
+
+	if ai_decision_port != null:
+		ai_decision_port.set_stride_pathfinder_fn(pathfinder_fn)
+
+
+
+## Looks up the EncounterResource for encounter_id from the active scenario.
+func _active_encounter_resource(encounter_id: String):
+	var scenario = scenario_session.scenario if scenario_session != null else null
+	if scenario == null:
+		return null
+	for entry in scenario.encounter_entries:
+		if entry.encounter_id == encounter_id:
+			return entry.encounter
+	return null
+
+
+## Animates an enemy token along a Stride path hex-by-hex (FEAT-007).
+func _animate_token_along_stride_path(actor_id: String, path: Array) -> void:
+	if hex_grid_view == null:
+		return
+	for i in range(1, path.size()):
+		await hex_grid_view.animate_token_to(actor_id, path[i])
 
 
 ## Route Esc/right-click to cancel_controller.
@@ -630,6 +674,7 @@ func _verb_deps() -> Dictionary:
 			"resolve_action_use_case": resolve_action_use_case,
 			"enemy_reaction_chooser": enemy_reaction_chooser,
 			"reaction": _reaction_instance,
+			"hex_grid_view": hex_grid_view,
 			"action_economy_for": Callable(self, "_action_economy_for"),
 			"current_round_number": Callable(self, "_current_round_number"),
 			"after_successful_move": Callable(self, "_after_successful_move"),
@@ -659,6 +704,30 @@ func _controller(verb_id: String):
 	if not _controllers.has(verb_id):
 		_controllers[verb_id] = VERB_TABLE[verb_id].new(_verb_deps())
 	return _controllers[verb_id]
+
+
+var _combine_sub_action_controllers: Dictionary = {}
+
+## Combine sub-action controller resolver (regression fix for FEAT-007):
+## core/controllers/combine_action_controller.gd's _dispatch_sub_actions()
+## invokes each sub-action's execute() via `Callable.call()`, never
+## `await`, by explicit documented design -- safe only when no sub-
+## controller's execute() ever genuinely suspends. FEAT-007's hex_grid_view
+## wiring gives STRIDE/STEP a real, time-based animate_token_to() Tween
+## await, which `Callable.call()` cannot correctly resume. Combine dispatch
+## therefore resolves STRIDE/STEP through a SEPARATE, un-animated instance
+## (same VERB_TABLE class, same deps minus "hex_grid_view") instead of the
+## shared, memoized `_controller(verb_id)` the real verb bar/`_verb_registry`
+## path uses (and which DOES want the real animation). Every other verb_id
+## is unaffected and still resolves through `_controller()`.
+func _combine_sub_action_controller(verb_id: String):
+	if verb_id != "STRIDE" and verb_id != "STEP":
+		return _controller(verb_id)
+	if not _combine_sub_action_controllers.has(verb_id):
+		var deps: Dictionary = _verb_deps().duplicate()
+		deps.erase("hex_grid_view")
+		_combine_sub_action_controllers[verb_id] = VERB_TABLE[verb_id].new(deps)
+	return _combine_sub_action_controllers[verb_id]
 
 
 ## Living enemies (hp > 0) — reactor pool for Stride opportunistic strikes.

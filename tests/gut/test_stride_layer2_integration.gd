@@ -229,6 +229,16 @@ func test_clicking_a_highlighted_destination_moves_the_token_and_spends_one_acti
 
 	instance.hex_grid_view.hex_clicked.emit(click_resolved_hex)
 
+	# FEAT-007 (US-007 / FR-006, NFR-001): MainScene now wires a real
+	# hex_grid_view into StrideActionController's deps, so a successful
+	# Stride now walks a per-hex animate_token_to() Tween chain BEFORE the
+	# actual domain move (movement_input_controller.stride_to()) commits.
+	# hex_clicked.emit() above is not awaited (Godot's signal emission does
+	# not await a suspended connected coroutine), so give that real,
+	# fire-and-forget Tween chain enough wall-clock time to finish before
+	# asserting on post-Stride domain/visual state below.
+	await get_tree().create_timer(0.5).timeout
+
 	assert_false(instance.selection_overlay.is_active(), "SelectionOverlay must return to Layer 1 once the click resolves a real Stride")
 
 	var moved_combatant = _find_combatant_by_id(instance, actor_id)

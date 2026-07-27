@@ -107,6 +107,16 @@ func test_probe_real_depletion(seed_value = use_parameters([959, 13269])) -> voi
 	assert_not_null(dest, "must find an adjacent stride destination")
 	instance.hex_grid_view.hex_clicked.emit(dest)
 
+	# FEAT-007 (US-007 / FR-006, NFR-001): MainScene now wires a real
+	# hex_grid_view into StrideActionController's deps, so a successful
+	# Stride animates the token via a genuine, real-time Tween
+	# (hex_grid_view.animate_token_to()) before the action is spent. The
+	# hex_clicked signal above is not awaited (Godot's signal.emit() does
+	# not await suspended handlers), so give the Tween chain enough
+	# wall-clock time to actually finish before reading the post-Stride
+	# action budget below.
+	await get_tree().create_timer(0.5).timeout
+
 	print("PROBE after stride remaining=", action_economy.get_remaining())
 	assert_eq(action_economy.get_remaining(), 0, "budget should now be fully depleted")
 

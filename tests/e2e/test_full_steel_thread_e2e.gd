@@ -92,6 +92,7 @@ const RoundEventsClass    = preload("res://core/rules/round_events.gd")
 const HexMathClass        = preload("res://core/geometry/hex_math.gd")
 const HexCoordClass       = preload("res://core/geometry/hex_coord.gd")
 const ActionEconomyClass  = preload("res://core/rules/action_economy.gd")
+const AutoReactionChooserClass = preload("res://infrastructure/auto_reaction_chooser.gd")
 
 ## The pinned deterministic-test fixture seed (matches
 ## data/encounters/prologue_encounter.tres' own `seed` field, 42) — injected
@@ -123,6 +124,24 @@ const _MAX_DRIVE_ITERATIONS: int = 20
 ## so `_boot_main_scene_with_seed()` now also drives the SAME real handoff,
 ## landing the instance in GameMode.COMBAT with a live round_session before
 ## returning.
+##
+## FEAT-007 (US-007 / FR-007, ADR-004): MainScene now wires a REAL
+## pathfinder_fn into the AI decision port (_rewire_combat_pathfinder()), so
+## an AI-controlled Stride computes a genuine multi-hex path instead of the
+## pre-feature direct [origin, destination] fallback -- meaning a transit hex
+## can now legitimately sit adjacent to a living reactor mid-Stride and open
+## a real Opportunistic Strike window (exactly the "evaluate per transit hex"
+## behavior this steel thread's own OS feature was built for). This suite's
+## enemy-relocation suites below deliberately place the enemy far enough away
+## that its Stride's path passes adjacent to the player, so a real window can
+## now open where none did before this feature wired the AI pathfinder seam.
+## The SAME headless AutoReactionChooser("pass") double every other
+## reaction-system suite already uses (see
+## tests/unit/test_main_scene_interactive_wiring.gd's identical swap-in) is
+## wired here immediately after boot so any such window auto-resolves
+## instead of hanging on an unattended real player reaction prompt -- the
+## REAL PlayerReactionChooser is still what MainScene.gd wires for an actual
+## player session; only this headless suite swaps it out.
 func _boot_main_scene_with_seed(seed_value: int):
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn (the real project.godot run/main_scene target) must load as a PackedScene")
@@ -134,6 +153,9 @@ func _boot_main_scene_with_seed(seed_value: int):
 	instance._on_combat_triggered("prologue")
 	await get_tree().process_frame
 	await get_tree().process_frame
+
+	if instance.turn_controller != null and instance.reaction_window != null:
+		instance.turn_controller.configure_reactions(instance.reaction_window, AutoReactionChooserClass.new("pass"))
 
 	return instance
 
@@ -572,6 +594,20 @@ func test_enemy_ai_leg_strides_toward_nearest_target_but_does_not_strike_same_tu
 	# ── The enemy token's on-screen hex position matches the AIDecision's
 	# destination, via the SAME move_token() path player movement uses
 	# (US-008) ───────────────────────────────────────────────────────────────
+	# FEAT-007 (US-007 / FR-006, NFR-001): the AI decision port now carries a
+	# real multi-hex "path" (this feature's own set_stride_pathfinder_fn()
+	# wiring), so round_session's animate-path seam (MainScene's own
+	# _animate_token_along_stride_path(), FEAT-007) drives the token through
+	# hex_grid_view.animate_token_to() -- a genuine, real-time Tween per hop
+	# (presentation/hex_grid_view.gd's TOKEN_MOVE_DURATION) -- instead of the
+	# pre-feature instant move_token() teleport. RoundSession fires that
+	# animation WITHOUT awaiting it (fire-and-forget, matching its own
+	# documented contract), so this suite must give the real Tween chain
+	# enough wall-clock time to finish before asserting on the token's
+	# rendered position, mirroring tests/integration/test_reaction_prompt_ui.gd's
+	# established create_timer() wait-for-real-animation convention.
+	await get_tree().create_timer(0.5).timeout
+
 	var token_after = instance.hex_grid_view.get_token(enemy_id)
 	assert_not_null(token_after, "the real HexGridView must still carry a token for the moved enemy")
 	assert_true(
@@ -665,7 +701,12 @@ func test_enemy_ai_leg_strides_but_does_not_strike_when_no_action_remains_after_
 	)
 
 	# The token reposition path itself is unaffected by whether a Strike
-	# follows the Stride.
+	# follows the Stride. FEAT-007: give the real, fire-and-forget
+	# animate-path Tween chain enough wall-clock time to finish before
+	# asserting on rendered token state (see the sibling suite's identical
+	# FEAT-007 doc above).
+	await get_tree().create_timer(0.5).timeout
+
 	var token_after = instance.hex_grid_view.get_token(enemy_id)
 	assert_not_null(token_after, "the real HexGridView must still carry a token for the moved enemy")
 	assert_true(

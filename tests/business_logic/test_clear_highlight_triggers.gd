@@ -82,6 +82,15 @@ class SpyHexGridView:
 	func move_token(_combatant_id: String, _hex_coord) -> void:
 		pass
 
+	## animate_token_to() -- FEAT-007 (US-007): StepActionController/
+	## StrideActionController now duck-type this method on any injected
+	## hex_grid_view (MainScene now always wires one via _verb_deps()). This
+	## double resolves synchronously (no real Signal/Tween) so this suite's
+	## existing call-count/ordering assertions stay exactly as they were
+	## before hex_grid_view was wired into this fixture.
+	func animate_token_to(_combatant_id: String, _target_hex):
+		return null
+
 
 ## FakeRoundSession -- minimal stand-in for core/application/round_session.gd,
 ## exposing only what _on_active_actor_changed()/_after_successful_move() read

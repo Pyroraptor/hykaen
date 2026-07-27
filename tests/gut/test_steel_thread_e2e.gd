@@ -315,6 +315,16 @@ func test_stride_flow_moves_token_via_move_token_with_one_action_spent() -> void
 	# the full Layer2->Layer1 UI transition is exercised too.
 	instance.hex_grid_view.hex_clicked.emit(destination)
 
+	# FEAT-007 (US-007 / FR-006, NFR-001): MainScene now wires a real
+	# hex_grid_view into StrideActionController's deps, so a successful
+	# Stride now walks a per-hex animate_token_to() Tween chain BEFORE the
+	# actual domain move (movement_input_controller.stride_to()) commits.
+	# hex_clicked.emit() above is not awaited (Godot's signal emission does
+	# not await a suspended connected coroutine), so give that real,
+	# fire-and-forget Tween chain enough wall-clock time to finish before
+	# asserting on post-Stride domain/visual state below.
+	await get_tree().create_timer(0.5).timeout
+
 	var moved_combatant = _find_combatant_by_id(instance, actor_id)
 	assert_true(moved_combatant.hex_coord.equals(destination), "the live combatant Dictionary's hex_coord must move to the selected hex via move_token()")
 
