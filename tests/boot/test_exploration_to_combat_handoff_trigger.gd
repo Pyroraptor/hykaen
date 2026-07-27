@@ -274,7 +274,7 @@ func test_click_after_successful_handoff_never_reaches_exploration_controller() 
 	# disconnected AND because _on_exploration_hex_clicked's own
 	# _game_mode != EXPLORATION guard would reject it if it were somehow
 	# still reachable.
-	instance._on_exploration_hex_clicked(HexCoordClass.new(2, 0))
+	await instance._exploration._on_exploration_hex_clicked(HexCoordClass.new(2, 0))
 
 	assert_eq(spy.move_party_member_call_count, 0, "a click after a successful combat handoff must never reach ExplorationController.move_party_member")
 
