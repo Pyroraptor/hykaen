@@ -21,6 +21,7 @@ extends GutTest
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 const MainSceneClass = preload("res://MainScene.gd")
 const HexCoordClass = preload("res://core/geometry/hex_coord.gd")
+const GameStateDataClass = preload("res://data/game_state/game_state_data.gd")
 
 ## PROLOGUE_SEED — this project's established known-good fixture seed
 ## (mirrors tests/boot/test_exploration_to_combat_handoff_trigger.gd's
@@ -28,6 +29,22 @@ const HexCoordClass = preload("res://core/geometry/hex_coord.gd")
 const PROLOGUE_SEED: int = 42
 
 const PROLOGUE_ENCOUNTER_ID: String = "prologue"
+
+
+## before_each()/after_each() — reseed CurrentGameState.data with a fresh
+## GameStateDataClass instance so no test in this file (or any test that
+## runs before/after it in the full suite) can leak scenario_path/session
+## state across test boundaries (ADR-008). Copy-identical to
+## tests/boot/test_exploration_to_combat_handoff.gd's established pattern
+## (FEAT-002) to avoid divergence (mitigates RISK-008): this guarantees
+## _boot_main_scene() -> MainScene._ready() always takes the same
+## prologue-fallback boot path regardless of suite ordering.
+func before_each() -> void:
+	CurrentGameState.data = GameStateDataClass.new()
+
+
+func after_each() -> void:
+	CurrentGameState.data = GameStateDataClass.new()
 
 
 func _boot_main_scene():
@@ -148,7 +165,12 @@ func test_reclicking_the_trigger_hex_after_completion_does_not_re_enter_combat()
 	# hex-adjacent to Titus' authored start hex (0, 0) — a real click there
 	# fires combat_triggered through the genuine
 	# ExplorationController.move_party_member() -> _evaluate_triggers() path.
-	instance._on_exploration_hex_clicked(HexCoordClass.new(-1, 0))
+	# FEAT-324 moved `_on_exploration_hex_clicked` off MainScene and onto
+	# `_exploration` (ExplorationModeController); it is a coroutine (ADR-007),
+	# so the call must go through `instance._exploration` and be awaited
+	# (mirrors tests/boot/test_exploration_to_combat_handoff.gd's FEAT-002
+	# `_click()` convention).
+	await instance._exploration._on_exploration_hex_clicked(HexCoordClass.new(-1, 0))
 	await get_tree().process_frame
 	await get_tree().process_frame
 
@@ -164,11 +186,12 @@ func test_reclicking_the_trigger_hex_after_completion_does_not_re_enter_combat()
 	# Step off the trigger hex onto Titus' original (non-trigger) start hex,
 	# then back onto a DIFFERENT trigger hex belonging to the SAME (now
 	# completed) entry -- proving this is a genuine re-entry attempt, not
-	# merely a zero-distance non-move.
-	instance._on_exploration_hex_clicked(HexCoordClass.new(0, 0))
+	# merely a zero-distance non-move. Same FEAT-324/ADR-007 await-through-
+	# `_exploration` requirement as above.
+	await instance._exploration._on_exploration_hex_clicked(HexCoordClass.new(0, 0))
 	await get_tree().process_frame
 
-	instance._on_exploration_hex_clicked(HexCoordClass.new(0, -1))
+	await instance._exploration._on_exploration_hex_clicked(HexCoordClass.new(0, -1))
 	await get_tree().process_frame
 	await get_tree().process_frame
 
@@ -201,8 +224,15 @@ func test_teardown_and_reconnect_leaves_no_duplicate_or_dangling_listeners() -> 
 	var instance = _boot_main_scene()
 	await get_tree().process_frame
 
+	# FEAT-324 relocated `_on_exploration_hex_clicked` off MainScene and onto
+	# `_exploration` (ExplorationModeController) -- MainScene.gd's own
+	# `_exploration_hex_clicked_callable()` now returns
+	# Callable(_exploration, "_on_exploration_hex_clicked"), so the actual
+	# connection's callable target is `instance._exploration`, not `instance`
+	# itself. Passing `instance` here is the stale, pre-relocation reference
+	# this feature corrects (RISK-003).
 	assert_eq(
-		_count_connections(instance.hex_grid_view, "hex_clicked", instance, "_on_exploration_hex_clicked"), 1,
+		_count_connections(instance.hex_grid_view, "hex_clicked", instance._exploration, "_on_exploration_hex_clicked"), 1,
 		"fixture assumption: exactly one hex_clicked -> _on_exploration_hex_clicked connection at boot"
 	)
 	# FEAT-316 (resolves DEF-001/PR-001): these two connections are no longer
@@ -223,8 +253,10 @@ func test_teardown_and_reconnect_leaves_no_duplicate_or_dangling_listeners() -> 
 	await get_tree().process_frame
 	await get_tree().process_frame
 
+	# Same owner correction as above: the connection (when present) targets
+	# `instance._exploration`, not `instance`, post-FEAT-324.
 	assert_eq(
-		_count_connections(instance.hex_grid_view, "hex_clicked", instance, "_on_exploration_hex_clicked"), 0,
+		_count_connections(instance.hex_grid_view, "hex_clicked", instance._exploration, "_on_exploration_hex_clicked"), 0,
 		"the exploration-to-combat handoff must leave hex_clicked disconnected from _on_exploration_hex_clicked while in COMBAT"
 	)
 
@@ -232,8 +264,11 @@ func test_teardown_and_reconnect_leaves_no_duplicate_or_dangling_listeners() -> 
 	await get_tree().process_frame
 	await get_tree().process_frame
 
+	# Same owner correction as above: after teardown+reconnect, the fresh
+	# connection again targets `instance._exploration`, not `instance`,
+	# post-FEAT-324.
 	assert_eq(
-		_count_connections(instance.hex_grid_view, "hex_clicked", instance, "_on_exploration_hex_clicked"), 1,
+		_count_connections(instance.hex_grid_view, "hex_clicked", instance._exploration, "_on_exploration_hex_clicked"), 1,
 		"after teardown+reconnect, hex_clicked -> _on_exploration_hex_clicked must be connected EXACTLY once (no duplicate, no dangling disconnect)"
 	)
 	assert_eq(
