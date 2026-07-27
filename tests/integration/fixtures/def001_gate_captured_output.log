@@ -6,12 +6,12 @@ Regenerated on every real run of this suite; see git history for prior captures.
 ---- `python -m pytest -q --tb=short` ----
 exit code: 0
 ---- combined stdout+stderr ----
-........................................................................ [ 18%]
-........ssssssss..ssss.................................................. [ 37%]
-........................................................................ [ 55%]
-......s................................................................. [ 74%]
-......................s.ss.................................s............ [ 93%]
-...........................                                              [100%]
+........................................................................ [ 17%]
+.............sssssss.ssss............................................... [ 35%]
+........................................................................ [ 52%]
+.............................s.......................................... [ 70%]
+.............................................s.ss....................... [ 87%]
+..........s.......................................                       [100%]
 =============================== warnings summary ===============================
 tests/ci/test_check_sim_results_provenance.py::TestWiredIntoTestCommandPipeline::test_test_command_sh_executes_the_provenance_check
   /workspace/.uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/site-packages/_pytest/fixtures.py:1313: PytestRemovedIn10Warning: Class-scoped fixture defined as instance method is deprecated.
@@ -22,7 +22,7 @@ tests/ci/test_check_sim_results_provenance.py::TestWiredIntoTestCommandPipeline:
     fixturefunc = resolve_fixture_function(fixturedef, request)
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-370 passed, 17 skipped, 1 warning in 58.58s
+394 passed, 16 skipped, 1 warning in 44.03s
 
 
 ---- `godot --headless --path <repo_root> -- --gut-run-all` ----
@@ -1634,7 +1634,7 @@ DEBUG: highlight_legal_moves combatant_id=player_0 step_hex_count=4 stride_hex_c
 * test_headless_boot_still_succeeds_after_reaction_resolver_rewiring
 INFO: Hykaen MainScene booted into EXPLORATION mode -- no active round_session yet
 DEBUG: viewport_centering centering_offset=(576, 324)
-DEBUG: highlight_legal_moves combatant_id=player_0 step_hex_count=4 stride_hex_count=58
+DEBUG: highlight_legal_moves combatant_id=player_1 step_hex_count=5 stride_hex_count=58
 * test_real_player_combatant_weapon_carries_defensive_reaction_fields
 INFO: Hykaen MainScene booted into EXPLORATION mode -- no active round_session yet
 DEBUG: viewport_centering centering_offset=(576, 324)
@@ -3392,10 +3392,10 @@ res://tests/sim/test_balance_sim.gd
 * test_write_sim_results_json_artifact
     sim_results.json written: {
     	"avg_rounds": 1.068,
-    	"commit_hash": "320259ea9597db9ae6463b281b6fd1d9482471b5",
+    	"commit_hash": "7bbb8ecee59790db52be66cb08ff50388dbca693",
     	"confidence_interval": 0.0287162408681916,
     	"seed": 12345,
-    	"timestamp": "2026-07-27 16:13:00",
+    	"timestamp": "2026-07-27 16:57:31",
     	"total_battles": 1000,
     	"win_rate": 0.688
     }
@@ -3413,10 +3413,10 @@ res://tests/sim/test_balance_simulation_post_fix.gd
 * test_sim_results_json_regenerated_with_timestamp_and_commit
     FEAT-106: sim_results.json regenerated (post-fix): {
     	"avg_rounds": 1.068,
-    	"commit_hash": "320259ea9597db9ae6463b281b6fd1d9482471b5",
+    	"commit_hash": "7bbb8ecee59790db52be66cb08ff50388dbca693",
     	"confidence_interval": 0.0287162408681916,
     	"seed": 12345,
-    	"timestamp": "2026-07-27T16:13:01",
+    	"timestamp": "2026-07-27T16:57:31",
     	"total_battles": 1000,
     	"win_rate": 0.688
     }
@@ -4679,6 +4679,17 @@ res://tests/unit/presentation/test_movement_input_controller.gd
 [1m8/8 passed.
 [0m[4m
 
+res://tests/unit/presentation/test_reaction_controller.gd
+[0m* test_legacy_three_argument_call_evaluates_only_mover_start_hex
+* test_legacy_call_with_explicit_empty_stride_path_matches_omitted_argument
+* test_single_hex_stride_os_matches_pre_extraction_inline_call
+* test_multi_hex_stride_path_evaluates_every_hex_from_index_one
+* test_multi_hex_stride_path_short_circuits_on_first_lethal_hex
+* test_cross_path_parity_player_and_enemy_yield_identical_pass_outcomes
+* test_cross_path_parity_player_and_enemy_yield_identical_block_outcomes
+[1m7/7 passed.
+[0m[4m
+
 res://tests/unit/presentation/test_result_screen_view.gd
 [0m* test_renders_win_for_won_outcome
 * test_renders_loss_for_lost_outcome
@@ -4737,6 +4748,21 @@ res://tests/unit/presentation/test_status_panel_view_retargeted.gd
 * test_lethal_attack_event_via_explicit_target_hp_after_also_zeroes_hp
 * test_source_contains_no_combat_computation_keywords
 [1m5/5 passed.
+[0m[4m
+
+res://tests/unit/presentation/test_stride_action_controller.gd
+[0m* test_os_evaluated_at_each_transit_hex_not_only_start
+* test_os_evaluated_exactly_once_per_transit_hex_across_a_three_hex_path
+* test_mover_downed_at_first_transit_hex_aborts_without_calling_stride_to
+* test_path_falls_back_to_direct_start_goal_when_pathfinder_fn_unwired
+* test_path_falls_back_to_direct_start_goal_when_pathfinder_fn_returns_short_path
+* test_animate_token_to_called_once_per_transit_hex_in_order
+* test_animate_token_to_never_called_when_hex_grid_view_unwired
+* test_legacy_behavior_unaffected_when_pathfinder_fn_and_hex_grid_view_absent
+* test_legacy_behavior_null_actor_still_commits_without_any_os_evaluation
+* test_self_spend_suppression_preserved_on_final_commit_with_multi_hex_path
+* test_self_spend_suppression_not_engaged_when_no_self_spend_execution_is_false
+[1m11/11 passed.
 [0m[4m
 
 res://tests/unit/presentation/test_verb_bar_lockout.gd
@@ -5379,7 +5405,7 @@ res://tests/unit/test_event_emission_seam.gd
 * test_emit_event_seam_has_exactly_the_two_expected_call_sites
 * test_event_sink_emit_accepts_an_arbitrary_typed_event_object
 * test_console_event_sink_adapter_accepts_an_arbitrary_typed_event_object
-INFO: round event <RefCounted#-9223351737883011618>
+INFO: round event <RefCounted#-9223351725249766607>
 * test_event_sink_port_emit_signature_and_body_contain_no_type_branching
 * test_emit_event_seam_body_contains_no_type_branching
 * test_attack_event_construction_code_path_is_untouched_by_the_generalization
@@ -5461,7 +5487,7 @@ DEBUG: viewport_centering centering_offset=(576, 324)
 * test_main_scene_instantiated_boots_prologue_encounter_without_auto_resolving
 INFO: Hykaen MainScene booted into EXPLORATION mode -- no active round_session yet
 DEBUG: viewport_centering centering_offset=(576, 324)
-DEBUG: highlight_legal_moves combatant_id=player_0 step_hex_count=4 stride_hex_count=58
+DEBUG: highlight_legal_moves combatant_id=player_1 step_hex_count=5 stride_hex_count=58
 * test_main_scene_instantiated_random_port_is_godot_random_adapter
 INFO: Hykaen MainScene booted into EXPLORATION mode -- no active round_session yet
 DEBUG: viewport_centering centering_offset=(576, 324)
@@ -6441,13 +6467,13 @@ Totals
 ------
 Warnings              7
 
-Scripts             350
-Tests              2988
-Passing Tests      2982
+Scripts             352
+Tests              3006
+Passing Tests      3000
 Risky/Pending         6
-Asserts           16634
+Asserts           16685
 Orphans               1
-Time              34.871s
+Time              25.247s
 
 
 [33m---- 6 pending/risky tests. ----
@@ -8013,6 +8039,10 @@ WARNING: res://data/characters/titus.tres:3 - ext_resource, invalid UID: uid://b
      at: load (scene/resources/resource_format_text.cpp:453)
 WARNING: res://data/classes/fighter.tres:3 - ext_resource, invalid UID: uid://cs1a2b3c4d5e6f - using text path instead: res://core/model/class_resource.gd
      at: load (scene/resources/resource_format_text.cpp:453)
+WARNING: res://data/characters/marigold.tres:3 - ext_resource, invalid UID: uid://bchar1a2b3c4d5e - using text path instead: res://core/model/character_resource.gd
+     at: load (scene/resources/resource_format_text.cpp:453)
+WARNING: res://data/classes/divine_warrior.tres:3 - ext_resource, invalid UID: uid://es3c4d5e6f7g8h - using text path instead: res://core/model/class_resource.gd
+     at: load (scene/resources/resource_format_text.cpp:453)
 WARNING: res://data/enemies/skeleton.tres:3 - ext_resource, invalid UID: uid://enmyres1a2b3c - using text path instead: res://data/enemies/enemy_resource.gd
      at: load (scene/resources/resource_format_text.cpp:453)
 WARNING: res://data/characters/titus.tres:3 - ext_resource, invalid UID: uid://bchar1a2b3c4d5e - using text path instead: res://core/model/character_resource.gd
@@ -8022,6 +8052,10 @@ WARNING: res://data/classes/fighter.tres:3 - ext_resource, invalid UID: uid://cs
 WARNING: res://data/weapons/longsword.tres:3 - ext_resource, invalid UID: uid://bwpns1a2b3c4d - using text path instead: res://core/model/weapon_resource.gd
      at: load (scene/resources/resource_format_text.cpp:453)
 WARNING: res://data/armor/chain_shirt.tres:3 - ext_resource, invalid UID: uid://barms1a2b3c4d - using text path instead: res://core/model/armor_resource.gd
+     at: load (scene/resources/resource_format_text.cpp:453)
+WARNING: res://data/characters/marigold.tres:3 - ext_resource, invalid UID: uid://bchar1a2b3c4d5e - using text path instead: res://core/model/character_resource.gd
+     at: load (scene/resources/resource_format_text.cpp:453)
+WARNING: res://data/classes/divine_warrior.tres:3 - ext_resource, invalid UID: uid://es3c4d5e6f7g8h - using text path instead: res://core/model/class_resource.gd
      at: load (scene/resources/resource_format_text.cpp:453)
 WARNING: res://data/weapons/shortsword.tres:3 - ext_resource, invalid UID: uid://bwpns1a2b3c4d - using text path instead: res://core/model/weapon_resource.gd
      at: load (scene/resources/resource_format_text.cpp:453)
@@ -15193,6 +15227,8 @@ WARNING: res://data/armor/leather_armor.tres:3 - ext_resource, invalid UID: uid:
      at: load (scene/resources/resource_format_text.cpp:453)
 WARNING: res://data/enemies/skeleton.tres:3 - ext_resource, invalid UID: uid://enmyres1a2b3c - using text path instead: res://data/enemies/enemy_resource.gd
      at: load (scene/resources/resource_format_text.cpp:453)
+WARNING: res://data/spells/fire_bolt.tres:3 - ext_resource, invalid UID: uid://cspres0urce00001 - using text path instead: res://core/resources/spell_resource.gd
+     at: load (scene/resources/resource_format_text.cpp:453)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
 WARNING: res://data/characters/titus.tres:3 - ext_resource, invalid UID: uid://bchar1a2b3c4d5e - using text path instead: res://core/model/character_resource.gd
@@ -20039,6 +20075,18 @@ SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
+WARNING: res://data/armor/chain_shirt.tres:3 - ext_resource, invalid UID: uid://barms1a2b3c4d - using text path instead: res://core/model/armor_resource.gd
+     at: load (scene/resources/resource_format_text.cpp:453)
+WARNING: res://data/enemies/skeleton.tres:3 - ext_resource, invalid UID: uid://enmyres1a2b3c - using text path instead: res://data/enemies/enemy_resource.gd
+     at: load (scene/resources/resource_format_text.cpp:453)
+WARNING: res://data/armor/chain_shirt.tres:3 - ext_resource, invalid UID: uid://barms1a2b3c4d - using text path instead: res://core/model/armor_resource.gd
+     at: load (scene/resources/resource_format_text.cpp:453)
+WARNING: res://data/enemies/skeleton.tres:3 - ext_resource, invalid UID: uid://enmyres1a2b3c - using text path instead: res://data/enemies/enemy_resource.gd
+     at: load (scene/resources/resource_format_text.cpp:453)
+WARNING: res://data/armor/chain_shirt.tres:3 - ext_resource, invalid UID: uid://barms1a2b3c4d - using text path instead: res://core/model/armor_resource.gd
+     at: load (scene/resources/resource_format_text.cpp:453)
+WARNING: res://data/enemies/skeleton.tres:3 - ext_resource, invalid UID: uid://enmyres1a2b3c - using text path instead: res://data/enemies/enemy_resource.gd
+     at: load (scene/resources/resource_format_text.cpp:453)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
 WARNING: res://data/enemies/skeleton.tres:3 - ext_resource, invalid UID: uid://enmyres1a2b3c - using text path instead: res://data/enemies/enemy_resource.gd
@@ -23517,86 +23565,16 @@ SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-WARNING: res://data/characters/titus.tres:3 - ext_resource, invalid UID: uid://bchar1a2b3c4d5e - using text path instead: res://core/model/character_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
-WARNING: res://data/classes/fighter.tres:3 - ext_resource, invalid UID: uid://cs1a2b3c4d5e6f - using text path instead: res://core/model/class_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
-WARNING: res://data/armor/chain_shirt.tres:3 - ext_resource, invalid UID: uid://barms1a2b3c4d - using text path instead: res://core/model/armor_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
-WARNING: res://data/weapons/longsword.tres:3 - ext_resource, invalid UID: uid://bwpns1a2b3c4d - using text path instead: res://core/model/weapon_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
-WARNING: res://data/enemies/skeleton.tres:3 - ext_resource, invalid UID: uid://enmyres1a2b3c - using text path instead: res://data/enemies/enemy_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-WARNING: res://data/characters/titus.tres:3 - ext_resource, invalid UID: uid://bchar1a2b3c4d5e - using text path instead: res://core/model/character_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
-WARNING: res://data/classes/fighter.tres:3 - ext_resource, invalid UID: uid://cs1a2b3c4d5e6f - using text path instead: res://core/model/class_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
-WARNING: res://data/armor/chain_shirt.tres:3 - ext_resource, invalid UID: uid://barms1a2b3c4d - using text path instead: res://core/model/armor_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
-WARNING: res://data/weapons/longsword.tres:3 - ext_resource, invalid UID: uid://bwpns1a2b3c4d - using text path instead: res://core/model/weapon_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
-WARNING: res://data/enemies/skeleton.tres:3 - ext_resource, invalid UID: uid://enmyres1a2b3c - using text path instead: res://data/enemies/enemy_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-WARNING: res://data/characters/titus.tres:3 - ext_resource, invalid UID: uid://bchar1a2b3c4d5e - using text path instead: res://core/model/character_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
-WARNING: res://data/classes/fighter.tres:3 - ext_resource, invalid UID: uid://cs1a2b3c4d5e6f - using text path instead: res://core/model/class_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
-WARNING: res://data/armor/chain_shirt.tres:3 - ext_resource, invalid UID: uid://barms1a2b3c4d - using text path instead: res://core/model/armor_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
-WARNING: res://data/weapons/longsword.tres:3 - ext_resource, invalid UID: uid://bwpns1a2b3c4d - using text path instead: res://core/model/weapon_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
-WARNING: res://data/enemies/skeleton.tres:3 - ext_resource, invalid UID: uid://enmyres1a2b3c - using text path instead: res://data/enemies/enemy_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-WARNING: res://data/characters/titus.tres:3 - ext_resource, invalid UID: uid://bchar1a2b3c4d5e - using text path instead: res://core/model/character_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
-WARNING: res://data/classes/fighter.tres:3 - ext_resource, invalid UID: uid://cs1a2b3c4d5e6f - using text path instead: res://core/model/class_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
-WARNING: res://data/armor/chain_shirt.tres:3 - ext_resource, invalid UID: uid://barms1a2b3c4d - using text path instead: res://core/model/armor_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
-WARNING: res://data/weapons/longsword.tres:3 - ext_resource, invalid UID: uid://bwpns1a2b3c4d - using text path instead: res://core/model/weapon_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
-WARNING: res://data/enemies/skeleton.tres:3 - ext_resource, invalid UID: uid://enmyres1a2b3c - using text path instead: res://data/enemies/enemy_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-WARNING: res://data/characters/titus.tres:3 - ext_resource, invalid UID: uid://bchar1a2b3c4d5e - using text path instead: res://core/model/character_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
-WARNING: res://data/classes/fighter.tres:3 - ext_resource, invalid UID: uid://cs1a2b3c4d5e6f - using text path instead: res://core/model/class_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
-WARNING: res://data/armor/chain_shirt.tres:3 - ext_resource, invalid UID: uid://barms1a2b3c4d - using text path instead: res://core/model/armor_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
-WARNING: res://data/weapons/longsword.tres:3 - ext_resource, invalid UID: uid://bwpns1a2b3c4d - using text path instead: res://core/model/weapon_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
-WARNING: res://data/enemies/skeleton.tres:3 - ext_resource, invalid UID: uid://enmyres1a2b3c - using text path instead: res://data/enemies/enemy_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-WARNING: res://data/characters/titus.tres:3 - ext_resource, invalid UID: uid://bchar1a2b3c4d5e - using text path instead: res://core/model/character_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
-WARNING: res://data/classes/fighter.tres:3 - ext_resource, invalid UID: uid://cs1a2b3c4d5e6f - using text path instead: res://core/model/class_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
-WARNING: res://data/armor/chain_shirt.tres:3 - ext_resource, invalid UID: uid://barms1a2b3c4d - using text path instead: res://core/model/armor_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
-WARNING: res://data/weapons/longsword.tres:3 - ext_resource, invalid UID: uid://bwpns1a2b3c4d - using text path instead: res://core/model/weapon_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
-WARNING: res://data/enemies/skeleton.tres:3 - ext_resource, invalid UID: uid://enmyres1a2b3c - using text path instead: res://data/enemies/enemy_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
-WARNING: res://data/characters/titus.tres:3 - ext_resource, invalid UID: uid://bchar1a2b3c4d5e - using text path instead: res://core/model/character_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
-WARNING: res://data/classes/fighter.tres:3 - ext_resource, invalid UID: uid://cs1a2b3c4d5e6f - using text path instead: res://core/model/class_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
-WARNING: res://data/armor/chain_shirt.tres:3 - ext_resource, invalid UID: uid://barms1a2b3c4d - using text path instead: res://core/model/armor_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
-WARNING: res://data/weapons/longsword.tres:3 - ext_resource, invalid UID: uid://bwpns1a2b3c4d - using text path instead: res://core/model/weapon_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
-WARNING: res://data/enemies/skeleton.tres:3 - ext_resource, invalid UID: uid://enmyres1a2b3c - using text path instead: res://data/enemies/enemy_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
 WARNING: res://data/characters/titus.tres:3 - ext_resource, invalid UID: uid://bchar1a2b3c4d5e - using text path instead: res://core/model/character_resource.gd
@@ -26697,6 +26675,20 @@ SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
+SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
+          at: GutMain._run_test (res://addons/gut/gut.gd:650)
+SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
+          at: GutMain._run_test (res://addons/gut/gut.gd:650)
+SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
+          at: GutMain._run_test (res://addons/gut/gut.gd:650)
+SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
+          at: GutMain._run_test (res://addons/gut/gut.gd:650)
+SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
+          at: GutMain._run_test (res://addons/gut/gut.gd:650)
+SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
+          at: GutMain._run_test (res://addons/gut/gut.gd:650)
+SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
+          at: GutMain._run_test (res://addons/gut/gut.gd:650)
 WARNING: StatusPanelView.update_action_budget: actor_updated_action_budget missing/invalid for actor_id=titus -- no-op
      at: push_warning (core/variant/variant_utility.cpp:1112)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
@@ -26731,6 +26723,28 @@ SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
 WARNING: StatusPanelView.update_action_budget: actor_updated_action_budget missing/invalid for actor_id=player_0 -- no-op
      at: push_warning (core/variant/variant_utility.cpp:1112)
+SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
+          at: GutMain._run_test (res://addons/gut/gut.gd:650)
+SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
+          at: GutMain._run_test (res://addons/gut/gut.gd:650)
+SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
+          at: GutMain._run_test (res://addons/gut/gut.gd:650)
+SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
+          at: GutMain._run_test (res://addons/gut/gut.gd:650)
+SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
+          at: GutMain._run_test (res://addons/gut/gut.gd:650)
+SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
+          at: GutMain._run_test (res://addons/gut/gut.gd:650)
+SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
+          at: GutMain._run_test (res://addons/gut/gut.gd:650)
+SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
+          at: GutMain._run_test (res://addons/gut/gut.gd:650)
+SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
+          at: GutMain._run_test (res://addons/gut/gut.gd:650)
+SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
+          at: GutMain._run_test (res://addons/gut/gut.gd:650)
+SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
+          at: GutMain._run_test (res://addons/gut/gut.gd:650)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
@@ -27541,16 +27555,28 @@ SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
+WARNING: res://data/classes/fighter.tres:3 - ext_resource, invalid UID: uid://cs1a2b3c4d5e6f - using text path instead: res://core/model/class_resource.gd
+     at: load (scene/resources/resource_format_text.cpp:453)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
+WARNING: res://data/classes/fighter.tres:3 - ext_resource, invalid UID: uid://cs1a2b3c4d5e6f - using text path instead: res://core/model/class_resource.gd
+     at: load (scene/resources/resource_format_text.cpp:453)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
+WARNING: res://data/classes/fighter.tres:3 - ext_resource, invalid UID: uid://cs1a2b3c4d5e6f - using text path instead: res://core/model/class_resource.gd
+     at: load (scene/resources/resource_format_text.cpp:453)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
+WARNING: res://data/classes/fighter.tres:3 - ext_resource, invalid UID: uid://cs1a2b3c4d5e6f - using text path instead: res://core/model/class_resource.gd
+     at: load (scene/resources/resource_format_text.cpp:453)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
+WARNING: res://data/classes/fighter.tres:3 - ext_resource, invalid UID: uid://cs1a2b3c4d5e6f - using text path instead: res://core/model/class_resource.gd
+     at: load (scene/resources/resource_format_text.cpp:453)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
+WARNING: res://data/classes/fighter.tres:3 - ext_resource, invalid UID: uid://cs1a2b3c4d5e6f - using text path instead: res://core/model/class_resource.gd
+     at: load (scene/resources/resource_format_text.cpp:453)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
 WARNING: res://data/classes/wizard.tres:3 - ext_resource, invalid UID: uid://ds2b3c4d5e6f7g - using text path instead: res://core/model/class_resource.gd
@@ -27664,6 +27690,8 @@ WARNING: res://data/combines/charge.tres:3 - ext_resource, invalid UID: uid://vr
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
 WARNING: res://data/characters/titus.tres:3 - ext_resource, invalid UID: uid://bchar1a2b3c4d5e - using text path instead: res://core/model/character_resource.gd
+     at: load (scene/resources/resource_format_text.cpp:453)
+WARNING: res://data/classes/fighter.tres:3 - ext_resource, invalid UID: uid://cs1a2b3c4d5e6f - using text path instead: res://core/model/class_resource.gd
      at: load (scene/resources/resource_format_text.cpp:453)
 WARNING: res://data/characters/marigold.tres:3 - ext_resource, invalid UID: uid://bchar1a2b3c4d5e - using text path instead: res://core/model/character_resource.gd
      at: load (scene/resources/resource_format_text.cpp:453)
@@ -27672,6 +27700,8 @@ WARNING: res://data/classes/divine_warrior.tres:3 - ext_resource, invalid UID: u
 WARNING: res://data/enemies/skeleton.tres:3 - ext_resource, invalid UID: uid://enmyres1a2b3c - using text path instead: res://data/enemies/enemy_resource.gd
      at: load (scene/resources/resource_format_text.cpp:453)
 WARNING: res://data/characters/titus.tres:3 - ext_resource, invalid UID: uid://bchar1a2b3c4d5e - using text path instead: res://core/model/character_resource.gd
+     at: load (scene/resources/resource_format_text.cpp:453)
+WARNING: res://data/classes/fighter.tres:3 - ext_resource, invalid UID: uid://cs1a2b3c4d5e6f - using text path instead: res://core/model/class_resource.gd
      at: load (scene/resources/resource_format_text.cpp:453)
 WARNING: res://data/weapons/longsword.tres:3 - ext_resource, invalid UID: uid://bwpns1a2b3c4d - using text path instead: res://core/model/weapon_resource.gd
      at: load (scene/resources/resource_format_text.cpp:453)
@@ -28599,6 +28629,8 @@ WARNING: res://data/armor/leather_armor.tres:3 - ext_resource, invalid UID: uid:
      at: load (scene/resources/resource_format_text.cpp:453)
 WARNING: res://data/enemies/skeleton.tres:3 - ext_resource, invalid UID: uid://enmyres1a2b3c - using text path instead: res://data/enemies/enemy_resource.gd
      at: load (scene/resources/resource_format_text.cpp:453)
+WARNING: res://data/spells/fire_bolt.tres:3 - ext_resource, invalid UID: uid://cspres0urce00001 - using text path instead: res://core/resources/spell_resource.gd
+     at: load (scene/resources/resource_format_text.cpp:453)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
 WARNING: res://data/characters/titus.tres:3 - ext_resource, invalid UID: uid://bchar1a2b3c4d5e - using text path instead: res://core/model/character_resource.gd
@@ -29318,11 +29350,11 @@ SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
 SCRIPT ERROR: Assertion failed: ReactionController: Opportunistic Strike candidate_reactors ordering violates the rolled initiative table -- 'LateSpawnHighRoll' (turn_order index 0) resolved out of initiative order (previous candidate's turn_order index 1)
-          at: ReactionController.assert_candidate_reactors_ordering (res://presentation/reaction_controller.gd:192)
+          at: ReactionController.assert_candidate_reactors_ordering (res://presentation/reaction_controller.gd:230)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
 SCRIPT ERROR: Assertion failed: ReactionController: Opportunistic Strike candidate reactor 'EarlySpawnLowRoll' is absent from encounter.get_turn_order() -- ordering cannot be verified against the rolled initiative table
-          at: ReactionController.assert_candidate_reactors_ordering (res://presentation/reaction_controller.gd:182)
+          at: ReactionController.assert_candidate_reactors_ordering (res://presentation/reaction_controller.gd:220)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
@@ -31239,55 +31271,55 @@ SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2505/@Control@2507").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2509/@Control@2511").
    at: get_node (scene/main/node.cpp:1792)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2505/@Control@2508").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2509/@Control@2512").
    at: get_node (scene/main/node.cpp:1792)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2505/@Control@2509").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2509/@Control@2513").
    at: get_node (scene/main/node.cpp:1792)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2505/@Control@2510").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2509/@Control@2514").
    at: get_node (scene/main/node.cpp:1792)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2505/@Control@2511").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2509/@Control@2515").
    at: get_node (scene/main/node.cpp:1792)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2505/@Control@2512").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2509/@Control@2516").
    at: get_node (scene/main/node.cpp:1792)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2505/@Control@2513").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2509/@Control@2517").
    at: get_node (scene/main/node.cpp:1792)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2505/@Control@2514").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2509/@Control@2518").
    at: get_node (scene/main/node.cpp:1792)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2505/@Control@2515").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2509/@Control@2519").
    at: get_node (scene/main/node.cpp:1792)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2505/@Control@2516").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2509/@Control@2520").
    at: get_node (scene/main/node.cpp:1792)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2505/@Control@2517").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2509/@Control@2521").
    at: get_node (scene/main/node.cpp:1792)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2505/@Control@2518").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2509/@Control@2522").
    at: get_node (scene/main/node.cpp:1792)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2505/@Control@2519").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2509/@Control@2523").
    at: get_node (scene/main/node.cpp:1792)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
@@ -31295,35 +31327,35 @@ SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2520/@Control@2522").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2524/@Control@2526").
    at: get_node (scene/main/node.cpp:1792)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2520/@Control@2523").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2524/@Control@2527").
    at: get_node (scene/main/node.cpp:1792)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2520/@Control@2524").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2524/@Control@2528").
    at: get_node (scene/main/node.cpp:1792)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2520/@Control@2525").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2524/@Control@2529").
    at: get_node (scene/main/node.cpp:1792)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2520/@Control@2526").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2524/@Control@2530").
    at: get_node (scene/main/node.cpp:1792)
 ERROR: EventLogView.record_reaction: no AttackEvent recorded for attack_event_id='no-such-attack'; rejecting pairing
    at: push_error (core/variant/variant_utility.cpp:1092)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2520/@Control@2527").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2524/@Control@2531").
    at: get_node (scene/main/node.cpp:1792)
 ERROR: EventLogView.record_reaction: duplicate window firing rejected for attack_event_id='AE-3' window_id='OnHitMitigation'
    at: push_error (core/variant/variant_utility.cpp:1092)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2520/@Control@2528").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2524/@Control@2532").
    at: get_node (scene/main/node.cpp:1792)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
