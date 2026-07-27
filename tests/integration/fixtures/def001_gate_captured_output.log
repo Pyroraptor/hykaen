@@ -22,7 +22,7 @@ tests/ci/test_check_sim_results_provenance.py::TestWiredIntoTestCommandPipeline:
     fixturefunc = resolve_fixture_function(fixturedef, request)
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-394 passed, 16 skipped, 1 warning in 43.57s
+394 passed, 16 skipped, 1 warning in 43.46s
 
 
 ---- `godot --headless --path <repo_root> -- --gut-run-all` ----
@@ -1634,7 +1634,7 @@ DEBUG: highlight_legal_moves combatant_id=player_0 step_hex_count=4 stride_hex_c
 * test_headless_boot_still_succeeds_after_reaction_resolver_rewiring
 INFO: Hykaen MainScene booted into EXPLORATION mode -- no active round_session yet
 DEBUG: viewport_centering centering_offset=(576, 324)
-DEBUG: highlight_legal_moves combatant_id=player_1 step_hex_count=5 stride_hex_count=58
+DEBUG: highlight_legal_moves combatant_id=player_0 step_hex_count=4 stride_hex_count=58
 * test_real_player_combatant_weapon_carries_defensive_reaction_fields
 INFO: Hykaen MainScene booted into EXPLORATION mode -- no active round_session yet
 DEBUG: viewport_centering centering_offset=(576, 324)
@@ -3119,7 +3119,7 @@ res://tests/integration/test_steel_thread_prologue_encounter.gd
 [0m* test_mainscene_boot_populates_hex_battlefield_status_panel_and_initiative
 INFO: Hykaen MainScene booted into EXPLORATION mode -- no active round_session yet
 DEBUG: viewport_centering centering_offset=(576, 324)
-DEBUG: highlight_legal_moves combatant_id=player_0 step_hex_count=4 stride_hex_count=58
+DEBUG: highlight_legal_moves combatant_id=player_1 step_hex_count=5 stride_hex_count=58
 * test_determinism_two_independent_mainscene_boots_produce_identical_event_sequence
 INFO: Hykaen MainScene booted into EXPLORATION mode -- no active round_session yet
 DEBUG: viewport_centering centering_offset=(576, 324)
@@ -3392,10 +3392,10 @@ res://tests/sim/test_balance_sim.gd
 * test_write_sim_results_json_artifact
     sim_results.json written: {
     	"avg_rounds": 1.068,
-    	"commit_hash": "511b0e698da59c10af98fe63563323849d37b551",
+    	"commit_hash": "9e6361a52778c7edfe41249f433484e3201b8679",
     	"confidence_interval": 0.0287162408681916,
     	"seed": 12345,
-    	"timestamp": "2026-07-27 17:09:20",
+    	"timestamp": "2026-07-27 17:41:18",
     	"total_battles": 1000,
     	"win_rate": 0.688
     }
@@ -3413,10 +3413,10 @@ res://tests/sim/test_balance_simulation_post_fix.gd
 * test_sim_results_json_regenerated_with_timestamp_and_commit
     FEAT-106: sim_results.json regenerated (post-fix): {
     	"avg_rounds": 1.068,
-    	"commit_hash": "511b0e698da59c10af98fe63563323849d37b551",
+    	"commit_hash": "9e6361a52778c7edfe41249f433484e3201b8679",
     	"confidence_interval": 0.0287162408681916,
     	"seed": 12345,
-    	"timestamp": "2026-07-27T17:09:21",
+    	"timestamp": "2026-07-27T17:41:19",
     	"total_battles": 1000,
     	"win_rate": 0.688
     }
@@ -4032,6 +4032,19 @@ res://tests/unit/core/application/use_cases/test_resolve_stride_use_case.gd
 * test_two_eligible_reactors_resolve_strikes_in_strict_initiative_order
 * test_first_lethal_reactor_in_initiative_order_stops_the_second_reactor
 [1m10/10 passed.
+[0m[4m
+
+res://tests/unit/core/combat/test_ai.gd
+[0m* test_set_stride_pathfinder_fn_wires_seam_and_is_called_with_origin_and_best_destination
+* test_stride_reaction_resolver_receives_stride_path_as_fourth_argument_when_pathfinder_wired
+* test_stride_reaction_resolver_receives_only_three_arguments_when_pathfinder_unwired
+* test_legacy_three_argument_resolver_continues_to_work_unchanged_with_pathfinder_wired
+* test_fallback_path_when_pathfinder_seam_is_unwired
+* test_fallback_path_when_pathfinder_seam_returns_empty_array
+* test_fallback_path_when_pathfinder_seam_returns_single_element_array
+* test_returned_decision_always_includes_path_key_for_a_committed_stride
+* test_returned_decision_includes_path_key_even_when_stride_is_cancelled_by_lethal_opportunistic_strike
+[1m9/9 passed.
 [0m[4m
 
 res://tests/unit/core/combat/test_ai_action_budget.gd
@@ -5405,7 +5418,7 @@ res://tests/unit/test_event_emission_seam.gd
 * test_emit_event_seam_has_exactly_the_two_expected_call_sites
 * test_event_sink_emit_accepts_an_arbitrary_typed_event_object
 * test_console_event_sink_adapter_accepts_an_arbitrary_typed_event_object
-INFO: round event <RefCounted#-9223351726541613457>
+INFO: round event <RefCounted#-9223351711777661905>
 * test_event_sink_port_emit_signature_and_body_contain_no_type_branching
 * test_emit_event_seam_body_contains_no_type_branching
 * test_attack_event_construction_code_path_is_untouched_by_the_generalization
@@ -6467,13 +6480,13 @@ Totals
 ------
 Warnings              7
 
-Scripts             352
-Tests              3006
-Passing Tests      3000
+Scripts             353
+Tests              3015
+Passing Tests      3009
 Risky/Pending         6
-Asserts           16685
+Asserts           16717
 Orphans               1
-Time              24.443s
+Time              24.743s
 
 
 [33m---- 6 pending/risky tests. ----
@@ -15227,8 +15240,6 @@ WARNING: res://data/armor/leather_armor.tres:3 - ext_resource, invalid UID: uid:
      at: load (scene/resources/resource_format_text.cpp:453)
 WARNING: res://data/enemies/skeleton.tres:3 - ext_resource, invalid UID: uid://enmyres1a2b3c - using text path instead: res://data/enemies/enemy_resource.gd
      at: load (scene/resources/resource_format_text.cpp:453)
-WARNING: res://data/spells/fire_bolt.tres:3 - ext_resource, invalid UID: uid://cspres0urce00001 - using text path instead: res://core/resources/spell_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
 WARNING: res://data/characters/titus.tres:3 - ext_resource, invalid UID: uid://bchar1a2b3c4d5e - using text path instead: res://core/model/character_resource.gd
@@ -22051,6 +22062,8 @@ WARNING: res://data/armor/leather_armor.tres:3 - ext_resource, invalid UID: uid:
      at: load (scene/resources/resource_format_text.cpp:453)
 WARNING: res://data/enemies/skeleton.tres:3 - ext_resource, invalid UID: uid://enmyres1a2b3c - using text path instead: res://data/enemies/enemy_resource.gd
      at: load (scene/resources/resource_format_text.cpp:453)
+WARNING: res://data/spells/fire_bolt.tres:3 - ext_resource, invalid UID: uid://cspres0urce00001 - using text path instead: res://core/resources/spell_resource.gd
+     at: load (scene/resources/resource_format_text.cpp:453)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
 WARNING: res://data/characters/titus.tres:3 - ext_resource, invalid UID: uid://bchar1a2b3c4d5e - using text path instead: res://core/model/character_resource.gd
@@ -25409,6 +25422,24 @@ WARNING: res://data/armor/leather_armor.tres:3 - ext_resource, invalid UID: uid:
      at: load (scene/resources/resource_format_text.cpp:453)
 WARNING: res://data/enemies/skeleton.tres:3 - ext_resource, invalid UID: uid://enmyres1a2b3c - using text path instead: res://data/enemies/enemy_resource.gd
      at: load (scene/resources/resource_format_text.cpp:453)
+SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
+          at: GutMain._run_test (res://addons/gut/gut.gd:650)
+SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
+          at: GutMain._run_test (res://addons/gut/gut.gd:650)
+SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
+          at: GutMain._run_test (res://addons/gut/gut.gd:650)
+SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
+          at: GutMain._run_test (res://addons/gut/gut.gd:650)
+SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
+          at: GutMain._run_test (res://addons/gut/gut.gd:650)
+SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
+          at: GutMain._run_test (res://addons/gut/gut.gd:650)
+SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
+          at: GutMain._run_test (res://addons/gut/gut.gd:650)
+SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
+          at: GutMain._run_test (res://addons/gut/gut.gd:650)
+SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
+          at: GutMain._run_test (res://addons/gut/gut.gd:650)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
@@ -31243,55 +31274,55 @@ SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2509/@Control@2511").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2511/@Control@2513").
    at: get_node (scene/main/node.cpp:1792)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2509/@Control@2512").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2511/@Control@2514").
    at: get_node (scene/main/node.cpp:1792)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2509/@Control@2513").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2511/@Control@2515").
    at: get_node (scene/main/node.cpp:1792)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2509/@Control@2514").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2511/@Control@2516").
    at: get_node (scene/main/node.cpp:1792)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2509/@Control@2515").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2511/@Control@2517").
    at: get_node (scene/main/node.cpp:1792)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2509/@Control@2516").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2511/@Control@2518").
    at: get_node (scene/main/node.cpp:1792)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2509/@Control@2517").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2511/@Control@2519").
    at: get_node (scene/main/node.cpp:1792)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2509/@Control@2518").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2511/@Control@2520").
    at: get_node (scene/main/node.cpp:1792)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2509/@Control@2519").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2511/@Control@2521").
    at: get_node (scene/main/node.cpp:1792)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2509/@Control@2520").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2511/@Control@2522").
    at: get_node (scene/main/node.cpp:1792)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2509/@Control@2521").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2511/@Control@2523").
    at: get_node (scene/main/node.cpp:1792)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2509/@Control@2522").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2511/@Control@2524").
    at: get_node (scene/main/node.cpp:1792)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2509/@Control@2523").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2511/@Control@2525").
    at: get_node (scene/main/node.cpp:1792)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
@@ -31299,35 +31330,35 @@ SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2524/@Control@2526").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2526/@Control@2528").
    at: get_node (scene/main/node.cpp:1792)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2524/@Control@2527").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2526/@Control@2529").
    at: get_node (scene/main/node.cpp:1792)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2524/@Control@2528").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2526/@Control@2530").
    at: get_node (scene/main/node.cpp:1792)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2524/@Control@2529").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2526/@Control@2531").
    at: get_node (scene/main/node.cpp:1792)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2524/@Control@2530").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2526/@Control@2532").
    at: get_node (scene/main/node.cpp:1792)
 ERROR: EventLogView.record_reaction: no AttackEvent recorded for attack_event_id='no-such-attack'; rejecting pairing
    at: push_error (core/variant/variant_utility.cpp:1092)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2524/@Control@2531").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2526/@Control@2533").
    at: get_node (scene/main/node.cpp:1792)
 ERROR: EventLogView.record_reaction: duplicate window firing rejected for attack_event_id='AE-3' window_id='OnHitMitigation'
    at: push_error (core/variant/variant_utility.cpp:1092)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
-ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2524/@Control@2532").
+ERROR: Node not found: "RowsContainer" (relative to "/root/GutRunner/@Node@2526/@Control@2534").
    at: get_node (scene/main/node.cpp:1792)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
