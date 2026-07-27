@@ -1,0 +1,18 @@
+{
+    "_comment": "FEAT-349 (DEF-004/DEF-006, US-007, extends ADR-010's diff-based scope-containment pattern from FEAT-232/US-007-only to all three out-of-scope files). SHA-256 content hashes + byte lengths of the three pre-existing, out-of-scope test files this iteration formally triaged into ci/accepted_known_failures.json's manifest: the 'LateSpawnHighRoll' domain-logic gap file (tests/unit/test_opportunistic_strike_initiative_ordering.gd) plus the two sibling out-of-scope files acknowledged in prior evidence (tests/integration/test_def001_gate_evidence.py's module doc, points 3/4) but never formally hashed/pinned. tests/integration/test_out_of_scope_regression_guard.py recomputes each file's live SHA-256 on every run and fails loud if it no longer matches the value recorded here -- i.e. this fixture is the 'pre-iteration baseline' FEAT-349's test_criteria requires the regression guard to diff against. A legitimate future change to any of these three files (e.g. finally fixing the LateSpawnHighRoll gap) MUST regenerate this fixture as part of that change, not merely happen to pass by accident -- an unexplained hash drift is exactly the silent scope-widening this guard exists to catch. Verified via a real `godot --headless --path <repo_root> -- --gut-run-all` run captured 2026-07-27: as of this HEAD, all three files' tests PASS (0 failing) -- the LateSpawnHighRoll gap and the two sibling defects were already fixed by prior iterations (see e42ff80 'fix(tests): migrate 4 pre-existing post-Iter-T/Q test failures to 0 failing' and FEAT-346's ExplorationModeController migration sweep) -- so ci/accepted_known_failures.json correctly carries NO entries for these three files (an entry for a currently-passing test would itself trip ci/gate_exit_policy.gd's 'unexpectedly_passing' mismatch and turn the gate red). This fixture's job is narrower and permanent regardless of that history: pin the CURRENT content of these three scope-sensitive files so any future drift -- intentional or not -- is surfaced explicitly rather than silently changing what 'out of scope' means.",
+    "hash_algorithm": "sha256",
+    "baseline_hashes": {
+        "tests/unit/test_opportunistic_strike_initiative_ordering.gd": {
+            "sha256": "d8f5a3cee04f1c3351a8076c89db418159834f0359526fd4c7be93e89ab166ba",
+            "byte_length": 11340
+        },
+        "tests/integration/test_opportunistic_strike_ranged_reactor_excluded.gd": {
+            "sha256": "20000da112a6ecf58ba2bc4c5d53f9bd5e70133bd9e66b6e9bfad8f214bd0378",
+            "byte_length": 9558
+        },
+        "tests/integration/test_steel_thread_scenario_boot_e2e.gd": {
+            "sha256": "ac5eb5c2d5dcc3c60a1ab7ea98e933287baadf820273b4a388ecafe9577375c0",
+            "byte_length": 16517
+        }
+    }
+}

@@ -525,11 +525,27 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 # FEAT-346/FEAT-001 documented above, not a re-widening of the brittle
 # exact-count pinning this suite otherwise avoids (see the primary,
 # identity-based gate note just above).
+#
+# FEAT-349 update (DEF-004/DEF-006, US-007): this feature is itself a
+# test-only migration (no new GUT-discoverable *.gd test scripts -- its two
+# new files are tests/integration/fixtures/baseline_out_of_scope_hashes.json,
+# a JSON fixture, and tests/integration/test_out_of_scope_regression_guard.py,
+# a pytest suite; neither is a *.gd file GUT enumerates). The +11 shift
+# observed here (Scripts 350->351, Tests 2988->2999, Passing Tests
+# 2982->2993, 0 failing) instead comes from tests/unit/presentation/
+# test_stride_action_controller.gd, a sibling in-flight feature's own
+# all-passing unit suite present in this shared working tree at the time
+# this baseline was re-measured. Multiple real `godot --headless --path
+# <repo_root> -- --gut-run-all` runs against this exact tree consistently
+# observe Tests 2999 / Passing Tests 2993 with 0 failing -- the same kind
+# of one-time baseline shift FEAT-346/FEAT-001/FEAT-348 documented above,
+# not a re-widening of the brittle exact-count pinning this suite otherwise
+# avoids (see the primary, identity-based gate note just above).
 PINNED_BASELINE_FAILING_TESTS_MIN = 0
 PINNED_BASELINE_FAILING_TESTS_MAX = 1
-PINNED_BASELINE_PASSING_TESTS_MIN = 2981
-PINNED_BASELINE_PASSING_TESTS_MAX = 2982
-PINNED_BASELINE_TOTAL_TESTS = 2988
+PINNED_BASELINE_PASSING_TESTS_MIN = 2992
+PINNED_BASELINE_PASSING_TESTS_MAX = 2993
+PINNED_BASELINE_TOTAL_TESTS = 2999
 # tests/runner/headless_runner.gd: exit 0 only when ALL tests pass, exit 1
 # otherwise. With the current baseline fluctuating between 0 and 1 failing
 # tests (see above), the truthful exit code fluctuates right along with
