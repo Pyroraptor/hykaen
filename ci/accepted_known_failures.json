@@ -1,0 +1,4 @@
+{
+    "_comment": "FEAT-348 (DEF-003, US-006) accepted-known-failures manifest. Lists the EXACT set of pre-existing, out-of-scope failing-test identifiers ci/gate_exit_policy.gd's GutHookScript.run() compares against the live GUT run's failing-test set. Identifier shape: '<script res:// path>::<test method name>' (see GateExitPolicy.build_test_id). The gate exits 0 only when the actual failing set exactly equals this list -- no new/regressed entries, and no manifest entry that has unexpectedly started passing. Currently empty: the suite has no accepted pre-existing failures as of this iteration.",
+    "accepted_known_failures": []
+}

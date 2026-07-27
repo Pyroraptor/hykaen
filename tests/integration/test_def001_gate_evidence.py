@@ -498,11 +498,38 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 # firing on a given run -- this is a coarse sanity ceiling, not the primary
 # gate (the primary gate is identity-based: see unexpected_failures() /
 # TestRealGutInvocation.test_gut_output_has_no_unrecognized_failures).
+#
+# FEAT-001 update (in-combat pathfinding steel thread): this feature adds
+# 7 new TestCombatPassability GUT tests to tests/unit/core/geometry/
+# test_encounter_tile_adapter.gd (EncounterTileAdapter.make_combat_is_passable),
+# all passing -- a legitimate, reproducible +7 shift over the FEAT-346
+# baseline above (multiple real `godot --headless --path <repo_root> --
+# --gut-run-all` runs against this feature's clean, fully-committed HEAD
+# consistently observe Tests 2977 / Passing Tests 2971 with 0 failing, i.e.
+# the prior baseline's own MIN/MAX band shifted by the same +7), not a
+# re-widening of the brittle exact-count pinning this suite otherwise
+# avoids (see the primary, identity-based gate note just above).
+#
+# FEAT-348 update (DEF-003): this feature adds
+# tests/unit/test_gate_exit_policy.gd -- the required, all-passing unit
+# suite for the new ci/gate_exit_policy.gd accepted-known-failures
+# comparison function -- plus the manifest/hook-script wiring itself
+# (neither of which is a GUT test script GUT enumerates as a "test": the
+# manifest is JSON and the hook script is only ever instantiated directly
+# by GUT's post_run_script mechanism, never discovered as a test_*.gd
+# suite). That is 11 new passing tests, a legitimate, reproducible +11
+# shift over the FEAT-001 baseline above (multiple real `godot --headless
+# --path <repo_root> -- --gut-run-all` runs against this feature's clean,
+# fully-committed HEAD consistently observe Tests 2988 / Passing Tests
+# 2982 with 0 failing) -- again the same kind of one-time baseline shift
+# FEAT-346/FEAT-001 documented above, not a re-widening of the brittle
+# exact-count pinning this suite otherwise avoids (see the primary,
+# identity-based gate note just above).
 PINNED_BASELINE_FAILING_TESTS_MIN = 0
 PINNED_BASELINE_FAILING_TESTS_MAX = 1
-PINNED_BASELINE_PASSING_TESTS_MIN = 2963
-PINNED_BASELINE_PASSING_TESTS_MAX = 2964
-PINNED_BASELINE_TOTAL_TESTS = 2970
+PINNED_BASELINE_PASSING_TESTS_MIN = 2981
+PINNED_BASELINE_PASSING_TESTS_MAX = 2982
+PINNED_BASELINE_TOTAL_TESTS = 2988
 # tests/runner/headless_runner.gd: exit 0 only when ALL tests pass, exit 1
 # otherwise. With the current baseline fluctuating between 0 and 1 failing
 # tests (see above), the truthful exit code fluctuates right along with
