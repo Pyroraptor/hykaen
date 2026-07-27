@@ -41,6 +41,7 @@ const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 const MainSceneClass = preload("res://MainScene.gd")
 const CombatantClass = preload("res://core/domain/combatant.gd")
 const HexCoordClass = preload("res://core/geometry/hex_coord.gd")
+const GameStateDataClass = preload("res://data/game_state/game_state_data.gd")
 
 ## PROLOGUE_SEED — this project's established known-good fixture seed
 ## (mirrors every other boot-real suite's identically-named/valued
@@ -59,6 +60,20 @@ const INTERMEDIATE_HEX := Vector2i(1, -1)
 const TRIGGER_HEX := Vector2i(1, -2)
 
 
+## before_each()/after_each() — reseed CurrentGameState.data with a fresh
+## GameStateDataClass instance so no test in this file (or any test that
+## runs before/after it in the full suite) can leak scenario_path/session
+## state across test boundaries (ADR-008). This guarantees _boot_main_scene()
+## -> MainScene._ready() always takes the same prologue-fallback boot path
+## regardless of suite ordering.
+func before_each() -> void:
+	CurrentGameState.data = GameStateDataClass.new()
+
+
+func after_each() -> void:
+	CurrentGameState.data = GameStateDataClass.new()
+
+
 func _boot_main_scene():
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
@@ -71,8 +86,12 @@ func _boot_main_scene():
 ## _click(instance, hex) -> void — a single real, stepwise exploration hex
 ## click via the SAME `_on_exploration_hex_clicked()` entry point a real
 ## player's mouse click on hex_grid_view routes through (FEAT-007).
+## `_on_exploration_hex_clicked` now lives on `_exploration`
+## (ExplorationModeController), not on MainScene itself (FEAT-324 moved it —
+## ADR-006), and it is a coroutine that awaits animations/state updates
+## internally (ADR-007), so every caller of `_click()` MUST `await` it.
 func _click(instance, hex: Vector2i) -> void:
-	instance._on_exploration_hex_clicked(HexCoordClass.new(hex.x, hex.y))
+	await instance._exploration._on_exploration_hex_clicked(HexCoordClass.new(hex.x, hex.y))
 
 
 ## _drive_titus_into_the_trigger_ring(instance) -> void — the genuine,
@@ -85,10 +104,10 @@ func _click(instance, hex: Vector2i) -> void:
 ## finish -- mirrors tests/boot/test_exploration_to_combat_handoff_trigger.gd's
 ## established await convention.
 func _drive_titus_into_the_trigger_ring(instance) -> void:
-	_click(instance, INTERMEDIATE_HEX)
+	await _click(instance, INTERMEDIATE_HEX)
 	await get_tree().process_frame
 
-	_click(instance, TRIGGER_HEX)
+	await _click(instance, TRIGGER_HEX)
 	await get_tree().process_frame
 	await get_tree().process_frame
 
@@ -141,7 +160,7 @@ func test_stepwise_adjacent_click_moves_titus_without_error() -> void:
 	var instance = _boot_main_scene()
 	await get_tree().process_frame
 
-	_click(instance, INTERMEDIATE_HEX)
+	await _click(instance, INTERMEDIATE_HEX)
 	await get_tree().process_frame
 
 	var titus_token = instance.hex_grid_view.get_token("player_0")
@@ -253,10 +272,10 @@ func test_reentering_the_trigger_hex_after_completion_does_not_reenter_combat() 
 	# intermediate hex used on the way in, then back onto TRIGGER_HEX -- a
 	# genuine re-entry attempt through the REAL click path, not merely a
 	# zero-distance non-move.
-	_click(instance, INTERMEDIATE_HEX)
+	await _click(instance, INTERMEDIATE_HEX)
 	await get_tree().process_frame
 
-	_click(instance, TRIGGER_HEX)
+	await _click(instance, TRIGGER_HEX)
 	await get_tree().process_frame
 	await get_tree().process_frame
 
@@ -312,9 +331,9 @@ func test_full_exploration_to_combat_to_exploration_round_trip() -> void:
 	)
 
 	# Exit point: re-entering the trigger hex does not re-enter combat.
-	_click(instance, INTERMEDIATE_HEX)
+	await _click(instance, INTERMEDIATE_HEX)
 	await get_tree().process_frame
-	_click(instance, TRIGGER_HEX)
+	await _click(instance, TRIGGER_HEX)
 	await get_tree().process_frame
 	await get_tree().process_frame
 
