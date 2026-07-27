@@ -22,6 +22,7 @@ const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 const MainSceneClass = preload("res://MainScene.gd")
 const CombatantClass = preload("res://core/domain/combatant.gd")
 const HexCoordClass = preload("res://core/geometry/hex_coord.gd")
+const GameStateDataClass = preload("res://data/game_state/game_state_data.gd")
 
 ## PROLOGUE_SEED — this project's established known-good fixture seed
 ## (mirrors tests/boot/test_boot_exploration_mode.gd's identically-named/
@@ -29,6 +30,22 @@ const HexCoordClass = preload("res://core/geometry/hex_coord.gd")
 const PROLOGUE_SEED: int = 42
 
 const PROLOGUE_ENCOUNTER_ID: String = "prologue"
+
+
+## before_each()/after_each() — reseed CurrentGameState.data with a fresh
+## GameStateDataClass instance so no test in this file (or any test that
+## runs before/after it in the full suite) can leak scenario_path/session
+## state across test boundaries (ADR-008). Copy-identical to
+## tests/boot/test_exploration_to_combat_handoff.gd's established pattern
+## (FEAT-002) to avoid divergence (mitigates RISK-008): this guarantees
+## _boot_main_scene() -> MainScene._ready() always takes the same
+## prologue-fallback boot path regardless of suite ordering.
+func before_each() -> void:
+	CurrentGameState.data = GameStateDataClass.new()
+
+
+func after_each() -> void:
+	CurrentGameState.data = GameStateDataClass.new()
 
 
 func _boot_main_scene():
