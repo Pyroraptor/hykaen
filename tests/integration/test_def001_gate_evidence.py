@@ -201,21 +201,30 @@ def parse_gut_summary(raw_output: str) -> dict:
     `Tests: N` / `Scripts: N`) from a raw GUT `--gut-run-all` console
     output blob (real subprocess stdout+stderr, or a fixture file's
     contents -- both are just text to this function). Raises ValueError
-    if the text does not contain both required summary lines, i.e. this
-    is not a real (or realistic) GUT Totals block -- fail loud rather than
-    silently returning a degenerate/partial result a caller might
-    mistake for a real parse."""
+    if the text does not contain the required `Passing Tests` line, i.e.
+    this is not a real (or realistic) GUT Totals block -- fail loud rather
+    than silently returning a degenerate/partial result a caller might
+    mistake for a real parse.
+
+    FEAT-346 note: addons/gut/summary.gd's `_log_totals()` prints `Passing
+    Tests` unconditionally (via `_total_fmt()`) but only prints `Failing
+    Tests` when the count is non-zero (via `_log_non_zero_total()`) -- a
+    fully-green real run's raw output genuinely has NO `Failing Tests` line
+    at all. Treating that as unparseable (the original behavior) meant this
+    parser could never recognize the very state the whole DEF-001 gate is
+    trying to reach. A missing `Failing Tests` line is therefore a valid,
+    real 0, not a parse failure -- only a missing `Passing Tests` line
+    (which GUT always emits) indicates the text is not a real Totals block."""
     failing_match = _FAILING_TESTS_RE.search(raw_output)
     passing_match = _PASSING_TESTS_RE.search(raw_output)
-    if failing_match is None or passing_match is None:
+    if passing_match is None:
         raise ValueError(
-            "text does not contain both a 'Failing Tests' line and a "
-            "'Passing Tests' line -- not a real GUT --gut-run-all Totals "
-            "block"
+            "text does not contain a 'Passing Tests' line -- not a real "
+            "GUT --gut-run-all Totals block"
         )
 
     parsed: dict = {
-        "failing": int(failing_match.group(1)),
+        "failing": int(failing_match.group(1)) if failing_match is not None else 0,
         "passing": int(passing_match.group(1)),
     }
 
@@ -473,22 +482,35 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 # `godot --headless --path <repo_root> -- --gut-run-all` run -- see the
 # module-level "Design note" above for the full derivation and why this
 # differs from ITERATION_U_TARGET_FAILING_TESTS/ITERATION_U_TARGET_PASSING_TESTS.
-# Verified via multiple independent real runs. The CORE (non-flaky) count
-# is 7; PINNED_BASELINE_FAILING_TESTS_MAX allows for the single, catalogued,
-# timing-sensitive flake (see KNOWN_ACCEPTABLE_FAILURE_SIGNATURES / the
-# "identity-based matching" design note above) additionally firing on a
-# given real run -- this is a coarse sanity ceiling, not the primary gate
-# (the primary gate is identity-based: see unexpected_failures() /
+#
+# FEAT-346 update: the prior 7/8-failing baseline pinned here dated from
+# before this feature's repository-wide ExplorationModeController
+# migration sweep (and a sibling fix commit) closed out the
+# test-API-migration-lag defects that made up 3 of those 7 failures, plus
+# the ReactionController-extraction construction defect that made
+# tests/unit/test_opportunistic_strike_initiative_ordering.gd error out
+# instead of actually exercising its assertions. Multiple independent real
+# runs against the current, clean, fully-committed HEAD now observe EITHER
+# 0 failing tests (Passing Tests 2964) OR exactly 1 (Passing Tests 2963) --
+# the single remaining catalogued, timing-sensitive flake documented above
+# (test_steel_thread_prologue_encounter.gd's initiative-row-count read).
+# PINNED_BASELINE_FAILING_TESTS_MAX allows for that flake additionally
+# firing on a given run -- this is a coarse sanity ceiling, not the primary
+# gate (the primary gate is identity-based: see unexpected_failures() /
 # TestRealGutInvocation.test_gut_output_has_no_unrecognized_failures).
-PINNED_BASELINE_FAILING_TESTS_MIN = 7
-PINNED_BASELINE_FAILING_TESTS_MAX = 8
-PINNED_BASELINE_PASSING_TESTS_MIN = 2956
-PINNED_BASELINE_PASSING_TESTS_MAX = 2957
+PINNED_BASELINE_FAILING_TESTS_MIN = 0
+PINNED_BASELINE_FAILING_TESTS_MAX = 1
+PINNED_BASELINE_PASSING_TESTS_MIN = 2963
+PINNED_BASELINE_PASSING_TESTS_MAX = 2964
 PINNED_BASELINE_TOTAL_TESTS = 2970
 # tests/runner/headless_runner.gd: exit 0 only when ALL tests pass, exit 1
-# otherwise -- with >=7 (nonzero) failing tests, exit code 1 is the only
-# truthful, achievable value for this repository's current, real state.
-PINNED_BASELINE_GUT_EXIT_CODE = 1
+# otherwise. With the current baseline fluctuating between 0 and 1 failing
+# tests (see above), the truthful exit code fluctuates right along with
+# it -- 0 when the flake doesn't fire, 1 when it does -- so this is no
+# longer a single fixed constant; see
+# test_gut_exit_code_matches_pinned_current_baseline below, which derives
+# the expected exit code from the SAME real run's own parsed failing count
+# instead of asserting a hardcoded value.
 
 # Bounded retries for the real GUT invocation: since this is a REAL
 # subprocess launch every attempt (never a mock/stub), retrying does not
@@ -753,11 +775,23 @@ class TestRealGutInvocation:
             assert parsed["tests"] == PINNED_BASELINE_TOTAL_TESTS
 
     def test_gut_exit_code_matches_pinned_current_baseline(self, real_gut_run):
-        assert real_gut_run.returncode == PINNED_BASELINE_GUT_EXIT_CODE, (
+        """GUT's own tests/runner/headless_runner.gd exits 0 only when ALL
+        tests pass, 1 otherwise. The pinned baseline's failing count
+        fluctuates between 0 and 1 (the single catalogued timing-sensitive
+        flake -- see PINNED_BASELINE_FAILING_TESTS_MIN/MAX above), so the
+        truthful expected exit code is derived from THIS SAME real run's
+        own parsed failing count rather than a single hardcoded value --
+        an exit code independent of whether any test actually failed would
+        itself be an unparseable/untruthful result."""
+        combined = real_gut_run.stdout + real_gut_run.stderr
+        parsed = parse_gut_summary(combined)
+        expected_exit_code = 0 if parsed["failing"] == 0 else 1
+        assert real_gut_run.returncode == expected_exit_code, (
             "GUT's own tests/runner/headless_runner.gd exits 0 only when "
-            "ALL tests pass; with the pinned baseline's >=7 (nonzero) "
-            f"failing tests, exit code {PINNED_BASELINE_GUT_EXIT_CODE} is "
-            f"the only truthful value. Got {real_gut_run.returncode}.\n"
+            "ALL tests pass; this run parsed "
+            f"{parsed['failing']} failing test(s), so exit code "
+            f"{expected_exit_code} is the only truthful value. Got "
+            f"{real_gut_run.returncode}.\n"
             f"STDOUT:\n{_tail(real_gut_run.stdout)}\nSTDERR:\n{_tail(real_gut_run.stderr)}"
         )
 
