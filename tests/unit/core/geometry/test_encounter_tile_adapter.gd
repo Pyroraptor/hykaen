@@ -22,6 +22,7 @@ const HexCoordClass: GDScript = preload("res://core/geometry/hex_coord.gd")
 const EncounterResourceClass: GDScript = preload("res://data/encounters/encounter_resource.gd")
 const HexTileDataResourceClass: GDScript = preload("res://data/tiles/hex_tile_data_resource.gd")
 const EncounterTileAdapterClass: GDScript = preload("res://core/geometry/encounter_tile_adapter.gd")
+const CombatantClass: GDScript = preload("res://core/domain/combatant.gd")
 
 const HEX_TILE_DATA_RESOURCE_PATH: String = "res://data/tiles/hex_tile_data_resource.gd"
 
@@ -43,6 +44,13 @@ func _make_tile(q: int, r: int, passable: bool, difficult: bool):
 	tile.passable = passable
 	tile.difficult = difficult
 	return tile
+
+
+func _make_combatant(combatant_id: String, hex_coord, is_enemy: bool) -> CombatantClass:
+	var team: String = "Enemy" if is_enemy else "Player"
+	var combatant := CombatantClass.new(combatant_id, combatant_id, team, hex_coord)
+	combatant.is_enemy = is_enemy
+	return combatant
 
 
 func _make_encounter(tiles: Array[HexTileDataResourceClass]):
@@ -236,3 +244,125 @@ func test_hex_tile_data_resource_instance_exposes_no_unexpected_fields() -> void
 		)
 	assert_eq(tile.passable, true, "HexTileDataResource.passable must still default to true")
 	assert_eq(tile.difficult, false, "HexTileDataResource.difficult must still default to false")
+
+
+# ── TestCombatPassability — FEAT-001 / US-001 (FR-001/NFR-003) ──────────────
+# make_combat_is_passable(encounter, all_combatants, mover_id, mover_is_enemy)
+# -> Callable(HexCoord) -> bool. Frozen contract — see this feature's design
+# notes ("RISK-001 mitigation: treat signature as frozen once this feature
+# lands").
+
+func test_combat_is_passable_returns_false_when_tile_is_impassable_regardless_of_occupant() -> void:
+	var blocked_hex = HexCoordClass.new(1, 0)
+	var encounter = _make_encounter([_make_tile(1, 0, false, false)])
+	var all_combatants: Array = []
+
+	var is_passable: Callable = EncounterTileAdapterClass.make_combat_is_passable(
+		encounter, all_combatants, "player_0", false
+	)
+
+	assert_false(
+		is_passable.call(blocked_hex),
+		"tile.passable=false must block regardless of occupant"
+	)
+
+
+func test_combat_is_passable_returns_false_when_opposing_faction_occupies_hex() -> void:
+	var contested_hex = HexCoordClass.new(2, 0)
+	var encounter = _make_encounter([_make_tile(2, 0, true, false)])
+	var enemy := _make_combatant("enemy_0", contested_hex, true)
+	var all_combatants: Array = [enemy]
+
+	var is_passable: Callable = EncounterTileAdapterClass.make_combat_is_passable(
+		encounter, all_combatants, "player_0", false
+	)
+
+	assert_false(
+		is_passable.call(contested_hex),
+		"an opposing-faction occupant must block passability for the mover"
+	)
+
+
+func test_combat_is_passable_returns_true_when_ally_occupies_hex() -> void:
+	var ally_hex = HexCoordClass.new(3, 0)
+	var encounter = _make_encounter([_make_tile(3, 0, true, false)])
+	var ally := _make_combatant("player_1", ally_hex, false)
+	var all_combatants: Array = [ally]
+
+	var is_passable: Callable = EncounterTileAdapterClass.make_combat_is_passable(
+		encounter, all_combatants, "player_0", false
+	)
+
+	assert_true(
+		is_passable.call(ally_hex),
+		"an ally (same-faction) occupant must NOT block passability"
+	)
+
+
+func test_combat_is_passable_returns_true_for_movers_own_hex() -> void:
+	var own_hex = HexCoordClass.new(4, 0)
+	var encounter = _make_encounter([_make_tile(4, 0, true, false)])
+	var mover := _make_combatant("player_0", own_hex, false)
+	var all_combatants: Array = [mover]
+
+	var is_passable: Callable = EncounterTileAdapterClass.make_combat_is_passable(
+		encounter, all_combatants, "player_0", false
+	)
+
+	assert_true(
+		is_passable.call(own_hex),
+		"the mover's own hex must always be passable"
+	)
+
+
+func test_combat_is_passable_returns_true_for_untiled_unoccupied_hex() -> void:
+	var open_hex = HexCoordClass.new(9, -9)
+	var encounter = _make_encounter([])
+	var all_combatants: Array = []
+
+	var is_passable: Callable = EncounterTileAdapterClass.make_combat_is_passable(
+		encounter, all_combatants, "player_0", false
+	)
+
+	assert_true(
+		is_passable.call(open_hex),
+		"an untiled, unoccupied hex must be passable (open-world default)"
+	)
+
+
+func test_combat_is_passable_with_unknown_mover_id_does_not_crash_and_defaults_to_no_self_exception() -> void:
+	var contested_hex = HexCoordClass.new(5, 0)
+	var encounter = _make_encounter([_make_tile(5, 0, true, false)])
+	var enemy := _make_combatant("enemy_0", contested_hex, true)
+	var all_combatants: Array = [enemy]
+
+	# mover_id "" does not match any combatant in all_combatants -- must not
+	# crash, and must NOT grant a self-exception to the (nonexistent) mover,
+	# so an opposing occupant still blocks.
+	var is_passable: Callable = EncounterTileAdapterClass.make_combat_is_passable(
+		encounter, all_combatants, "", false
+	)
+
+	assert_false(
+		is_passable.call(contested_hex),
+		"an unknown/undefined mover_id must default to no self-exception -- opposing occupant still blocks"
+	)
+
+
+func test_combat_is_passable_opposing_occupant_on_difficult_terrain_still_blocks() -> void:
+	# Sanity cross-check: passability and occupancy are independent of the
+	# move-cost/difficult flag -- an opposing occupant blocks even on
+	# otherwise-passable difficult terrain.
+	var contested_hex = HexCoordClass.new(6, 0)
+	var encounter = _make_encounter([_make_tile(6, 0, true, true)])
+	var enemy := _make_combatant("enemy_0", contested_hex, true)
+	var all_combatants: Array = [enemy]
+
+	var is_passable: Callable = EncounterTileAdapterClass.make_combat_is_passable(
+		encounter, all_combatants, "player_0", false
+	)
+
+	assert_false(
+		is_passable.call(contested_hex),
+		"an opposing occupant blocks regardless of the tile's difficult flag"
+	)

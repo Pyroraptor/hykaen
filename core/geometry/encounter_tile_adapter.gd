@@ -81,6 +81,49 @@ static func make_move_cost(encounter) -> Callable:
 		return _NORMAL_MOVE_COST
 
 
+## make_combat_is_passable(encounter, all_combatants, mover_id, mover_is_enemy)
+## → Callable(HexCoord) -> bool — FEAT-001 (US-001; FR-001/NFR-003): the
+## combat-aware passability port. Builds on make_is_passable's tile-schema
+## translation (an impassable tile always blocks, regardless of occupant),
+## additively layering live-combatant occupancy:
+##   1. tile.passable == false            -> false (impassable always wins)
+##   2. hex_coord == mover's own hex_coord -> true  (self-exception, checked
+##      before occupancy so a mover standing on its own hex is never blocked
+##      by its own occupancy entry)
+##   3. an opposing-faction (is_enemy != mover_is_enemy) combatant occupies
+##      the hex -> false
+##   4. otherwise (empty, ally-occupied, or untiled hex)     -> true
+##
+## `all_combatants` is closed over by reference (read live at call time, not
+## copied), per this feature's data model: passability is always computed on
+## demand from the live roster, never cached/derived state.
+##
+## `mover_id` is matched against each combatant's display_id() (the same
+## stable identity accessor core/domain/combatant.gd's pipeline already keys
+## on elsewhere). No runtime error path: an unmatched/unknown mover_id (e.g.
+## "", or an id absent from `all_combatants`) simply never satisfies the
+## self-exception check above, defensively defaulting to "no self-exception"
+## rather than crashing or granting an unearned pass.
+static func make_combat_is_passable(
+	encounter, all_combatants: Array, mover_id: String, mover_is_enemy: bool
+) -> Callable:
+	var tiles_by_key: Dictionary = _index_tiles(encounter)
+	return func(hex_coord):
+		var tile = tiles_by_key.get(_key(hex_coord))
+		if tile != null and not tile.passable:
+			return false
+		for combatant in all_combatants:
+			if combatant == null or combatant.hex_coord == null:
+				continue
+			if not hex_coord.equals(combatant.hex_coord):
+				continue
+			if combatant.display_id() == mover_id:
+				return true
+			if combatant.is_enemy != mover_is_enemy:
+				return false
+		return true
+
+
 ## _index_tiles(encounter) → Dictionary (String -> HexTileDataResource) —
 ## builds a one-shot (q, r) -> tile lookup from encounter.tiles, keyed with
 ## the same "%d,%d" convention as core/geometry/hex_pathfinder.gd's `_key()`
