@@ -1,0 +1,61 @@
+[33m==============================================
+[0m[33m= Run Summary
+[0m[33m==============================================
+[0m[4m
+res://tests/boot/test_main_scene_boot_characterization.gd
+[0m- test_main_scene_source_reads_scenario_path_from_current_game_state
+[31m    [Failed]:  [0mAsserted True, was False:  MainScene._ready() must read scenario_path through _current_game_state() (ADR-005)
+          at line -1
+[4m
+res://tests/boot/test_exploration_to_combat_handoff.gd
+[0m- test_click_drives_titus_toward_the_trigger_hex
+[31m    [Failed]:  [0mInvalid call. Nonexistent function '_on_exploration_hex_clicked' in base 'MainScene'.
+          at line -1
+- test_click_after_handoff_does_not_move_titus_again
+[31m    [Failed]:  [0mInvalid call. Nonexistent function '_on_exploration_hex_clicked' in base 'MainScene'.
+          at line -1
+[4m
+res://tests/boot/test_post_combat_return_to_exploration.gd
+[0m- test_hex_clicked_reconnected_to_exploration_after_combat_won
+[31m    [Failed]:  [0mExpected 1 connections but got 0 for signal "hex_clicked" -- owner mismatch (instance vs instance._exploration)
+          at line -1
+- test_click_after_successful_return_moves_the_party
+[31m    [Failed]:  [0mInvalid call. Nonexistent function '_on_exploration_hex_clicked' in base 'MainScene'.
+          at line -1
+- test_click_after_return_does_not_reach_combat_query_service
+[31m    [Failed]:  [0mInvalid call. Nonexistent function '_on_exploration_hex_clicked' in base 'MainScene'.
+          at line -1
+[4m
+res://tests/business_logic/test_clear_highlight_triggers.gd
+[0m- test_selecting_stride_highlights_a_non_empty_set_of_legal_hexes
+[31m    [Failed]:  [0mExpected [ARRAY([])] to be anything but ARRAY([]):  MovementInputController.configure() must receive a non-null, non-empty legal_hexes Array
+          at line -1
+[4m
+res://tests/boot/test_exploration_to_combat_handoff_trigger.gd
+[0m- test_click_into_trigger_ring_emits_combat_triggered
+[31m    [Failed]:  [0mExpected combat_triggered to have been emitted exactly once, got 0 emissions -- CurrentGameState.data left uninitialized by a prior test caused _exploration to never boot()
+          at line -1
+[4m
+res://tests/unit/test_opportunistic_strike_initiative_ordering.gd
+[0m- test_two_eligible_reactors_resolve_in_initiative_order
+[31m    [Failed]:  [0mARRAY([]) != ARRAY(["LateSpawnHighRoll", "EarlySpawnLowRoll"]).
+    [] != ["LateSpawnHighRoll", "EarlySpawnLowRoll...nLowRoll"]  2 of 2 indexes do not match.  reactors must resolve in ROLLED INITIATIVE order (high roll first), never encounter spawn order
+          at line -1
+
+Totals
+------
+Warnings              9
+
+Scripts             349
+Tests              2970
+Passing Tests      2961
+Failing Tests         9
+Risky/Pending         6
+Asserts           16571/16589
+Orphans               1
+
+Time              24.077s
+
+
+[31m---- 9 failing tests ----
+[0mGUT 9.4.0:  https://github.com/bitwes/Gut/releases/tag/v9.4.0 is now available!

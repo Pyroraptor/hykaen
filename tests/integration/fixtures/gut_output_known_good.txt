@@ -1,0 +1,27 @@
+[33m==============================================
+[0m[33m= Run Summary
+[0m[33m==============================================
+[0m[4m
+res://tests/unit/test_opportunistic_strike_initiative_ordering.gd
+[0m- test_two_eligible_reactors_resolve_in_initiative_order
+[31m    [Failed]:  [0mARRAY([]) != ARRAY(["LateSpawnHighRoll", "EarlySpawnLowRoll"]).
+    [] != ["LateSpawnHighRoll", "EarlySpawnLowRoll...nLowRoll"]  2 of 2 indexes do not match.  reactors must resolve in ROLLED INITIATIVE order (high roll first), never encounter spawn order
+          at line -1
+
+Totals
+------
+Warnings              1
+
+Scripts             349
+Tests              2969
+Passing Tests      2968
+Failing Tests         1
+Risky/Pending         6
+Asserts           16588/16589
+Orphans               0
+
+Time              23.418s
+
+
+[31m---- 1 failing tests ----
+[0mGUT 9.4.0:  https://github.com/bitwes/Gut/releases/tag/v9.4.0 is now available!
