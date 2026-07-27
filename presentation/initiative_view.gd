@@ -246,10 +246,10 @@ func _default_for_field(field: String):
 ## (rather than mutating in place) keeps display order in sync with `_order`
 ## even though `_order` is only ever (re)established by load_combatants().
 func _rebuild_labels() -> void:
-	for existing_label in _labels.values():
-		if existing_label.get_parent() != null:
-			existing_label.get_parent().remove_child(existing_label)
-		existing_label.queue_free()
+	if _rows_container != null:
+		for child in _rows_container.get_children():
+			_rows_container.remove_child(child)
+			child.queue_free()
 	_labels.clear()
 
 	for position in range(_order.size()):

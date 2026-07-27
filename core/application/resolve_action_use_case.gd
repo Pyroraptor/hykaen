@@ -536,17 +536,21 @@ func _check_preconditions_and_spend(
 		return {"ok": false, "error_result": {"resolved": false, "ok": false, "error": ERR_NOT_ACTIVE_COMBATANT}}
 
 	if _is_target_invalid(target):
+		push_error("OS_DEBUG precond: target invalid hp=%s" % str(target.hp_current if target != null else "null"))
 		return {"ok": false, "error_result": {"resolved": false, "ok": false, "error": ERR_TARGET_INVALID}}
 
 	if _is_melee_action(action_name) and _requires_reach_check(combatant, target):
 		if _is_ranged_weapon(combatant):
 			if not _is_in_range(combatant, target):
+				push_error("OS_DEBUG precond: out of range")
 				return {"ok": false, "error_result": {"resolved": false, "ok": false, "error": ERR_TARGET_OUT_OF_REACH}}
 		elif not _is_adjacent(combatant, target):
+			push_error("OS_DEBUG precond: not adjacent combatant_hex=%s target_hex=%s" % [str(combatant.hex_coord), str(target.hex_coord)])
 			return {"ok": false, "error_result": {"resolved": false, "ok": false, "error": ERR_TARGET_NOT_ADJACENT}}
 
 	var spend_result: Dictionary = action_economy.spend_action({"name": action_name, "traits": []})
 	if not spend_result.get("success", false):
+		push_error("OS_DEBUG precond: spend failed budget=%s is_spent=%s" % [str(action_economy._budget if "budget" in action_economy else "?"), str(action_economy._is_spent if "_is_spent" in action_economy else "?")])
 		return {"ok": false, "error_result": {"resolved": false, "ok": false, "error": ERR_NO_ACTION_REMAINING}}
 
 	return {"ok": true, "spend_result": spend_result}

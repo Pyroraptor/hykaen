@@ -324,11 +324,15 @@ func _resolve_opportunistic_strike_effect(
 	cycle_index: int
 ) -> Dictionary:
 	if strike_use_case == null or not reactor_action_economy_fn.is_valid():
+		push_error("OS_DEBUG: early exit - strike_use_case=%s fn_valid=%s" % [str(strike_use_case), str(reactor_action_economy_fn.is_valid())])
 		return {}
 
 	var reactor_action_economy = reactor_action_economy_fn.call(reactor)
 	if reactor_action_economy == null:
+		push_error("OS_DEBUG: reactor_action_economy is null for reactor=%s" % str(reactor.display_id() if reactor != null else "null"))
 		return {}
 
 	var paid_economy = ActionEconomyPortClass.ReactionPaidActionEconomy.new(reactor_action_economy)
-	return strike_use_case.resolve(reactor, paid_economy, mover, "Strike", round_number, cycle_index)
+	var result: Dictionary = strike_use_case.resolve(reactor, paid_economy, mover, "Strike", round_number, cycle_index)
+	push_error("OS_DEBUG: strike resolved ok=%s error=%s target_defeated=%s" % [str(result.get("ok", "?")), str(result.get("error", "none")), str(result.get("target_defeated", false))])
+	return result
