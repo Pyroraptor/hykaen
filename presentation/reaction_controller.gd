@@ -83,15 +83,53 @@ func is_reactor_reaction_spent(reactor) -> bool:
 
 
 ## resolve_enemy_stride_opportunistic_window(mover, mover_start_hex,
-## candidate_reactors) -> Dictionary - FEAT-006 (US-006, ADR-004): the Callable
-## ai.gd's _stride_reaction_resolver_fn seam awaits for the ENEMY-mover Stride
-## path. Drives ResolveStrideUseCase.execute() with per-reactor spent/resolver
+## candidate_reactors, stride_path: Array = []) -> Dictionary - FEAT-006
+## (US-006, ADR-004); widened additively by FEAT-003 (US-003; FR-005/
+## NFR-001/NFR-004; ADR-003) with the 4th, OPTIONAL `stride_path` parameter.
+## The Callable ai.gd's _stride_reaction_resolver_fn seam awaits for the
+## ENEMY-mover Stride path.
+##
+## FEAT-003: mirrors presentation/stride_action_controller.gd's FEAT-002
+## per-transit-hex extension of the PLAYER-mover path, so both movers are
+## proven symmetrically per this steel thread's own exit criteria -- BOTH
+## paths ultimately drive the SAME ResolveStrideUseCase/
+## OpportunisticStrikeEligibility contract via _single_hex_stride_os() below.
+## ALWAYS evaluates a window at `mover_start_hex` first (byte-identical to
+## every legacy 3-argument caller's pre-existing single-hex behavior --
+## `stride_path` defaults to an empty Array, in which case this method
+## returns exactly that one evaluation, unchanged). When `stride_path` is
+## non-empty, additionally iterates `stride_path.slice(1)` (every hex from
+## index 1 onward -- index 0 is presumed equal to `mover_start_hex`, already
+## evaluated above), evaluating one more window per hex and STOPPING
+## immediately at (and returning) the FIRST result whose
+## "stride_should_commit" comes back false -- mirroring
+## core/application/use_cases/resolve_stride_use_case.gd's own per-reactor
+## short-circuit contract one level up, at the per-hex granularity.
+func resolve_enemy_stride_opportunistic_window(mover, mover_start_hex, candidate_reactors: Array, stride_path: Array = []) -> Dictionary:
+	var result: Dictionary = await _single_hex_stride_os(mover, mover_start_hex, candidate_reactors)
+	if not result.get("stride_should_commit", true):
+		return result
+
+	for i in range(1, stride_path.size()):
+		result = await _single_hex_stride_os(mover, stride_path[i], candidate_reactors)
+		if not result.get("stride_should_commit", true):
+			return result
+
+	return result
+
+
+## _single_hex_stride_os(mover, hex, candidate_reactors) -> Dictionary -
+## FEAT-003 (US-003, ADR-003): the single-hex Opportunistic Strike evaluation
+## extracted UNCHANGED from resolve_enemy_stride_opportunistic_window()'s own
+## pre-FEAT-003 inline body, so BOTH the mover_start_hex evaluation and every
+## additional stride_path hex share the exact same, single, tested code path
+## -- drives ResolveStrideUseCase.execute() with per-reactor spent/resolver
 ## Callables, routing the PLAYER reactor to resolve_player_opportunistic_strike_
 ## reaction() (the real, awaited pop-up).
-func resolve_enemy_stride_opportunistic_window(mover, mover_start_hex, candidate_reactors: Array) -> Dictionary:
+func _single_hex_stride_os(mover, hex, candidate_reactors: Array) -> Dictionary:
 	var use_case := ResolveStrideUseCaseClass.new()
 	return await use_case.execute(
-		mover, mover_start_hex, candidate_reactors,
+		mover, hex, candidate_reactors,
 		Callable(self, "is_reactor_reaction_spent"),
 		Callable(self, "resolve_player_opportunistic_strike_reaction"),
 		_resolve_action_use_case,
