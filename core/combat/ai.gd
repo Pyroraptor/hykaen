@@ -470,7 +470,8 @@ func _stride_toward_target(
 	# [origin, best_destination] fallback), so a caller (e.g.
 	# core/application/round_session.gd's animation seam) can animate every
 	# transit hex rather than teleporting directly to `best_destination`.
-	return {"action_type": "Stride", "target": chosen_target, "destination": best_destination, "will_strike": false, "path": stride_path}
+	var animation_done: bool = opportunistic_window_result is Dictionary and opportunistic_window_result.get("animation_complete", false)
+	return {"action_type": "Stride", "target": chosen_target, "destination": best_destination, "will_strike": false, "path": stride_path, "animation_complete": animation_done}
 
 
 ## _select_target(combatant, targets) -> Dictionary — chooses the target this

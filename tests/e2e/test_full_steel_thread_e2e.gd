@@ -553,6 +553,16 @@ func test_enemy_ai_leg_strides_toward_nearest_target_but_does_not_strike_same_tu
 		var marigold_end_turn_result: Dictionary = instance.end_turn_control.press()
 		assert_true(marigold_end_turn_result.get("ok", false), "ending Marigold's turn (no action taken) must succeed")
 
+	# ── Wait for the AI Stride to fully complete (domain commit + animation) ─
+	# The OS reaction window now interleaves per-hop animation with OS
+	# evaluation BEFORE MovementClass.stride() commits hex_coord, so
+	# advance_ai_turn() suspends for the full animation chain (N hops ×
+	# TOKEN_MOVE_DURATION). EndTurnControl.press() does not await it, so this
+	# suite must give the animation + domain commit enough wall-clock time to
+	# finish before reading domain state or asserting on token position.
+	# 0.5 s covers 2 hops × 0.12 s with headroom for frame overhead.
+	await get_tree().create_timer(0.5).timeout
+
 	# ── Stride toward the nearest living target (US-004) ────────────────────
 	var moved_hex = enemy.hex_coord
 	assert_false(
@@ -594,20 +604,6 @@ func test_enemy_ai_leg_strides_toward_nearest_target_but_does_not_strike_same_tu
 	# ── The enemy token's on-screen hex position matches the AIDecision's
 	# destination, via the SAME move_token() path player movement uses
 	# (US-008) ───────────────────────────────────────────────────────────────
-	# FEAT-007 (US-007 / FR-006, NFR-001): the AI decision port now carries a
-	# real multi-hex "path" (this feature's own set_stride_pathfinder_fn()
-	# wiring), so round_session's animate-path seam (MainScene's own
-	# _animate_token_along_stride_path(), FEAT-007) drives the token through
-	# hex_grid_view.animate_token_to() -- a genuine, real-time Tween per hop
-	# (presentation/hex_grid_view.gd's TOKEN_MOVE_DURATION) -- instead of the
-	# pre-feature instant move_token() teleport. RoundSession fires that
-	# animation WITHOUT awaiting it (fire-and-forget, matching its own
-	# documented contract), so this suite must give the real Tween chain
-	# enough wall-clock time to finish before asserting on the token's
-	# rendered position, mirroring tests/integration/test_reaction_prompt_ui.gd's
-	# established create_timer() wait-for-real-animation convention.
-	await get_tree().create_timer(0.5).timeout
-
 	var token_after = instance.hex_grid_view.get_token(enemy_id)
 	assert_not_null(token_after, "the real HexGridView must still carry a token for the moved enemy")
 	assert_true(
@@ -682,6 +678,10 @@ func test_enemy_ai_leg_strides_but_does_not_strike_when_no_action_remains_after_
 		var marigold_end_turn_result: Dictionary = instance.end_turn_control.press()
 		assert_true(marigold_end_turn_result.get("ok", false), "ending Marigold's turn (no action taken) must succeed")
 
+	# Wait for per-hop animation + OS evaluation + domain commit — see the
+	# sibling suite's identical comment for the full timing rationale.
+	await get_tree().create_timer(0.5).timeout
+
 	# The AI must still issue its Stride with the one remaining action...
 	var moved_hex = enemy.hex_coord
 	assert_false(moved_hex.equals(far_hex), "the AI must still issue its Stride toward the nearest living target with its one remaining action")
@@ -699,13 +699,6 @@ func test_enemy_ai_leg_strides_but_does_not_strike_when_no_action_remains_after_
 		attack_events_after, attack_events_before,
 		"no Strike may be attempted/recorded against the nearest living target when no action remains after the AI's Stride"
 	)
-
-	# The token reposition path itself is unaffected by whether a Strike
-	# follows the Stride. FEAT-007: give the real, fire-and-forget
-	# animate-path Tween chain enough wall-clock time to finish before
-	# asserting on rendered token state (see the sibling suite's identical
-	# FEAT-007 doc above).
-	await get_tree().create_timer(0.5).timeout
 
 	var token_after = instance.hex_grid_view.get_token(enemy_id)
 	assert_not_null(token_after, "the real HexGridView must still carry a token for the moved enemy")

@@ -1909,6 +1909,14 @@ func _reposition_token_after_ai_stride(combatant, ai_decision: Dictionary) -> vo
 		return
 	var actor_id: String = combatant.display_id()
 
+	if ai_decision.get("animation_complete", false):
+		# resolve_enemy_stride_opportunistic_window() already animated the full
+		# path interleaved with OS windows — skip re-animation, just trigger the
+		# post-stride refresh (flanking / off-guard conditions).
+		if _after_ai_reposition_fn.is_valid():
+			_after_ai_reposition_fn.call()
+		return
+
 	if _token_animate_path_fn.is_valid() and ai_decision.has("path"):
 		var path: Array = ai_decision.get("path", [])
 		_token_animate_path_fn.call(actor_id, path)

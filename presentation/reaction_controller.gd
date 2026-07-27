@@ -109,14 +109,29 @@ func is_reactor_reaction_spent(reactor) -> bool:
 ## granularity. Callers (ai.gd) pass the FULL pathfinder path including the
 ## destination; the slice(1,-1) loop here handles the skip.
 func resolve_enemy_stride_opportunistic_window(mover, mover_start_hex, candidate_reactors: Array, stride_path: Array = []) -> Dictionary:
+	var actor_id: String = mover.display_id() if mover.has_method("display_id") else ""
+
+	# Evaluate OS at the mover's start hex — mover is already there, no animation needed.
 	var result: Dictionary = await _single_hex_stride_os(mover, mover_start_hex, candidate_reactors)
 	if not result.get("stride_should_commit", true):
 		return result
 
+	# For each transit hex: animate the token there first so the player sees
+	# where the enemy is, then open the OS window.  If the mover is downed, stop
+	# immediately and return without animating further (caller holds the token at
+	# the downed hex).
 	for i in range(1, stride_path.size() - 1):
+		if _hex_grid_view != null and actor_id != "":
+			await _hex_grid_view.animate_token_to(actor_id, stride_path[i])
 		result = await _single_hex_stride_os(mover, stride_path[i], candidate_reactors)
 		if not result.get("stride_should_commit", true):
 			return result
+
+	# All OS windows cleared — animate to the final destination and signal that
+	# the full path has already been animated so round_session skips re-animation.
+	if _hex_grid_view != null and actor_id != "" and stride_path.size() >= 2:
+		await _hex_grid_view.animate_token_to(actor_id, stride_path[stride_path.size() - 1])
+		result["animation_complete"] = true
 
 	return result
 

@@ -265,12 +265,13 @@ func test_decide_action_never_returns_both_stride_and_strike_in_one_call() -> vo
 	# transit hex sequence the Stride traveled -- real pathfinder result or
 	# the [origin, best_destination] fallback). This remains a SINGLE,
 	# non-composite ActionDecision -- "path" describes the ONE Stride action
-	# already reported via action_type/destination, never a second action --
-	# so the count below is updated from 4 to 5 rather than this criterion
-	# being weakened.
+	# already reported via action_type/destination, never a second action.
+	# A 6th "animation_complete" key (bool) is propagated from the OS resolver
+	# so round_session skips re-animation when the interleaved-OS path already
+	# animated the full path -- still a single Stride decision, never composite.
 	assert_eq(
-		result.keys().size(), 5,
-		"an ActionDecision must carry exactly its five documented keys (action_type/target/destination/will_strike/path) -- no extra composite payload"
+		result.keys().size(), 6,
+		"an ActionDecision must carry exactly its six documented keys (action_type/target/destination/will_strike/path/animation_complete) -- no extra composite payload"
 	)
 
 
