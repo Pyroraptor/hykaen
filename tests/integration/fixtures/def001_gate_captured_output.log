@@ -22,7 +22,7 @@ tests/ci/test_check_sim_results_provenance.py::TestWiredIntoTestCommandPipeline:
     fixturefunc = resolve_fixture_function(fixturedef, request)
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-370 passed, 17 skipped, 1 warning in 42.93s
+370 passed, 17 skipped, 1 warning in 43.04s
 
 
 ---- `godot --headless --path <repo_root> -- --gut-run-all` ----
@@ -2314,7 +2314,7 @@ DEBUG: highlight_legal_moves combatant_id=player_1 step_hex_count=5 stride_hex_c
 * test_headless_boot_still_succeeds_after_presentation_stack_rewiring
 INFO: Hykaen MainScene booted into EXPLORATION mode -- no active round_session yet
 DEBUG: viewport_centering centering_offset=(576, 324)
-DEBUG: highlight_legal_moves combatant_id=player_0 step_hex_count=4 stride_hex_count=58
+INFO: round event { "round": 1, "window_id": "rwin-1", "trigger_type": "PreHitAvoidance", "reactor_name": "player_0", "legal_reactions": ["dodge"] }
 [1m8/9 passed.
 [0m[4m
 
@@ -3394,10 +3394,10 @@ res://tests/sim/test_balance_sim.gd
 * test_write_sim_results_json_artifact
     sim_results.json written: {
     	"avg_rounds": 1.068,
-    	"commit_hash": "ef34ccc9405bfe387d7ff0ea85acc0181cc59c3c",
+    	"commit_hash": "075dbf9c70395ec954f23579a6196809905d014c",
     	"confidence_interval": 0.0287162408681916,
     	"seed": 12345,
-    	"timestamp": "2026-07-27 02:55:15",
+    	"timestamp": "2026-07-27 03:06:13",
     	"total_battles": 1000,
     	"win_rate": 0.688
     }
@@ -3415,10 +3415,10 @@ res://tests/sim/test_balance_simulation_post_fix.gd
 * test_sim_results_json_regenerated_with_timestamp_and_commit
     FEAT-106: sim_results.json regenerated (post-fix): {
     	"avg_rounds": 1.068,
-    	"commit_hash": "ef34ccc9405bfe387d7ff0ea85acc0181cc59c3c",
+    	"commit_hash": "075dbf9c70395ec954f23579a6196809905d014c",
     	"confidence_interval": 0.0287162408681916,
     	"seed": 12345,
-    	"timestamp": "2026-07-27T02:55:16",
+    	"timestamp": "2026-07-27T03:06:14",
     	"total_battles": 1000,
     	"win_rate": 0.688
     }
@@ -5374,7 +5374,7 @@ res://tests/unit/test_event_emission_seam.gd
 * test_emit_event_seam_has_exactly_the_two_expected_call_sites
 * test_event_sink_emit_accepts_an_arbitrary_typed_event_object
 * test_console_event_sink_adapter_accepts_an_arbitrary_typed_event_object
-INFO: round event <RefCounted#-9223351675924752833>
+INFO: round event <RefCounted#-9223351754458901540>
 * test_event_sink_port_emit_signature_and_body_contain_no_type_branching
 * test_emit_event_seam_body_contains_no_type_branching
 * test_attack_event_construction_code_path_is_untouched_by_the_generalization
@@ -5441,7 +5441,7 @@ DEBUG: viewport_centering centering_offset=(576, 324)
 * test_main_scene_instantiated_boots_prologue_encounter_without_auto_resolving
 INFO: Hykaen MainScene booted into EXPLORATION mode -- no active round_session yet
 DEBUG: viewport_centering centering_offset=(576, 324)
-DEBUG: highlight_legal_moves combatant_id=player_1 step_hex_count=5 stride_hex_count=58
+DEBUG: highlight_legal_moves combatant_id=player_0 step_hex_count=4 stride_hex_count=58
 * test_main_scene_instantiated_random_port_is_godot_random_adapter
 INFO: Hykaen MainScene booted into EXPLORATION mode -- no active round_session yet
 DEBUG: viewport_centering centering_offset=(576, 324)
@@ -5542,12 +5542,12 @@ res://tests/unit/test_no_progress_backstop.gd
 
 res://tests/unit/test_opportunistic_strike_initiative_ordering.gd
 [0m* test_candidate_reactors_ordered_by_rolled_initiative_not_spawn_order
-[31m    [Failed]:  [0mARRAY([]) != ARRAY([<RefCounted#-9223351400006656992>, <RefCounted#-9223351400056989869>]).
-    [] != [<RefCounted#-9223351400006656992>, <Ref...56989869>]  2 of 2 indexes do not match.  candidate_reactors must be ordered by rolled initiative (descending), not encounter spawn order
+[31m    [Failed]:  [0mARRAY([]) != ARRAY([<RefCounted#-9223351493136984390>, <RefCounted#-9223351493187315660>]).
+    [] != [<RefCounted#-9223351493136984390>, <Ref...87315660>]  2 of 2 indexes do not match.  candidate_reactors must be ordered by rolled initiative (descending), not encounter spawn order
       at line -1
 * test_ordering_is_stable_for_equal_initiative_rolls
-[31m    [Failed]:  [0mARRAY([]) != ARRAY([<RefCounted#-9223351399469787309>, <RefCounted#-9223351399419456240>]).
-    [] != [<RefCounted#-9223351399469787309>, <Ref...19456240>]  2 of 2 indexes do not match.  equal rolled-initiative candidates must preserve their original (spawn) relative order -- a stable sort
+[31m    [Failed]:  [0mARRAY([]) != ARRAY([<RefCounted#-9223351492600113100>, <RefCounted#-9223351492549782111>]).
+    [] != [<RefCounted#-9223351492600113100>, <Ref...49782111>]  2 of 2 indexes do not match.  equal rolled-initiative candidates must preserve their original (spawn) relative order -- a stable sort
       at line -1
 * test_ordering_violation_triggers_fail_loud_assertion
 * test_ordering_violation_reports_true_when_a_candidate_is_absent_from_turn_order
@@ -6445,12 +6445,12 @@ res://tests/integration/test_steel_thread_scenario_boot_e2e.gd
 [4m
 res://tests/unit/test_opportunistic_strike_initiative_ordering.gd
 [0m- test_candidate_reactors_ordered_by_rolled_initiative_not_spawn_order
-[31m    [Failed]:  [0mARRAY([]) != ARRAY([<RefCounted#-9223351400006656992>, <RefCounted#-9223351400056989869>]).
-    [] != [<RefCounted#-9223351400006656992>, <Ref...56989869>]  2 of 2 indexes do not match.  candidate_reactors must be ordered by rolled initiative (descending), not encounter spawn order
+[31m    [Failed]:  [0mARRAY([]) != ARRAY([<RefCounted#-9223351493136984390>, <RefCounted#-9223351493187315660>]).
+    [] != [<RefCounted#-9223351493136984390>, <Ref...87315660>]  2 of 2 indexes do not match.  candidate_reactors must be ordered by rolled initiative (descending), not encounter spawn order
           at line -1
 - test_ordering_is_stable_for_equal_initiative_rolls
-[31m    [Failed]:  [0mARRAY([]) != ARRAY([<RefCounted#-9223351399469787309>, <RefCounted#-9223351399419456240>]).
-    [] != [<RefCounted#-9223351399469787309>, <Ref...19456240>]  2 of 2 indexes do not match.  equal rolled-initiative candidates must preserve their original (spawn) relative order -- a stable sort
+[31m    [Failed]:  [0mARRAY([]) != ARRAY([<RefCounted#-9223351492600113100>, <RefCounted#-9223351492549782111>]).
+    [] != [<RefCounted#-9223351492600113100>, <Ref...49782111>]  2 of 2 indexes do not match.  equal rolled-initiative candidates must preserve their original (spawn) relative order -- a stable sort
           at line -1
 - test_consistent_ordering_does_not_trigger_the_assertion
 [31m    [Failed]:  [0man ordering consistent with encounter.get_turn_order() must NOT fail loud (must return true)
@@ -6471,7 +6471,7 @@ Failing Tests         7
 Risky/Pending         6
 Asserts           16582/16589
 Orphans               1
-Time              24.486s
+Time              24.331s
 
 
 [31m---- 7 failing tests ----
@@ -19543,10 +19543,6 @@ WARNING: res://data/characters/titus.tres:3 - ext_resource, invalid UID: uid://b
      at: load (scene/resources/resource_format_text.cpp:453)
 WARNING: res://data/classes/fighter.tres:3 - ext_resource, invalid UID: uid://cs1a2b3c4d5e6f - using text path instead: res://core/model/class_resource.gd
      at: load (scene/resources/resource_format_text.cpp:453)
-WARNING: res://data/characters/marigold.tres:3 - ext_resource, invalid UID: uid://bchar1a2b3c4d5e - using text path instead: res://core/model/character_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
-WARNING: res://data/classes/divine_warrior.tres:3 - ext_resource, invalid UID: uid://es3c4d5e6f7g8h - using text path instead: res://core/model/class_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
 WARNING: res://data/characters/titus.tres:3 - ext_resource, invalid UID: uid://bchar1a2b3c4d5e - using text path instead: res://core/model/character_resource.gd
      at: load (scene/resources/resource_format_text.cpp:453)
 WARNING: res://data/classes/fighter.tres:3 - ext_resource, invalid UID: uid://cs1a2b3c4d5e6f - using text path instead: res://core/model/class_resource.gd
@@ -19554,10 +19550,6 @@ WARNING: res://data/classes/fighter.tres:3 - ext_resource, invalid UID: uid://cs
 WARNING: res://data/weapons/longsword.tres:3 - ext_resource, invalid UID: uid://bwpns1a2b3c4d - using text path instead: res://core/model/weapon_resource.gd
      at: load (scene/resources/resource_format_text.cpp:453)
 WARNING: res://data/armor/chain_shirt.tres:3 - ext_resource, invalid UID: uid://barms1a2b3c4d - using text path instead: res://core/model/armor_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
-WARNING: res://data/characters/marigold.tres:3 - ext_resource, invalid UID: uid://bchar1a2b3c4d5e - using text path instead: res://core/model/character_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
-WARNING: res://data/classes/divine_warrior.tres:3 - ext_resource, invalid UID: uid://es3c4d5e6f7g8h - using text path instead: res://core/model/class_resource.gd
      at: load (scene/resources/resource_format_text.cpp:453)
 WARNING: res://data/weapons/shortsword.tres:3 - ext_resource, invalid UID: uid://bwpns1a2b3c4d - using text path instead: res://core/model/weapon_resource.gd
      at: load (scene/resources/resource_format_text.cpp:453)
@@ -20079,6 +20071,18 @@ SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
+WARNING: res://data/armor/chain_shirt.tres:3 - ext_resource, invalid UID: uid://barms1a2b3c4d - using text path instead: res://core/model/armor_resource.gd
+     at: load (scene/resources/resource_format_text.cpp:453)
+WARNING: res://data/enemies/skeleton.tres:3 - ext_resource, invalid UID: uid://enmyres1a2b3c - using text path instead: res://data/enemies/enemy_resource.gd
+     at: load (scene/resources/resource_format_text.cpp:453)
+WARNING: res://data/armor/chain_shirt.tres:3 - ext_resource, invalid UID: uid://barms1a2b3c4d - using text path instead: res://core/model/armor_resource.gd
+     at: load (scene/resources/resource_format_text.cpp:453)
+WARNING: res://data/enemies/skeleton.tres:3 - ext_resource, invalid UID: uid://enmyres1a2b3c - using text path instead: res://data/enemies/enemy_resource.gd
+     at: load (scene/resources/resource_format_text.cpp:453)
+WARNING: res://data/armor/chain_shirt.tres:3 - ext_resource, invalid UID: uid://barms1a2b3c4d - using text path instead: res://core/model/armor_resource.gd
+     at: load (scene/resources/resource_format_text.cpp:453)
+WARNING: res://data/enemies/skeleton.tres:3 - ext_resource, invalid UID: uid://enmyres1a2b3c - using text path instead: res://data/enemies/enemy_resource.gd
+     at: load (scene/resources/resource_format_text.cpp:453)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
 WARNING: res://data/enemies/skeleton.tres:3 - ext_resource, invalid UID: uid://enmyres1a2b3c - using text path instead: res://data/enemies/enemy_resource.gd
@@ -28491,8 +28495,6 @@ WARNING: res://data/armor/leather_armor.tres:3 - ext_resource, invalid UID: uid:
      at: load (scene/resources/resource_format_text.cpp:453)
 WARNING: res://data/enemies/skeleton.tres:3 - ext_resource, invalid UID: uid://enmyres1a2b3c - using text path instead: res://data/enemies/enemy_resource.gd
      at: load (scene/resources/resource_format_text.cpp:453)
-WARNING: res://data/spells/fire_bolt.tres:3 - ext_resource, invalid UID: uid://cspres0urce00001 - using text path instead: res://core/resources/spell_resource.gd
-     at: load (scene/resources/resource_format_text.cpp:453)
 SCRIPT ERROR: Invalid call. Nonexistent function 'clear' in base 'Nil'.
           at: GutMain._run_test (res://addons/gut/gut.gd:650)
 WARNING: res://data/characters/titus.tres:3 - ext_resource, invalid UID: uid://bchar1a2b3c4d5e - using text path instead: res://core/model/character_resource.gd
@@ -31240,6 +31242,6 @@ ERROR: 1 RID allocations of type 'PN18TextServerAdvanced22ShapedTextDataAdvanced
 ERROR: 1 RID allocations of type 'PN18TextServerAdvanced12FontAdvancedE' were leaked at exit.
 WARNING: ObjectDB instances leaked at exit (run with --verbose for details).
      at: cleanup (core/object/object.cpp:2284)
-ERROR: 44 resources still in use at exit (run with --verbose for details).
+ERROR: 59 resources still in use at exit (run with --verbose for details).
    at: clear (core/io/resource.cpp:604)
 
