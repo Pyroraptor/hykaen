@@ -267,6 +267,7 @@ func execute(
 		var context: Dictionary = {"melee_reach": true}
 		var result: Dictionary = await reactor_resolver_fn.call(reactor, context)
 		var choice: String = result.get("choice", "none")
+		print("OS_DEBUG: reactor_resolver_fn returned choice='%s'" % [choice])
 		var reaction_entry: Dictionary = {"reactor": reactor, "choice": choice}
 
 		if choice == REACTION_OPPORTUNISTIC_STRIKE:
@@ -323,16 +324,17 @@ func _resolve_opportunistic_strike_effect(
 	round_number: int,
 	cycle_index: int
 ) -> Dictionary:
+	print("OS_DEBUG: _resolve_opportunistic_strike_effect called strike_use_case_null=%s fn_valid=%s" % [str(strike_use_case == null), str(reactor_action_economy_fn.is_valid())])
 	if strike_use_case == null or not reactor_action_economy_fn.is_valid():
-		push_error("OS_DEBUG: early exit - strike_use_case=%s fn_valid=%s" % [str(strike_use_case), str(reactor_action_economy_fn.is_valid())])
+		print("OS_DEBUG: early exit - unwired collaborator")
 		return {}
 
 	var reactor_action_economy = reactor_action_economy_fn.call(reactor)
 	if reactor_action_economy == null:
-		push_error("OS_DEBUG: reactor_action_economy is null for reactor=%s" % str(reactor.display_id() if reactor != null else "null"))
+		print("OS_DEBUG: reactor_action_economy is null")
 		return {}
 
 	var paid_economy = ActionEconomyPortClass.ReactionPaidActionEconomy.new(reactor_action_economy)
 	var result: Dictionary = strike_use_case.resolve(reactor, paid_economy, mover, "Strike", round_number, cycle_index)
-	push_error("OS_DEBUG: strike resolved ok=%s error=%s target_defeated=%s" % [str(result.get("ok", "?")), str(result.get("error", "none")), str(result.get("target_defeated", false))])
+	print("OS_DEBUG: strike resolved ok=%s error=%s target_defeated=%s" % [str(result.get("ok", "?")), str(result.get("error", "none")), str(result.get("target_defeated", false))])
 	return result
