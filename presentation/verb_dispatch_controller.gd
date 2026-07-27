@@ -155,7 +155,12 @@ func _verb_bar_step_enter_selection() -> Dictionary:
 
 
 func _verb_bar_step_execute(selection) -> Dictionary:
-	return _controller_fn.call("STEP").execute(selection)
+	# FEAT-006: StepActionController.execute() now `await`s an optional
+	# hex_grid_view.animate_token_to() call before returning, mirroring
+	# STRIDE/CAST_SPELL/COMBINE's own `await`ed dispatch below -- required
+	# so a future hex_grid_view composition-root wiring for STEP does not
+	# silently truncate this coroutine into a GDScriptFunctionState.
+	return await _controller_fn.call("STEP").execute(selection)
 
 
 func _verb_bar_stride_availability() -> bool:
