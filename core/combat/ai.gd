@@ -177,6 +177,47 @@ func set_stride_reaction_resolver_fn(fn: Callable) -> void:
 	_stride_reaction_resolver_fn = fn
 
 
+## _stride_pathfinder_fn — OPTIONAL (US-004 / FR-004, NFR-001/NFR-003,
+## ADR-003 — "AI Stride pathfinder seam"): an injected, duck-typed
+## Callable(origin: HexCoord, destination: HexCoord) -> Array[HexCoord],
+## called (never awaited — pathfinding is synchronous/CPU-bound, unlike the
+## reaction-resolver seam above) inside _stride_toward_target() once
+## `best_destination` has been chosen, so the resulting `stride_path` can be
+## forwarded to `_stride_reaction_resolver_fn` as its 4th positional argument
+## (see that field's own doc) and reported under the decision Dictionary's
+## own "path" key — mirroring presentation/stride_action_controller.gd's own
+## `pathfinder_fn` port already doing the equivalent for the player mover
+## (steel thread symmetry).
+##
+## Mirrors this project's established Callable Dependency-Inversion seam
+## convention: this file never imports/references
+## core/geometry/hex_pathfinder.gd, core/geometry/encounter_tile_adapter.gd,
+## or any other concrete adapter/domain-service type — it only calls
+## whichever Callable MainScene.gd's composition root injects via
+## set_stride_pathfinder_fn().
+##
+## Left as an invalid (unbound) Callable — the default — for every
+## pre-existing caller/test double (including the current MainScene.gd
+## composition root, which does not yet wire this seam):
+## _stride_toward_target()'s own fallback (documented below) makes this an
+## unconditional degrade-to-direct-path for them, and (see the resolver
+## call site's own doc) the 4th argument is never forwarded to
+## `_stride_reaction_resolver_fn` while this seam stays unwired either — so
+## decide_action()'s pre-existing contract, INCLUDING every existing
+## downstream reaction-window trigger condition, is completely unaffected
+## until a caller deliberately opts in by wiring a real pathfinder.
+var _stride_pathfinder_fn: Callable = Callable()
+
+
+## set_stride_pathfinder_fn(fn) -> void — US-004: injects the Callable
+## described above. Intended to be called once by the composition root
+## (MainScene.gd), the SAME way set_stride_reaction_resolver_fn() above
+## already is, e.g.:
+##   ai_decision_port.set_stride_pathfinder_fn(Callable(HexPathfinderClass, "find_path").bind(is_passable_fn, move_cost_fn))
+func set_stride_pathfinder_fn(fn: Callable) -> void:
+	_stride_pathfinder_fn = fn
+
+
 ## decide_action(combatant: Dictionary, targets: Array, action_economy = null, other_combatants: Array = []) → Dictionary
 ##
 ## Selects the best action for the given combatant from the available target pool.
@@ -233,6 +274,19 @@ func set_stride_reaction_resolver_fn(fn: Callable) -> void:
 ##                          decision cycle (its next turn) — the SAME
 ##                          one-action-per-turn gate the player is bound to
 ##                          (core/rules/action_economy.gd's can_take_action()).
+##   path:        Array — OPTIONAL (present only on a Stride-branch outcome
+##                          from _stride_toward_target(): a committed Stride,
+##                          OR one cancelled by a lethal Opportunistic Strike,
+##                          OR one whose ActionEconomy spend was rejected).
+##                          US-004 (FR-004, NFR-001/NFR-003, ADR-003): the
+##                          full ordered [origin, ..., destination] transit
+##                          path this Stride computed via the OPTIONAL
+##                          `_stride_pathfinder_fn` seam (see that field's own
+##                          doc), or the direct 2-element
+##                          [origin, best_destination] fallback when that seam
+##                          is unwired or reports an invalid/short path. This
+##                          is a purely additive key — every pre-existing
+##                          consumer that never reads "path" is unaffected.
 ##
 ## v0 behaviour (unchanged): the target pool is searched in order and the
 ## first living target found is chosen when no positional (hex_coord) data
@@ -331,6 +385,21 @@ func _stride_toward_target(
 		# pointlessly (and never spend the action for a no-op move).
 		return {"action_type": "", "target": null, "destination": null, "will_strike": false}
 
+	# US-004 (FR-004, NFR-001/NFR-003, ADR-003): compute the transit path this
+	# Stride will travel via the OPTIONAL injected `_stride_pathfinder_fn`
+	# seam — see that field's own doc. Any invalid/short result (the seam
+	# unwired, or a real pathfinder reporting "no path"/a trivial single-hex
+	# path, size < 2) falls back to the direct two-hex path
+	# [origin, best_destination] — this fallback IS the seam's error contract
+	# (never an exception/crash), guaranteeing `stride_path` is always a
+	# genuine, non-degenerate ordered hex sequence for the decision's own
+	# "path" key below.
+	var stride_path: Array = []
+	if _stride_pathfinder_fn.is_valid():
+		stride_path = _stride_pathfinder_fn.call(origin, best_destination)
+	if stride_path.size() < 2:
+		stride_path = [origin, best_destination]
+
 	# iteration K FEAT-006 (US-006): open an OpportunisticStrike reaction
 	# window for every eligible hostile reactor in `occupancy` BEFORE this
 	# Stride commits — Movement.stride() below is the sole hex_coord mutation
@@ -346,9 +415,37 @@ func _stride_toward_target(
 	# nothing / void) is treated exactly like `{}` -- "mover_downed" reads
 	# false via the same default-safe `.get()` below, so this change is a
 	# pure no-op for every existing caller (NFR-004).
+	#
+	# US-004: `stride_path` is forwarded as the resolver's 4th positional
+	# argument ONLY when `_stride_pathfinder_fn` is ITSELF genuinely wired
+	# (`.is_valid()`) -- i.e. only once a caller has deliberately opted into
+	# real per-transit-hex Stride pathing. This is deliberately narrower than
+	# "whenever the resolver's own declared arity accepts 4 arguments":
+	# core/application/presentation/reaction_controller.gd's
+	# resolve_enemy_stride_opportunistic_window() ALREADY declares a 4th
+	# (stride_path) parameter (FEAT-003) and MainScene.gd already binds it as
+	# `_stride_reaction_resolver_fn` -- unconditionally forwarding the
+	# fallback [origin, best_destination] path there would silently activate
+	# a brand-new per-hex OpportunisticStrike evaluation at `best_destination`
+	# in EVERY existing production Stride, well before this steel thread's
+	# composition root has actually wired a real pathfinder seam, regressing
+	# every pre-existing caller that never asked for that behavior (NFR-004).
+	# Gating on `_stride_pathfinder_fn.is_valid()` keeps every current
+	# caller/test byte-identical while still satisfying this feature's own
+	# contract once BOTH seams are wired together. Whenever the 4-argument
+	# call IS attempted, `_stride_reaction_resolver_fn`'s OWN declared arity
+	# (reflection via Callable.get_argument_count(), the SAME dispatch
+	# convention core/application/round_session.gd's `_decide_ai_action()`
+	# already established for the analogous AIDecisionPort.decide_action()
+	# seam) still governs whether the 4th argument is actually sent -- a
+	# legacy 3-argument resolver is invoked with exactly the 3 arguments it
+	# declares, never handed a 4th argument it never asked for.
 	var opportunistic_window_result = {}
 	if _stride_reaction_resolver_fn.is_valid():
-		opportunistic_window_result = await _stride_reaction_resolver_fn.call(combatant, origin, occupancy)
+		if _stride_pathfinder_fn.is_valid() and _stride_reaction_resolver_fn.get_argument_count() >= 4:
+			opportunistic_window_result = await _stride_reaction_resolver_fn.call(combatant, origin, occupancy, stride_path)
+		else:
+			opportunistic_window_result = await _stride_reaction_resolver_fn.call(combatant, origin, occupancy)
 
 	if opportunistic_window_result is Dictionary and opportunistic_window_result.get("mover_downed", false):
 		# A lethal Opportunistic Strike defeated `combatant` before its
@@ -357,17 +454,23 @@ func _stride_toward_target(
 		# is never mutated; `combatant` remains at `origin`, exactly like
 		# the "no legal Stride destination" no-op decide_action() already
 		# returns above.
-		return {"action_type": "", "target": null, "destination": null, "will_strike": false}
+		return {"action_type": "", "target": null, "destination": null, "will_strike": false, "path": stride_path}
 
 	var stride_result: Dictionary = MovementClass.stride(combatant, best_destination, action_economy, occupancy)
 	if not stride_result.get("ok", false):
-		return {"action_type": "", "target": null, "destination": null, "will_strike": false}
+		return {"action_type": "", "target": null, "destination": null, "will_strike": false, "path": stride_path}
 
 	# FEAT-007 (US-007 / FR-005, ADR-105): decide_action() issues exactly ONE
 	# action per call — a Stride NEVER also reports will_strike: true, even
 	# when it happens to land the combatant in reach of the target. Any
 	# Strike is deferred to the combatant's next decision cycle.
-	return {"action_type": "Stride", "target": chosen_target, "destination": best_destination, "will_strike": false}
+	#
+	# US-004: "path" is additive (ADR-003's consequences) — the full
+	# stride_path this Stride traveled (real pathfinder result, or the
+	# [origin, best_destination] fallback), so a caller (e.g.
+	# core/application/round_session.gd's animation seam) can animate every
+	# transit hex rather than teleporting directly to `best_destination`.
+	return {"action_type": "Stride", "target": chosen_target, "destination": best_destination, "will_strike": false, "path": stride_path}
 
 
 ## _select_target(combatant, targets) -> Dictionary — chooses the target this

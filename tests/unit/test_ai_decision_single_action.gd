@@ -260,9 +260,17 @@ func test_decide_action_never_returns_both_stride_and_strike_in_one_call() -> vo
 		result.get("will_strike", true),
 		"decide_action() must never report a composite Stride-then-Strike decision, even when the Stride closes the target into reach"
 	)
+	# US-004 (FR-004, NFR-001/NFR-003, ADR-003 -- "AI Stride pathfinder seam
+	# in ai.gd"): a Stride decision additively gained a 5th "path" key (the
+	# transit hex sequence the Stride traveled -- real pathfinder result or
+	# the [origin, best_destination] fallback). This remains a SINGLE,
+	# non-composite ActionDecision -- "path" describes the ONE Stride action
+	# already reported via action_type/destination, never a second action --
+	# so the count below is updated from 4 to 5 rather than this criterion
+	# being weakened.
 	assert_eq(
-		result.keys().size(), 4,
-		"an ActionDecision must carry exactly its four documented keys (action_type/target/destination/will_strike) -- no extra composite payload"
+		result.keys().size(), 5,
+		"an ActionDecision must carry exactly its five documented keys (action_type/target/destination/will_strike/path) -- no extra composite payload"
 	)
 
 

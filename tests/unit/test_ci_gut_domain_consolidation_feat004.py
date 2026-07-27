@@ -496,6 +496,18 @@ class TestConsolidatedGutConfig:
 # ORIGINAL regression (the -gconfig-ignored full-project fallback) without
 # falsely flagging this expected growth.
 
+# FEAT-004 (US-004 / FR-004, NFR-001/NFR-003, ADR-003 -- "AI Stride
+# pathfinder seam in ai.gd") note: tests/unit/core/combat/test_ai.gd was
+# added under tests/unit/core/combat/ by the identical established
+# convention (a core/combat/ai.gd collaborator's unit suite -- the new
+# `set_stride_pathfinder_fn()` seam, its 4th-positional-argument forwarding
+# to `_stride_reaction_resolver_fn`, and the additive "path" decision key --
+# living under tests/unit/core/), so the consolidated domain suite now
+# legitimately collects 31 scripts, not 30; the assertion below was updated
+# 30 -> 31 so this guard still catches its ORIGINAL regression (the
+# -gconfig-ignored full-project fallback) without falsely flagging this
+# expected growth.
+
 # FEAT-136 / DEF-002 / DEF-003: the domain-suite command is now extracted
 # from scripts/test_command.sh (the canonical script), not from the
 # delegating root `test_command` wrapper, since that's where the stage
@@ -567,18 +579,18 @@ class TestConsolidatedDomainSuiteReallyPasses:
         self, repo_root, canonical_script_text
     ):
         """US-014's consolidated domain suite must actually be SCOPED to the
-        domain/application test scripts under tests/unit/core (30, as of
-        FEAT-003's ExplorationController tile-passability suite -- see the
-        module-level note above), not silently fall back to running the
-        whole project's ~46 GUT scripts. This guards against the
-        -gconfig-ignored regression described above."""
+        domain/application test scripts under tests/unit/core (31, as of
+        FEAT-004's AI Stride pathfinder seam suite -- see the module-level
+        note above), not silently fall back to running the whole project's
+        ~46 GUT scripts. This guards against the -gconfig-ignored regression
+        described above."""
         result = self._run(repo_root, canonical_script_text)
         output = result.stdout + result.stderr
         match = re.search(r"Scripts\s+(\d+)", output)
         assert match, f"Could not find a 'Scripts  N' summary line. Output:\n{output}"
         scripts_run = int(match.group(1))
-        assert scripts_run == 30, (
-            "The consolidated domain GUT suite stage must run exactly the 30 "
+        assert scripts_run == 31, (
+            "The consolidated domain GUT suite stage must run exactly the 31 "
             f"domain/application test scripts under tests/unit/core, but ran "
             f"{scripts_run}. This means scripts/test_command.sh's domain "
             f"suite stage is not actually scoped via tests/.gutconfig.json."
