@@ -98,19 +98,22 @@ func is_reactor_reaction_spent(reactor) -> bool:
 ## every legacy 3-argument caller's pre-existing single-hex behavior --
 ## `stride_path` defaults to an empty Array, in which case this method
 ## returns exactly that one evaluation, unchanged). When `stride_path` is
-## non-empty, additionally iterates `stride_path.slice(1)` (every hex from
-## index 1 onward -- index 0 is presumed equal to `mover_start_hex`, already
-## evaluated above), evaluating one more window per hex and STOPPING
-## immediately at (and returning) the FIRST result whose
-## "stride_should_commit" comes back false -- mirroring
-## core/application/use_cases/resolve_stride_use_case.gd's own per-reactor
-## short-circuit contract one level up, at the per-hex granularity.
+## non-empty, iterates stride_path indices 1 through size()-2 inclusive
+## (index 0 is presumed equal to `mover_start_hex`, already evaluated;
+## the LAST element is the destination the mover ARRIVES at and is NOT
+## evaluated -- OS fires only when LEAVING a hex, not when arriving),
+## evaluating one more window per hex and STOPPING immediately at (and
+## returning) the FIRST result whose "stride_should_commit" comes back
+## false -- mirroring core/application/use_cases/resolve_stride_use_case.gd's
+## own per-reactor short-circuit contract one level up, at the per-hex
+## granularity. Callers (ai.gd) pass the FULL pathfinder path including the
+## destination; the slice(1,-1) loop here handles the skip.
 func resolve_enemy_stride_opportunistic_window(mover, mover_start_hex, candidate_reactors: Array, stride_path: Array = []) -> Dictionary:
 	var result: Dictionary = await _single_hex_stride_os(mover, mover_start_hex, candidate_reactors)
 	if not result.get("stride_should_commit", true):
 		return result
 
-	for i in range(1, stride_path.size()):
+	for i in range(1, stride_path.size() - 1):
 		result = await _single_hex_stride_os(mover, stride_path[i], candidate_reactors)
 		if not result.get("stride_should_commit", true):
 			return result

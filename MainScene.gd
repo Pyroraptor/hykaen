@@ -480,6 +480,7 @@ func rewire_session() -> void:
 
 	if round_session != null and hex_grid_view != null:
 		round_session.set_token_reposition_fn(Callable(hex_grid_view, "move_token"))
+		round_session.set_after_ai_reposition_fn(Callable(self, "_refresh_off_guard_conditions"))
 		round_session.set_token_animate_path_fn(Callable(self, "_animate_token_along_stride_path"))
 
 	if round_session != null and turn_controller != null:
@@ -535,12 +536,14 @@ func _active_encounter_resource(encounter_id: String):
 	return null
 
 
+
 ## Animates an enemy token along a Stride path hex-by-hex (FEAT-007).
 func _animate_token_along_stride_path(actor_id: String, path: Array) -> void:
 	if hex_grid_view == null:
 		return
 	for i in range(1, path.size()):
 		await hex_grid_view.animate_token_to(actor_id, path[i])
+	_refresh_off_guard_conditions()
 
 
 ## Route Esc/right-click to cancel_controller.

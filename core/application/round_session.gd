@@ -285,6 +285,16 @@ func set_token_reposition_fn(fn: Callable) -> void:
 	_token_reposition_fn = fn
 
 
+## _after_ai_reposition_fn — OPTIONAL: a no-argument Callable fired by
+## _reposition_token_after_ai_stride() immediately after an instant
+## _token_reposition_fn call (not the animate-path branch).
+## Use: wire Off-Guard refresh or other post-reposition side effects.
+var _after_ai_reposition_fn: Callable = Callable()
+
+func set_after_ai_reposition_fn(fn: Callable) -> void:
+	_after_ai_reposition_fn = fn
+
+
 ## set_token_animate_path_fn(fn) -> void — FEAT-005 (US-005 / FR-006,
 ## NFR-001, NFR-003; Contract 8): injects the Callable(actor_id: String,
 ## path: Array) `_reposition_token_after_ai_stride()` prefers over the
@@ -1907,6 +1917,8 @@ func _reposition_token_after_ai_stride(combatant, ai_decision: Dictionary) -> vo
 	if not _token_reposition_fn.is_valid():
 		return
 	_token_reposition_fn.call(actor_id, destination)
+	if _after_ai_reposition_fn.is_valid():
+		_after_ai_reposition_fn.call()
 
 
 ## end_current_turn() -> Dictionary — ends the current (player) actor's

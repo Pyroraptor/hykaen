@@ -247,6 +247,8 @@ func _default_for_field(field: String):
 ## even though `_order` is only ever (re)established by load_combatants().
 func _rebuild_labels() -> void:
 	for existing_label in _labels.values():
+		if existing_label.get_parent() != null:
+			existing_label.get_parent().remove_child(existing_label)
 		existing_label.queue_free()
 	_labels.clear()
 

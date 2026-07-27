@@ -272,14 +272,15 @@ func test_single_hex_stride_os_matches_pre_extraction_inline_call() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_multi_hex_stride_path_evaluates_every_hex_from_index_one() -> void:
-	# A BENT 3-hex path (start -> h1 -> h2, turning at h1) -- a straight
-	# collinear 3-hex run shares too many neighbor hexes between consecutive
-	# steps to isolate a reactor to exactly one of the three, so this fixture
-	# turns instead (mirrors this file's own parity-test fixture, which only
-	# ever evaluates 2 transit hexes and so doesn't hit this overlap).
+	# A BENT 3-hex transit path + 1 destination (start -> h1 -> h2 -> h3_dest).
+	# stride_path carries the FULL path (including destination h3_dest), exactly
+	# as ai.gd passes it when the pathfinder is wired. The resolver must evaluate
+	# start, h1, h2 (transit hexes) but NOT h3_dest (the destination the mover
+	# arrives at; OS only fires when LEAVING a hex, not arriving).
 	var start := HexCoordClass.new(0, 0)
 	var h1 := HexCoordClass.new(1, 0)
 	var h2 := HexCoordClass.new(2, -1)
+	var h3_dest := HexCoordClass.new(3, -1)
 	var mover := _mover("mover", start, true)
 
 	var reactor_start_only := _reactor("reactor_start", HexCoordClass.new(-1, 0), false)
@@ -290,11 +291,11 @@ func test_multi_hex_stride_path_evaluates_every_hex_from_index_one() -> void:
 	var controller := _controller(turn_controller)
 
 	var result: Dictionary = await controller.resolve_enemy_stride_opportunistic_window(
-		mover, start, [reactor_start_only, reactor_h1_only, reactor_h2_only], [start, h1, h2]
+		mover, start, [reactor_start_only, reactor_h1_only, reactor_h2_only], [start, h1, h2, h3_dest]
 	)
 
 	assert_eq(turn_controller.calls, ["reactor_start", "reactor_h1", "reactor_h2"],
-		"every stride_path hex (mover_start_hex plus index 1 onward) must be evaluated exactly once, in order")
+		"every transit hex (mover_start_hex through index -2) must be evaluated; the final destination (index -1) must not")
 	assert_true(result.get("stride_should_commit", false), "a fully non-lethal multi-hex path must still allow the Stride to commit")
 
 
@@ -303,10 +304,11 @@ func test_multi_hex_stride_path_evaluates_every_hex_from_index_one() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_multi_hex_stride_path_short_circuits_on_first_lethal_hex() -> void:
-	# Same bent 3-hex fixture as the preceding test (see its own comment).
+	# Same bent 3-hex transit path + destination fixture as the preceding test.
 	var start := HexCoordClass.new(0, 0)
 	var h1 := HexCoordClass.new(1, 0)
 	var h2 := HexCoordClass.new(2, -1)
+	var h3_dest := HexCoordClass.new(3, -1)
 	var mover := _mover("mover", start, true)
 
 	var reactor_start_only := _reactor("reactor_start", HexCoordClass.new(-1, 0), false)
@@ -320,7 +322,7 @@ func test_multi_hex_stride_path_short_circuits_on_first_lethal_hex() -> void:
 	var controller := _controller(turn_controller, strike_use_case)
 
 	var result: Dictionary = await controller.resolve_enemy_stride_opportunistic_window(
-		mover, start, [reactor_start_only, reactor_h1_only, reactor_h2_only], [start, h1, h2]
+		mover, start, [reactor_start_only, reactor_h1_only, reactor_h2_only], [start, h1, h2, h3_dest]
 	)
 
 	assert_eq(turn_controller.calls, ["reactor_start", "reactor_h1"],
@@ -376,9 +378,9 @@ func test_cross_path_parity_player_and_enemy_yield_identical_pass_outcomes() -> 
 	var player_result: Dictionary = await stride_controller.execute(goal)
 
 	# --- Enemy-mover half: ReactionController.resolve_enemy_stride_
-	# opportunistic_window(), mirrored is_enemy roles, transit-only
-	# stride_path (start, h1 -- excludes the final goal, exactly like the
-	# player half's own transit-hex loop). ---
+	# opportunistic_window(), mirrored is_enemy roles, FULL stride_path
+	# [start, h1, goal] (including destination, exactly as ai.gd passes it
+	# when the pathfinder is wired -- the resolver skips the last element). ---
 	var enemy := _mover("enemy", start, true)
 	var enemy_reactor_start := _reactor("reactor_start", start_reactor_hex, false)
 	var enemy_reactor_h1 := _reactor("reactor_h1", h1_reactor_hex, false)
@@ -387,7 +389,7 @@ func test_cross_path_parity_player_and_enemy_yield_identical_pass_outcomes() -> 
 	var reaction_controller := _controller(turn_controller)
 
 	var enemy_result: Dictionary = await reaction_controller.resolve_enemy_stride_opportunistic_window(
-		enemy, start, [enemy_reactor_start, enemy_reactor_h1, enemy_reactor_goal], [start, h1]
+		enemy, start, [enemy_reactor_start, enemy_reactor_h1, enemy_reactor_goal], [start, h1, goal]
 	)
 
 	# Identical OUTCOME: both movers survive, both commit, and in BOTH cases
@@ -438,8 +440,8 @@ func test_cross_path_parity_player_and_enemy_yield_identical_block_outcomes() ->
 
 	var player_result: Dictionary = await stride_controller.execute(goal)
 
-	# --- Enemy-mover half: mirrored roles/geometry, transit-only stride_path
-	# (start, h1). ---
+	# --- Enemy-mover half: mirrored roles/geometry, FULL stride_path
+	# [start, h1, goal] (including destination, as ai.gd passes it). ---
 	var enemy := _mover("enemy", start, true)
 	var enemy_reactor_start := _reactor("reactor_start", start_reactor_hex, false)
 	var enemy_reactor_h1 := _reactor("reactor_h1", h1_reactor_hex, false)
@@ -450,7 +452,7 @@ func test_cross_path_parity_player_and_enemy_yield_identical_block_outcomes() ->
 	var reaction_controller := _controller(turn_controller, enemy_strike_use_case)
 
 	var enemy_result: Dictionary = await reaction_controller.resolve_enemy_stride_opportunistic_window(
-		enemy, start, [enemy_reactor_start, enemy_reactor_h1], [start, h1]
+		enemy, start, [enemy_reactor_start, enemy_reactor_h1], [start, h1, goal]
 	)
 
 	# Identical BLOCK outcome on both sides: the mover is downed at the h1
