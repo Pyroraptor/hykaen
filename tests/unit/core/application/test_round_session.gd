@@ -39,6 +39,7 @@ const ActionEconomyClass           = preload("res://core/rules/action_economy.gd
 const SeededRandomAdapterClass     = preload("res://core/combat/seeded_random_adapter.gd")
 const RoundEventsClass             = preload("res://core/rules/round_events.gd")
 const CombatantClass               = preload("res://core/domain/combatant.gd")
+const HexCoordClass                = preload("res://core/geometry/hex_coord.gd")
 
 
 # ── Fake/double port implementations (mirrors tests/test_run_round_use_case.gd) ──
@@ -96,6 +97,68 @@ class BrokenAIDecisionPort:
 
 	func decide_action(_combatant, _targets: Array) -> Dictionary:
 		return {}
+
+
+## FakeStrideAIDecisionPort — FEAT-005 (US-005 / FR-006): always returns a
+## Stride decision carrying BOTH "destination" and "path" (mirrors
+## core/combat/ai.gd's real FEAT-004 additive Stride-path shape, Contract 7),
+## so this suite can deterministically exercise RoundSession's Contract 8
+## animate-path preference without depending on ai.gd's own pathfinding/
+## target-selection logic.
+class FakeStrideAIDecisionPort:
+	extends "res://core/application/ai_decision_port.gd"
+
+	var _destination
+	var _path: Array
+
+	func _init(p_destination, p_path: Array) -> void:
+		_destination = p_destination
+		_path = p_path
+
+	func decide_action(_combatant, _targets: Array) -> Dictionary:
+		return {"action_type": "Stride", "target": null, "destination": _destination, "path": _path}
+
+
+## FakeStridePathlessAIDecisionPort — FEAT-005 (US-005 / FR-006): a Stride
+## decision with a "destination" but deliberately NO "path" key — exercises
+## Contract 8's fallback-to-instant-reposition branch even when the
+## animate-path seam IS wired (test_criterion 3).
+class FakeStridePathlessAIDecisionPort:
+	extends "res://core/application/ai_decision_port.gd"
+
+	var _destination
+
+	func _init(p_destination) -> void:
+		_destination = p_destination
+
+	func decide_action(_combatant, _targets: Array) -> Dictionary:
+		return {"action_type": "Stride", "target": null, "destination": _destination}
+
+
+## RecordingInstantRepositionStub — a deterministic (RISK-002 mitigation, no
+## real HexGridView/Tween) double for the ITokenRepositionPort seam
+## (`_token_reposition_fn`), recording every move_token(actor_id,
+## new_hex_coord) call it receives.
+class RecordingInstantRepositionStub:
+	extends RefCounted
+
+	var calls: Array = []
+
+	func move_token(actor_id: String, new_hex_coord) -> void:
+		calls.append({"actor_id": actor_id, "hex": new_hex_coord})
+
+
+## RecordingAnimatePathStub — FEAT-005 (US-005 / FR-006): a deterministic
+## (RISK-002 mitigation, no real Tween) double for the new
+## `_token_animate_path_fn` seam, recording every animate_token_to(actor_id,
+## path) call it receives.
+class RecordingAnimatePathStub:
+	extends RefCounted
+
+	var calls: Array = []
+
+	func animate_token_to(actor_id: String, path: Array) -> void:
+		calls.append({"actor_id": actor_id, "path": path})
 
 
 # ── Shared fixture helpers ─────────────────────────────────────────────────
@@ -376,6 +439,122 @@ func test_advance_ai_turn_defensive_fallback_still_advances_on_broken_ai() -> vo
 
 	assert_true(result.get("ok", false), "a rejected AI decision must not stall the session (CWE-835 guard)")
 	assert_eq(session.current_actor().name, "Alpha", "the cursor must still advance past a broken AI turn")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# FEAT-005 (US-005 / FR-006, NFR-001, NFR-003; Contract 8): the enemy token
+# animate-path seam (`set_token_animate_path_fn()`) on RoundSession.
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_advance_ai_turn_uses_animate_path_fn_when_wired_and_decision_has_path_key() -> void:
+	var goblin = _durable_combatant("Goblin", true, "goblin")
+	var titus = _durable_combatant("Titus", false, "titus")
+	var entries: Array = [_entry(goblin), _entry(titus)]
+
+	var start := HexCoordClass.new(0, 0)
+	var dest := HexCoordClass.new(2, 0)
+	var stride_path: Array = [start, HexCoordClass.new(1, 0), dest]
+
+	var rig: Dictionary = _make_use_case(entries, FakeStrideAIDecisionPort.new(dest, stride_path), 1)
+	var session = rig["use_case"].begin_round(1, [titus], [goblin])
+	assert_eq(session.current_actor().name, "Goblin")
+
+	var instant_stub := RecordingInstantRepositionStub.new()
+	var animate_stub := RecordingAnimatePathStub.new()
+	session.set_token_reposition_fn(Callable(instant_stub, "move_token"))
+	session.set_token_animate_path_fn(Callable(animate_stub, "animate_token_to"))
+
+	var result: Dictionary = session.advance_ai_turn()
+
+	assert_true(result.get("ok", false))
+	assert_eq(
+		animate_stub.calls.size(), 1,
+		"the animate-path fn must be called exactly once for a Stride decision carrying a 'path' key when wired"
+	)
+	assert_eq(animate_stub.calls[0]["actor_id"], "goblin")
+	assert_eq(animate_stub.calls[0]["path"], stride_path)
+	assert_eq(
+		instant_stub.calls.size(), 0,
+		"the instant reposition fn must NOT be called when the animate-path fn is preferred (Contract 8)"
+	)
+
+
+func test_advance_ai_turn_falls_back_to_instant_reposition_when_animate_path_fn_unwired() -> void:
+	var goblin = _durable_combatant("Goblin", true, "goblin")
+	var titus = _durable_combatant("Titus", false, "titus")
+	var entries: Array = [_entry(goblin), _entry(titus)]
+
+	var start := HexCoordClass.new(0, 0)
+	var dest := HexCoordClass.new(2, 0)
+	var stride_path: Array = [start, HexCoordClass.new(1, 0), dest]
+
+	var rig: Dictionary = _make_use_case(entries, FakeStrideAIDecisionPort.new(dest, stride_path), 1)
+	var session = rig["use_case"].begin_round(1, [titus], [goblin])
+
+	var instant_stub := RecordingInstantRepositionStub.new()
+	session.set_token_reposition_fn(Callable(instant_stub, "move_token"))
+	# set_token_animate_path_fn() is deliberately never called — the seam
+	# stays unwired, matching every pre-existing caller/test double.
+
+	var result: Dictionary = session.advance_ai_turn()
+
+	assert_true(result.get("ok", false))
+	assert_eq(
+		instant_stub.calls.size(), 1,
+		"an unwired animate-path fn must fall back to the existing instant _token_reposition_fn (unchanged legacy behavior)"
+	)
+	assert_eq(instant_stub.calls[0]["actor_id"], "goblin")
+	assert_eq(instant_stub.calls[0]["hex"], dest)
+
+
+func test_advance_ai_turn_falls_back_to_instant_reposition_when_decision_lacks_path_key() -> void:
+	var goblin = _durable_combatant("Goblin", true, "goblin")
+	var titus = _durable_combatant("Titus", false, "titus")
+	var entries: Array = [_entry(goblin), _entry(titus)]
+
+	var dest := HexCoordClass.new(2, 0)
+
+	var rig: Dictionary = _make_use_case(entries, FakeStridePathlessAIDecisionPort.new(dest), 1)
+	var session = rig["use_case"].begin_round(1, [titus], [goblin])
+
+	var instant_stub := RecordingInstantRepositionStub.new()
+	var animate_stub := RecordingAnimatePathStub.new()
+	session.set_token_reposition_fn(Callable(instant_stub, "move_token"))
+	session.set_token_animate_path_fn(Callable(animate_stub, "animate_token_to"))
+
+	var result: Dictionary = session.advance_ai_turn()
+
+	assert_true(result.get("ok", false))
+	assert_eq(
+		animate_stub.calls.size(), 0,
+		"the animate-path fn must NOT be called when the decision Dictionary lacks a 'path' key, even though it is wired"
+	)
+	assert_eq(
+		instant_stub.calls.size(), 1,
+		"a wired-but-inapplicable animate-path fn must fall back to the instant _token_reposition_fn"
+	)
+	assert_eq(instant_stub.calls[0]["actor_id"], "goblin")
+	assert_eq(instant_stub.calls[0]["hex"], dest)
+
+
+func test_advance_ai_turn_stride_with_neither_reposition_seam_wired_does_not_raise() -> void:
+	var goblin = _durable_combatant("Goblin", true, "goblin")
+	var titus = _durable_combatant("Titus", false, "titus")
+	var entries: Array = [_entry(goblin), _entry(titus)]
+
+	var start := HexCoordClass.new(0, 0)
+	var dest := HexCoordClass.new(2, 0)
+	var stride_path: Array = [start, HexCoordClass.new(1, 0), dest]
+
+	var rig: Dictionary = _make_use_case(entries, FakeStrideAIDecisionPort.new(dest, stride_path), 1)
+	var session = rig["use_case"].begin_round(1, [titus], [goblin])
+	# Neither set_token_reposition_fn() nor set_token_animate_path_fn() is
+	# ever called — mirrors every pre-existing headless/sim caller.
+
+	var result: Dictionary = session.advance_ai_turn()
+
+	assert_true(result.get("ok", false), "an unwired reposition seam pair must never raise/stall the round loop")
+	assert_eq(session.current_actor().name, "Titus", "the cursor must still advance")
 
 
 # ══════════════════════════════════════════════════════════════════════════

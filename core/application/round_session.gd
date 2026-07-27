@@ -136,6 +136,31 @@ var _cursor: int = -1
 ## domain/application cycle logic to function correctly.
 var _token_reposition_fn: Callable = Callable()
 
+## _token_animate_path_fn — OPTIONAL (FEAT-005 / US-005 / FR-006, NFR-001,
+## NFR-003; Contract 8): an injected, duck-typed Callable(actor_id: String,
+## path: Array) that _reposition_token_after_ai_stride() PREFERS over the
+## instant `_token_reposition_fn` above whenever BOTH (a) this Callable has
+## been wired via set_token_animate_path_fn() below AND (b) the current AI
+## decision Dictionary carries a "path" key (core/combat/ai.gd's FEAT-004
+## additive Stride-path field, see ai.gd's own doc) — the SAME per-hex,
+## multi-hex "stride path" a player-driven Stride traverses, so an enemy's
+## on-screen token animates hop-by-hop instead of teleporting straight to
+## its destination. Whenever either half of that AND is false — this
+## Callable left unwired (every pre-existing caller/test double, including
+## the autonomous run_autonomous_to_completion() path), or a decision that
+## lacks "path" (defensive — every real Stride decision from ai.gd carries
+## one, but a minimal/legacy test double's decision Dictionary may not) —
+## _reposition_token_after_ai_stride() falls back to the existing instant
+## `_token_reposition_fn`-based reposition, byte-for-byte unchanged
+## (NFR-004 default-safety). RoundSession never imports/depends on
+## HexGridView, Tween, or any other Presentation type to establish this
+## seam (ADR-001/ADR-002): it only calls whichever Callable the composition
+## root (MainScene.gd) injects via set_token_animate_path_fn(), mirroring
+## `_token_reposition_fn`'s own establishment pattern exactly. Left as an
+## invalid (unbound) Callable — the default — for every pre-existing
+## caller/test double.
+var _token_animate_path_fn: Callable = Callable()
+
 ## _cycle_index — the AC-4 interleave cycle pass the CURRENT actor's action
 ## belongs to (0-based), stamped on resolve_action_use_case calls made via
 ## advance_ai_turn(). Incremented whenever the cursor wraps back around
@@ -258,6 +283,20 @@ func _init(
 ## _reposition_token_after_ai_stride()'s no-op guard below.
 func set_token_reposition_fn(fn: Callable) -> void:
 	_token_reposition_fn = fn
+
+
+## set_token_animate_path_fn(fn) -> void — FEAT-005 (US-005 / FR-006,
+## NFR-001, NFR-003; Contract 8): injects the Callable(actor_id: String,
+## path: Array) `_reposition_token_after_ai_stride()` prefers over the
+## instant `_token_reposition_fn` (see `_token_animate_path_fn`'s doc
+## above). Intended to be called once by the composition root (MainScene.gd),
+## the SAME way set_token_reposition_fn() already is, e.g.:
+##   round_session.set_token_animate_path_fn(Callable(hex_grid_view, "animate_token_to"))
+## Never calling this method (every pre-existing caller/test double) leaves
+## RoundSession's AI-Stride reposition behavior completely unchanged — see
+## `_reposition_token_after_ai_stride()`'s fallback below.
+func set_token_animate_path_fn(fn: Callable) -> void:
+	_token_animate_path_fn = fn
 
 
 ## _reaction_resolver_fn — OPTIONAL (FEAT-002 / US-002 / FR-002, ADR-002):
@@ -1843,13 +1882,30 @@ func _decide_ai_action(combatant, action_economy) -> Dictionary:
 ## set_token_reposition_fn()) or when the decision carries no destination
 ## (defensive — decide_action() always supplies one for action_type
 ## "Stride", but this guards regardless of caller shape).
+##
+## FEAT-005 (US-005 / FR-006, NFR-001, NFR-003; Contract 8): now PREFERS the
+## animate-path seam (`_token_animate_path_fn`, see its own doc above) over
+## this instant reposition WHENEVER both (a) that Callable has been wired
+## via set_token_animate_path_fn() AND (b) `ai_decision` carries a "path"
+## key (core/combat/ai.gd's FEAT-004 additive Stride-path field) — calling
+## it with (actor_id, path) instead. Whenever either half of that AND is
+## false, this method falls back to the pre-existing instant
+## `_token_reposition_fn`-based reposition below, byte-for-byte unchanged
+## for every caller that never wires the animate-path seam (NFR-004) — no
+## exception is ever raised on the unwired branch.
 func _reposition_token_after_ai_stride(combatant, ai_decision: Dictionary) -> void:
-	if not _token_reposition_fn.is_valid():
-		return
 	var destination = ai_decision.get("destination", null)
 	if destination == null:
 		return
 	var actor_id: String = combatant.display_id()
+
+	if _token_animate_path_fn.is_valid() and ai_decision.has("path"):
+		var path: Array = ai_decision.get("path", [])
+		_token_animate_path_fn.call(actor_id, path)
+		return
+
+	if not _token_reposition_fn.is_valid():
+		return
 	_token_reposition_fn.call(actor_id, destination)
 
 
