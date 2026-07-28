@@ -140,6 +140,21 @@ var _tokens: Dictionary = {}
 ## in pure world coordinates now; see this file's file-level FEAT-002 doc).
 var _origin_offset: Vector2 = Vector2.ZERO
 
+## FEAT-003 (US-004 / FR-004, ADR-001, Contract 1): typed reference to the
+## sibling GameCamera Camera2D node (added under the SAME parent/"world
+## layer" as this view by FEAT-001; see MainScene.tscn) that now drives the
+## view/pan transform. Resolved lazily via `@onready` from `../GameCamera`
+## relative to this view's own parent -- i.e. a NODE SIBLING, never a child
+## of this view (per this iteration's design notes: "GameCamera is a sibling
+## node, not a child, of HexGridView"). `get_node_or_null()` (never a plain
+## `get_node()`) so this stays `null` -- rather than throwing -- whenever
+## HexGridView is instantiated standalone (e.g. this view's own .tscn in
+## isolation, as most of this file's unit tests do) or before GameCamera has
+## otherwise resolved into the scene tree; set_origin_offset() below guards
+## on this being non-null before touching it (Contract 1's "graceful
+## degradation", not a crash).
+@onready var _camera: Camera2D = get_node_or_null("../GameCamera")
+
 ## FEAT-013 / US-013: the hexes currently highlighted as legal Step
 ## destinations (an Array of core/geometry/hex_coord.gd HexCoord instances),
 ## set via set_selectable_hexes() -- normally handed in verbatim from
@@ -387,13 +402,31 @@ static func pixel_to_axial(pixel: Vector2, hex_size: float = HEX_SIZE):
 ## (pixel_to_axial_with_offset(), used by _unhandled_input()/
 ## _handle_mouse_motion()) — it no longer affects grid/highlight drawing or
 ## token positioning, which now draw in pure world coordinates (see this
-## file's file-level FEAT-002 doc). A follow-on story re-implements this
-## method to position the GameCamera instead (the "centering seam" this
-## method's callers rely on is preserved across that change; only the
-## internal implementation swaps). Triggers a redraw so an already-rendered
-## grid immediately reflects any state this offset still drives.
+## file's file-level FEAT-002 doc).
+##
+## FEAT-003 (US-004 / FR-004, ADR-001, Contract 1): re-implemented to drive
+## the sibling GameCamera (see `_camera` above) instead of a draw-offset --
+## `_camera.position` is set to `-offset` whenever `_camera` has resolved,
+## so panning is now genuinely the camera's job (positive `offset` still
+## means "shift the rendered world so that world-point now appears at the
+## viewport's origin," matching this method's pre-existing contract, only
+## realized via the camera's inverse position rather than a per-draw-call
+## subtraction). `_origin_offset` itself is STILL updated unconditionally,
+## every call, preserving this method's public back-compat contract (every
+## pre-existing caller reading it back via get_origin_offset(), or relying on
+## it for click-to-hex hit-testing via axial_to_pixel_with_offset()/
+## pixel_to_axial_with_offset(), continues to see exactly the same value it
+## always has). When `_camera` is still `null` (e.g. this view instantiated
+## standalone, ahead of `_ready()`, or in a scene with no GameCamera sibling)
+## this method does NOT throw -- it silently degrades to updating
+## `_origin_offset` only, per Contract 1's documented graceful-degradation
+## behaviour, to be reconciled once `_camera` itself resolves. Still triggers
+## a redraw so any state `_origin_offset` continues to drive (click mapping)
+## reflects the change immediately.
 func set_origin_offset(offset: Vector2) -> void:
 	_origin_offset = offset
+	if _camera != null:
+		_camera.position = -offset
 	queue_redraw()
 
 

@@ -278,3 +278,80 @@ func test_hex_grid_view_still_instantiates_and_renders_without_error_after_the_r
 	_hex_grid_view.set_origin_offset(SPY_OFFSET)
 	_hex_grid_view.queue_redraw()
 	assert_true(true)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# FEAT-003 (US-004 / FR-004, ADR-001, Contract 1): set_origin_offset() now
+# drives the sibling GameCamera's position (_camera.position == -offset)
+# while still updating the legacy _origin_offset field, and degrades
+# gracefully (no throw) when _camera has not yet resolved.
+# ══════════════════════════════════════════════════════════════════════════
+
+## _instantiate_hex_grid_view_with_game_camera_sibling() → HexGridView —
+## builds a minimal "world layer" Node2D with a Camera2D named "GameCamera"
+## and a fresh HexGridView instance as SIBLING children (mirroring
+## MainScene.tscn's real FEAT-001 wiring: GameCamera and HexGridView share
+## the SAME parent, GameCamera is never a child of HexGridView itself), then
+## adds that world layer to the test's own tree so the returned HexGridView's
+## `@onready var _camera` resolves `../GameCamera` to a real Camera2D by the
+## time this helper returns.
+func _instantiate_hex_grid_view_with_game_camera_sibling():
+	var world_layer := Node2D.new()
+	var game_camera := Camera2D.new()
+	game_camera.name = "GameCamera"
+	world_layer.add_child(game_camera)
+	var hex_grid_view = HexGridViewScene.instantiate()
+	world_layer.add_child(hex_grid_view)
+	add_child_autofree(world_layer)
+	return hex_grid_view
+
+
+func test_set_origin_offset_sets_camera_position_to_negative_offset_when_camera_resolved() -> void:
+	var hex_grid_view = _instantiate_hex_grid_view_with_game_camera_sibling()
+	hex_grid_view.set_origin_offset(SPY_OFFSET)
+	var game_camera: Camera2D = hex_grid_view.get_parent().get_node("GameCamera")
+	assert_eq(
+		game_camera.position, -SPY_OFFSET,
+		"set_origin_offset() must set _camera.position to the negative of the configured offset when _camera has resolved"
+	)
+
+
+func test_set_origin_offset_still_updates_legacy_origin_offset_field_when_camera_resolved() -> void:
+	var hex_grid_view = _instantiate_hex_grid_view_with_game_camera_sibling()
+	hex_grid_view.set_origin_offset(SPY_OFFSET)
+	assert_eq(
+		hex_grid_view.get_origin_offset(), SPY_OFFSET,
+		"set_origin_offset() must still update the legacy _origin_offset field for API back-compat, even when _camera has resolved"
+	)
+
+
+func test_set_origin_offset_before_camera_resolves_does_not_throw_and_degrades_to_origin_offset_only() -> void:
+	# `_hex_grid_view` (from before_each()) is instantiated standalone via its
+	# own .tscn with no GameCamera sibling present -- exactly the "_camera
+	# never resolves" case Contract 1 requires a graceful, non-throwing
+	# degradation for. Reaching the final assert without a crash IS part of
+	# this test's proof.
+	_hex_grid_view.set_origin_offset(SPY_OFFSET)
+	assert_eq(
+		_hex_grid_view.get_origin_offset(), SPY_OFFSET,
+		"set_origin_offset() must still update _origin_offset even when _camera never resolved (degraded path)"
+	)
+	assert_true(true, "set_origin_offset() must not throw when _camera is null")
+
+
+func test_all_preexisting_set_origin_offset_callers_continue_to_pass_unmodified() -> void:
+	# Regression guard (test_criteria #4): every earlier FEAT-001/FEAT-002
+	# assertion already in this file that calls set_origin_offset() against
+	# the standalone (_camera == null) `_hex_grid_view` continues to behave
+	# exactly as it did before this feature -- draw-call math is still pure
+	# world-space, and get_origin_offset() still round-trips.
+	_hex_grid_view.set_origin_offset(SPY_OFFSET)
+	var pixel: Vector2 = _hex_grid_view.axial_to_pixel(HexCoordClass.new(0, 0))
+	assert_almost_eq(
+		pixel, Vector2.ZERO, Vector2(EPSILON, EPSILON),
+		"hex (0, 0) must still draw at world pixel (0, 0) after set_origin_offset(), unaffected by the camera re-implementation"
+	)
+	assert_eq(
+		_hex_grid_view.get_origin_offset(), SPY_OFFSET,
+		"get_origin_offset() must still round-trip the configured value"
+	)
