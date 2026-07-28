@@ -93,14 +93,26 @@ const _COMPOSITION_ROOT_SCRIPT_PATH: String = "res://MainScene.gd"
 ## presentation/player_reaction_chooser.gd's PlayerReactionChooser.
 const _EXPECTED_CHILDREN: Dictionary = {
 	"HexGridView":         HexGridViewClass,
-	"StatusPanelView":     StatusPanelViewClass,
-	"InitiativeView":      InitiativeViewClass,
-	"EventLogView":        EventLogViewClass,
 	"TurnController":      TurnControllerClass,
 	"EndTurnControl":      EndTurnControlClass,
 	"VerbBarView":         VerbBarViewClass,
 	"ResultScreenView":    ResultScreenViewClass,
 	"ReactionPromptUI":    ReactionPromptUIClass,
+}
+
+## _UI_LAYER_NODE_NAME / _EXPECTED_UI_LAYER_CHILDREN -- FEAT-007 (US-002 /
+## FR-002, ADR-002, Iteration W "Camera Panning & Collapsible Panels"):
+## StatusPanelView, InitiativeView, and EventLogView were reparented off
+## MainScene directly and now live under a $UILayer CanvasLayer (layer >= 1)
+## so they render in screen space, unaffected by GameCamera's world-space
+## transform. They are no longer direct children of MainScene -- verified
+## separately here, as children of UILayer, rather than via the top-level
+## _EXPECTED_CHILDREN dict.
+const _UI_LAYER_NODE_NAME: String = "UILayer"
+const _EXPECTED_UI_LAYER_CHILDREN: Dictionary = {
+	"StatusPanelView": StatusPanelViewClass,
+	"InitiativeView":  InitiativeViewClass,
+	"EventLogView":    EventLogViewClass,
 }
 
 ## _SPELL_PICKER_PANEL_NAME -- the spell-picker Panel node added by
@@ -248,14 +260,49 @@ func test_mainscene_children_are_exactly_the_expected_presentation_stack() -> vo
 			"'%s' must be a Camera2D node" % _GAME_CAMERA_NODE_NAME
 		)
 
+	# UILayer is a built-in CanvasLayer node verified separately (see
+	# _UI_LAYER_NODE_NAME doc above for why it's not in _EXPECTED_CHILDREN):
+	# it wraps StatusPanelView/InitiativeView/EventLogView in screen space
+	# (FEAT-007, Iteration W CanvasLayer migration).
+	assert_true(
+		actual_names_by_node.has(_UI_LAYER_NODE_NAME),
+		"MainScene must have a '%s' child wrapping the panel stack (FEAT-007, Iteration W CanvasLayer migration)" % _UI_LAYER_NODE_NAME
+	)
+	var ui_layer: Node = actual_names_by_node.get(_UI_LAYER_NODE_NAME, null)
+	if ui_layer != null:
+		assert_true(ui_layer is CanvasLayer, "'%s' must be a CanvasLayer node" % _UI_LAYER_NODE_NAME)
+		if ui_layer is CanvasLayer:
+			assert_true(ui_layer.layer >= 1, "'%s'.layer must be >= 1" % _UI_LAYER_NODE_NAME)
+
+		var ui_layer_children_by_name: Dictionary = {}
+		for child in ui_layer.get_children():
+			ui_layer_children_by_name[child.name] = child
+
+		for expected_name in _EXPECTED_UI_LAYER_CHILDREN.keys():
+			assert_true(
+				ui_layer_children_by_name.has(expected_name),
+				"'%s' must have a child node named '%s' (FEAT-007 kept presentation/* panel stack)" % [_UI_LAYER_NODE_NAME, expected_name]
+			)
+			if ui_layer_children_by_name.has(expected_name):
+				assert_true(
+					is_instance_of(ui_layer_children_by_name[expected_name], _EXPECTED_UI_LAYER_CHILDREN[expected_name]),
+					"'%s' child '%s' must be an instance of its expected presentation/* class" % [_UI_LAYER_NODE_NAME, expected_name]
+				)
+
+		assert_eq(
+			ui_layer.get_children().size(), _EXPECTED_UI_LAYER_CHILDREN.size(),
+			"'%s' must have EXACTLY the expected panel child set, no more no less; found children: %s"
+			% [_UI_LAYER_NODE_NAME, ui_layer_children_by_name.keys()]
+		)
+
 	assert_eq(
-		actual_children.size(), _EXPECTED_CHILDREN.size() + 2,
-		"MainScene must have EXACTLY the expected presentation/* child set plus SpellPickerPanel and GameCamera, no more no less; found children: %s"
+		actual_children.size(), _EXPECTED_CHILDREN.size() + 3,
+		"MainScene must have EXACTLY the expected presentation/* child set plus SpellPickerPanel, GameCamera, and UILayer, no more no less; found children: %s"
 		% [actual_names_by_node.keys()]
 	)
 
 	for child_name in actual_names_by_node.keys():
-		if child_name == _SPELL_PICKER_PANEL_NAME or child_name == _GAME_CAMERA_NODE_NAME:
+		if child_name == _SPELL_PICKER_PANEL_NAME or child_name == _GAME_CAMERA_NODE_NAME or child_name == _UI_LAYER_NODE_NAME:
 			continue  # verified separately above
 		var expected_class = _EXPECTED_CHILDREN.get(child_name, null)
 		assert_not_null(expected_class, "unexpected child node '%s' present on MainScene -- only the FEAT-002 presentation/* set may be wired" % child_name)
@@ -538,3 +585,15 @@ func test_headless_boot_still_succeeds_after_presentation_stack_rewiring() -> vo
 		assert_not_null(instance.get_node_or_null(expected_name), "MainScene must still resolve child node '%s' after headless boot" % expected_name)
 	assert_not_null(instance.get_node_or_null(_SPELL_PICKER_PANEL_NAME), "MainScene must still resolve child node '%s' after headless boot" % _SPELL_PICKER_PANEL_NAME)
 	assert_not_null(instance.get_node_or_null(_GAME_CAMERA_NODE_NAME), "MainScene must still resolve child node '%s' after headless boot" % _GAME_CAMERA_NODE_NAME)
+
+	# FEAT-007 (Iteration W CanvasLayer migration): StatusPanelView/
+	# InitiativeView/EventLogView now resolve under $UILayer, not directly
+	# under MainScene -- see _UI_LAYER_NODE_NAME doc above.
+	var ui_layer: Node = instance.get_node_or_null(_UI_LAYER_NODE_NAME)
+	assert_not_null(ui_layer, "MainScene must still resolve child node '%s' after headless boot" % _UI_LAYER_NODE_NAME)
+	if ui_layer != null:
+		for expected_name in _EXPECTED_UI_LAYER_CHILDREN.keys():
+			assert_not_null(
+				ui_layer.get_node_or_null(expected_name),
+				"'%s' must still resolve child node '%s' after headless boot" % [_UI_LAYER_NODE_NAME, expected_name]
+			)

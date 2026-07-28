@@ -138,9 +138,10 @@ var round_history_port
 var outcome: String = ""
 
 @onready var hex_grid_view       = $HexGridView
-@onready var status_panel_view   = $StatusPanelView
-@onready var initiative_view     = $InitiativeView
-@onready var event_log_view      = $EventLogView
+## FEAT-007: panels moved under $UILayer CanvasLayer (screen-space, ADR-002).
+@onready var status_panel_view   = $UILayer/StatusPanelView
+@onready var initiative_view     = $UILayer/InitiativeView
+@onready var event_log_view      = $UILayer/EventLogView
 @onready var turn_controller     = $TurnController
 @onready var end_turn_control    = $EndTurnControl
 @onready var verb_bar_view       = $VerbBarView

@@ -20,11 +20,14 @@ script = ExtResource("1_mainscene")
 current = true
 position_smoothing_enabled = false
 
-[node name="StatusPanelView" parent="." instance=ExtResource("3_statuspanel")]
+[node name="UILayer" type="CanvasLayer" parent="."]
+layer = 1
 
-[node name="InitiativeView" parent="." instance=ExtResource("4_initiativeview")]
+[node name="StatusPanelView" parent="UILayer" instance=ExtResource("3_statuspanel")]
 
-[node name="EventLogView" parent="." instance=ExtResource("5_eventlogview")]
+[node name="InitiativeView" parent="UILayer" instance=ExtResource("4_initiativeview")]
+
+[node name="EventLogView" parent="UILayer" instance=ExtResource("5_eventlogview")]
 
 [node name="TurnController" type="Node" parent="."]
 script = ExtResource("7_turncontroller")
