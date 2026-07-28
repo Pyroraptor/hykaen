@@ -554,14 +554,13 @@ func test_enemy_ai_leg_strides_toward_nearest_target_but_does_not_strike_same_tu
 		assert_true(marigold_end_turn_result.get("ok", false), "ending Marigold's turn (no action taken) must succeed")
 
 	# ── Wait for the AI Stride to fully complete (domain commit + animation) ─
-	# The OS reaction window now interleaves per-hop animation with OS
-	# evaluation BEFORE MovementClass.stride() commits hex_coord, so
-	# advance_ai_turn() suspends for the full animation chain (N hops ×
-	# TOKEN_MOVE_DURATION). EndTurnControl.press() does not await it, so this
-	# suite must give the animation + domain commit enough wall-clock time to
-	# finish before reading domain state or asserting on token position.
-	# 0.5 s covers 2 hops × 0.12 s with headroom for frame overhead.
-	await get_tree().create_timer(0.5).timeout
+	# The OS reaction window interleaves per-hop animation with OS evaluation
+	# BEFORE MovementClass.stride() commits hex_coord.  EndTurnControl.press()
+	# does not await advance_ai_turn(), so this suite must give the full
+	# animation chain (up to speed=4 hops × TOKEN_MOVE_DURATION = 0.48 s) plus
+	# any OS popup coroutine overhead enough wall-clock time to finish before
+	# reading domain state or asserting on token position.
+	await get_tree().create_timer(2.0).timeout
 
 	# ── Stride toward the nearest living target (US-004) ────────────────────
 	var moved_hex = enemy.hex_coord
@@ -680,7 +679,7 @@ func test_enemy_ai_leg_strides_but_does_not_strike_when_no_action_remains_after_
 
 	# Wait for per-hop animation + OS evaluation + domain commit — see the
 	# sibling suite's identical comment for the full timing rationale.
-	await get_tree().create_timer(0.5).timeout
+	await get_tree().create_timer(2.0).timeout
 
 	# The AI must still issue its Stride with the one remaining action...
 	var moved_hex = enemy.hex_coord
