@@ -129,7 +129,17 @@ extends GutTest
 ## swapping in a fixture-driven ScenarioSession/ExplorationController
 ## afterward — see that file's own header doc for why.
 ##
-## Satisfies: DEF-005, US-011, FEAT-141, FEAT-159, FEAT-001, FEAT-180, FEAT-010, FEAT-220, FEAT-246, FEAT-282, FEAT-287, FEAT-310.
+## FEAT-354 (US-011, DEF-005 continuation): tests/integration/
+## test_steel_thread_camera_panel_e2e.gd was added to this allow-list for the
+## same reason — it is Iteration W's own "Camera Panning & Collapsible
+## Panels" end-to-end steel-thread smoke test (prologue boot/centering
+## through keyboard pan, middle-mouse drag-pan, InitiativeView collapse
+## during combat, and a final left-click hex-select regression check), and
+## it, too, genuinely instantiates/boots res://MainScene.tscn (via the SAME
+## `_boot_main_scene_with_seed()` convention every other allow-listed suite
+## uses).
+##
+## Satisfies: DEF-005, US-011, FEAT-141, FEAT-159, FEAT-001, FEAT-180, FEAT-010, FEAT-220, FEAT-246, FEAT-282, FEAT-287, FEAT-310, FEAT-354.
 ##
 ## ══════════════════════════════════════════════════════════════════════════
 ## FEAT-171 (DEF-003): the guard above only ever inspected FILENAMES. That
@@ -167,6 +177,7 @@ const ALLOWED_STEEL_THREAD_PATHS: Array = [
 	"res://tests/e2e/test_steel_thread_charge_combine.gd",
 	"res://tests/integration/test_steel_thread_scenario_boot_e2e.gd",
 	"res://tests/boot/test_steel_thread_click_to_navigate_e2e.gd",
+	"res://tests/integration/test_steel_thread_camera_panel_e2e.gd",
 ]
 
 ## Path-fragment/identifier substrings from the removed duplicate
