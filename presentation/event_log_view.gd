@@ -114,7 +114,13 @@ var _next_sequence_number: int = 1
 ## run inside the game.
 var _labels: Array = []
 
-@onready var _rows_container: VBoxContainer = $RowsContainer
+## FEAT-009 (US-008 / FR-008, ADR-004, Contract 4): whether this panel is
+## currently collapsed to just its Header title bar. Always false at boot
+## (collapsed state is never persisted, per the design notes -- panels
+## always boot expanded).
+var _collapsed: bool = false
+
+@onready var _rows_container: VBoxContainer = $Content
 
 
 ## BUGFIX (post-iteration-E): this read-only projection panel is a full-width
@@ -127,6 +133,45 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if _rows_container != null:
 		_rows_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+
+## toggle_collapsed() → void — FEAT-009 (US-008 / FR-008, ADR-004,
+## Contract 4). Flips `_collapsed` and applies the resulting visual state
+## (Content visibility, CollapseButton text, parent re-sort). Wired to
+## $Header/CollapseButton's `pressed` UI event via the .tscn scene's own
+## connection block (this script makes no runtime hookup call of its own,
+## keeping this file a pure event_sink_port sink per ADR-005/
+## test_event_log_widget.gd's source-inspection guard), so clicking the
+## collapse arrow calls this directly; also callable programmatically
+## (e.g. from tests).
+func toggle_collapsed() -> void:
+	_collapsed = !_collapsed
+	_apply_collapsed_state()
+
+
+## _apply_collapsed_state() → void — applies `_collapsed`'s current value to
+## the scene: hides/shows $Content, swaps $Header/CollapseButton's text
+## between "▼" (collapsed) and "▲" (expanded), and asks the parent
+## container to re-sort so the panel visually shrinks/grows toward its
+## anchor edge. Per Contract 4's error-handling note, this must never raise:
+##   - no parent at all (e.g. an EventLogView instantiated standalone in a
+##     unit test) is a guarded no-op on the sort call.
+##   - a parent that IS present but does not itself implement queue_sort()
+##     (e.g. the CanvasLayer this panel is reparented under in the real
+##     MainScene.tscn composition root, per FEAT-007) is ALSO a guarded
+##     no-op -- queue_sort() is a Container-only method, and CanvasLayer is
+##     a plain Node, so calling it unconditionally would throw a script
+##     error on every real toggle in the running game. has_method() keeps
+##     this degrade-gracefully rather than raise, matching the same
+##     defensive-guard discipline as set_origin_offset()'s null-camera
+##     guard elsewhere in this iteration (and InitiativeView's identical
+##     FEAT-008 implementation of this same contract).
+func _apply_collapsed_state() -> void:
+	$Content.visible = not _collapsed
+	$Header/CollapseButton.text = "▼" if _collapsed else "▲"
+	var parent: Node = get_parent()
+	if parent != null and parent.has_method("queue_sort"):
+		parent.queue_sort()
 
 
 ## get_entry_count() → int — number of entries currently in the log.
