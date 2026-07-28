@@ -79,6 +79,13 @@ var _defeated: Dictionary = {}
 ## always boot expanded).
 var _collapsed: bool = false
 
+## FEAT-010 (US-009 / FR-009, ADR-004 AnchorConfig): this panel's full
+## expanded rect, captured once in _ready() before any collapse toggle, so
+## _apply_anchored_collapse_size() can always restore it exactly and compute
+## the collapsed rect relative to it.
+var _expanded_position: Vector2 = Vector2.ZERO
+var _expanded_size: Vector2 = Vector2.ZERO
+
 @onready var _rows_container: VBoxContainer = $Content
 
 
@@ -92,6 +99,8 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if _rows_container != null:
 		_rows_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_expanded_position = position
+	_expanded_size = size
 
 
 ## toggle_collapsed() → void — FEAT-008 (US-008 / FR-008, ADR-004,
@@ -124,9 +133,38 @@ func toggle_collapsed() -> void:
 func _apply_collapsed_state() -> void:
 	$Content.visible = not _collapsed
 	$Header/CollapseButton.text = "▼" if _collapsed else "▲"
+	_apply_anchored_collapse_size()
 	var parent: Node = get_parent()
 	if parent != null and parent.has_method("queue_sort"):
 		parent.queue_sort()
+
+
+## _apply_anchored_collapse_size() → void — FEAT-010 (US-009 / FR-009,
+## ADR-004 AnchorConfig). Resizes this panel's own rect toward its anchored
+## edge so collapsing never leaves a visual gap between the panel and the
+## screen edge/corner it's pinned to. `grow_vertical` (static per-panel
+## AnchorConfig data set in initiative_view.tscn) decides which vertical
+## edge stays fixed while the panel's height changes:
+##   GROW_DIRECTION_END   -- "downward collapse" (InitiativeView, anchored
+##       top-right): the TOP edge stays fixed; collapsing shrinks the panel
+##       by moving its BOTTOM edge up toward the header.
+##   GROW_DIRECTION_BEGIN -- "upward collapse": the BOTTOM edge stays fixed;
+##       collapsing shrinks the panel by moving its TOP edge down toward the
+##       header, so the header ends up flush with the fixed bottom edge.
+## Width is never touched -- only Content's visibility (and thus height)
+## changes on collapse. Idempotent: re-expanding restores the exact
+## _expanded_position/_expanded_size captured once in _ready().
+func _apply_anchored_collapse_size() -> void:
+	var header_height: float = $Header.size.y
+	if _collapsed:
+		size.y = header_height
+		if grow_vertical == Control.GROW_DIRECTION_BEGIN:
+			position.y = _expanded_position.y + (_expanded_size.y - header_height)
+		else:
+			position.y = _expanded_position.y
+	else:
+		position.y = _expanded_position.y
+		size.y = _expanded_size.y
 
 
 ## load_combatants(view_models) → void — (re)populates the list from an
