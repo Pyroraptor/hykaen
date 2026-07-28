@@ -255,6 +255,20 @@ signal token_move_failed(combatant_id)
 ## on every motion event/frame) -- never read by any caller.
 var _last_hovered_hex = null
 
+## _drag_panning -- FEAT-005 (US-006 / FR-006, Contract 2/3): true for the
+## duration of an active middle-mouse drag-to-pan gesture (set true on a
+## middle-mouse press, false on release -- see _handle_middle_mouse_button()),
+## false otherwise (including at boot). Purely transient, in-memory,
+## HexGridView-local state -- never persisted, reset every session (this
+## iteration's design notes' "DragPanState"). Gates TWO things while true:
+## (1) `_unhandled_input()` routes a mouse-motion event to
+## _handle_drag_pan_motion() (camera pan) instead of _handle_mouse_motion()
+## (hex_hovered reporting), and (2) a left-click is NOT translated into
+## hex_clicked -- Contract 2's "suppress hex_clicked/hex_hovered while
+## dragging" invariant, preventing a spurious move/action click from firing
+## the instant a drag gesture ends on top of a hex.
+var _drag_panning: bool = false
+
 
 func _draw() -> void:
 	for q in range(-GRID_RADIUS, GRID_RADIUS + 1):
@@ -327,11 +341,64 @@ func _is_selectable_hex(coord) -> bool:
 ## clicked hex via _hex_at_global_mouse_position() -- no manual
 ## `_origin_offset` subtraction happens at this call site anymore; see this
 ## file's file-level FEAT-004 doc for why.
+##
+## FEAT-005 (US-006 / FR-006, Contract 2/3): a middle-mouse press/release
+## toggles `_drag_panning` (via _handle_middle_mouse_button()) and consumes
+## the event (get_viewport().set_input_as_handled()) so no other listener
+## also reacts to it. While `_drag_panning` is true, a left-click is NOT
+## translated into hex_clicked -- Contract 2's "suppress hex_clicked/
+## hex_hovered while dragging" invariant -- and a mouse-motion event is
+## routed to _handle_drag_pan_motion() (camera pan) instead of
+## _handle_mouse_motion() (hover reporting), so the two behaviors are
+## mutually exclusive by construction, never by an extra guard duplicated at
+## each call site.
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		hex_clicked.emit(_hex_at_global_mouse_position())
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_MIDDLE:
+		_handle_middle_mouse_button(event)
+	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		if not _drag_panning:
+			hex_clicked.emit(_hex_at_global_mouse_position())
 	elif event is InputEventMouseMotion:
-		_handle_mouse_motion(event)
+		if _drag_panning:
+			_handle_drag_pan_motion(event)
+		else:
+			_handle_mouse_motion(event)
+
+
+## _handle_middle_mouse_button(event) -> void -- FEAT-005 (US-006 / FR-006,
+## Contract 3): toggles `_drag_panning` to the button's own `pressed` state
+## (true on press, false on release) and calls
+## get_viewport().set_input_as_handled() for BOTH the press and the release
+## -- this view is the sole consumer of the middle mouse button anywhere in
+## this scene, so neither edge of the gesture should propagate to any other
+## listener.
+func _handle_middle_mouse_button(event: InputEventMouseButton) -> void:
+	_drag_panning = event.pressed
+	get_viewport().set_input_as_handled()
+
+
+## _handle_drag_pan_motion(event) -> void -- FEAT-005 (US-006 / FR-006,
+## Contract 3): while `_drag_panning` is true, decrements `_camera.position`
+## by `event.relative` -- dragging the mouse right/down must slide the
+## VIEWED world left/up, i.e. move the camera the OPPOSITE direction of the
+## drag, exactly like every other "drag to pan" convention (e.g.
+## tools/map_editor_scene.gd's own `_pan_offset` handling). Deliberately
+## drives `_camera.position` directly and NEVER `_origin_offset` -- this
+## iteration's design notes are explicit that `_origin_offset` is a
+## back-compat-only shadow of the camera's position (source of truth:
+## CameraViewState.position), not a second, independently-mutable pan store;
+## routing drag-pan through set_origin_offset() would double-write the same
+## camera position through two call paths for no benefit. Guarded on
+## `_camera` being non-null (Contract 1's graceful-degradation precedent --
+## a HexGridView instantiated standalone, ahead of `_camera` resolving, must
+## not crash on a drag gesture it cannot yet visually honor) and still
+## consumes the event either way, since this view remains the sole owner of
+## an active drag gesture regardless of whether a camera happens to be wired
+## up yet.
+func _handle_drag_pan_motion(event: InputEventMouseMotion) -> void:
+	if _camera != null:
+		_camera.position -= event.relative
+	get_viewport().set_input_as_handled()
 
 
 ## _handle_mouse_motion(event) -> void -- FEAT-007 (US-007 / FR-009): decodes
@@ -344,6 +411,10 @@ func _unhandled_input(event: InputEvent) -> void:
 ## FEAT-004 (US-005 / FR-005, ADR-003, mitigates RISK-002): no manual
 ## `_origin_offset` subtraction happens at this call site anymore; see this
 ## file's file-level FEAT-004 doc for why.
+##
+## FEAT-005 (US-006 / FR-006, Contract 2): only ever called by
+## _unhandled_input() when `_drag_panning` is false -- see that method's own
+## doc for the mutual-exclusion this relies on.
 func _handle_mouse_motion(_event: InputEventMouseMotion) -> void:
 	_report_hovered_hex(_hex_at_global_mouse_position())
 
