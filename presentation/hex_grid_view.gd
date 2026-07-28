@@ -48,11 +48,24 @@
 ## coordinates: hex (0, 0) always draws at world pixel (0, 0), regardless of
 ## `_origin_offset`. The camera (not this view) now owns the pan/view
 ## transform. `_origin_offset` itself is RETAINED as a field (back-compat;
-## see set_origin_offset()/get_origin_offset()) and still drives
-## axial_to_pixel_with_offset()/pixel_to_axial_with_offset() — used today
-## only by click-to-hex hit-testing (_unhandled_input()/_handle_mouse_motion()),
-## which a follow-on story (iteration-W W0-0's "hit-test refactor to
-## get_global_mouse_position()") will migrate to a Camera2D-aware lookup.
+## see set_origin_offset()/get_origin_offset()).
+##
+## FEAT-004 (US-005 / FR-005, ADR-003, mitigates RISK-002): click-to-hex
+## hit-testing (_unhandled_input()'s left-click branch, _handle_mouse_motion())
+## no longer drives off `_origin_offset` either. Both now resolve the hex
+## under the mouse via the single _hex_at_global_mouse_position() helper,
+## which reads get_global_mouse_position() -- a Camera2D-aware engine query
+## that already reflects the GameCamera's current pan -- and decodes it with
+## the PURE zero-offset pixel_to_axial() (applying `_origin_offset` on top
+## would double-count the pan get_global_mouse_position() already resolved).
+## This closes the gap FEAT-003 opened: once set_origin_offset() started
+## driving `_camera.position` instead of a draw offset, a hit-test that kept
+## subtracting `_origin_offset` from a NON-camera-aware
+## get_local_mouse_position() would silently mis-register clicks the moment
+## the camera actually panned (RISK-002) -- `axial_to_pixel_with_offset()`/
+## `pixel_to_axial_with_offset()` themselves are UNCHANGED and remain public
+## (other call sites and tests still use them as a general offset-aware
+## coordinate utility), they are simply no longer consulted by hit-testing.
 
 class_name HexGridView
 extends Node2D
@@ -132,12 +145,21 @@ var _tokens: Dictionary = {}
 ## Defaults to Vector2.ZERO.
 ##
 ## FEAT-002: as of iteration-W's W0-0 (GameCamera Camera2D now the canonical
-## view controller), this field is RETAINED purely for API back-compat and
-## for click-to-hex hit-testing (axial_to_pixel_with_offset()/
-## pixel_to_axial_with_offset(), consumed by _unhandled_input()/
-## _handle_mouse_motion()) — it NO LONGER participates in any draw-call math
-## (tile/ring drawing, path-overlay drawing, or token positioning all draw
-## in pure world coordinates now; see this file's file-level FEAT-002 doc).
+## view controller), this field is RETAINED purely for API back-compat — it
+## NO LONGER participates in any draw-call math (tile/ring drawing,
+## path-overlay drawing, or token positioning all draw in pure world
+## coordinates now; see this file's file-level FEAT-002 doc).
+##
+## FEAT-004 (US-005 / FR-005, ADR-003, mitigates RISK-002): as of this
+## feature, click-to-hex hit-testing (_unhandled_input()/
+## _handle_mouse_motion()) no longer reads this field either — it resolves
+## the hex under the mouse via _hex_at_global_mouse_position()
+## (get_global_mouse_position(), Camera2D-aware) instead. `_origin_offset`
+## is retained solely so set_origin_offset()/get_origin_offset() keep their
+## existing public back-compat contract; `axial_to_pixel_with_offset()`/
+## `pixel_to_axial_with_offset()` remain available as a general offset-aware
+## coordinate utility for other callers/tests, just no longer consulted by
+## hit-testing.
 var _origin_offset: Vector2 = Vector2.ZERO
 
 ## FEAT-003 (US-004 / FR-004, ADR-001, Contract 1): typed reference to the
@@ -298,24 +320,48 @@ func _is_selectable_hex(coord) -> bool:
 
 ## _unhandled_input(event) -> void -- FEAT-013 / US-013: translates a
 ## left-click anywhere on this view into hex_clicked(hex_coord), via
-## pixel_to_axial(). Purely an input-translation concern (ADR-001: no
-## movement rule is evaluated here).
+## _hex_at_global_mouse_position(). Purely an input-translation concern
+## (ADR-001: no movement rule is evaluated here).
+##
+## FEAT-004 (US-005 / FR-005, ADR-003, mitigates RISK-002): resolves the
+## clicked hex via _hex_at_global_mouse_position() -- no manual
+## `_origin_offset` subtraction happens at this call site anymore; see this
+## file's file-level FEAT-004 doc for why.
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		hex_clicked.emit(pixel_to_axial_with_offset(get_local_mouse_position()))
+		hex_clicked.emit(_hex_at_global_mouse_position())
 	elif event is InputEventMouseMotion:
 		_handle_mouse_motion(event)
 
 
 ## _handle_mouse_motion(event) -> void -- FEAT-007 (US-007 / FR-009): decodes
-## the CURRENT mouse position into a HexCoord (pixel_to_axial_with_offset()
-## applied to get_local_mouse_position() -- the SAME offset-aware transform
-## + local-position convention _unhandled_input()'s click handling already
-## uses above, so a hover and a click over the same on-screen point always
-## resolve to the same hex) and delegates the "did the hovered hex actually
-## change" decision to _report_hovered_hex() below.
+## the CURRENT mouse position into a HexCoord (_hex_at_global_mouse_position()
+## -- the SAME camera-aware hit-test _unhandled_input()'s click handling
+## already uses above, so a hover and a click over the same on-screen point
+## always resolve to the same hex) and delegates the "did the hovered hex
+## actually change" decision to _report_hovered_hex() below.
+##
+## FEAT-004 (US-005 / FR-005, ADR-003, mitigates RISK-002): no manual
+## `_origin_offset` subtraction happens at this call site anymore; see this
+## file's file-level FEAT-004 doc for why.
 func _handle_mouse_motion(_event: InputEventMouseMotion) -> void:
-	_report_hovered_hex(pixel_to_axial_with_offset(get_local_mouse_position()))
+	_report_hovered_hex(_hex_at_global_mouse_position())
+
+
+## _hex_at_global_mouse_position() → HexCoord — FEAT-004 (US-005 / FR-005,
+## ADR-003, mitigates RISK-002): the SINGLE hit-test computation both
+## _unhandled_input() (click) and _handle_mouse_motion() (hover) delegate
+## to. Resolves the hex currently under the mouse via
+## get_global_mouse_position() -- a Camera2D-aware engine query that
+## automatically accounts for the GameCamera's current pan (and any future
+## zoom) WITHOUT this view manually tracking/subtracting `_origin_offset`
+## itself. Decodes the result with the PURE zero-offset pixel_to_axial()
+## (never pixel_to_axial_with_offset()) because get_global_mouse_position()
+## has ALREADY resolved the camera transform -- applying `_origin_offset` a
+## second time here would double-count the pan, exactly the class of bug
+## this feature closes (RISK-002).
+func _hex_at_global_mouse_position():
+	return pixel_to_axial(get_global_mouse_position())
 
 
 ## _report_hovered_hex(hovered_hex) -> void -- FEAT-007 (US-007 / FR-009):
@@ -398,11 +444,9 @@ static func pixel_to_axial(pixel: Vector2, hex_size: float = HEX_SIZE):
 ## configures `_origin_offset`. Defaults to Vector2.ZERO.
 ##
 ## FEAT-002 (US-003, iteration-W W0-0): as of the GameCamera Camera2D
-## refactor, this offset is consumed ONLY by click mapping
-## (pixel_to_axial_with_offset(), used by _unhandled_input()/
-## _handle_mouse_motion()) — it no longer affects grid/highlight drawing or
-## token positioning, which now draw in pure world coordinates (see this
-## file's file-level FEAT-002 doc).
+## refactor, this offset no longer affects grid/highlight drawing or token
+## positioning, which now draw in pure world coordinates (see this file's
+## file-level FEAT-002 doc).
 ##
 ## FEAT-003 (US-004 / FR-004, ADR-001, Contract 1): re-implemented to drive
 ## the sibling GameCamera (see `_camera` above) instead of a draw-offset --
@@ -413,16 +457,21 @@ static func pixel_to_axial(pixel: Vector2, hex_size: float = HEX_SIZE):
 ## realized via the camera's inverse position rather than a per-draw-call
 ## subtraction). `_origin_offset` itself is STILL updated unconditionally,
 ## every call, preserving this method's public back-compat contract (every
-## pre-existing caller reading it back via get_origin_offset(), or relying on
-## it for click-to-hex hit-testing via axial_to_pixel_with_offset()/
-## pixel_to_axial_with_offset(), continues to see exactly the same value it
-## always has). When `_camera` is still `null` (e.g. this view instantiated
+## pre-existing caller reading it back via get_origin_offset() continues to
+## see exactly the same value it always has).
+##
+## FEAT-004 (US-005 / FR-005, ADR-003, mitigates RISK-002): click-to-hex
+## hit-testing (_unhandled_input()/_handle_mouse_motion()) no longer reads
+## `_origin_offset` at all — it resolves the hex under the mouse via
+## get_global_mouse_position(), which reflects `_camera.position` (set by
+## THIS method) automatically, with no separate offset bookkeeping required.
+## When `_camera` is still `null` (e.g. this view instantiated
 ## standalone, ahead of `_ready()`, or in a scene with no GameCamera sibling)
 ## this method does NOT throw -- it silently degrades to updating
 ## `_origin_offset` only, per Contract 1's documented graceful-degradation
 ## behaviour, to be reconciled once `_camera` itself resolves. Still triggers
-## a redraw so any state `_origin_offset` continues to drive (click mapping)
-## reflects the change immediately.
+## a redraw for API back-compat with pre-FEAT-004 callers that expected this
+## call to visibly refresh the view.
 func set_origin_offset(offset: Vector2) -> void:
 	_origin_offset = offset
 	if _camera != null:
@@ -446,9 +495,13 @@ func axial_to_pixel_with_offset(hex_coord) -> Vector2:
 
 
 ## pixel_to_axial_with_offset(pixel) → HexCoord — pixel_to_axial(), using
-## THIS view's currently configured `_origin_offset` (FEAT-001). Used by
-## _unhandled_input() so a click is always decoded with the SAME offset the
-## grid/highlights/tokens were drawn with.
+## THIS view's currently configured `_origin_offset` (FEAT-001).
+##
+## FEAT-004 (US-005 / FR-005, ADR-003): no longer consumed by hit-testing
+## (_unhandled_input()/_handle_mouse_motion() now resolve via
+## _hex_at_global_mouse_position() instead, see this file's file-level
+## FEAT-004 doc) -- retained as a general offset-aware coordinate utility
+## for other callers/tests.
 func pixel_to_axial_with_offset(pixel: Vector2):
 	return CoordinateTransformClass.pixel_to_axial(pixel, HEX_SIZE, _origin_offset)
 
