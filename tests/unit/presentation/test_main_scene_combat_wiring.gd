@@ -5,10 +5,10 @@ extends GutTest
 ## MainScene.gd's composition-root combat pathfinding wiring.
 ## _rewire_combat_pathfinder() builds passable_fn/move_cost_fn/pathfinder_fn
 ## from EncounterTileAdapter.make_combat_is_passable()/make_move_cost() and
-## HexPathfinder.find_path() and injects the SAME pathfinder_fn Callable into
-## both the player Stride controller (verb-deps "pathfinder_fn" key) and the
-## enemy AI decision port (set_stride_pathfinder_fn()) -- one algorithm
-## driving both movers symmetrically. round_session.set_token_animate_path_fn()
+## HexPathfinder.find_path() and injects faction-aware pathfinder Callables:
+## player mover blocks enemy hexes, enemy mover blocks player hexes. Both use
+## the same algorithm (ADR-004) but distinct passability closures.
+## round_session.set_token_animate_path_fn()
 ## is wired to a per-hex closure over hex_grid_view.animate_token_to(), and
 ## hex_grid_view itself is present in the Stride/Step verb-deps dictionary at
 ## verb-table construction. This is the single composition-root choke point
@@ -25,9 +25,9 @@ extends GutTest
 ##      verb-table construction.
 ##   5. All of the above hold after a real _on_combat_triggered('prologue')
 ##      call against a real (test) MainScene instance.
-##   6. The SAME pathfinder_fn Callable drives both the player Stride
-##      controller and the AI decision port (ADR-004's "one algorithm, both
-##      movers" guarantee).
+##   6. Both movers use HexPathfinder.find_path (ADR-004: one algorithm, both
+##      movers). Distinct Callables with faction-aware passability (player
+##      blocks enemy hexes; enemy mover blocks player hexes).
 
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 const HexCoordClass = preload("res://core/geometry/hex_coord.gd")
@@ -124,17 +124,28 @@ func test_enemy_stride_pathfinder_is_wired_to_the_ai_decision_port_after_rewire(
 
 
 ## Criterion 6 (folded in here since it needs both controllers constructed):
-## the SAME pathfinder_fn Callable drives both the player Stride controller
-## and the AI decision port -- one pathfinding algorithm, both movers.
+## both movers use HexPathfinder.find_path (ADR-004: one algorithm, both movers).
+## They are distinct Callables bound with faction-aware passability: player
+## mover blocks enemy hexes (mover_is_enemy=false); enemy mover blocks player
+## hexes (mover_is_enemy=true).
 func test_the_same_pathfinder_fn_drives_both_the_player_stride_controller_and_the_ai_decision_port() -> void:
 	var instance = await _boot_and_trigger_combat()
 
 	var stride_controller = instance._controller("STRIDE")
 	var ai_decision_port = instance.run_round_use_case._ai_decision_port
 
+	assert_true(
+		stride_controller._pathfinder_fn.is_valid(),
+		"player Stride controller pathfinder must be a valid Callable"
+	)
+	assert_true(
+		ai_decision_port._stride_pathfinder_fn.is_valid(),
+		"AI decision port pathfinder must be a valid Callable"
+	)
 	assert_eq(
-		stride_controller._pathfinder_fn, ai_decision_port._stride_pathfinder_fn,
-		"the player Stride controller and the AI decision port must share the SAME pathfinder_fn Callable (ADR-004: one algorithm, both movers)"
+		stride_controller._pathfinder_fn.get_method(),
+		ai_decision_port._stride_pathfinder_fn.get_method(),
+		"ADR-004: both movers must use the same pathfinding algorithm (find_path)"
 	)
 
 

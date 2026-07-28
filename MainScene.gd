@@ -518,16 +518,16 @@ func _rewire_combat_pathfinder(ai_decision_port, encounter_id: String) -> void:
 		return
 
 	var all_combatants: Array = _party + _enemies
-	var is_passable_fn: Callable = EncounterTileAdapterClass.make_combat_is_passable(
+	var move_cost_fn: Callable = EncounterTileAdapterClass.make_move_cost(encounter_resource)
+	var player_passable_fn: Callable = EncounterTileAdapterClass.make_combat_is_passable(
 		encounter_resource, all_combatants, "", false
 	)
-	var move_cost_fn: Callable = EncounterTileAdapterClass.make_move_cost(encounter_resource)
-	var pathfinder_fn: Callable = Callable(HexPathfinderClass, "find_path").bind(is_passable_fn, move_cost_fn)
-
-	_verb_deps()["pathfinder_fn"] = pathfinder_fn
-
+	_verb_deps()["pathfinder_fn"] = Callable(HexPathfinderClass, "find_path").bind(player_passable_fn, move_cost_fn)
 	if ai_decision_port != null:
-		ai_decision_port.set_stride_pathfinder_fn(pathfinder_fn)
+		var enemy_passable_fn: Callable = EncounterTileAdapterClass.make_combat_is_passable(
+			encounter_resource, all_combatants, "", true
+		)
+		ai_decision_port.set_stride_pathfinder_fn(Callable(HexPathfinderClass, "find_path").bind(enemy_passable_fn, move_cost_fn))
 
 
 
