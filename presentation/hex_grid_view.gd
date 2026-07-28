@@ -27,17 +27,32 @@
 ## and highlight rendering (_draw_hex_cell(), which computes ONE `center` per
 ## hex and reuses it for both the grid outline and the highlight fill) all
 ## resolve through the SAME presentation/infrastructure/coordinate_transform.gd
-## CoordinateTransform.axial_to_pixel()/pixel_to_axial() calls, with the SAME
-## `_origin_offset` value (see set_origin_offset()/get_origin_offset()) —
-## eliminating the Iteration D class of bug where each consumer independently
-## recomputed the transform and could drift out of sync (a click on a
-## visibly highlighted hex resolving to the wrong axial coordinate).
+## CoordinateTransform.axial_to_pixel()/pixel_to_axial() calls — eliminating
+## the Iteration D class of bug where each consumer independently recomputed
+## the transform and could drift out of sync (a click on a visibly
+## highlighted hex resolving to the wrong axial coordinate).
 ## axial_to_pixel()/pixel_to_axial() remain as `static func`s (with an
 ## implicit zero offset) purely for backward-compatible callers that predate
 ## the offset concept (e.g. tests/unit/presentation/test_hex_grid_view_mapping.gd);
 ## they too delegate to CoordinateTransform rather than reimplementing the
 ## formula, so there is exactly ONE place the flat-top axial<->pixel formula
 ## is implemented anywhere in Presentation.
+##
+## FEAT-002 (US-003 / iteration-W "Camera Panning & Collapsible Panels", W0-0):
+## with a GameCamera Camera2D (FEAT-001) now the canonical view controller,
+## `_origin_offset` no longer participates in ANY draw-call math -- tile/ring
+## drawing (_draw_hex_cell()), path-overlay drawing (_draw_path_overlay()),
+## and token positioning (load_combatants()/add_combatants()/move_token()/
+## animate_token_to(), all now calling the zero-offset axial_to_pixel()
+## rather than axial_to_pixel_with_offset()) all draw in PURE WORLD
+## coordinates: hex (0, 0) always draws at world pixel (0, 0), regardless of
+## `_origin_offset`. The camera (not this view) now owns the pan/view
+## transform. `_origin_offset` itself is RETAINED as a field (back-compat;
+## see set_origin_offset()/get_origin_offset()) and still drives
+## axial_to_pixel_with_offset()/pixel_to_axial_with_offset() — used today
+## only by click-to-hex hit-testing (_unhandled_input()/_handle_mouse_motion()),
+## which a follow-on story (iteration-W W0-0's "hit-test refactor to
+## get_global_mouse_position()") will migrate to a Camera2D-aware lookup.
 
 class_name HexGridView
 extends Node2D
@@ -112,14 +127,17 @@ const SELECTABLE_HEX_FILL_COLOR: Color = Color(0.35, 0.75, 0.35, 0.35)
 ## combatant_id (String) -> CombatantTokenView, populated by load_combatants().
 var _tokens: Dictionary = {}
 
-## FEAT-001 (US-001 / FR-011 / ADR-003): the shared screen-space origin
-## offset applied to EVERY axial<->pixel translation this view performs (grid
-## drawing, highlight rendering, click mapping) and hands to each
-## CombatantTokenView it positions (token drawing) — see set_origin_offset().
-## Defaults to Vector2.ZERO, matching this feature's pre-existing behavior
-## exactly (a future viewport-centering feature configures this via
-## set_origin_offset() rather than reintroducing a second/independent offset
-## computation).
+## FEAT-001 (US-001 / FR-011 / ADR-003) / FEAT-002 (US-003, iteration-W
+## W0-0): the screen-space origin offset — see set_origin_offset().
+## Defaults to Vector2.ZERO.
+##
+## FEAT-002: as of iteration-W's W0-0 (GameCamera Camera2D now the canonical
+## view controller), this field is RETAINED purely for API back-compat and
+## for click-to-hex hit-testing (axial_to_pixel_with_offset()/
+## pixel_to_axial_with_offset(), consumed by _unhandled_input()/
+## _handle_mouse_motion()) — it NO LONGER participates in any draw-call math
+## (tile/ring drawing, path-overlay drawing, or token positioning all draw
+## in pure world coordinates now; see this file's file-level FEAT-002 doc).
 var _origin_offset: Vector2 = Vector2.ZERO
 
 ## FEAT-013 / US-013: the hexes currently highlighted as legal Step
@@ -215,21 +233,32 @@ func _draw() -> void:
 ## pair of hexes in `_path_overlay`, in `_path_overlay_color`. Safe (draws
 ## nothing, never crashes) when `_path_overlay` is empty or holds a single
 ## hex — there is no "consecutive pair" to draw a segment for in either case.
+## FEAT-002 (US-003 / iteration-W W0-0): draws in PURE world coordinates --
+## no `_origin_offset` participates in this computation. With the GameCamera
+## Camera2D (FEAT-001) now the canonical view controller, the view transform
+## (pan) is the camera's job, not this view's draw math -- hex (0,0) always
+## draws at world pixel (0,0), regardless of `_origin_offset`.
 func _draw_path_overlay() -> void:
 	if _path_overlay.size() < 2:
 		return
 	for i in range(_path_overlay.size() - 1):
-		var from_center: Vector2 = axial_to_pixel_with_offset(_path_overlay[i])
-		var to_center: Vector2 = axial_to_pixel_with_offset(_path_overlay[i + 1])
+		var from_center: Vector2 = axial_to_pixel(_path_overlay[i])
+		var to_center: Vector2 = axial_to_pixel(_path_overlay[i + 1])
 		draw_line(from_center, to_center, _path_overlay_color, PATH_OVERLAY_WIDTH)
 
 
+## FEAT-002 (US-003 / iteration-W W0-0): draws in PURE world coordinates --
+## see _draw_path_overlay()'s doc immediately above for why `_origin_offset`
+## no longer participates here (the GameCamera Camera2D now owns the view
+## transform).
 func _draw_hex_cell(coord) -> void:
-	# FEAT-001: ONE offset-aware center Vector2, reused for BOTH the grid
-	# outline AND (when selectable/terrain-painted) the highlight/fill
-	# below -- highlight/terrain rendering has no separate transform of its
-	# own to drift out of sync.
-	var center: Vector2 = axial_to_pixel_with_offset(coord)
+	# FEAT-001: ONE center Vector2, reused for BOTH the grid outline AND
+	# (when selectable/terrain-painted) the highlight/fill below --
+	# highlight/terrain rendering has no separate transform of its own to
+	# drift out of sync. FEAT-002: this is now a pure world-space center --
+	# no screen-space draw-origin shift is applied here; the camera handles
+	# panning.
+	var center: Vector2 = axial_to_pixel(coord)
 	var points: PackedVector2Array = PackedVector2Array()
 	for i in range(7):
 		points.append(center + _hex_corner_offset(HEX_SIZE, i % 6))
@@ -351,14 +380,18 @@ static func pixel_to_axial(pixel: Vector2, hex_size: float = HEX_SIZE):
 
 
 ## set_origin_offset(offset) → void — FEAT-001 (US-001 / FR-011 / ADR-003):
-## configures the shared screen-space origin offset applied to EVERY
-## axial<->pixel translation this view performs from now on (grid/highlight
-## drawing via axial_to_pixel_with_offset(), click mapping via
-## pixel_to_axial_with_offset()) AND handed to every CombatantTokenView this
-## view positions (load_combatants()/move_token()), so token drawing never
-## drifts out of sync with click mapping/highlight rendering. Defaults to
-## Vector2.ZERO (this feature's pre-existing behavior). Triggers a redraw so
-## an already-rendered grid/highlight immediately reflects the new offset.
+## configures `_origin_offset`. Defaults to Vector2.ZERO.
+##
+## FEAT-002 (US-003, iteration-W W0-0): as of the GameCamera Camera2D
+## refactor, this offset is consumed ONLY by click mapping
+## (pixel_to_axial_with_offset(), used by _unhandled_input()/
+## _handle_mouse_motion()) — it no longer affects grid/highlight drawing or
+## token positioning, which now draw in pure world coordinates (see this
+## file's file-level FEAT-002 doc). A follow-on story re-implements this
+## method to position the GameCamera instead (the "centering seam" this
+## method's callers rely on is preserved across that change; only the
+## internal implementation swaps). Triggers a redraw so an already-rendered
+## grid immediately reflects any state this offset still drives.
 func set_origin_offset(offset: Vector2) -> void:
 	_origin_offset = offset
 	queue_redraw()
@@ -535,10 +568,14 @@ func get_tile_fill_color(hex_coord) -> Color:
 ## value) can still observe the failure. ResolveDodgeStepUseCase.resolve()
 ## checks this return value (see its own FEAT-226 doc) and skips the
 ## Combatant.hex_coord mutation whenever it is `false`, closing the desync.
+## FEAT-002 (US-003 / iteration-W W0-0): repositions in PURE world
+## coordinates -- `_origin_offset` is never forwarded to the token (the
+## GameCamera Camera2D, not a per-token draw offset, now owns the view
+## transform).
 func move_token(combatant_id: String, new_hex_coord) -> bool:
 	var token = _tokens.get(combatant_id, null)
 	if token != null:
-		token.reposition(new_hex_coord, _origin_offset)
+		token.reposition(new_hex_coord)
 		return true
 	token_move_failed.emit(combatant_id)
 	return false
@@ -549,6 +586,9 @@ func move_token(combatant_id: String, new_hex_coord) -> bool:
 ## CombatantTokenView.set_combatant(), which applies axial_to_pixel()).
 ## Clears any previously-instantiated tokens first, so a repeated call (e.g.
 ## a future encounter reload) never leaks duplicate children.
+## FEAT-002 (US-003 / iteration-W W0-0): tokens are positioned in PURE world
+## coordinates -- `_origin_offset` is never forwarded here (see
+## move_token()'s own doc immediately above for why).
 func load_combatants(combatants: Array) -> void:
 	for existing_token in _tokens.values():
 		existing_token.queue_free()
@@ -557,7 +597,7 @@ func load_combatants(combatants: Array) -> void:
 	for combatant in combatants:
 		var token = CombatantTokenViewScene.instantiate()
 		add_child(token)
-		token.set_combatant(combatant, _origin_offset)
+		token.set_combatant(combatant)
 		_tokens[combatant.combatant_id] = token
 
 
@@ -572,15 +612,18 @@ func load_combatants(combatants: Array) -> void:
 ## combatant.combatant_id, it is refreshed/repositioned in place
 ## (set_combatant()) rather than duplicated — mirrors load_combatants()'s own
 ## "never leak duplicate children" contract.
+## FEAT-002 (US-003 / iteration-W W0-0): tokens are positioned in PURE world
+## coordinates -- `_origin_offset` is never forwarded here (see
+## move_token()'s own doc for why).
 func add_combatants(combatants: Array) -> void:
 	for combatant in combatants:
 		var existing = _tokens.get(combatant.combatant_id, null)
 		if existing != null:
-			existing.set_combatant(combatant, _origin_offset)
+			existing.set_combatant(combatant)
 			continue
 		var token = CombatantTokenViewScene.instantiate()
 		add_child(token)
-		token.set_combatant(combatant, _origin_offset)
+		token.set_combatant(combatant)
 		_tokens[combatant.combatant_id] = token
 
 
@@ -632,9 +675,12 @@ const TOKEN_MOVE_DURATION: float = 0.12
 ## matching on-screen token is an unguarded programmer-error lookup failure,
 ## not defended against here -- see move_token()'s own doc for the analogous,
 ## already-accepted precedent.
+## FEAT-002 (US-003 / iteration-W W0-0): tweens to a PURE world-space
+## target position -- `_origin_offset` no longer participates (see
+## move_token()'s own doc for why).
 func animate_token_to(combatant_id: String, target_hex) -> Signal:
 	var token = _tokens.get(combatant_id, null)
-	var target_position: Vector2 = axial_to_pixel_with_offset(target_hex)
+	var target_position: Vector2 = axial_to_pixel(target_hex)
 	var tween: Tween = create_tween()
 	tween.tween_property(token, "position", target_position, TOKEN_MOVE_DURATION)
 	tween.finished.connect(func() -> void: move_token(combatant_id, target_hex))

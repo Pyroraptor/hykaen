@@ -274,7 +274,7 @@ func test_clicking_a_reachable_distant_hex_walks_the_full_path_to_the_destinatio
 
 	var token = instance.hex_grid_view.get_token("player_0")
 	assert_eq(
-		token.position, instance.hex_grid_view.axial_to_pixel_with_offset(target),
+		token.position, instance.hex_grid_view.axial_to_pixel(target),
 		"the rendered token's pixel position must end at the destination hex's pixel center"
 	)
 
@@ -316,7 +316,7 @@ func test_clicking_an_impassable_hex_produces_no_movement_and_leaves_the_overlay
 
 	var token = instance.hex_grid_view.get_token("player_0")
 	assert_eq(
-		token.position, instance.hex_grid_view.axial_to_pixel_with_offset(HexCoordClass.new(0, 0)),
+		token.position, instance.hex_grid_view.axial_to_pixel(HexCoordClass.new(0, 0)),
 		"an impassable click target must produce zero animate_token_to-driven token movement"
 	)
 
@@ -359,7 +359,7 @@ func test_a_three_hex_path_executes_sequentially_each_step_waits_for_the_previou
 
 	for i in range(path.size() - 1):
 		assert_eq(
-			spy.token_position_log[i], instance.hex_grid_view.axial_to_pixel_with_offset(path[i]),
+			spy.token_position_log[i], instance.hex_grid_view.axial_to_pixel(path[i]),
 			"before step %d's move_party_member() call, the token must already be at the PREVIOUS step's pixel position (its animation must have already fully completed, ADR-005)" % [i + 1]
 		)
 
@@ -368,7 +368,7 @@ func test_a_three_hex_path_executes_sequentially_each_step_waits_for_the_previou
 
 	var final_token = instance.hex_grid_view.get_token("player_1")
 	assert_eq(
-		final_token.position, instance.hex_grid_view.axial_to_pixel_with_offset(target),
+		final_token.position, instance.hex_grid_view.axial_to_pixel(target),
 		"the rendered token must visually end at the destination hex's pixel center"
 	)
 
@@ -541,7 +541,7 @@ func test_a_trigger_hex_mid_path_halts_the_walk_leaving_token_and_domain_state_a
 
 	var token = real_hex_grid_view.get_token("player_0")
 	assert_eq(
-		token.position, real_hex_grid_view.axial_to_pixel_with_offset(trigger_hex),
+		token.position, real_hex_grid_view.axial_to_pixel(trigger_hex),
 		"the rendered token's pixel position must halt at exactly the trigger hex's pixel center, matching party_hex_positions (RISK-002)"
 	)
 
@@ -674,7 +674,7 @@ func test_a_mid_path_move_party_member_rejection_halts_before_that_steps_animate
 	#    successfully completed hex, not the rejected step.
 	var token = real_hex_grid_view.get_token("player_0")
 	assert_eq(
-		token.position, real_hex_grid_view.axial_to_pixel_with_offset(HexCoordClass.new(1, 0)),
+		token.position, real_hex_grid_view.axial_to_pixel(HexCoordClass.new(1, 0)),
 		"the rendered token's pixel position must halt at the last successfully completed hex (1, 0), not the rejected step (2, 0)"
 	)
 

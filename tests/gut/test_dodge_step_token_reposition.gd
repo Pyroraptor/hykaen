@@ -138,7 +138,7 @@ func test_successful_dodge_and_legal_hex_pick_relocates_defender_hex_coord_and_o
 		"the defender's on-screen token hex must update to the player-chosen hex"
 	)
 	assert_eq(
-		token_after.position, instance.hex_grid_view.axial_to_pixel_with_offset(chosen_hex),
+		token_after.position, instance.hex_grid_view.axial_to_pixel(chosen_hex),
 		"the defender's rendered screen position must resync to the chosen hex's ADR-004 axial-to-pixel projection"
 	)
 

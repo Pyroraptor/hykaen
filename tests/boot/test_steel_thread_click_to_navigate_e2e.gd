@@ -395,7 +395,7 @@ func test_hover_preview_matches_the_path_subsequently_executed_on_click() -> voi
 
 	var hero_token = instance.hex_grid_view.get_token(HERO_ID)
 	assert_eq(
-		hero_token.position, instance.hex_grid_view.axial_to_pixel_with_offset(target),
+		hero_token.position, instance.hex_grid_view.axial_to_pixel(target),
 		"the rendered token must visually end at the destination hex's pixel center, matching the previewed path's endpoint"
 	)
 	assert_eq(instance.hex_grid_view.get_path_overlay(), [], "the click-to-navigate walk must clear the hover-preview overlay")
@@ -448,7 +448,7 @@ func test_click_animates_the_token_hex_by_hex_each_step_awaiting_the_previous_an
 	assert_eq(spy.token_position_log.size(), 2, "both of the walk's 2 steps must invoke move_party_member() exactly once each")
 	for i in range(expected_path.size() - 1):
 		assert_eq(
-			spy.token_position_log[i], instance.hex_grid_view.axial_to_pixel_with_offset(expected_path[i]),
+			spy.token_position_log[i], instance.hex_grid_view.axial_to_pixel(expected_path[i]),
 			"before step %d's move_party_member() call, the token must already be at the PREVIOUS step's pixel position -- its animate_token_to() Signal must have already been awaited to completion" % [i + 1]
 		)
 
@@ -456,7 +456,7 @@ func test_click_animates_the_token_hex_by_hex_each_step_awaiting_the_previous_an
 	assert_eq(instance.scenario_session.party_hex_positions[HERO_ID].r, target.r, "party_hex_positions[combatant_id] must equal the destination HexCoord upon completion")
 
 	var hero_token = instance.hex_grid_view.get_token(HERO_ID)
-	assert_eq(hero_token.position, instance.hex_grid_view.axial_to_pixel_with_offset(target), "the token must be visibly animated all the way to the destination hex's pixel center")
+	assert_eq(hero_token.position, instance.hex_grid_view.axial_to_pixel(target), "the token must be visibly animated all the way to the destination hex's pixel center")
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -490,7 +490,7 @@ func test_impassable_ring_makes_the_target_unreachable_halting_with_no_movement(
 
 	var hero_token = instance.hex_grid_view.get_token(HERO_ID)
 	assert_eq(
-		hero_token.position, instance.hex_grid_view.axial_to_pixel_with_offset(HexCoordClass.new(0, 0)),
+		hero_token.position, instance.hex_grid_view.axial_to_pixel(HexCoordClass.new(0, 0)),
 		"an unreachable (walled-off) click target must produce zero animate_token_to-driven token movement"
 	)
 	assert_eq(get_logger().get_errors().size(), 0, "an unreachable click target is a silent no-op, never an engine error")
@@ -533,7 +533,7 @@ func test_a_trigger_hex_mid_path_halts_the_walk_flips_mode_and_clears_overlays()
 
 	var hero_token = instance.hex_grid_view.get_token(HERO_ID)
 	assert_eq(
-		hero_token.position, instance.hex_grid_view.axial_to_pixel_with_offset(trigger_hex),
+		hero_token.position, instance.hex_grid_view.axial_to_pixel(trigger_hex),
 		"the rendered token's pixel position must halt at exactly the trigger hex's pixel center, matching party_hex_positions (RISK-002)"
 	)
 
@@ -622,7 +622,7 @@ func test_real_signal_click_on_a_distant_reachable_hex_drives_a_full_multi_hex_w
 
 	var hero_token = instance.hex_grid_view.get_token(HERO_ID)
 	assert_eq(
-		hero_token.position, instance.hex_grid_view.axial_to_pixel_with_offset(target),
+		hero_token.position, instance.hex_grid_view.axial_to_pixel(target),
 		"the token must be visibly animated (via the committed GRID_RADIUS=12/TERRAIN_FILL_COLORS HexGridView, FIX-002) all the way to the destination hex's pixel center"
 	)
 	assert_eq(instance.hex_grid_view.get_path_overlay(), [], "the completed click-to-navigate walk must leave no stale path overlay rendered")
@@ -658,7 +658,7 @@ func test_real_signal_click_crossing_a_trigger_hex_halts_the_walk_on_the_committ
 
 	var hero_token = instance.hex_grid_view.get_token(HERO_ID)
 	assert_eq(
-		hero_token.position, instance.hex_grid_view.axial_to_pixel_with_offset(trigger_hex),
+		hero_token.position, instance.hex_grid_view.axial_to_pixel(trigger_hex),
 		"the rendered token's pixel position must halt at exactly the committed trigger hex's pixel center, matching party_hex_positions"
 	)
 	assert_false(

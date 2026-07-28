@@ -313,7 +313,7 @@ func test_round1_player_strike_then_enemy_forced_dodge_strike_each_produce_one_r
 	assert_not_null(token_after, "the defender's token must still be on record after the Dodge-Step reposition")
 	assert_true(token_after.hex_coord.equals(chosen_hex), "the defender's on-screen token hex must update to the scripted chosen hex")
 	assert_eq(
-		token_after.position, instance.hex_grid_view.axial_to_pixel_with_offset(chosen_hex),
+		token_after.position, instance.hex_grid_view.axial_to_pixel(chosen_hex),
 		"the defender's rendered screen position must resync to the chosen hex's axial-to-pixel projection"
 	)
 

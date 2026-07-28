@@ -129,10 +129,25 @@ func test_compute_centering_offset_is_consistent_with_shared_axial_to_pixel() ->
 
 # ══════════════════════════════════════════════════════════════════════════
 # Criterion 2 — boot-time: after the REAL MainScene.tscn's _ready() completes,
-# every rendered token position falls within viewport bounds.
+# every rendered token renders at its pure world-space pixel position.
+#
+# FEAT-002 (US-003, iteration-W "Camera Panning & Collapsible Panels", W0-0):
+# HexGridView's token positioning (load_combatants()/move_token()) now draws
+# in PURE WORLD coordinates -- MainScene.gd's boot-time centering offset
+# (still configured via set_origin_offset(), see
+# test_mainscene_boot_configures_a_non_zero_origin_offset_on_hex_grid_view()
+# below) no longer shifts where tokens actually render; a GameCamera Camera2D
+# is now the canonical view controller responsible for centering the
+# viewport on the map (a follow-on story re-implements set_origin_offset()
+# to position that camera instead of a per-token draw offset -- see
+## presentation/hex_grid_view.gd's own FEAT-002 doc). This test's original
+# "every token within viewport bounds" assertion assumed the pre-FEAT-002
+# draw-offset centering approach and is superseded here by the new
+# invariant: every rendered token's screen position IS its unshifted
+# axial_to_pixel(hex_coord) world pixel.
 # ══════════════════════════════════════════════════════════════════════════
 
-func test_mainscene_boot_renders_every_token_within_viewport_bounds() -> void:
+func test_mainscene_boot_renders_every_token_at_its_pure_world_pixel_position() -> void:
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	if packed == null:
@@ -162,38 +177,19 @@ func test_mainscene_boot_renders_every_token_within_viewport_bounds() -> void:
 	if hex_grid_view == null:
 		return
 
-	# MainScene.gd derives its boot-time viewport size from ProjectSettings'
-	# configured display/window size (this project's actual rendered window
-	# size in a normal, non-headless launch) rather than the live Viewport's
-	# reported size -- a headless test harness may report an arbitrary small
-	# stub size unrelated to how the project actually renders. This test
-	# reads the SAME source of truth MainScene.gd's
-	# _compute_boot_centering_offset() does, so it verifies the real
-	# production semantics rather than a headless-harness artifact.
-	var viewport_size := Vector2(
-		ProjectSettings.get_setting("display/window/size/viewport_width", 1152),
-		ProjectSettings.get_setting("display/window/size/viewport_height", 648)
-	)
-	var combatant_ids: Array = []
-	for combatant in instance._party + instance._enemies:
-		combatant_ids.append(combatant.combatant_id)
+	var combatants: Array = instance._party + instance._enemies
+	assert_true(combatants.size() > 0, "the prologue fixture must supply at least one combatant to check")
 
-	assert_true(combatant_ids.size() > 0, "the prologue fixture must supply at least one combatant to check")
-
-	for combatant_id in combatant_ids:
-		var token = hex_grid_view.get_token(combatant_id)
-		assert_not_null(token, "hex_grid_view must render a token for combatant_id=%s" % combatant_id)
+	for combatant in combatants:
+		var token = hex_grid_view.get_token(combatant.combatant_id)
+		assert_not_null(token, "hex_grid_view must render a token for combatant_id=%s" % combatant.combatant_id)
 		if token == null:
 			continue
-		assert_true(
-			token.position.x >= 0.0 and token.position.x <= viewport_size.x,
-			"token %s position.x=%s must fall within viewport width [0, %s] at boot (FEAT-002 / US-002)"
-			% [combatant_id, token.position.x, viewport_size.x]
-		)
-		assert_true(
-			token.position.y >= 0.0 and token.position.y <= viewport_size.y,
-			"token %s position.y=%s must fall within viewport height [0, %s] at boot (FEAT-002 / US-002)"
-			% [combatant_id, token.position.y, viewport_size.y]
+		var expected_position: Vector2 = hex_grid_view.axial_to_pixel(combatant.hex_coord)
+		assert_almost_eq(
+			token.position, expected_position, Vector2(0.01, 0.01),
+			"token %s must render at its pure world-space pixel position axial_to_pixel(hex_coord), unshifted by the boot-time centering offset (FEAT-002 / US-003)"
+			% combatant.combatant_id
 		)
 
 

@@ -204,7 +204,7 @@ func test_forced_skeleton_dodge_relocates_hex_coord_and_token_on_real_boot() -> 
 		"the Skeleton's on-screen token hex must update to the AI-chosen hex"
 	)
 	assert_eq(
-		token_after.position, instance.hex_grid_view.axial_to_pixel_with_offset(moved_hex),
+		token_after.position, instance.hex_grid_view.axial_to_pixel(moved_hex),
 		"the Skeleton's rendered screen position must resync to the AI-chosen hex's axial-to-pixel projection"
 	)
 

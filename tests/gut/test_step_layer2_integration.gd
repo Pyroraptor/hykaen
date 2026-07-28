@@ -209,8 +209,8 @@ func test_clicking_a_highlighted_hex_moves_the_token_to_that_exact_axial_coordin
 	assert_not_null(token_after, "the real HexGridView must still carry a token for the moved actor")
 	assert_true(token_after.hex_coord.equals(destination), "the real HexGridView's token must resync its hex_coord to the exact clicked destination")
 	assert_eq(
-		token_after.position, instance.hex_grid_view.axial_to_pixel_with_offset(destination),
-		"the real HexGridView's token must resync its rendered screen position to the destination's ADR-004 axial-to-pixel projection"
+		token_after.position, instance.hex_grid_view.axial_to_pixel(destination),
+		"the real HexGridView's token must resync its rendered screen position to the destination's ADR-004 axial-to-pixel projection (FEAT-002: pure world coordinates, no _origin_offset)"
 	)
 
 	var after_remaining: int = instance.status_panel_view.get_status(actor_id).get("action_budget_remaining", -1)

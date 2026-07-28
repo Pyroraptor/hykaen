@@ -10,12 +10,18 @@ extends GutTest
 ## test_criteria satisfied:
 ##   1. axial_to_pixel()/pixel_to_axial() round-trip is lossless for a range
 ##      of coords and offsets.
-##   2. token draw (CombatantTokenView), click mapping (HexGridView's
-##      _unhandled_input), and highlight rendering (HexGridView's _draw())
-##      all invoke this SAME shared function with the SAME offset value —
+##   2. click mapping (HexGridView's _unhandled_input) and highlight
+##      rendering (HexGridView's axial_to_pixel_with_offset(), the same
+##      offset-aware center _draw_hex_cell() computed before FEAT-002) both
+##      invoke this SAME shared function with the SAME offset value —
 ##      verified by configuring a non-zero, distinguishable "spy" offset on
-##      HexGridView and asserting every one of the three consumers reflects
-##      it identically.
+##      HexGridView and asserting both consumers reflect it identically.
+##      FEAT-002 (US-003, iteration-W W0-0): token draw (CombatantTokenView)
+##      and grid/highlight drawing itself now DELIBERATELY diverge from this
+##      offset-aware pairing — with a GameCamera Camera2D now the canonical
+##      view controller, both draw in PURE world coordinates, ignoring
+##      `_origin_offset` entirely (see this file's token/move_token tests
+##      below, and presentation/hex_grid_view.gd's own FEAT-002 doc).
 ##   3. Integration: clicking a rendered, highlighted hex (a legal Step or
 ##      Stride destination) resolves to that exact axial coordinate, driven
 ##      end-to-end through the real HexGridView + core/rules/movement.gd
@@ -165,7 +171,16 @@ func test_highlight_rendering_reuses_the_same_offset_aware_center_as_grid_drawin
 	assert_true(true)
 
 
-func test_token_draw_uses_the_same_shared_function_and_offset_as_the_grid() -> void:
+## FEAT-002 (US-003, iteration-W W0-0): with a GameCamera Camera2D now the
+## canonical view controller, token positioning draws in PURE WORLD
+## coordinates -- `_origin_offset` deliberately no longer participates here
+## (only grid/highlight drawing's click-mapping counterpart,
+## axial_to_pixel_with_offset()/pixel_to_axial_with_offset(), still consumes
+## it, pending the follow-on hit-test-refactor story). This supersedes this
+## test's pre-FEAT-002 name/assertion (tokens no longer share the offset
+## grid-drawing/click-mapping use), so it is renamed to assert the new
+## invariant rather than silently keep asserting the old one.
+func test_token_draw_uses_the_pure_zero_offset_transform_regardless_of_configured_origin_offset() -> void:
 	var combatant := CombatantClass.new("c1", "Titus", "Player", HexCoordClass.new(1, -1))
 
 	_hex_grid_view.set_origin_offset(SPY_OFFSET)
@@ -177,15 +192,17 @@ func test_token_draw_uses_the_same_shared_function_and_offset_as_the_grid() -> v
 		return
 
 	var expected_position: Vector2 = CoordinateTransformClass.axial_to_pixel(
-		combatant.hex_coord, HexGridViewClass.HEX_SIZE, SPY_OFFSET
+		combatant.hex_coord, HexGridViewClass.HEX_SIZE, Vector2.ZERO
 	)
 	assert_almost_eq(
 		token.position, expected_position, Vector2(EPSILON, EPSILON),
-		"CombatantTokenView must be positioned via CoordinateTransform with the SAME origin offset HexGridView uses for drawing/click mapping"
+		"CombatantTokenView must be positioned via the pure (zero-offset) CoordinateTransform -- _origin_offset no longer applies to token drawing (FEAT-002)"
 	)
 
 
-func test_move_token_after_offset_change_uses_the_current_offset() -> void:
+## FEAT-002: see the doc on test_token_draw_uses_the_pure_zero_offset_transform_regardless_of_configured_origin_offset()
+## immediately above -- move_token() likewise now ignores _origin_offset.
+func test_move_token_after_offset_change_ignores_the_configured_offset() -> void:
 	var combatant := CombatantClass.new("c1", "Titus", "Player", HexCoordClass.new(0, 0))
 	_hex_grid_view.load_combatants([combatant])
 
@@ -195,9 +212,12 @@ func test_move_token_after_offset_change_uses_the_current_offset() -> void:
 
 	var token = _hex_grid_view.get_token("c1")
 	var expected_position: Vector2 = CoordinateTransformClass.axial_to_pixel(
-		destination, HexGridViewClass.HEX_SIZE, SPY_OFFSET
+		destination, HexGridViewClass.HEX_SIZE, Vector2.ZERO
 	)
-	assert_almost_eq(token.position, expected_position, Vector2(EPSILON, EPSILON))
+	assert_almost_eq(
+		token.position, expected_position, Vector2(EPSILON, EPSILON),
+		"move_token() must reposition using the pure (zero-offset) CoordinateTransform -- _origin_offset no longer applies (FEAT-002)"
+	)
 
 
 func test_combatant_token_view_reposition_directly_consumes_coordinate_transform() -> void:

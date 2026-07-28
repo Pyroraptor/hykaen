@@ -316,7 +316,7 @@ func test_full_steel_thread_from_turn_start_to_post_resolution_lock() -> void:
 		"the real HexGridView's token must resync its hex_coord to the new hex after the move"
 	)
 	assert_eq(
-		token_after.position, instance.hex_grid_view.axial_to_pixel_with_offset(destination),
+		token_after.position, instance.hex_grid_view.axial_to_pixel(destination),
 		"the real HexGridView's token must resync its rendered screen position to the new hex's ADR-004 axial-to-pixel "
 		+ "projection, honoring the composition root's FEAT-002 viewport-centering origin offset"
 	)
@@ -610,7 +610,7 @@ func test_enemy_ai_leg_strides_toward_nearest_target_but_does_not_strike_same_tu
 		"the enemy token's on-screen hex position must resync to the AI Stride destination"
 	)
 	assert_eq(
-		token_after.position, instance.hex_grid_view.axial_to_pixel_with_offset(moved_hex),
+		token_after.position, instance.hex_grid_view.axial_to_pixel(moved_hex),
 		"the enemy token's rendered screen position must resync to the AI Stride destination's axial-to-pixel projection -- the SAME move_token() path player movement uses"
 	)
 
@@ -706,6 +706,6 @@ func test_enemy_ai_leg_strides_but_does_not_strike_when_no_action_remains_after_
 		"the enemy token's on-screen hex position must resync to the AI Stride destination even when no Strike follows"
 	)
 	assert_eq(
-		token_after.position, instance.hex_grid_view.axial_to_pixel_with_offset(moved_hex),
+		token_after.position, instance.hex_grid_view.axial_to_pixel(moved_hex),
 		"the enemy token's rendered screen position must resync to the AI Stride destination's axial-to-pixel projection"
 	)
