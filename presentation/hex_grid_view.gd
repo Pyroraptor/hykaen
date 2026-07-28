@@ -270,6 +270,67 @@ var _last_hovered_hex = null
 var _drag_panning: bool = false
 
 
+## PAN_SPEED -- FEAT-006 (US-007 / FR-007): keyboard pan speed in pixels per
+## second, consulted by _process() below. Matches this iteration's design
+## notes (docs/iterations/iteration-W-panning-party-selection-panels.org,
+## W0-2) verbatim -- the single source of truth for how fast WASD/arrow-key
+## panning moves `_camera.position`; retune keyboard pan speed by changing
+## this one value.
+const PAN_SPEED: float = 300.0
+
+
+## _process(delta) -> void -- FEAT-006 (US-007 / FR-007, Contract 3,
+## mitigates RISK-005 "UI-focus/camera-pan input conflicts"): per-frame
+## keyboard pan. Accumulates a `dir` Vector2 from up to two input sources --
+## Godot's built-in ui_up/ui_down/ui_left/ui_right actions (arrow keys) AND
+## the WASD keys polled directly via Input.is_key_pressed() (no new
+## InputMap entries required, per the design notes) -- then, ONLY when
+## `dir` is non-zero (guarding the undefined/NaN Vector2.ZERO.normalized()
+## case -- Zero-vector input never triggers a normalize-of-zero-vector
+## call), moves `_camera.position` by `dir.normalized() * PAN_SPEED *
+## delta`. Normalizing BEFORE scaling means diagonal input (e.g. W+D) pans
+## at exactly PAN_SPEED, never PAN_SPEED * sqrt(2). A no-input frame leaves
+## `dir` at Vector2.ZERO and this method makes no changes to
+## `_camera.position` at all.
+##
+## Contract 3 (mitigates RISK-005): the four arrow-key actions are polled
+## ONLY when get_viewport().gui_get_focus_owner() == null. Whenever a
+## Control (e.g. a future chat/name-entry field) currently holds keyboard
+## focus, arrow-key input contributes NOTHING to `dir` and is left
+## completely unconsumed by this method, so a focused Control keeps its own
+## normal arrow-key navigation/editing behavior instead of the camera
+## silently panning out from under it. WASD is polled unconditionally --
+## the design notes scope this UI-focus pass-through to the arrow keys
+## only.
+##
+## Guarded on `_camera` being non-null -- this view's established
+## graceful-degradation precedent (see set_origin_offset()'s/
+## _handle_drag_pan_motion()'s own docs): a HexGridView instantiated
+## standalone, ahead of `_camera` resolving, must not crash on a keyboard
+## pan frame it cannot yet visually honor.
+func _process(delta: float) -> void:
+	var dir := Vector2.ZERO
+	if get_viewport().gui_get_focus_owner() == null:
+		if Input.is_action_pressed("ui_right"):
+			dir.x += 1.0
+		if Input.is_action_pressed("ui_left"):
+			dir.x -= 1.0
+		if Input.is_action_pressed("ui_down"):
+			dir.y += 1.0
+		if Input.is_action_pressed("ui_up"):
+			dir.y -= 1.0
+	if Input.is_key_pressed(KEY_D):
+		dir.x += 1.0
+	if Input.is_key_pressed(KEY_A):
+		dir.x -= 1.0
+	if Input.is_key_pressed(KEY_S):
+		dir.y += 1.0
+	if Input.is_key_pressed(KEY_W):
+		dir.y -= 1.0
+	if dir != Vector2.ZERO and _camera != null:
+		_camera.position += dir.normalized() * PAN_SPEED * delta
+
+
 func _draw() -> void:
 	for q in range(-GRID_RADIUS, GRID_RADIUS + 1):
 		for r in range(-GRID_RADIUS, GRID_RADIUS + 1):

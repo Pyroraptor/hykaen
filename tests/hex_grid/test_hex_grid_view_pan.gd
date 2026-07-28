@@ -310,3 +310,215 @@ func test_view_remains_usable_after_drag_pan_calls() -> void:
 		CombatantClass.new("defender-1", "Titus", "Player", HexCoordClass.new(0, 0)),
 	])
 	assert_eq(hex_grid_view.get_token_count(), 1, "HexGridView must remain fully functional after drag-pan calls")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# FEAT-006 (US-007 / FR-007): "Implement keyboard pan via WASD / arrow keys
+# with UI-focus passthrough" -- per-frame _process() keyboard pan.
+#
+# Unlike the middle-mouse drag-pan suite above (which calls
+# HexGridView._unhandled_input() directly with hand-built InputEvent
+# instances), HexGridView._process() polls GLOBAL engine Input singleton
+# state (Input.is_action_pressed()/Input.is_key_pressed()) rather than
+# reacting to a passed-in event object -- there is no event parameter to
+# hand-build here. This suite therefore drives the REAL Input singleton via
+# GutInputSender (this project's addons/gut/input_sender.gd, exposed as the
+# `InputSender` class reference on every GutTest, per addons/gut/test.gd)
+# with `Input` itself as the sole receiver and auto-flush enabled
+# (Input.flush_buffered_events() after every event, required for
+# Input.is_key_pressed()/is_action_pressed() to observe the just-sent event
+# headlessly -- verified empirically against this project's actual Godot
+# 4.3 binary), then calls HexGridView._process(delta) directly with an
+# explicit delta (the SAME "call the handler directly" convention this
+# file's own drag-pan suite above already documents, just applied to
+# _process() instead of _unhandled_input()). Every test releases all
+# simulated input in an `after_each()` so no pressed key/action state leaks
+# across tests (Input singleton state is process-global, not per-test).
+# ══════════════════════════════════════════════════════════════════════════
+
+var _key_sender = null
+
+
+func before_each() -> void:
+	_key_sender = InputSender.new(Input)
+	_key_sender.set_auto_flush_input(true)
+
+
+func after_each() -> void:
+	if _key_sender != null:
+		_key_sender.release_all()
+		_key_sender = null
+
+
+## Criterion — a no-input frame leaves _camera.position unchanged.
+func test_no_input_frame_leaves_camera_position_unchanged() -> void:
+	var hex_grid_view = _instantiate_hex_grid_view_with_game_camera_sibling()
+	await get_tree().process_frame
+
+	var camera: Camera2D = hex_grid_view.get_node("../GameCamera")
+	var initial_position: Vector2 = camera.position
+
+	hex_grid_view._process(0.1)
+
+	assert_eq(
+		camera.position, initial_position,
+		"a _process() frame with no key/action held must leave _camera.position completely unchanged"
+	)
+
+
+## Criterion — single-direction input moves _camera.position by exactly
+## PAN_SPEED * delta in that direction (WASD variant: KEY_D -> +x).
+func test_single_direction_wasd_input_moves_camera_by_pan_speed_times_delta() -> void:
+	var hex_grid_view = _instantiate_hex_grid_view_with_game_camera_sibling()
+	await get_tree().process_frame
+
+	var camera: Camera2D = hex_grid_view.get_node("../GameCamera")
+	var initial_position: Vector2 = camera.position
+
+	_key_sender.key_down(KEY_D)
+	hex_grid_view._process(0.1)
+
+	var expected_position: Vector2 = initial_position + Vector2(hex_grid_view.PAN_SPEED * 0.1, 0.0)
+	assert_almost_eq(
+		camera.position, expected_position, Vector2(EPSILON, EPSILON),
+		"KEY_D held must move _camera.position.x by exactly PAN_SPEED * delta"
+	)
+
+
+## Criterion — single-direction input via the built-in arrow-key actions
+## (ui_up) also moves _camera.position by exactly PAN_SPEED * delta.
+func test_single_direction_arrow_action_input_moves_camera_by_pan_speed_times_delta() -> void:
+	var hex_grid_view = _instantiate_hex_grid_view_with_game_camera_sibling()
+	await get_tree().process_frame
+
+	var camera: Camera2D = hex_grid_view.get_node("../GameCamera")
+	var initial_position: Vector2 = camera.position
+
+	_key_sender.action_down("ui_up")
+	hex_grid_view._process(0.1)
+
+	var expected_position: Vector2 = initial_position + Vector2(0.0, -hex_grid_view.PAN_SPEED * 0.1)
+	assert_almost_eq(
+		camera.position, expected_position, Vector2(EPSILON, EPSILON),
+		"the ui_up action held must move _camera.position.y by exactly -(PAN_SPEED * delta)"
+	)
+
+
+## Criterion — diagonal input (W+D) is normalized before being scaled by
+## PAN_SPEED * delta, i.e. the resulting displacement's magnitude is
+## PAN_SPEED * delta, not PAN_SPEED * delta * sqrt(2).
+func test_diagonal_input_is_normalized_before_scaling() -> void:
+	var hex_grid_view = _instantiate_hex_grid_view_with_game_camera_sibling()
+	await get_tree().process_frame
+
+	var camera: Camera2D = hex_grid_view.get_node("../GameCamera")
+	var initial_position: Vector2 = camera.position
+
+	_key_sender.key_down(KEY_W)
+	_key_sender.key_down(KEY_D)
+	hex_grid_view._process(0.1)
+
+	var delta_position: Vector2 = camera.position - initial_position
+	var expected_delta: Vector2 = Vector2(1.0, -1.0).normalized() * hex_grid_view.PAN_SPEED * 0.1
+	assert_almost_eq(
+		delta_position, expected_delta, Vector2(EPSILON, EPSILON),
+		"W+D held simultaneously must normalize the diagonal direction before scaling by PAN_SPEED * delta"
+	)
+	assert_almost_eq(
+		delta_position.length(), hex_grid_view.PAN_SPEED * 0.1, EPSILON,
+		"a normalized diagonal pan must move at exactly PAN_SPEED * delta, never PAN_SPEED * delta * sqrt(2)"
+	)
+
+
+## Criterion — when get_viewport().gui_get_focus_owner() != null, arrow-key
+## input is not consumed and does not move the camera.
+func test_arrow_key_input_does_not_move_camera_when_control_has_focus() -> void:
+	var hex_grid_view = _instantiate_hex_grid_view_with_game_camera_sibling()
+	await get_tree().process_frame
+
+	var focus_target := LineEdit.new()
+	focus_target.focus_mode = Control.FOCUS_ALL
+	add_child_autofree(focus_target)
+	focus_target.grab_focus()
+	assert_eq(
+		hex_grid_view.get_viewport().gui_get_focus_owner(), focus_target,
+		"sanity: the LineEdit must actually hold keyboard focus on this view's viewport"
+	)
+
+	var camera: Camera2D = hex_grid_view.get_node("../GameCamera")
+	var initial_position: Vector2 = camera.position
+
+	_key_sender.action_down("ui_right")
+	hex_grid_view._process(0.1)
+
+	assert_eq(
+		camera.position, initial_position,
+		"arrow-key (ui_right) input must NOT move the camera while a Control holds keyboard focus"
+	)
+
+
+## Regression companion to the above: with no Control focused, the SAME
+## ui_right action still pans the camera as normal (proves the guard is
+## focus-conditional, not a blanket regression that disables arrow-key pan
+## entirely).
+func test_arrow_key_input_still_moves_camera_when_nothing_has_focus() -> void:
+	var hex_grid_view = _instantiate_hex_grid_view_with_game_camera_sibling()
+	await get_tree().process_frame
+
+	assert_null(
+		hex_grid_view.get_viewport().gui_get_focus_owner(),
+		"sanity: nothing should hold keyboard focus on this view's viewport by default"
+	)
+
+	var camera: Camera2D = hex_grid_view.get_node("../GameCamera")
+	var initial_position: Vector2 = camera.position
+
+	_key_sender.action_down("ui_right")
+	hex_grid_view._process(0.1)
+
+	var expected_position: Vector2 = initial_position + Vector2(hex_grid_view.PAN_SPEED * 0.1, 0.0)
+	assert_almost_eq(
+		camera.position, expected_position, Vector2(EPSILON, EPSILON),
+		"ui_right action held must move the camera normally when no Control holds keyboard focus"
+	)
+
+
+## Criterion — zero-vector input never triggers a normalize-of-zero-vector
+## call: with no input held, _camera.position must remain EXACTLY equal
+## (bit-for-bit, no float epsilon drift from a stray Vector2.ZERO.normalized()
+## NaN/undefined result) to its pre-frame value across several consecutive
+## no-input frames.
+func test_zero_vector_input_never_normalizes_and_position_stays_exact() -> void:
+	var hex_grid_view = _instantiate_hex_grid_view_with_game_camera_sibling()
+	await get_tree().process_frame
+
+	var camera: Camera2D = hex_grid_view.get_node("../GameCamera")
+	var initial_position: Vector2 = camera.position
+
+	hex_grid_view._process(0.1)
+	hex_grid_view._process(0.016)
+	hex_grid_view._process(1.0)
+
+	assert_eq(
+		camera.position, initial_position,
+		"repeated no-input _process() frames must never move the camera or produce NaN from normalizing a zero vector"
+	)
+	assert_false(is_nan(camera.position.x) or is_nan(camera.position.y), "camera position must never become NaN")
+
+
+## Regression: HexGridView instantiated standalone (no GameCamera sibling,
+## `_camera == null`, e.g. this view's own .tscn in isolation) must not
+## crash when _process() runs with keys held -- mirrors this view's
+## established graceful-degradation precedent (set_origin_offset(),
+## _handle_drag_pan_motion()).
+func test_process_does_not_crash_when_camera_is_null() -> void:
+	var hex_grid_view = HexGridViewScene.instantiate()
+	add_child_autofree(hex_grid_view)
+	await get_tree().process_frame
+
+	assert_null(hex_grid_view._camera, "sanity: a standalone HexGridView must have no resolved _camera")
+
+	_key_sender.key_down(KEY_D)
+	hex_grid_view._process(0.1)
+
+	pass_test("HexGridView._process() must not crash when _camera is null")
