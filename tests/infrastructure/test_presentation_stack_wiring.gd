@@ -110,6 +110,16 @@ const _EXPECTED_CHILDREN: Dictionary = {
 ## hold built-in class references as values).
 const _SPELL_PICKER_PANEL_NAME: String = "SpellPickerPanel"
 
+## _GAME_CAMERA_NODE_NAME -- FEAT-001 (US-001 / FR-001, ADR-001, Iteration W
+## "Camera Panning & Collapsible Panels"): GameCamera, a Camera2D node added
+## as a sibling of HexGridView directly on MainScene.tscn -- the
+## infrastructure foundation the camera-panning steel thread builds on. Like
+## SpellPickerPanel above, it's a built-in Camera2D node (no preloaded
+## GDScript class), so it is verified separately rather than via the const
+## _EXPECTED_CHILDREN dict (GDScript 4 const dicts cannot hold built-in class
+## references as values).
+const _GAME_CAMERA_NODE_NAME: String = "GameCamera"
+
 
 ## _boot_main_scene() -> Node — instantiates the REAL res://MainScene.tscn
 ## composition root, pinning seed_override=42 (the prologue fixture's known-
@@ -226,14 +236,26 @@ func test_mainscene_children_are_exactly_the_expected_presentation_stack() -> vo
 			"'%s' must be a Panel node" % _SPELL_PICKER_PANEL_NAME
 		)
 
+	# GameCamera is a built-in Camera2D node verified separately (see
+	# _GAME_CAMERA_NODE_NAME doc above for why it's not in _EXPECTED_CHILDREN).
+	assert_true(
+		actual_names_by_node.has(_GAME_CAMERA_NODE_NAME),
+		"MainScene must have a '%s' child sibling of HexGridView (FEAT-001, Iteration W camera introduction)" % _GAME_CAMERA_NODE_NAME
+	)
+	if actual_names_by_node.has(_GAME_CAMERA_NODE_NAME):
+		assert_true(
+			actual_names_by_node[_GAME_CAMERA_NODE_NAME] is Camera2D,
+			"'%s' must be a Camera2D node" % _GAME_CAMERA_NODE_NAME
+		)
+
 	assert_eq(
-		actual_children.size(), _EXPECTED_CHILDREN.size() + 1,
-		"MainScene must have EXACTLY the expected presentation/* child set plus SpellPickerPanel, no more no less; found children: %s"
+		actual_children.size(), _EXPECTED_CHILDREN.size() + 2,
+		"MainScene must have EXACTLY the expected presentation/* child set plus SpellPickerPanel and GameCamera, no more no less; found children: %s"
 		% [actual_names_by_node.keys()]
 	)
 
 	for child_name in actual_names_by_node.keys():
-		if child_name == _SPELL_PICKER_PANEL_NAME:
+		if child_name == _SPELL_PICKER_PANEL_NAME or child_name == _GAME_CAMERA_NODE_NAME:
 			continue  # verified separately above
 		var expected_class = _EXPECTED_CHILDREN.get(child_name, null)
 		assert_not_null(expected_class, "unexpected child node '%s' present on MainScene -- only the FEAT-002 presentation/* set may be wired" % child_name)
@@ -515,3 +537,4 @@ func test_headless_boot_still_succeeds_after_presentation_stack_rewiring() -> vo
 	for expected_name in _EXPECTED_CHILDREN.keys():
 		assert_not_null(instance.get_node_or_null(expected_name), "MainScene must still resolve child node '%s' after headless boot" % expected_name)
 	assert_not_null(instance.get_node_or_null(_SPELL_PICKER_PANEL_NAME), "MainScene must still resolve child node '%s' after headless boot" % _SPELL_PICKER_PANEL_NAME)
+	assert_not_null(instance.get_node_or_null(_GAME_CAMERA_NODE_NAME), "MainScene must still resolve child node '%s' after headless boot" % _GAME_CAMERA_NODE_NAME)

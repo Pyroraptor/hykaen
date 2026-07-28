@@ -1,0 +1,307 @@
+#+TITLE: Iteration W — Camera Panning & Collapsible Panels
+#+SPRINT: 31
+#+VERSION: 0.4.4
+#+STATUS: DRAFT for review
+
+* Context
+
+Two presentation gaps limit usability as maps grow and players want to reclaim
+screen space.
+
+*Panning.* The hex grid is fixed: =HexGridView= sets a draw-origin offset once at
+boot and never moves it. Any map larger than the viewport clips. This iteration
+introduces a =Camera2D= node as the canonical view controller, which solves
+panning today and makes zoom, pan-clamping, and isometric rendering (2D
+transform path) straightforward additions in later iterations. Without Camera2D,
+every follow-on view feature (zoom, bounds clamping, camera-follow for
+exploration) requires touching the coordinate math in =HexGridView= directly;
+with it, those features reduce to Camera2D property changes.
+
+*Collapsible panels.* The =StatusPanelView=, =InitiativeView=, and =EventLogView=
+panels occupy fixed screen real estate. Making each collapsible to a title bar
+reclaims viewport space without the complexity of free-floating windows or
+persistent layout state.
+
+The CanvasLayer migration required to isolate UI panels from the camera is a
+prerequisite for W0; it is also the correct permanent home for the panels
+regardless of panning, so it carries no debt.
+
+Party member click-to-select (originally scoped here) is deferred to Iteration X.
+
+*Do not recreate existing infrastructure:*
+- =HexGridView= (=presentation/hex_grid_view.gd=) remains the sole hex renderer.
+  Its draw calls are refactored to world coordinates; no second viewport or
+  parallel renderer is introduced.
+- =set_origin_offset()= is preserved as a public API (centering seam); its
+  implementation changes from setting a draw-origin field to positioning the
+  Camera2D. Test callers that invoke =set_origin_offset()= continue to work.
+- The domain layer (=core/=) is entirely out of scope. No =Combatant=,
+  =RoundSession=, =ActionEconomy=, or use-case file may be modified.
+
+
+* Steel Thread
+
+A player opens the prologue. The hex map is centred as before. They hold =W=
+and the map scrolls upward; they release and it stops. They middle-mouse-drag
+and the map follows the cursor; releasing the mouse button does not trigger a
+spurious hex-click. They enter combat, click the =InitiativeView= collapse
+arrow, and the initiative list folds to a title bar, expanding the visible
+battlefield. Clicking the arrow again restores it.
+
+
+* W0 — Camera2D introduction & panning
+
+** W0-0  Structural prerequisites (scene tree + CanvasLayer)
+
+These changes are pure scene-tree restructuring; no GDScript logic changes
+except the =set_origin_offset()= re-implementation.
+
+*Add Camera2D to the scene.*
+
+Add a =Camera2D= node named =GameCamera= as a child of the scene's world layer
+(the same parent as =HexGridView=, not a child of =HexGridView= itself). Enable
+it (=current = true=). Give it =position_smoothing_enabled = false= (no lag on
+pan input).
+
+*CanvasLayer for UI panels.*
+
+Wrap =StatusPanelView=, =InitiativeView=, and =EventLogView= in a =CanvasLayer=
+node (=layer = 1=, or higher) so they render in screen space and are unaffected
+by =GameCamera= movement. Without this, panning the camera drags the panels
+with the world.
+
+The =@onready= references in =MainScene.gd= (currently lines 141–143) must be
+updated to the new node paths inside the =CanvasLayer=. All existing panel
+logic is unchanged; the =CanvasLayer= is a transparent wrapper.
+
+*Refactor =HexGridView= draw calls to world coordinates.*
+
+Currently every draw call in =_draw()= adds =_origin_offset= to position tiles,
+tokens, overlays, and rings. With Camera2D, =HexGridView= draws at world
+coordinates (hex =(0,0)= draws at world pixel =(0,0)=); the camera handles the
+view transform. Remove the =_origin_offset= addition from all =_draw()= draw
+calls.
+
+The =_origin_offset= field itself may be retained internally, but it must no
+longer participate in draw-call math.
+
+*Re-implement =set_origin_offset()= to position the camera.*
+
+#+BEGIN_SRC gdscript
+## Centres the camera on the given world-space offset.
+## Replaces the old draw-origin approach; callers are unchanged.
+func set_origin_offset(offset: Vector2) -> void:
+    _origin_offset = offset                ## preserve field for any internal use
+    if _camera != null:
+        _camera.position = -offset         ## camera looks at the map centre
+#+END_SRC
+
+Where =_camera= is a typed reference set in =_ready()=:
+
+#+BEGIN_SRC gdscript
+@onready var _camera: Camera2D = $"../GameCamera"   ## path adjusted to actual scene tree
+#+END_SRC
+
+*Refactor hit-tests to use =get_global_mouse_position()=.*
+
+Every place that currently computes the hex under the mouse by subtracting
+=_origin_offset= from raw viewport mouse coordinates must be replaced by:
+
+#+BEGIN_SRC gdscript
+var world_pos: Vector2 = get_global_mouse_position()
+var hex: HexCoord = pixel_to_axial(world_pos)
+#+END_SRC
+
+=get_global_mouse_position()= is Camera2D-aware: it returns the world-space
+position under the cursor, automatically accounting for the current camera
+transform including pan and (future) zoom.
+
+TESTS — no new test file; update =tests/unit/presentation/test_hex_grid_view.gd=:
+- Calling =set_origin_offset(Vector2(100, 50))= sets =_camera.position= to
+  =Vector2(-100, -50)= (camera moves opposite to centre the map).
+- =_draw()= does not add =_origin_offset= to any draw-call coordinate (verify
+  by confirming the field is not referenced inside =_draw()= after the refactor;
+  a structural assertion or code-review check is sufficient — no runtime test
+  needed for this invariant).
+- Hit-test: a mouse position of =(0, 0)= in world space maps to hex =(0, 0)=
+  without any offset subtraction in the call site (the subtraction is gone).
+
+
+** W0-1  Drag-to-pan (middle-mouse)
+
+Extend =presentation/hex_grid_view.gd= (or add input handling to the node that
+owns =GameCamera=; prefer =HexGridView= for locality since it already handles
+=_input()=).
+
+#+BEGIN_SRC gdscript
+var _drag_panning: bool = false
+
+func _input(event: InputEvent) -> void:
+    if event is InputEventMouseButton:
+        if event.button_index == MOUSE_BUTTON_MIDDLE:
+            _drag_panning = event.pressed
+            if event.pressed:
+                get_viewport().set_input_as_handled()
+
+    elif event is InputEventMouseMotion and _drag_panning:
+        _camera.position -= event.relative   ## drag moves camera opposite to mouse
+        get_viewport().set_input_as_handled()
+#+END_SRC
+
+Suppress =hex_clicked= and =hex_hovered= emission while =_drag_panning= is true.
+Left-click behaviour is unaffected (left-click never sets =_drag_panning=).
+
+TESTS (=tests/unit/presentation/test_hex_grid_view_pan.gd=):
+- Middle-mouse press sets =_drag_panning = true=; release sets it =false=.
+- A motion event while =_drag_panning= decrements =_camera.position= by
+  =event.relative= (camera moves opposite to mouse direction).
+- A motion event while NOT =_drag_panning= does not change =_camera.position=.
+- =hex_clicked= is NOT emitted while =_drag_panning= is true.
+- =hex_clicked= IS emitted on a left-click with =_drag_panning = false=.
+- Middle-mouse drag does not change =_origin_offset= (centering seam preserved).
+
+
+** W0-2  Keyboard pan (WASD + arrow keys)
+
+Add =_process()= to =HexGridView= (or the Camera2D's owner node).
+
+#+BEGIN_SRC gdscript
+const PAN_SPEED: float = 300.0   ## pixels per second
+
+func _process(delta: float) -> void:
+    var dir := Vector2.ZERO
+    if Input.is_action_pressed("ui_right") or Input.is_key_pressed(KEY_D):
+        dir.x += 1.0
+    if Input.is_action_pressed("ui_left")  or Input.is_key_pressed(KEY_A):
+        dir.x -= 1.0
+    if Input.is_action_pressed("ui_down")  or Input.is_key_pressed(KEY_S):
+        dir.y += 1.0
+    if Input.is_action_pressed("ui_up")    or Input.is_key_pressed(KEY_W):
+        dir.y -= 1.0
+    if dir != Vector2.ZERO:
+        _camera.position += dir.normalized() * PAN_SPEED * delta
+#+END_SRC
+
+Arrow keys use Godot's built-in =ui_up= / =ui_down= / =ui_left= / =ui_right= actions
+(already in =project.godot=). WASD uses =is_key_pressed= directly; no new
+InputMap entries are required.
+
+*Arrow key / UI focus conflict.* If a =Control= node currently holds keyboard
+focus (=get_viewport().gui_get_focus_owner() != null=), let arrow key events
+pass through unhandled — do not call =set_input_as_handled()= for arrow keys
+when a text field or button has focus.
+
+TESTS:
+- =_process(0.1)= with =KEY_D= held increases =_camera.position.x= by
+  =PAN_SPEED * 0.1= (±float epsilon).
+- Diagonal input (=KEY_W= + =KEY_D=) moves at =PAN_SPEED=, not =PAN_SPEED * sqrt(2)=
+  (direction is normalised before scaling).
+- No key held → =_camera.position= unchanged across a =_process= frame.
+- When a Control node has focus, arrow key input does NOT move the camera.
+
+
+* W1 — Collapsible combat panels
+
+The three panels =StatusPanelView=, =InitiativeView=, and =EventLogView= (now
+children of the =CanvasLayer= added in W0-0) each gain an identical collapse
+mechanism. The approach is the same for all three.
+
+** W1-1  Shared collapse contract
+
+Each panel view script gains:
+
+#+BEGIN_SRC gdscript
+var _collapsed: bool = false
+
+## Toggles collapsed state. Collapsed: content hidden, panel shrinks to header.
+func toggle_collapsed() -> void:
+    _collapsed = !_collapsed
+    _apply_collapsed_state()
+
+func _apply_collapsed_state() -> void:
+    $Content.visible = not _collapsed
+    $Header/CollapseButton.text = "▼" if _collapsed else "▲"
+    if get_parent() != null:
+        get_parent().queue_sort()
+#+END_SRC
+
+Each panel's =.tscn= is restructured as:
+
+#+BEGIN_EXAMPLE
+Panel (root Control)
+  ├── Header (HBoxContainer, always visible)
+  │     ├── TitleLabel (Label)
+  │     └── CollapseButton (Button, text "▲" expanded / "▼" collapsed)
+  └── Content (VBoxContainer or ScrollContainer — existing panel content)
+#+END_EXAMPLE
+
+=CollapseButton.pressed= is connected to =toggle_collapsed()=. The panel root
+must have =size_flags_vertical = SIZE_SHRINK_BEGIN= (or equivalent anchor +
+grow-direction) so collapsing =Content= shrinks the panel toward its anchor
+edge rather than leaving a gap.
+
+*Per-panel anchor direction:*
+- =InitiativeView=: anchored top-right; collapses downward (shrinks from bottom).
+- =StatusPanelView=: anchored bottom or bottom-right; collapses upward.
+- =EventLogView=: anchored bottom-left or bottom; collapses upward.
+
+Collapsed state is NOT persisted across reloads or sessions. Panels always boot
+expanded. Persistence is deferred.
+
+TESTS (=tests/unit/presentation/test_collapsible_panel.gd= — run against each
+panel class):
+- =toggle_collapsed()= on an expanded panel sets =_collapsed = true= and
+  =$Content.visible = false=.
+- =toggle_collapsed()= a second time sets =_collapsed = false= and
+  =$Content.visible = true=.
+- =$Header/CollapseButton.text= is ="▼"= when collapsed, ="▲"= when expanded.
+- Calling =toggle_collapsed()= with no parent does not crash (guard on
+  =queue_sort()=).
+- Panel boots with =_collapsed = false= and =$Content.visible = true=.
+
+
+** W1-2  MainScene integration
+
+=MainScene.gd= requires only path updates to the panel =@onready= vars to
+account for the =CanvasLayer= wrapper added in W0-0. No other =MainScene= logic
+changes. The collapse button is wired inside each panel's own scene.
+
+If =MainScene= currently hides panels via =panel.visible = false= during
+exploration (e.g. =initiative_view.visible = false=), that behaviour is
+preserved. Hiding the whole node is orthogonal to internal collapse state.
+
+
+* Out of scope for this iteration
+
+- Party member click-to-select. Deferred to Iteration X.
+- Group movement. Deferred (noted in Iteration X follow-on).
+- Camera zoom. Camera2D's =zoom= property is the extension point; no
+  implementation in this iteration.
+- Pan bounds / clamping. =GameCamera.position= is unclamped; the player can
+  pan past the authored hex area. Clamping deferred until large authored maps
+  provide meaningful limits (set =Camera2D.limit_*= properties then).
+- Camera follow (centring on selected party member during exploration, or
+  centring on active combatant during combat). The Camera2D position API is
+  the extension point; no follow logic in this iteration.
+- Free-floating or detachable windows. Panels anchor to screen edges; no
+  drag-to-reposition.
+- Persistent panel layout state.
+- Panel resize by edge-drag. Toggle-collapse only.
+- Isometric rendering. Camera2D is compatible with the 2D isometric path
+  (change =axial_to_pixel= basis vectors; camera requires no changes).
+
+
+* Follow-on
+
+- Iteration X: Party member click-to-select (click token → set
+  =selected_party_member_id=; selection ring on =HexGridView=).
+- Pan bounds: set =GameCamera.limit_left/right/top/bottom= once authored maps
+  have known extents.
+- Scroll-wheel zoom: =GameCamera.zoom += scroll_delta * ZOOM_STEP= with min/max
+  clamp; =get_global_mouse_position()= in hit-tests already handles zoom
+  correctly because Camera2D accounts for it.
+- Camera follow: =GameCamera.position= lerp toward active combatant's world
+  pixel during combat; smooth pan to selected party member on selection change.
+- Panel resize: drag handle on each panel edge to set custom height.
+- Persistent panel layout: collapse state + heights in =CurrentGameState= or a
+  UI prefs resource.

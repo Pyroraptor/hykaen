@@ -16,6 +16,10 @@ script = ExtResource("1_mainscene")
 
 [node name="HexGridView" parent="." instance=ExtResource("2_hexgrid")]
 
+[node name="GameCamera" type="Camera2D" parent="."]
+current = true
+position_smoothing_enabled = false
+
 [node name="StatusPanelView" parent="." instance=ExtResource("3_statuspanel")]
 
 [node name="InitiativeView" parent="." instance=ExtResource("4_initiativeview")]
