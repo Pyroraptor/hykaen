@@ -32,7 +32,10 @@ extends GutTest
 ##      pathfinder is wired too (i.e. they are never handed a 4th argument at
 ##      all — ADR-003 reflection dispatch).
 ##   4. Fallback to the direct [origin, best_destination] path when
-##      _stride_pathfinder_fn is unwired or returns a size < 2 Array.
+##      _stride_pathfinder_fn is UNWIRED. When wired but returns size < 2
+##      (no route found), the Stride is ABORTED (no action taken) — falling
+##      back to a straight-line path that bypasses blocking hexes would
+##      produce a visual pass-through of opponent tokens.
 ##   5. The returned AI decision Dictionary always includes a "path" key
 ##      (the real path, or the 2-element fallback) whenever a Stride branch
 ##      outcome is produced.
@@ -264,7 +267,7 @@ func _single_hex_pathfinder(origin, _destination) -> Array:
 	return [origin]
 
 
-func test_fallback_path_when_pathfinder_seam_returns_empty_array() -> void:
+func test_wired_pathfinder_returning_empty_array_aborts_stride() -> void:
 	var ai = AIClass.new()
 	ai.set_stride_pathfinder_fn(Callable(self, "_empty_pathfinder"))
 
@@ -277,15 +280,21 @@ func test_fallback_path_when_pathfinder_seam_returns_empty_array() -> void:
 
 	var result: Dictionary = await ai.decide_action(combatant, [target], action_economy, [])
 
-	assert_eq(result.get("action_type", ""), "Stride")
-	var destination = result.get("destination", null)
 	assert_eq(
-		_hex_pairs(result.get("path", [])), [[origin_hex.q, origin_hex.r], [destination.q, destination.r]],
-		"a pathfinder seam reporting an empty (unreachable) result must fall back to the direct [origin, best_destination] path"
+		result.get("action_type", ""), "",
+		"a wired pathfinder reporting an empty (unreachable) result must ABORT the stride, not fall back to a straight-line path that bypasses blocking hexes"
+	)
+	assert_null(
+		result.get("destination", null),
+		"no destination must be committed when the wired pathfinder returns no route"
+	)
+	assert_true(
+		combatant["hex_coord"].equals(origin_hex),
+		"the combatant must NOT be repositioned when the pathfinder aborts the stride"
 	)
 
 
-func test_fallback_path_when_pathfinder_seam_returns_single_element_array() -> void:
+func test_wired_pathfinder_returning_single_element_array_aborts_stride() -> void:
 	var ai = AIClass.new()
 	ai.set_stride_pathfinder_fn(Callable(self, "_single_hex_pathfinder"))
 
@@ -298,11 +307,17 @@ func test_fallback_path_when_pathfinder_seam_returns_single_element_array() -> v
 
 	var result: Dictionary = await ai.decide_action(combatant, [target], action_economy, [])
 
-	assert_eq(result.get("action_type", ""), "Stride")
-	var destination = result.get("destination", null)
 	assert_eq(
-		_hex_pairs(result.get("path", [])), [[origin_hex.q, origin_hex.r], [destination.q, destination.r]],
-		"a pathfinder seam reporting a size-1 (trivial/invalid) result must fall back to the direct [origin, best_destination] path"
+		result.get("action_type", ""), "",
+		"a wired pathfinder reporting a size-1 (trivial/degenerate) result must ABORT the stride, not use a straight-line fallback"
+	)
+	assert_null(
+		result.get("destination", null),
+		"no destination must be committed when the wired pathfinder returns a degenerate path"
+	)
+	assert_true(
+		combatant["hex_coord"].equals(origin_hex),
+		"the combatant must NOT be repositioned when the degenerate pathfinder aborts the stride"
 	)
 
 

@@ -387,17 +387,22 @@ func _stride_toward_target(
 
 	# US-004 (FR-004, NFR-001/NFR-003, ADR-003): compute the transit path this
 	# Stride will travel via the OPTIONAL injected `_stride_pathfinder_fn`
-	# seam — see that field's own doc. Any invalid/short result (the seam
-	# unwired, or a real pathfinder reporting "no path"/a trivial single-hex
-	# path, size < 2) falls back to the direct two-hex path
-	# [origin, best_destination] — this fallback IS the seam's error contract
-	# (never an exception/crash), guaranteeing `stride_path` is always a
-	# genuine, non-degenerate ordered hex sequence for the decision's own
-	# "path" key below.
+	# seam — see that field's own doc.
+	# When the seam is UNWIRED: fall back to [origin, best_destination] (legacy
+	# callers never wired a pathfinder; this preserves their contract).
+	# When the seam IS WIRED but returns size < 2 (empty "no route" or trivial
+	# single-hex result): ABORT the Stride. A wired pathfinder reporting no
+	# route means no valid path exists that avoids blocking hexes (e.g. enemy
+	# faction-aware blocking). Falling back to a straight-line path in that
+	# case would bypass the passability constraints and produce a token
+	# animation that visually passes through blocking combatant hexes.
 	var stride_path: Array = []
 	if _stride_pathfinder_fn.is_valid():
 		stride_path = _stride_pathfinder_fn.call(origin, best_destination)
-	if stride_path.size() < 2:
+		if stride_path.size() < 2:
+			push_warning("AI._stride_toward_target: wired pathfinder returned no route; aborting stride")
+			return {"action_type": "", "target": null, "destination": null, "will_strike": false}
+	else:
 		stride_path = [origin, best_destination]
 
 	# iteration K FEAT-006 (US-006): open an OpportunisticStrike reaction
