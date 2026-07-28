@@ -366,3 +366,61 @@ func test_combat_is_passable_opposing_occupant_on_difficult_terrain_still_blocks
 		is_passable.call(contested_hex),
 		"an opposing occupant blocks regardless of the tile's difficult flag"
 	)
+
+
+## Enemy-mover (mover_is_enemy=true) symmetric tests:
+## a player combatant's hex must be impassable for an enemy mover.
+
+func test_combat_is_passable_enemy_mover_blocked_by_player_hex() -> void:
+	var player_hex = HexCoordClass.new(0, 0)
+	var encounter = _make_encounter([])
+	var player := _make_combatant("player_0", player_hex, false)
+	var all_combatants: Array = [player]
+
+	var is_passable: Callable = EncounterTileAdapterClass.make_combat_is_passable(
+		encounter, all_combatants, "", true
+	)
+
+	assert_false(
+		is_passable.call(player_hex),
+		"an enemy mover must be blocked by a player-occupied hex (mover_is_enemy=true)"
+	)
+
+
+func test_combat_is_passable_enemy_mover_not_blocked_by_own_enemy_hex() -> void:
+	var enemy_hex = HexCoordClass.new(2, 0)
+	var encounter = _make_encounter([])
+	var other_enemy := _make_combatant("enemy_1", enemy_hex, true)
+	var all_combatants: Array = [other_enemy]
+
+	var is_passable: Callable = EncounterTileAdapterClass.make_combat_is_passable(
+		encounter, all_combatants, "", true
+	)
+
+	assert_true(
+		is_passable.call(enemy_hex),
+		"an enemy mover must NOT be blocked by a hex occupied by another enemy (same faction)"
+	)
+
+
+func test_combat_is_passable_enemy_mover_live_position_blocking() -> void:
+	# Regression guard: the closure reads combatant.hex_coord live at call time,
+	# so move_to() on a Combatant instance after the closure is created must
+	# affect which hexes are blocked.
+	var initial_hex = HexCoordClass.new(0, 0)
+	var moved_hex   = HexCoordClass.new(3, 0)
+	var encounter = _make_encounter([])
+	var player := _make_combatant("player_0", initial_hex, false)
+	var all_combatants: Array = [player]
+
+	var is_passable: Callable = EncounterTileAdapterClass.make_combat_is_passable(
+		encounter, all_combatants, "", true
+	)
+
+	assert_false(is_passable.call(initial_hex), "player hex (0,0) must be blocked before move_to()")
+	assert_true(is_passable.call(moved_hex),    "(3,0) must be passable before player moves there")
+
+	player.move_to(moved_hex)
+
+	assert_true(is_passable.call(initial_hex),  "(0,0) must be passable after player moves away")
+	assert_false(is_passable.call(moved_hex),   "player hex (3,0) must be blocked after move_to()")
