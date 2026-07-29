@@ -253,8 +253,17 @@ func boot(hex_combatants: Array) -> void:
 				# preview works out of the box without a caller having to
 				# select a party member explicitly. Never overwrites an
 				# already-set selection (e.g. one assigned before boot()).
+				# FEAT-002 (US-003 / FR-005, ADR-002): routed through
+				# _select_party_member() rather than assigning
+				# `selected_party_member_id` directly -- this boot-time
+				# auto-select is the single call site that previously wrote
+				# to `selected_party_member_id` outside the helper, and is
+				# now the same single authorized write path every other
+				# selection call site (_on_exploration_hex_clicked, a future
+				# active-actor-changed handler) uses -- see
+				# _select_party_member()'s own doc below.
 				if selected_party_member_id == "":
-					selected_party_member_id = party_hex_combatant.combatant_id
+					_select_party_member(party_hex_combatant.combatant_id)
 
 	exploration_controller = ExplorationControllerClass.new(scenario_session)
 
@@ -318,6 +327,32 @@ func boot(hex_combatants: Array) -> void:
 	if _hex_grid_view != null:
 		if not _hex_grid_view.hex_hovered.is_connected(_on_hex_hovered):
 			_hex_grid_view.hex_hovered.connect(_on_hex_hovered)
+
+
+## _select_party_member(id) -> void — FEAT-002 (US-003 / FR-005, ADR-002):
+## the SINGLE authorized write path for selection state (mitigates RISK-003
+## at its source, per this feature's own design notes). Every call site that
+## needs to change which party member is selected -- boot()'s own initial
+## auto-select above, _on_exploration_hex_clicked()'s select-vs-move branch
+## (a future feature per the X1-0 iteration plan), and a future active-actor-
+## changed handler (X3-0) -- MUST route through this helper rather than
+## assigning `selected_party_member_id` directly, so the two backing caches
+## (this controller's own `selected_party_member_id` field and
+## HexGridView's own `_selected_combatant_id`, set via
+## set_selected_combatant()) can never desync.
+##
+## Sets `selected_party_member_id = id` (the "" sentinel clears selection,
+## ADR-003, mirrors HexGridView.set_selected_combatant()'s own contract) and,
+## if `_hex_grid_view != null` (defensive null-check, mirrors this file's
+## established guard-clause convention -- a controller with no hex_grid_view
+## wired, e.g. an isolated unit test, degrades to a state-only update rather
+## than crashing), calls `_hex_grid_view.set_selected_combatant(id)` so the
+## ring-render cache is updated in the SAME call, never a separate step a
+## caller could forget.
+func _select_party_member(id: String) -> void:
+	selected_party_member_id = id
+	if _hex_grid_view != null:
+		_hex_grid_view.set_selected_combatant(id)
 
 
 ## load_encounter_from_scenario(scenario, encounter_id, seed) -> bool —
