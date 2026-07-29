@@ -137,6 +137,16 @@ const NO_TERRAIN_FILL_COLOR: Color = Color(0.0, 0.0, 0.0, 0.0)
 ## remains that source; this view only reads/derives from it, ADR-001).
 const SELECTABLE_HEX_FILL_COLOR: Color = Color(0.35, 0.75, 0.35, 0.35)
 
+## FEAT-004 (US-003 / FR-003, NFR-004): visual parameters for the selection
+## ring drawn around the currently-selected combatant's token (see
+## _draw_selection_ring() below). Values pinned verbatim from the design
+## notes -- the single source of truth both _draw_selection_ring() and this
+## feature's tests read from, so rendering and test assertions can never
+## drift out of sync (mirrors PATH_OVERLAY_WIDTH's established convention).
+const SELECTION_RING_RADIUS: float = HEX_SIZE * 0.65
+const SELECTION_RING_WIDTH: float = 3.0
+const SELECTION_RING_COLOR: Color = Color(1.0, 1.0, 1.0, 0.9)
+
 ## combatant_id (String) -> CombatantTokenView, populated by load_combatants().
 var _tokens: Dictionary = {}
 
@@ -338,6 +348,7 @@ func _draw() -> void:
 			if is_hex_in_grid_bounds(coord):
 				_draw_hex_cell(coord)
 	_draw_path_overlay()
+	_draw_selection_ring()
 
 
 ## _draw_path_overlay() → void — FEAT-005 / US-005: draws a
@@ -965,6 +976,49 @@ func set_selected_combatant(id: String) -> void:
 ## accessor — no side effects, no error states (API contract).
 func get_selected_combatant() -> String:
 	return _selected_combatant_id
+
+
+## should_draw_selection_ring() → bool — FEAT-004 (US-003 / FR-003,
+## NFR-004, mitigates RISK-004): the guard condition _draw_selection_ring()
+## consults before issuing a single draw_arc() call. True only when there IS
+## a current selection (`_selected_combatant_id` non-empty) AND that id
+## still resolves to a live entry in `_tokens` -- RISK-004: a selected
+## combatant can despawn/die mid-encounter without this view ever being told
+## to clear its selection (set_selected_combatant() accepts, and
+## get_selected_combatant() keeps reporting, an id absent from `_tokens` per
+## its own documented "stored anyway" contract), so the ring pass must
+## independently re-check token presence at DRAW time rather than trusting
+## the stored id alone.
+##
+## Exposed as a public test/inspection hook (mirroring
+## is_hex_in_grid_bounds()'s established convention) specifically so this
+## guard is directly unit-testable without depending on a real _draw()
+## dispatch or a queue_redraw()-based behavioral proof -- there is no public
+## hook to intercept/count actual draw_arc() calls made from inside the
+## engine's real _draw() dispatch (see test_hex_grid_view_selection.gd's
+## file-level doc for why), so "ring-draw is skipped" is proven here via this
+## guard returning false, and "draw path reached" via this guard returning
+## true.
+func should_draw_selection_ring() -> bool:
+	return _selected_combatant_id != "" and _tokens.has(_selected_combatant_id)
+
+
+## _draw_selection_ring() → void — FEAT-004 (US-003 / FR-003, NFR-004,
+## mitigates RISK-004): draws a SELECTION_RING_WIDTH-px ring of
+## SELECTION_RING_COLOR and radius SELECTION_RING_RADIUS around the
+## currently-selected combatant's token, centered on that token's hex (via
+## axial_to_pixel(), the SAME PURE world-space transform every other drawing
+## path on this view uses -- ADR-003). Fully guarded by
+## should_draw_selection_ring() above: a no-op (issues zero draw_arc() calls)
+## whenever there is no current selection OR the selected id's token is no
+## longer present in `_tokens` (e.g. despawned/killed mid-encounter,
+## RISK-004) -- never an index/null error either way.
+func _draw_selection_ring() -> void:
+	if not should_draw_selection_ring():
+		return
+	var token = _tokens[_selected_combatant_id]
+	var center: Vector2 = axial_to_pixel(token.hex_coord)
+	draw_arc(center, SELECTION_RING_RADIUS, 0.0, TAU, 64, SELECTION_RING_COLOR, SELECTION_RING_WIDTH)
 
 
 ## get_token(combatant_id) → CombatantTokenView or null — test/inspection helper.
