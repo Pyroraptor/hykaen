@@ -1,6 +1,19 @@
 #!/usr/bin/env bash
 # scripts/verify_clean_tree.sh — FEAT-293 (US-011, US-012; resolves
-# PR-003, PR-004, PR-008, PR-009)
+# PR-003, PR-004, PR-008, PR-009); FEAT-360 (resolves DEF-VER-001)
+#
+# FEAT-360 note: this gate's own logic is unchanged — it has always
+# failed loud on ANY pending change, tracked or untracked (see the
+# `git status --porcelain` call below). Peer review finding DEF-VER-001
+# caught this gate correctly hard-failing because a DIFFERENT script —
+# tests/integration/test_def001_gate_evidence.py's `captured_evidence_log`
+# fixture — was rewriting a log file at a git-TRACKED path
+# (tests/integration/fixtures/def001_gate_captured_output.log) on every
+# real run. The fix moved that log to a dedicated, git-ignored
+# `.test-output/` directory (see .gitignore and that fixture's own doc
+# comment) so THIS gate now has nothing left to catch there — proof this
+# script was never the source of the drift, only the (correctly firing)
+# detector of it. See tests/ci/test_def001_gate_log_gitignore_feat360.py.
 #
 # Deployment review could not independently confirm the automated
 # pipeline actually left the working tree clean after a full run — that

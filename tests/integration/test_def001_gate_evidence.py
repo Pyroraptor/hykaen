@@ -32,9 +32,18 @@ captured, committed artifact proving it. This suite closes that gap with
 REAL, non-mocked subprocess invocations of both `python -m pytest -q
 --tb=short` and `godot --headless --path <repo_root> -- --gut-run-all`,
 parses their real output, and writes the raw captured stdout/stderr to a
-committed log artifact (tests/integration/fixtures/
-def001_gate_captured_output.log) so a future reviewer can `grep`
-first-party evidence instead of trusting a commit message.
+gitignored log artifact (.test-output/def001_gate_captured_output.log; see
+FEAT-360/DEF-VER-001 below) so a future reviewer can `grep` first-party
+evidence instead of trusting a commit message.
+
+FEAT-360 (resolves DEF-VER-001): the captured-evidence log used to be
+written to a git-TRACKED path (tests/integration/fixtures/
+def001_gate_captured_output.log) and regenerated on every real run of
+this suite, which left the working tree dirty after every gate run. It
+now writes to .test-output/ instead -- a dedicated, root-anchored,
+git-ignored directory (see .gitignore) -- so the "first-party, greppable
+evidence" property is unchanged but re-running the gate never dirties the
+tree. See tests/ci/test_def001_gate_log_gitignore_feat360.py.
 
 ── FEAT-350: from hardcoded literals to a manifest-driven policy ──
 
@@ -557,7 +566,16 @@ class TestAcceptedKnownFailuresManifestLoading:
 # accepted.
 _GUT_MAX_ATTEMPTS = 3
 
-CAPTURED_EVIDENCE_LOG_PATH = FIXTURES_DIR / "def001_gate_captured_output.log"
+# FEAT-360 (resolves DEF-VER-001): this log used to live at
+# FIXTURES_DIR / "def001_gate_captured_output.log" -- a git-TRACKED path
+# -- and was rewritten on every real run of this suite, leaving the
+# working tree dirty after every gate run (peer review finding
+# DEF-VER-001; see .gitignore's matching FEAT-360 comment and
+# tests/ci/test_def001_gate_log_gitignore_feat360.py). It now resolves to
+# a dedicated, root-anchored, git-ignored `.test-output/` directory
+# instead, so re-running the gate regenerates an ordinary ignored file
+# rather than dirtying tests/integration/fixtures/.
+CAPTURED_EVIDENCE_LOG_PATH = REPO_ROOT / ".test-output" / "def001_gate_captured_output.log"
 
 # Assertion failure messages below embed a TAIL of raw subprocess output
 # (never the full blob -- this suite already writes the complete raw
@@ -710,9 +728,11 @@ def real_gut_run(godot_bin, repo_root, accepted_known_failures) -> subprocess.Co
 @pytest.fixture(scope="module")
 def captured_evidence_log(real_pytest_run, real_gut_run) -> Path:
     """Writes the RAW captured stdout+stderr of both real subprocess
-    invocations above to a committed log artifact (test_criteria #4) --
-    first-party, greppable evidence a future reviewer can inspect directly,
-    rather than relying on commit-message narration (the exact DEF-001
+    invocations above to a gitignored log artifact (test_criteria #4;
+    FEAT-360/DEF-VER-001: no longer a committed path, see
+    CAPTURED_EVIDENCE_LOG_PATH's own doc comment above) -- first-party,
+    greppable evidence a future reviewer can inspect directly, rather than
+    relying on commit-message narration (the exact DEF-001
     audit gap this feature closes)."""
     sections = [
         "=" * 78,
@@ -731,6 +751,7 @@ def captured_evidence_log(real_pytest_run, real_gut_run) -> Path:
         real_gut_run.stdout + real_gut_run.stderr,
         "",
     ]
+    CAPTURED_EVIDENCE_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     CAPTURED_EVIDENCE_LOG_PATH.write_text("\n".join(sections))
     return CAPTURED_EVIDENCE_LOG_PATH
 

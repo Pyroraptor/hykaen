@@ -25,6 +25,28 @@ __pycache__/
 *.pyc
 .pytest_cache/
 
+# FEAT-360 (resolves DEF-VER-001): def001_gate_captured_output.log is a
+# GENERATED artifact -- tests/integration/test_def001_gate_evidence.py's
+# `captured_evidence_log` fixture rewrites it on EVERY real run of that
+# suite (raw stdout/stderr from both the nested `pytest` run and the real
+# `godot ... --gut-run-all` run), and it used to live at the git-TRACKED
+# tests/integration/fixtures/def001_gate_captured_output.log path. That
+# meant every run of the DEF-001 gate suite left the working tree dirty --
+# exactly the class of regression scripts/verify_clean_tree.sh's
+# clean_tree_gate exists to catch (peer review finding DEF-VER-001).
+#
+# The fix mirrors FEAT-292's sim_results.json precedent below: the log is
+# now written to a dedicated, root-anchored, git-ignored `.test-output/`
+# directory instead of the tracked fixtures/ path (see
+# tests/integration/test_def001_gate_evidence.py's
+# CAPTURED_EVIDENCE_LOG_PATH), and the old tracked copy has been removed
+# from the git index (`git rm`). Root-anchored and scoped to its own
+# directory name so it can never shadow tests/integration/fixtures/'s
+# other, legitimately committed fixtures (gut_output_known_good.txt,
+# gut_output_regressed.txt, baseline_out_of_scope_hashes.json) -- see
+# tests/ci/test_def001_gate_log_gitignore_feat360.py.
+/.test-output/
+
 # FEAT-292 (resolves PR-001/PR-002): sim_results.json is a GENERATED
 # artifact — tests/sim/test_balance_sim.gd (core/sim/simulator.gd's N=1000
 # balance regression) rewrites res://sim_results.json on every single test
