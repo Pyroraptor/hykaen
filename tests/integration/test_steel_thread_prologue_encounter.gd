@@ -127,7 +127,19 @@ func _boot_main_scene():
 	add_child_autofree(instance)
 	await get_tree().process_frame
 
-	instance._on_combat_triggered("prologue")
+	# Pre-existing, out-of-scope UI-timing flake (see commit ef34ccc,
+	# "fix(FEAT-344): make the real-invocation gate robust to a pre-existing
+	# UI-timing flake"): a bare, un-awaited `_on_combat_triggered()` call only
+	# STARTS the coroutine -- it suspends at its own internal
+	# `await rewire_session()` and resumes on a later frame. The two
+	# `await get_tree().process_frame` calls below were a guess at "enough
+	# frames" for that resumption to land, which occasionally reads
+	# initiative_view.get_row_count()/status_panel_view population before the
+	# coroutine genuinely finishes under load. Awaiting the call itself
+	# suspends THIS coroutine until `_on_combat_triggered()` (including its
+	# own internal awaits) has fully completed, closing the race
+	# deterministically rather than guessing a frame count.
+	await instance._on_combat_triggered("prologue")
 	await get_tree().process_frame
 	await get_tree().process_frame
 
@@ -167,7 +179,10 @@ func _boot_main_scene_with_seed(seed_value: int):
 	add_child_autofree(instance)
 	await get_tree().process_frame
 
-	instance._on_combat_triggered("prologue")
+	# See _boot_main_scene()'s identical doc immediately above -- awaiting the
+	# call itself (rather than guessing a frame count) closes the same
+	# pre-existing, out-of-scope UI-timing flake deterministically.
+	await instance._on_combat_triggered("prologue")
 	await get_tree().process_frame
 	await get_tree().process_frame
 
