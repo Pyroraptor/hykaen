@@ -32,10 +32,10 @@ layer = 1
 [node name="TurnController" type="Node" parent="."]
 script = ExtResource("7_turncontroller")
 
-[node name="EndTurnControl" parent="." instance=ExtResource("8_endturncontrol")]
+[node name="EndTurnControl" parent="UILayer" instance=ExtResource("8_endturncontrol")]
 
-[node name="VerbBarView" parent="." instance=ExtResource("11_verbbarview")]
+[node name="VerbBarView" parent="UILayer" instance=ExtResource("11_verbbarview")]
 
-[node name="ResultScreenView" parent="." instance=ExtResource("9_resultscreenview")]
+[node name="ResultScreenView" parent="UILayer" instance=ExtResource("9_resultscreenview")]
 
-[node name="ReactionPromptUI" parent="." instance=ExtResource("12_reactionpromptui")]
+[node name="ReactionPromptUI" parent="UILayer" instance=ExtResource("12_reactionpromptui")]

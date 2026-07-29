@@ -143,10 +143,10 @@ var outcome: String = ""
 @onready var initiative_view     = $UILayer/InitiativeView
 @onready var event_log_view      = $UILayer/EventLogView
 @onready var turn_controller     = $TurnController
-@onready var end_turn_control    = $EndTurnControl
-@onready var verb_bar_view       = $VerbBarView
-@onready var reaction_prompt_ui  = $ReactionPromptUI
-@onready var result_screen_view  = $ResultScreenView
+@onready var end_turn_control    = $UILayer/EndTurnControl
+@onready var verb_bar_view       = $UILayer/VerbBarView
+@onready var reaction_prompt_ui  = $UILayer/ReactionPromptUI
+@onready var result_screen_view  = $UILayer/ResultScreenView
 
 var movement_input_controller = MovementInputControllerClass.new()
 

@@ -490,7 +490,7 @@ func test_main_scene_wires_a_real_reaction_prompt_ui_and_player_reaction_chooser
 	var instance = _boot_main_scene()
 	await get_tree().process_frame
 
-	assert_not_null(instance.get_node_or_null("ReactionPromptUI"), "MainScene must wire a ReactionPromptUI child node")
+	assert_not_null(instance.get_node_or_null("UILayer/ReactionPromptUI"), "MainScene must wire a ReactionPromptUI child node under UILayer")
 	assert_true(is_instance_of(instance.reaction_prompt_ui, ReactionPromptUIClass))
 	assert_true(is_instance_of(instance.player_reaction_chooser, PlayerReactionChooserClass))
 	assert_true(is_instance_of(instance.reaction_window, ReactionWindowClass))

@@ -94,25 +94,24 @@ const _COMPOSITION_ROOT_SCRIPT_PATH: String = "res://MainScene.gd"
 const _EXPECTED_CHILDREN: Dictionary = {
 	"HexGridView":         HexGridViewClass,
 	"TurnController":      TurnControllerClass,
-	"EndTurnControl":      EndTurnControlClass,
-	"VerbBarView":         VerbBarViewClass,
-	"ResultScreenView":    ResultScreenViewClass,
-	"ReactionPromptUI":    ReactionPromptUIClass,
 }
 
 ## _UI_LAYER_NODE_NAME / _EXPECTED_UI_LAYER_CHILDREN -- FEAT-007 (US-002 /
 ## FR-002, ADR-002, Iteration W "Camera Panning & Collapsible Panels"):
-## StatusPanelView, InitiativeView, and EventLogView were reparented off
-## MainScene directly and now live under a $UILayer CanvasLayer (layer >= 1)
-## so they render in screen space, unaffected by GameCamera's world-space
-## transform. They are no longer direct children of MainScene -- verified
-## separately here, as children of UILayer, rather than via the top-level
-## _EXPECTED_CHILDREN dict.
+## StatusPanelView, InitiativeView, EventLogView, EndTurnControl, VerbBarView,
+## ResultScreenView, and ReactionPromptUI all live under a $UILayer CanvasLayer
+## (layer >= 1) so they render in screen space, unaffected by GameCamera's
+## world-space transform. None of these are direct children of MainScene
+## anymore -- verified separately here, as children of UILayer.
 const _UI_LAYER_NODE_NAME: String = "UILayer"
 const _EXPECTED_UI_LAYER_CHILDREN: Dictionary = {
 	"StatusPanelView": StatusPanelViewClass,
 	"InitiativeView":  InitiativeViewClass,
 	"EventLogView":    EventLogViewClass,
+	"EndTurnControl":  EndTurnControlClass,
+	"VerbBarView":     VerbBarViewClass,
+	"ResultScreenView": ResultScreenViewClass,
+	"ReactionPromptUI": ReactionPromptUIClass,
 }
 
 ## _SPELL_PICKER_PANEL_NAME -- the spell-picker Panel node added by
