@@ -1,0 +1,128 @@
+#+TITLE: Iteration X — Party Member Selection
+#+SPRINT: 32
+#+VERSION: 0.2.1
+
+* Goal
+
+Click a party member's token on the hex grid to select them.  The selected
+member gets a visual ring on the grid, their row is highlighted in the status
+panel, and subsequent hex clicks move THEM.  In combat, the active player
+actor is auto-selected when their turn begins.
+
+* Background
+
+=ExplorationModeController.selected_party_member_id= already exists and is
+auto-set to the first party member at boot.  Clicking any hex currently moves
+whoever is selected — there is no way to switch party members and no visual
+feedback for which one is active.
+
+Camera2D + UILayer landed in Iteration W (sprint 31).  HexGridView already
+draws selectable-hex highlights via =set_selectable_hexes()= / =_draw()=; the
+same draw path gains a selection ring here.
+
+* Non-goals
+
+- Camera follow (pan to selected member) — deferred to Iteration Y.
+- Group movement orders — deferred.
+- In-combat party-member switching (only the active actor matters in combat).
+- Isometric rendering.
+
+* Features
+
+** X0 — Prerequisites (no behaviour change, all guarded by unit tests)
+
+*** X0-0  =HexGridView.get_combatant_id_at_hex(hex_coord)= → String
+- Iterates =_tokens=; returns the =combatant_id= of the first token whose
+  =hex_coord= equals the argument; returns ="" if none.
+- Test: load two tokens at distinct hexes; assert correct id returned for
+  each; assert ="" for an empty hex.
+
+*** X0-1  =HexGridView._selected_combatant_id= + =set_selected_combatant(id)=
+- Adds =var _selected_combatant_id: String = ""=.
+- =set_selected_combatant(id: String) -> void= stores the id and calls
+  =queue_redraw()=.  Passing ="" clears the ring.
+- =get_selected_combatant() -> String= read-accessor for tests.
+- Test: set → read back; set "" → read back "".
+
+*** X0-2  Selection ring in =HexGridView._draw()=
+- After all existing draw passes, if =_selected_combatant_id != ""= and the
+  token exists in =_tokens=: look up the token's =hex_coord=, compute
+  =axial_to_pixel_with_offset()= for its centre, draw a white circle outline
+  (=draw_arc()=, radius = =HEX_SIZE * 0.65=, width = 3 px, full 2π).
+- Colour: =Color(1, 1, 1, 0.9)= so it contrasts on both light and dark tokens.
+- Test (headless draw): set a token + set_selected_combatant → assert
+  =get_selected_combatant()= returns the id (the visual is not
+  assertion-testable headlessly, but the state is).
+
+** X1 — Click-to-select in exploration mode
+
+*** X1-0  =ExplorationModeController._on_exploration_hex_clicked= — select vs move
+- Before pathfinding, call =_hex_grid_view.get_combatant_id_at_hex(hex_coord)=.
+- If the result is a non-empty id AND that id is present in
+  =scenario_session.party_hex_positions= (i.e. it is a PARTY member, not an
+  enemy token) AND it differs from the current =selected_party_member_id=:
+  call =_select_party_member(id)= and return (do not move).
+- Otherwise fall through to the existing pathfinding/move path.
+- Test: two party members on adjacent hexes; click the non-selected one →
+  =selected_party_member_id= changes, no move issued; click an empty hex →
+  move issued, selection unchanged.
+
+*** X1-1  =ExplorationModeController._select_party_member(id)= helper
+- Sets =selected_party_member_id = id=.
+- Calls =_hex_grid_view.set_selected_combatant(id)= if =_hex_grid_view !=
+  null=.
+- Replace the existing ad-hoc assignments of =selected_party_member_id= with
+  calls to this helper (boot auto-select, any other sites).
+- Test: calling helper sets both =selected_party_member_id= and the
+  hex_grid_view's =get_selected_combatant()=.
+
+** X2 — Status panel selection highlight
+
+*** X2-0  =StatusPanelView.set_selected_combatant(combatant_id: String)= → void
+- Stores =_selected_combatant_id=.
+- Re-modulates every label: selected row gets =Color(1.0, 0.9, 0.4)= (gold),
+  all others get =Color(1, 1, 1, 1)= (default white).  No-op for unknown ids.
+- =get_selected_combatant_id() -> String= read-accessor for tests.
+- Test: load two rows; call set_selected_combatant(A) → label A modulate is
+  gold, label B is white; call set_selected_combatant("") → both white.
+
+*** X2-1  Wire exploration selection → status panel (MainScene)
+- In =MainScene._ready()= (or its =_exploration.setup()= wiring block): after
+  =_exploration.boot()= resolves the initial =selected_party_member_id=, call
+  =status_panel_view.set_selected_combatant(_exploration.selected_party_member_id)=.
+- Add a =Callable= dep to =ExplorationModeController.setup()=:
+  ="on_selection_changed": Callable= — called with the new id whenever
+  =_select_party_member()= runs.  MainScene passes
+  =Callable(status_panel_view, "set_selected_combatant")=.
+- Test (integration): boot + enter combat triggers → end turn once →
+  status_panel_view.get_selected_combatant_id() returns a non-empty id.
+
+** X3 — Auto-select active actor in combat
+
+*** X3-0  =MainScene._on_active_actor_changed= → ring + status panel
+- When =active_actor_changed(actor)= fires, check if =actor.combatant_id= is
+  in =_party= (by id comparison).
+- If yes: call =hex_grid_view.set_selected_combatant(actor.combatant_id)= and
+  =status_panel_view.set_selected_combatant(actor.combatant_id)=.
+- If no (enemy turn): leave both as-is (enemy token gets no ring; last
+  player selection persists visually).
+- Test (boot-real): boot prologue → enter combat → assert that after the
+  first =active_actor_changed= signal fires for a player actor, the status
+  panel's =get_selected_combatant_id()= equals that actor's id.
+
+* Acceptance criteria
+
+1. Clicking a party member token in exploration mode changes
+   =selected_party_member_id= and draws a white ring on that token; clicking
+   an empty hex still moves the selected member.
+2. On player turn start in combat the ring and status-panel highlight both
+   shift to the active actor automatically.
+3. GUT gate passes (≥ 3026 passing, 0 failing, exit 0).
+
+* Follow-on (out of scope for X)
+
+- Camera follow: lerp =GameCamera.position= toward selected combatant on
+  selection change.
+- Ring persistence across mode switch (exploration → combat → exploration).
+- Pan-bounds: set =GameCamera.limit_*= from authored map extents.
+- Scroll-wheel zoom.
