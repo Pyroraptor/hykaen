@@ -127,7 +127,7 @@ var _collapsed: bool = false
 var _expanded_position: Vector2 = Vector2.ZERO
 var _expanded_size: Vector2 = Vector2.ZERO
 
-@onready var _rows_container: VBoxContainer = $Content
+@onready var _rows_container: VBoxContainer = $Content/Rows
 
 
 ## BUGFIX (post-iteration-E): this read-only projection panel is a full-width
@@ -574,10 +574,23 @@ func _append_entry(round_number: int, text: String, attack_event_id: String = ""
 	var label := Label.new()
 	label.name = "Entry_%d" % sequence_number
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.autowrap_mode = 3
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	label.text = text
 	if _rows_container != null:
 		_rows_container.add_child(label)
 	_labels.append(label)
+	call_deferred("_scroll_to_bottom")
+
+
+## _scroll_to_bottom() → void — scrolls $Content (ScrollContainer) to the
+## bottom so the newest entry is always visible. Called deferred after each
+## append so Godot has a frame to measure the new child's size first.
+func _scroll_to_bottom() -> void:
+	var scroll: ScrollContainer = $Content
+	if scroll == null:
+		return
+	scroll.scroll_vertical = scroll.get_v_scroll_bar().max_value
 
 
 ## _event_has(event, key) → bool — true iff `event` (a Dictionary or an

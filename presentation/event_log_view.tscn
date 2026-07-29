@@ -32,10 +32,14 @@ text = "Event Log"
 layout_mode = 2
 text = "▲"
 
-[node name="Content" type="VBoxContainer" parent="."]
+[node name="Content" type="ScrollContainer" parent="."]
 layout_mode = 2
 offset_top = 28.0
 offset_right = 1024.0
 offset_bottom = 312.0
+
+[node name="Rows" type="VBoxContainer" parent="Content"]
+layout_mode = 2
+size_flags_horizontal = 3
 
 [connection signal="pressed" from="Header/CollapseButton" to="." method="toggle_collapsed"]

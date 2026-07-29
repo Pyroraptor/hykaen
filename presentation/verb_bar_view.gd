@@ -125,7 +125,7 @@ var _verb_ids: Array = []
 ## across any later configure()/refresh_availability() call.
 var _locked: bool = false
 
-@onready var _buttons_container: HBoxContainer = $ButtonsContainer
+@onready var _buttons_container: VBoxContainer = $ButtonsContainer
 
 
 ## configure(registry) -> void — injects the CURRENT registry and rebuilds

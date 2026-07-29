@@ -433,6 +433,7 @@ func _create_or_update_label(combatant_id: String) -> void:
 		label = Label.new()
 		label.name = "Row_%s" % combatant_id
 		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		label.autowrap_mode = 3
 		if _rows_container != null:
 			_rows_container.add_child(label)
 		_labels[combatant_id] = label
