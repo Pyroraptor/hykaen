@@ -81,6 +81,16 @@ var _id_by_name: Dictionary = {}
 ## this Control so the panel is visible when run inside the game.
 var _labels: Dictionary = {}
 
+## FEAT-003 (US-004 / FR-006, ISelectionHighlighter port): combatant_id of
+## the row most recently GOLD-highlighted via a successful
+## set_selected_combatant() call ("" = no selection). Mutated ONLY by
+## set_selected_combatant() below — see that method's doc for the
+## guarded-no-op contract on unknown ids.
+var _selected_combatant_id: String = ""
+
+const _SELECTED_MODULATE: Color = Color(1.0, 0.9, 0.4)
+const _UNSELECTED_MODULATE: Color = Color(1, 1, 1, 1)
+
 ## FEAT-009 (US-008 / FR-008, ADR-004, Contract 4): whether this panel is
 ## currently collapsed to just its Header title bar. Always false at boot
 ## (collapsed state is never persisted, per the design notes -- panels
@@ -286,6 +296,48 @@ func get_row_text(combatant_id: String) -> String:
 	return label.text if label != null else ""
 
 
+## get_row_modulate(combatant_id) → Color — the current modulate Color of
+## this combatant's row Label, for selection-highlighting assertions
+## (FEAT-003 / US-004). An unknown combatant_id (no Label loaded) returns
+## the default unselected white Color(1, 1, 1, 1).
+func get_row_modulate(combatant_id: String) -> Color:
+	var label: Label = _labels.get(combatant_id, null)
+	return label.modulate if label != null else _UNSELECTED_MODULATE
+
+
+## set_selected_combatant(combatant_id) → void — FEAT-003 (US-005 / FR-006):
+## StatusHighlightPort. Re-modulates every currently-loaded row: the row
+## whose combatant_id matches `combatant_id` turns gold
+## Color(1.0, 0.9, 0.4); every other row turns white Color(1, 1, 1, 1).
+##
+## TRUE guarded no-op for an unknown id (a non-empty combatant_id with no
+## matching loaded row): NOTHING is mutated -- `_selected_combatant_id` is
+## left UNCHANGED and every row's modulate is left exactly as it was before
+## the call (per the feature's explicit contract: "row modulate states and
+## get_selected_combatant_id() are unchanged from before the call"). No
+## exception is raised either way.
+##
+## combatant_id == "" is always a successful selection (it clears the
+## highlight): _selected_combatant_id is set to "" and every row falls back
+## to white, matching HexGridView's set_selected_combatant("") "clear
+## selection" contract (FEAT-001/FEAT-002).
+func set_selected_combatant(combatant_id: String) -> void:
+	if combatant_id != "" and not _rows.has(combatant_id):
+		return
+
+	_selected_combatant_id = combatant_id
+	_apply_row_modulation(_selected_combatant_id)
+
+
+## get_selected_combatant_id() → String — the combatant_id most recently
+## supplied to a SUCCESSFUL set_selected_combatant() call ("" if never
+## called, after set_selected_combatant("") clears it, or at boot). An
+## unknown-id call never updates this value (see set_selected_combatant()'s
+## guarded-no-op doc above).
+func get_selected_combatant_id() -> String:
+	return _selected_combatant_id
+
+
 ## on_round_event(event) → void — dispatch entry point for typed round
 ## events (ADR-003). `event` is duck-typed: any RefCounted value object from
 ## core/rules/round_events.gd, or a plain Dictionary. Recognizes an
@@ -413,6 +465,17 @@ func on_verb_action_budget_changed(actor_id: String, remaining: int, spent: bool
 
 
 # ── Internal helpers ─────────────────────────────────────────────────────
+
+## _apply_row_modulation(gold_id) → void — re-modulates every currently
+## loaded row Label: `gold_id`'s row (if it has one) turns gold, every
+## other row turns white. `gold_id` == "" (no match possible) simply
+## resets every row to white -- the shared implementation for both the
+## "clear selection" and "unknown id" paths of set_selected_combatant().
+func _apply_row_modulation(gold_id: String) -> void:
+	for combatant_id in _labels.keys():
+		var label: Label = _labels[combatant_id]
+		label.modulate = _SELECTED_MODULATE if combatant_id == gold_id else _UNSELECTED_MODULATE
+
 
 func _default_for_field(field: String):
 	match field:
