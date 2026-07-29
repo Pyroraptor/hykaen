@@ -384,7 +384,7 @@ func _ready() -> void:
 	spell_picker_panel.offset_right  = 110
 	spell_picker_panel.offset_top    = -220
 	spell_picker_panel.offset_bottom = -100
-	add_child(spell_picker_panel)
+	$UILayer.add_child(spell_picker_panel)
 	_spell_picker.setup(spell_picker_panel)
 	selection_overlay.selection_cancelled.connect(func(_v): _spell_picker.hide())
 

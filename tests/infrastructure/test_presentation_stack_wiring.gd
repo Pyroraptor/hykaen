@@ -114,21 +114,20 @@ const _EXPECTED_UI_LAYER_CHILDREN: Dictionary = {
 	"ReactionPromptUI": ReactionPromptUIClass,
 }
 
-## _SPELL_PICKER_PANEL_NAME -- the spell-picker Panel node added by
-## _setup_spell_picker_panel() in MainScene._ready(). It's a built-in Panel
-## node (no preloaded GDScript class), so it is verified separately rather
-## than via the const _EXPECTED_CHILDREN dict (GDScript 4 const dicts cannot
-## hold built-in class references as values).
+## _SPELL_PICKER_PANEL_NAME -- the spell-picker Panel node added dynamically
+## in MainScene._ready() as a child of $UILayer (screen-space, Camera2D-safe).
+## Built-in Panel node (no preloaded GDScript class), verified separately from
+## _EXPECTED_UI_LAYER_CHILDREN (GDScript 4 const dicts cannot hold built-in
+## class references as values).
 const _SPELL_PICKER_PANEL_NAME: String = "SpellPickerPanel"
 
 ## _GAME_CAMERA_NODE_NAME -- FEAT-001 (US-001 / FR-001, ADR-001, Iteration W
 ## "Camera Panning & Collapsible Panels"): GameCamera, a Camera2D node added
 ## as a sibling of HexGridView directly on MainScene.tscn -- the
-## infrastructure foundation the camera-panning steel thread builds on. Like
-## SpellPickerPanel above, it's a built-in Camera2D node (no preloaded
-## GDScript class), so it is verified separately rather than via the const
-## _EXPECTED_CHILDREN dict (GDScript 4 const dicts cannot hold built-in class
-## references as values).
+## infrastructure foundation the camera-panning steel thread builds on. It's a
+## built-in Camera2D node (no preloaded GDScript class), so it is verified
+## separately rather than via the const _EXPECTED_CHILDREN dict (GDScript 4
+## const dicts cannot hold built-in class references as values).
 const _GAME_CAMERA_NODE_NAME: String = "GameCamera"
 
 
@@ -235,18 +234,6 @@ func test_mainscene_children_are_exactly_the_expected_presentation_stack() -> vo
 			"MainScene must have a child node named '%s' (FEAT-002 kept presentation/* stack)" % expected_name
 		)
 
-	# SpellPickerPanel is a built-in Panel node verified separately (see
-	# _SPELL_PICKER_PANEL_NAME doc above for why it's not in _EXPECTED_CHILDREN).
-	assert_true(
-		actual_names_by_node.has(_SPELL_PICKER_PANEL_NAME),
-		"MainScene must have a '%s' child (spell picker UI, added by _setup_spell_picker_panel())" % _SPELL_PICKER_PANEL_NAME
-	)
-	if actual_names_by_node.has(_SPELL_PICKER_PANEL_NAME):
-		assert_true(
-			actual_names_by_node[_SPELL_PICKER_PANEL_NAME] is Panel,
-			"'%s' must be a Panel node" % _SPELL_PICKER_PANEL_NAME
-		)
-
 	# GameCamera is a built-in Camera2D node verified separately (see
 	# _GAME_CAMERA_NODE_NAME doc above for why it's not in _EXPECTED_CHILDREN).
 	assert_true(
@@ -288,20 +275,33 @@ func test_mainscene_children_are_exactly_the_expected_presentation_stack() -> vo
 					"'%s' child '%s' must be an instance of its expected presentation/* class" % [_UI_LAYER_NODE_NAME, expected_name]
 				)
 
+		# SpellPickerPanel is a built-in Panel node added dynamically to UILayer
+		# (not a typed presentation/* class), so it is verified separately rather
+		# than via _EXPECTED_UI_LAYER_CHILDREN.
+		assert_true(
+			ui_layer_children_by_name.has(_SPELL_PICKER_PANEL_NAME),
+			"'%s' must have a '%s' child (spell picker UI must be in UILayer for Camera2D-safe screen-space anchoring)" % [_UI_LAYER_NODE_NAME, _SPELL_PICKER_PANEL_NAME]
+		)
+		if ui_layer_children_by_name.has(_SPELL_PICKER_PANEL_NAME):
+			assert_true(
+				ui_layer_children_by_name[_SPELL_PICKER_PANEL_NAME] is Panel,
+				"'%s/%s' must be a Panel node" % [_UI_LAYER_NODE_NAME, _SPELL_PICKER_PANEL_NAME]
+			)
+
 		assert_eq(
-			ui_layer.get_children().size(), _EXPECTED_UI_LAYER_CHILDREN.size(),
-			"'%s' must have EXACTLY the expected panel child set, no more no less; found children: %s"
+			ui_layer.get_children().size(), _EXPECTED_UI_LAYER_CHILDREN.size() + 1,
+			"'%s' must have EXACTLY the expected panel child set plus SpellPickerPanel, no more no less; found children: %s"
 			% [_UI_LAYER_NODE_NAME, ui_layer_children_by_name.keys()]
 		)
 
 	assert_eq(
-		actual_children.size(), _EXPECTED_CHILDREN.size() + 3,
-		"MainScene must have EXACTLY the expected presentation/* child set plus SpellPickerPanel, GameCamera, and UILayer, no more no less; found children: %s"
+		actual_children.size(), _EXPECTED_CHILDREN.size() + 2,
+		"MainScene must have EXACTLY the expected presentation/* child set plus GameCamera and UILayer, no more no less; found children: %s"
 		% [actual_names_by_node.keys()]
 	)
 
 	for child_name in actual_names_by_node.keys():
-		if child_name == _SPELL_PICKER_PANEL_NAME or child_name == _GAME_CAMERA_NODE_NAME or child_name == _UI_LAYER_NODE_NAME:
+		if child_name == _GAME_CAMERA_NODE_NAME or child_name == _UI_LAYER_NODE_NAME:
 			continue  # verified separately above
 		var expected_class = _EXPECTED_CHILDREN.get(child_name, null)
 		assert_not_null(expected_class, "unexpected child node '%s' present on MainScene -- only the FEAT-002 presentation/* set may be wired" % child_name)
@@ -582,7 +582,6 @@ func test_headless_boot_still_succeeds_after_presentation_stack_rewiring() -> vo
 
 	for expected_name in _EXPECTED_CHILDREN.keys():
 		assert_not_null(instance.get_node_or_null(expected_name), "MainScene must still resolve child node '%s' after headless boot" % expected_name)
-	assert_not_null(instance.get_node_or_null(_SPELL_PICKER_PANEL_NAME), "MainScene must still resolve child node '%s' after headless boot" % _SPELL_PICKER_PANEL_NAME)
 	assert_not_null(instance.get_node_or_null(_GAME_CAMERA_NODE_NAME), "MainScene must still resolve child node '%s' after headless boot" % _GAME_CAMERA_NODE_NAME)
 
 	# FEAT-007 (Iteration W CanvasLayer migration): StatusPanelView/
@@ -596,3 +595,7 @@ func test_headless_boot_still_succeeds_after_presentation_stack_rewiring() -> vo
 				ui_layer.get_node_or_null(expected_name),
 				"'%s' must still resolve child node '%s' after headless boot" % [_UI_LAYER_NODE_NAME, expected_name]
 			)
+		assert_not_null(
+			ui_layer.get_node_or_null(_SPELL_PICKER_PANEL_NAME),
+			"'%s' must still resolve child node '%s' after headless boot (spell picker must be in UILayer for Camera2D-safe screen-space anchoring)" % [_UI_LAYER_NODE_NAME, _SPELL_PICKER_PANEL_NAME]
+		)
