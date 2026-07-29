@@ -905,6 +905,68 @@ func animate_token_to(combatant_id: String, target_hex) -> Signal:
 	return tween.finished
 
 
+## get_combatant_id_at_hex(hex_coord) → String — FEAT-001 (US-001):
+## ITokenLookup port implementation (design notes). Pure data-layer
+## primitive: scans `_tokens` (a Dictionary(combatant_id -> CombatantTokenView)
+## populated by load_combatants()/add_combatants(), in insertion order --
+## Godot Dictionaries preserve insertion order, so this scan's "first match"
+## below is deterministic, not an unspecified/arbitrary tie-break) and
+## returns the combatant_id of the first token whose own `hex_coord` (value
+## equality via HexCoord.equals(), never object identity) matches the
+## queried `hex_coord`.
+##
+## No rendering/selection side effect of any kind -- this method never calls
+## queue_redraw() and never mutates any selection state; it is a read-only
+## lookup, nothing more.
+##
+## Error case (API contract): no match -- including when `_tokens` is
+## entirely empty -- returns "" (never null, never throws), matching this
+## view's established sentinel-value convention (see get_token_count()'s/
+## get_path_overlay()'s own docs).
+func get_combatant_id_at_hex(hex_coord) -> String:
+	for combatant_id in _tokens:
+		var token = _tokens[combatant_id]
+		if token != null and token.hex_coord != null and token.hex_coord.equals(hex_coord):
+			return combatant_id
+	return ""
+
+
+## FEAT-001 (US-001 / FR-001, FR-002, ADR-003): the currently-selected
+## combatant's id, mutated ONLY via set_selected_combatant() below — the
+## empty string is the canonical "no selection" sentinel (ADR-003), never
+## null. Defaults to "" (no selection at boot). This view caches its OWN
+## copy of the logical, session-wide SelectionState (design notes' "single
+## logical attribute, one authorized writer, multiple synchronized read
+## caches") — SelectPartyMemberUseCase (a later feature in this steel
+## thread) is the write-through path that keeps this copy and its siblings
+## (e.g. StatusPanelView's own _selected_combatant_id) in sync; this view
+## itself performs no cross-adapter synchronization of its own.
+var _selected_combatant_id: String = ""
+
+
+## set_selected_combatant(id) → void — FEAT-001 (US-001 / FR-001, FR-002,
+## ADR-003): SelectionRenderPort implementation (design notes). Stores `id`
+## as the currently-selected combatant and queues a redraw so a later draw
+## pass (e.g. a subsequent feature's selection-ring rendering) picks up the
+## change. Always succeeds — no error path (API contract): "" clears the
+## current selection, and an id absent from `_tokens` is accepted here too
+## (this is a pure data-layer primitive; per this feature's design notes,
+## rendering guards on token existence at draw time, not here — a soft
+## no-visible-effect, never a hard error). Never mutates `_tokens` or any
+## other state.
+func set_selected_combatant(id: String) -> void:
+	_selected_combatant_id = id
+	queue_redraw()
+
+
+## get_selected_combatant() → String — FEAT-001 (US-001 / FR-001, FR-002):
+## the combatant_id most recently supplied to set_selected_combatant() (""
+## if never called, or after set_selected_combatant("") clears it). Pure
+## accessor — no side effects, no error states (API contract).
+func get_selected_combatant() -> String:
+	return _selected_combatant_id
+
+
 ## get_token(combatant_id) → CombatantTokenView or null — test/inspection helper.
 func get_token(combatant_id: String):
 	return _tokens.get(combatant_id, null)
