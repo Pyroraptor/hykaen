@@ -375,15 +375,15 @@ func _ready() -> void:
 	var spell_picker_panel := Panel.new()
 	spell_picker_panel.name = "SpellPickerPanel"
 	spell_picker_panel.visible = false
-	spell_picker_panel.custom_minimum_size = Vector2(220, 40)
-	spell_picker_panel.anchor_left   = 0.5
-	spell_picker_panel.anchor_right  = 0.5
-	spell_picker_panel.anchor_top    = 1.0
-	spell_picker_panel.anchor_bottom = 1.0
-	spell_picker_panel.offset_left   = -110
-	spell_picker_panel.offset_right  = 110
-	spell_picker_panel.offset_top    = -220
-	spell_picker_panel.offset_bottom = -100
+	spell_picker_panel.custom_minimum_size = Vector2(180, 40)
+	spell_picker_panel.anchor_left   = 0.0
+	spell_picker_panel.anchor_right  = 0.0
+	spell_picker_panel.anchor_top    = 0.0
+	spell_picker_panel.anchor_bottom = 0.0
+	spell_picker_panel.offset_left   = 156
+	spell_picker_panel.offset_right  = 336
+	spell_picker_panel.offset_top    = 8
+	spell_picker_panel.offset_bottom = 208
 	$UILayer.add_child(spell_picker_panel)
 	_spell_picker.setup(spell_picker_panel)
 	selection_overlay.selection_cancelled.connect(func(_v): _spell_picker.hide())
