@@ -169,6 +169,20 @@ var _booted: bool = false
 ## (e.g. an isolated unit test with no StatusPanelView double at all).
 var _on_selection_changed_target: Callable = Callable()
 
+## FEAT-006 (US-004 / FR-006, ADR-002, mitigates RISK-007): the camera-follow
+## Callable the composition root (MainScene.gd) binds to its own GameCamera
+## adapter (typically Callable(_game_camera, "move_to")) so every selection
+## made via _select_party_member() below also pans the camera to the newly-
+## selected party member's token. Defaults to an invalid/unbound Callable
+## (setup()'s own "every key optional, no crash on a partially-configured
+## setup()" convention, see setup()'s own doc) — _select_party_member()'s own
+## `.is_valid()` guard below degrades this to a silent no-op (no throw)
+## whenever no caller has wired it, so exploration selection keeps working
+## unchanged even when no camera adapter is present (e.g. an isolated unit
+## test with no GameCamera double at all) — this is the explicit backward-
+## compatibility contract this feature's own regression test proves.
+var _on_camera_follow_target: Callable = Callable()
+
 ## FEAT-007 (US-007 / FR-009): the party member whose hex the hover-preview
 ## path is computed FROM. Defaults empty ("no selection" -- hover is a
 ## no-op); boot() defaults this to the FIRST hex_combatants entry seeded
@@ -230,12 +244,27 @@ const HOVER_PREVIEW_COLOR: Color = Color(1.0, 1.0, 1.0, 0.6)
 ##                             (Callable()) when absent; _select_party_member()
 ##                             degrades gracefully (skips the call, never
 ##                             throws) whenever it is invalid.
+##   "on_camera_follow"     — FEAT-006 (US-004, ADR-002): Callable invoked
+##                             (via _select_party_member(), see its own doc)
+##                             with the newly-selected party member's world
+##                             position (Vector2, from hex_grid_view.
+##                             axial_to_pixel_with_offset()) every time
+##                             selection changes. The composition root's
+##                             "internal API" contract boundary to the camera
+##                             adapter — typically Callable(_game_camera,
+##                             "move_to"). Left unbound (Callable()) when
+##                             absent; _select_party_member() degrades
+##                             gracefully (skips the call, never throws)
+##                             whenever it is invalid — explicit backward-
+##                             compatibility contract (RISK-007), proven by
+##                             this feature's own regression test.
 func setup(deps: Dictionary) -> void:
 	_hex_grid_view = deps.get("hex_grid_view", null)
 	_scenario_path = deps.get("scenario_path", "")
 	_on_hex_clicked_target = deps.get("on_hex_clicked", Callable())
 	_on_combat_triggered_target = deps.get("on_combat_triggered", Callable())
 	_on_selection_changed_target = deps.get("on_selection_changed", Callable())
+	_on_camera_follow_target = deps.get("on_camera_follow", Callable())
 
 
 ## boot(hex_combatants) -> void — constructs scenario_session/
@@ -385,12 +414,34 @@ func boot(hex_combatants: Array) -> void:
 ## cache. Degrades gracefully (skips the call, never throws) whenever
 ## `_on_selection_changed_target` is unbound/invalid -- exploration
 ## selection still fully functions; only the status-panel mirror is absent.
+##
+## FEAT-006 (US-004, ADR-002, mitigates RISK-007): AFTER the above, if
+## `_on_camera_follow_target` is valid AND this controller can resolve `id`'s
+## current hex (`_hex_grid_view != null`, `scenario_session != null`, and
+## `scenario_session.party_hex_positions` has an entry for `id`), invokes
+## `_on_camera_follow_target.call(world_pos)` with `world_pos` computed via
+## `_hex_grid_view.axial_to_pixel_with_offset(hex_coord)` -- the SAME
+## offset-aware conversion HexGridView itself uses to render that token, so
+## the camera pans to exactly where the token is drawn. Degrades gracefully
+## (skips the call, never throws) whenever the Callable is unbound/invalid
+## or `id`'s hex cannot be resolved (e.g. an isolated unit test with no
+## hex_grid_view/scenario_session wired at all) -- explicit backward-
+## compatibility contract proven by this feature's own regression test.
 func _select_party_member(id: String) -> void:
 	selected_party_member_id = id
 	if _hex_grid_view != null:
 		_hex_grid_view.set_selected_combatant(id)
 	if _on_selection_changed_target.is_valid():
 		_on_selection_changed_target.call(id)
+	if (
+		_on_camera_follow_target.is_valid()
+		and _hex_grid_view != null
+		and scenario_session != null
+		and scenario_session.party_hex_positions.has(id)
+	):
+		var hex_coord = scenario_session.party_hex_positions[id]
+		var world_pos: Vector2 = _hex_grid_view.axial_to_pixel_with_offset(hex_coord)
+		_on_camera_follow_target.call(world_pos)
 
 
 ## load_encounter_from_scenario(scenario, encounter_id, seed) -> bool —

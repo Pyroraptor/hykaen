@@ -139,6 +139,7 @@ var round_history_port
 var outcome: String = ""
 
 @onready var hex_grid_view       = $HexGridView
+@onready var _game_camera        = $GameCamera  # FEAT-006 (US-004, ADR-002): camera adapter for on_camera_follow
 ## FEAT-007: panels moved under $UILayer CanvasLayer (screen-space, ADR-002).
 @onready var status_panel_view   = $UILayer/StatusPanelView
 @onready var initiative_view     = $UILayer/InitiativeView
@@ -232,6 +233,7 @@ func _ready() -> void:
 		"on_hex_clicked": _exploration_hex_clicked_callable(),
 		"on_combat_triggered": Callable(self, "_on_combat_triggered"),
 		"on_selection_changed": Callable(status_panel_view, "set_selected_combatant") if status_panel_view != null else Callable(),
+		"on_camera_follow": Callable(_game_camera, "move_to") if _game_camera != null else Callable(),  # FEAT-006 (US-004)
 	})
 	_exploration.boot(hex_combatants)
 	resolved_seed = SeedPolicyClass.resolve_from_environment(seed_override, int(Time.get_ticks_usec()))
@@ -459,10 +461,8 @@ func _on_combat_triggered(encounter_id: String) -> void:
 		verb_bar_view.configure(_verb_registry)
 	selection_overlay.configure(_verb_registry, hex_grid_view)
 
-
 func _exploration_hex_clicked_callable() -> Callable:
 	return Callable(_exploration, "_on_exploration_hex_clicked")
-
 
 ## Delegates to _exploration.load_encounter_from_scenario(); copies party/enemies/encounter back.
 func load_encounter_from_scenario(scenario, encounter_id: String) -> bool:
