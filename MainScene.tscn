@@ -1,4 +1,4 @@
-[gd_scene load_steps=11 format=3 uid="uid://dydrmopo707d7"]
+[gd_scene load_steps=12 format=3 uid="uid://dydrmopo707d7"]
 
 [ext_resource type="Script" path="res://MainScene.gd" id="1_mainscene"]
 [ext_resource type="PackedScene" path="res://presentation/hex_grid_view.tscn" id="2_hexgrid"]
@@ -10,6 +10,7 @@
 [ext_resource type="PackedScene" path="res://presentation/result_screen_view.tscn" id="9_resultscreenview"]
 [ext_resource type="PackedScene" path="res://presentation/verb_bar_view.tscn" id="11_verbbarview"]
 [ext_resource type="PackedScene" path="res://scenes/ui/reaction_prompt_ui.tscn" id="12_reactionpromptui"]
+[ext_resource type="Script" path="res://presentation/game_camera.gd" id="13_gamecamera"]
 
 [node name="MainScene" type="Node"]
 script = ExtResource("1_mainscene")
@@ -19,6 +20,7 @@ script = ExtResource("1_mainscene")
 [node name="GameCamera" type="Camera2D" parent="."]
 current = true
 position_smoothing_enabled = false
+script = ExtResource("13_gamecamera")
 
 [node name="UILayer" type="CanvasLayer" parent="."]
 layer = 1
