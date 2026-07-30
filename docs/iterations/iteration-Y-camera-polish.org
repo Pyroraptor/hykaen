@@ -1,0 +1,129 @@
+#+TITLE: Iteration Y — Camera Polish
+#+SPRINT: 33
+#+VERSION: 0.2.2
+
+* Goal
+
+The Camera2D (added Iteration W) is functional but static: it does not
+follow the player and the player cannot zoom.  This iteration makes the camera
+feel like a real game camera:
+
+1. It smoothly pans to the selected party member (exploration) or active actor
+   (combat) when selection changes.
+2. It stays inside the map — the camera cannot drift into empty void beyond
+   the scenario's hex extents.
+3. Scroll-wheel adjusts zoom (clamped to a sensible range).
+
+* Background
+
+=GameCamera= (=presentation/game_camera.gd=, added Iteration W) is a =Camera2D=
+node inside =MainScene.tscn=.  Currently it has no =limit_*= constraints, no
+zoom logic, and nothing moves it after boot.
+
+Iteration X added =ExplorationModeController._select_party_member()= (which
+fires an =on_selection_changed= Callable) and wired =MainScene._on_active_actor_changed=.
+Both are natural hook points for camera follow.
+
+Token world-space positions are already available: the hex grid stores token
+=hex_coord= values; =HexGridView.axial_to_pixel_with_offset()= converts them to
+world pixels that match =Camera2D= coordinates.  No new domain logic is needed.
+
+* Non-goals
+
+- Path-following / cinematic camera sweeps — deferred.
+- Isometric projection — deferred.
+- Per-encounter authored camera start position — deferred.
+- Camera follow during token movement animation — deferred to Iteration Z or
+  when animation lands; the follow fires on selection change only.
+
+* Features
+
+** Y0 — Camera follow on selection change
+
+*** Y0-0  =GameCamera.move_to(world_pos: Vector2, instant: bool = false)=
+- Public method.  If =instant=: set =position= directly.  Otherwise: store
+  =_target_pos= and start a lerp in =_process()=.
+- Lerp speed: =12.0= (units/s weight — fast enough to feel snappy, slow enough
+  to read).  Stop lerp when =position.distance_to(_target_pos) < 1.0=.
+- =is_moving() -> bool= read-accessor for tests (true while lerp is active).
+- Test: call =move_to(Vector2(100,200), true)= → =position == Vector2(100,200)=;
+  call =move_to(Vector2(0,0))= → =is_moving()= returns true immediately.
+
+*** Y0-1  Wire =_select_party_member= → camera follow (ExplorationModeController)
+- After =_hex_grid_view.set_selected_combatant(id)=, if an =_on_selection_changed=
+  Callable dep is provided, also call an =_on_camera_follow= Callable (new dep)
+  with the token's world position:
+  =_hex_grid_view.axial_to_pixel_with_offset(token.hex_coord)=.
+- Add =on_camera_follow: Callable= to =ExplorationModeController.setup()= deps
+  (nullable — no-op if not provided, so existing tests need no changes).
+- MainScene passes =Callable(_game_camera, "move_to")= for the new dep.
+- Test: call =_select_party_member(id)= with a mock hex_grid_view and a capture
+  Callable → assert the Callable was called with the correct world position.
+
+*** Y0-2  Wire =_on_active_actor_changed= → camera follow (MainScene)
+- In =MainScene._on_active_actor_changed(actor)=, after updating the selection
+  ring and status panel, look up the actor's current hex from
+  =_scenario_session.get_combatant_hex(actor.combatant_id)= (or equivalent),
+  convert with =hex_grid_view.axial_to_pixel_with_offset()=, and call
+  =_game_camera.move_to(world_pos)=.
+- If the actor's hex cannot be found (e.g. not yet placed), skip the pan.
+- Test (integration): boot → enter combat → assert =_game_camera.is_moving()=
+  returns true after =_on_active_actor_changed= fires for a player actor.
+
+** Y1 — Map bounds clamping
+
+*** Y1-0  =HexGridView.get_world_bounds() -> Rect2=
+- Iterates all tokens in =_tokens= and the selectable hexes set; computes the
+  AABB in world coordinates using =axial_to_pixel_with_offset()=.  Returns a
+  =Rect2= expanded by =HEX_SIZE * 1.5= on each side so the camera never shows
+  bare emptiness at the map edge.
+- Returns =Rect2()= (empty) if no tokens/hexes are known.
+- Test: load 3 tokens at known axial positions → assert the returned =Rect2=
+  contains all three pixel positions with margin.
+
+*** Y1-1  =GameCamera.set_bounds(rect: Rect2)=
+- Stores bounds and updates =Camera2D.limit_left/right/top/bottom= from
+  =rect=.  Calling with an empty =Rect2= clears limits (sets them to GDScript
+  ±10 000 000 defaults).
+- Also clamps =_target_pos= and =position= into the new bounds immediately.
+- Test: call =set_bounds(Rect2(0,0,500,400))= → assert all four =limit_*=
+  properties equal the rect sides.
+
+*** Y1-2  Wire bounds on scenario load (MainScene)
+- After =_scenario_session= and hex grid are initialised (in the boot/load
+  path), call =hex_grid_view.get_world_bounds()= then
+  =_game_camera.set_bounds(bounds)=.
+- Also re-apply whenever the selectable hex set changes (in combat mode when
+  movement hexes are highlighted — call again after =set_selectable_hexes()=).
+- Test (integration / infrastructure): boot with seed → assert
+  =_game_camera.limit_left < _game_camera.limit_right= (bounds are not
+  infinite defaults).
+
+** Y2 — Scroll-wheel zoom
+
+*** Y2-0  =GameCamera= scroll-wheel input handler
+- Override =_unhandled_input(event)= in =game_camera.gd=.
+- On =InputEventMouseButton= with =MOUSE_BUTTON_WHEEL_UP= / =WHEEL_DOWN=:
+  adjust =zoom= by ±=Vector2(0.1, 0.1)=, clamped to =[Vector2(0.5,0.5),
+  Vector2(2.0,2.0)]=.
+- Consume the event (=get_viewport().set_input_as_handled()=) so the hex grid
+  does not also handle it.
+- Test: synthesise a wheel-up =InputEventMouseButton= → call
+  =_game_camera._unhandled_input(event)= → assert =zoom.x > 1.0=; repeat at
+  max → assert zoom stays clamped at =2.0=.
+
+* Acceptance criteria
+
+1. Clicking a party member token or pressing End Turn to advance to the next
+   actor causes the camera to smoothly pan toward that token.
+2. The camera cannot be panned (manually or by follow) outside the scenario's
+   hex grid extents.
+3. Scrolling the mouse wheel zooms in and out between 0.5× and 2.0×.
+4. GUT gate passes (≥ 3145 passing, 0 failing, exit 0).
+
+* Follow-on (out of scope for Y)
+
+- Camera follow during token movement animation (lerp each step).
+- Manual click-drag panning.
+- Pan-to-speaker on dialog / event log entries.
+- Per-encounter authored camera start position in =ScenarioResource=.
