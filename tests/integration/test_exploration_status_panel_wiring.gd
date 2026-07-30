@@ -26,8 +26,17 @@ extends GutTest
 ##      still completes without throwing (graceful degradation).
 ##   4. Integration test against the REAL, booted res://MainScene.tscn:
 ##      boot, enter combat, end turn once, assert
-##      status_panel_view.get_selected_combatant_id() is non-empty and
-##      matches ExplorationModeController.selected_party_member_id.
+##      status_panel_view.get_selected_combatant_id() is non-empty. NOTE
+##      (FEAT-008 / US-008, FR-008, ADR-005 supersedes this criterion's
+##      original "still matches the exploration selection" expectation):
+##      MainScene's AutoSelectActiveActorUseCase now re-mirrors BOTH
+##      hex_grid_view and status_panel_view onto whichever PARTY actor's
+##      turn is active in combat every time active_actor_changed fires --
+##      including the settle that follows an END_TURN press -- so the
+##      status panel's highlight is expected to track the new active actor
+##      (round_session.current_actor_entity()), not the stale
+##      exploration-mode selection, once combat has driven at least one
+##      turn forward.
 ##   5. MainScene correctly wires
 ##      Callable(status_panel_view, "set_selected_combatant") at boot and
 ##      the status panel's highlight matches the initial auto-selected
@@ -293,8 +302,10 @@ func test_status_panel_highlight_reflects_the_selected_row_gold_at_boot() -> voi
 
 # ══════════════════════════════════════════════════════════════════════════
 # Criterion 4 — boot, enter combat, end turn once: status_panel_view's
-# selection mirror stays in lock-step with ExplorationModeController's own
-# selected_party_member_id.
+# selection mirror stays non-empty and, per FEAT-008's
+# AutoSelectActiveActorUseCase (which supersedes this criterion's original
+# "still matches the exploration selection" expectation — see this file's
+# header doc), now tracks whichever PARTY actor's turn is active in combat.
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_status_panel_selection_matches_controller_after_entering_combat_and_ending_turn_once() -> void:
@@ -318,9 +329,16 @@ func test_status_panel_selection_matches_controller_after_entering_combat_and_en
 		instance._exploration.selected_party_member_id.is_empty(),
 		"ExplorationModeController.selected_party_member_id must still be non-empty after entering combat and ending a turn"
 	)
+
+	var active_actor = instance.round_session.current_actor_entity()
+	assert_not_null(active_actor, "fixture assumption: a live current actor must be seated after ending the first turn")
 	assert_eq(
-		instance.status_panel_view.get_selected_combatant_id(), instance._exploration.selected_party_member_id,
-		"status_panel_view's selection mirror must still match ExplorationModeController.selected_party_member_id after entering combat and ending a turn once"
+		instance.status_panel_view.get_selected_combatant_id(), active_actor.combatant_id,
+		"status_panel_view's selection mirror must track the active actor's combatant_id in combat (FEAT-008 AutoSelectActiveActorUseCase)"
+	)
+	assert_eq(
+		instance.hex_grid_view.get_selected_combatant(), instance.status_panel_view.get_selected_combatant_id(),
+		"selection consistency invariant: hex_grid_view and status_panel_view selections must be equal (FEAT-008)"
 	)
 	assert_false(
 		instance.status_panel_view.get_selected_combatant_id().is_empty(),

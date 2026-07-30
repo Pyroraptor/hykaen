@@ -16,6 +16,7 @@ const ExplorationModeControllerClass   = preload("res://presentation/exploration
 const ViewModelBuilderClass            = preload("res://presentation/view_model_builder.gd")
 const RoundSessionHolderClass          = preload("res://infrastructure/round_session_holder.gd")
 const TurnPresentationControllerClass  = preload("res://presentation/turn_presentation_controller.gd")
+const AutoSelectActiveActorUseCaseClass = preload("res://presentation/auto_select_active_actor_use_case.gd")
 const ReactionControllerClass          = preload("res://presentation/reaction_controller.gd")
 const EndTurnActionControllerClass     = preload("res://presentation/end_turn_action_controller.gd")
 const StepActionControllerClass        = preload("res://presentation/step_action_controller.gd")
@@ -757,11 +758,10 @@ func _current_enemies() -> Array:
 func _current_turn_order():
 	return encounter.get_turn_order() if encounter != null else null
 
-
-## Delegate to TurnPresentationController.
+## Delegate to TurnPresentationController + FEAT-008's AutoSelectActiveActorUseCase.
 func _on_active_actor_changed(combatant) -> void:
 	_turn_presentation().on_active_actor_changed(combatant)
-
+	AutoSelectActiveActorUseCaseClass.new(hex_grid_view, status_panel_view, Callable(self, "_current_party")).execute(combatant)
 
 ## Finish round: undecided→ROUND_NUMBER++ + rewire_session(); won→_on_combat_won().
 ## Relays to round_flow_controller.notify_round_concluded() at end.
