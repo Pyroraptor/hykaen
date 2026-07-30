@@ -758,10 +758,10 @@ func _current_enemies() -> Array:
 func _current_turn_order():
 	return encounter.get_turn_order() if encounter != null else null
 
-## Delegate to TurnPresentationController + FEAT-008's AutoSelectActiveActorUseCase.
+## Delegate to TurnPresentationController + FEAT-008/FEAT-007's use cases (AutoSelectActiveActorUseCase; CombatCameraFollowUseCase, US-005/RISK-009).
 func _on_active_actor_changed(combatant) -> void:
 	_turn_presentation().on_active_actor_changed(combatant)
-	AutoSelectActiveActorUseCaseClass.new(hex_grid_view, status_panel_view, Callable(self, "_current_party")).execute(combatant)
+	AutoSelectActiveActorUseCaseClass.new(hex_grid_view, status_panel_view, Callable(self, "_current_party")).execute(combatant); preload("res://presentation/combat_camera_follow_use_case.gd").new(hex_grid_view, Callable(_game_camera, "move_to"), scenario_session, Callable(self, "_current_party"), Callable(self, "_current_enemies")).execute(combatant)
 
 ## Finish round: undecided→ROUND_NUMBER++ + rewire_session(); won→_on_combat_won().
 ## Relays to round_flow_controller.notify_round_concluded() at end.
