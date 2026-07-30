@@ -225,16 +225,15 @@ func _ready() -> void:
 		hex_grid_view.load_combatants(hex_combatants)
 
 	_game_mode = GameMode.EXPLORATION
-	_exploration.setup({
+	_exploration.setup({  # FEAT-007 (ADR-004): + on_selection_changed -> status_panel_view
 		"hex_grid_view": hex_grid_view,
 		"scenario_path": boot_scenario_path,
 		"on_hex_clicked": _exploration_hex_clicked_callable(),
 		"on_combat_triggered": Callable(self, "_on_combat_triggered"),
+		"on_selection_changed": Callable(status_panel_view, "set_selected_combatant") if status_panel_view != null else Callable(),
 	})
 	_exploration.boot(hex_combatants)
-
 	resolved_seed = SeedPolicyClass.resolve_from_environment(seed_override, int(Time.get_ticks_usec()))
-
 	random_port = GodotRandomAdapterClass.new(resolved_seed)
 	event_sink  = ConsoleEventSinkAdapterClass.new()
 
@@ -255,6 +254,7 @@ func _ready() -> void:
 	var status_view_models: Array = _view_model_builder.build_status_view_models(hex_combatants, _party, _enemies, encounter)
 	if status_panel_view != null:
 		status_panel_view.load_combatants(status_view_models)
+		status_panel_view.set_selected_combatant(_exploration.selected_party_member_id)  # FEAT-007
 		_refresh_off_guard_conditions()
 
 	if initiative_view != null:

@@ -155,6 +155,20 @@ var _on_hex_clicked_target: Callable = Callable()
 var _on_combat_triggered_target: Callable = Callable()
 var _booted: bool = false
 
+## FEAT-007 (US-007, ADR-004): the "internal API" contract boundary this
+## feature introduces — a Callable the composition root (MainScene.gd) binds
+## to its own status-panel mirror (typically
+## Callable(status_panel_view, "set_selected_combatant")) so every
+## selection-state change made via _select_party_member() below is echoed to
+## the exploration-mode status panel, not just to hex_grid_view. Defaults to
+## an invalid/unbound Callable (setup()'s own "every key optional, no crash
+## on a partially-configured setup()" convention, see setup()'s own doc) —
+## _select_party_member()'s own `.is_valid()` guard below degrades this to a
+## silent no-op (no throw) whenever no caller has wired it, so exploration
+## selection keeps working even when the status-panel mirror is absent
+## (e.g. an isolated unit test with no StatusPanelView double at all).
+var _on_selection_changed_target: Callable = Callable()
+
 ## FEAT-007 (US-007 / FR-009): the party member whose hex the hover-preview
 ## path is computed FROM. Defaults empty ("no selection" -- hover is a
 ## no-op); boot() defaults this to the FIRST hex_combatants entry seeded
@@ -205,11 +219,23 @@ const HOVER_PREVIEW_COLOR: Color = Color(1.0, 1.0, 1.0, 0.6)
 ##   "on_combat_triggered"  — Callable invoked (via exploration_controller.
 ##                             combat_triggered) the instant a proximity
 ##                             trigger fires.
+##   "on_selection_changed" — FEAT-007 (US-007, ADR-004): Callable invoked
+##                             (via _select_party_member(), see its own doc)
+##                             with the newly-selected combatant_id every
+##                             time selection changes. The composition
+##                             root's "internal API" contract boundary to the
+##                             status-panel mirror — typically
+##                             Callable(status_panel_view,
+##                             "set_selected_combatant"). Left unbound
+##                             (Callable()) when absent; _select_party_member()
+##                             degrades gracefully (skips the call, never
+##                             throws) whenever it is invalid.
 func setup(deps: Dictionary) -> void:
 	_hex_grid_view = deps.get("hex_grid_view", null)
 	_scenario_path = deps.get("scenario_path", "")
 	_on_hex_clicked_target = deps.get("on_hex_clicked", Callable())
 	_on_combat_triggered_target = deps.get("on_combat_triggered", Callable())
+	_on_selection_changed_target = deps.get("on_selection_changed", Callable())
 
 
 ## boot(hex_combatants) -> void — constructs scenario_session/
@@ -349,10 +375,22 @@ func boot(hex_combatants: Array) -> void:
 ## than crashing), calls `_hex_grid_view.set_selected_combatant(id)` so the
 ## ring-render cache is updated in the SAME call, never a separate step a
 ## caller could forget.
+##
+## FEAT-007 (US-007, ADR-004): AFTER both of the above, invokes
+## `_on_selection_changed_target.call(id)` -- the "internal API" contract
+## boundary this feature adds (see setup()'s own "on_selection_changed" doc)
+## -- so a caller-supplied mirror (typically the composition root's
+## StatusPanelView.set_selected_combatant) is kept in lock-step with every
+## selection change this helper makes, not just hex_grid_view's own ring
+## cache. Degrades gracefully (skips the call, never throws) whenever
+## `_on_selection_changed_target` is unbound/invalid -- exploration
+## selection still fully functions; only the status-panel mirror is absent.
 func _select_party_member(id: String) -> void:
 	selected_party_member_id = id
 	if _hex_grid_view != null:
 		_hex_grid_view.set_selected_combatant(id)
+	if _on_selection_changed_target.is_valid():
+		_on_selection_changed_target.call(id)
 
 
 ## load_encounter_from_scenario(scenario, encounter_id, seed) -> bool —
