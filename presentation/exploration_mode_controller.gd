@@ -536,6 +536,14 @@ func _clear_hover_preview() -> void:
 ## Otherwise: clears the overlay EXACTLY ONCE (before the walk starts, never
 ## per-step) and awaits _execute_exploration_path(path) to walk every step in
 ## order.
+##
+## FEAT-006 (US-006 / FR-004, mitigates RISK-001/RISK-007/RISK-010): BEFORE
+## any pathfinding is attempted, this method now runs the
+## DisambiguateHexClickUseCase guard clause below -- click-to-select takes
+## priority over click-to-move whenever the clicked hex is occupied by a
+## DIFFERENT party member than the one currently selected. See that guard's
+## own inline doc for the exact three-part condition and its fall-through
+## contract.
 func _on_exploration_hex_clicked(hex_coord) -> void:
 	if not _exploration_active:
 		return
@@ -543,6 +551,48 @@ func _on_exploration_hex_clicked(hex_coord) -> void:
 		return
 	if not scenario_session.party_hex_positions.has(selected_party_member_id):
 		return
+
+	# FEAT-006 (US-006 / FR-004, ADR-005/ADR-006 shared-guard shape,
+	# mitigates RISK-001/RISK-007/RISK-010): DisambiguateHexClickUseCase.
+	# Queries ITokenLookup (hex_grid_view.get_combatant_id_at_hex()) BEFORE
+	# any pathfinding is attempted (design notes' api_contracts). Click-to-
+	# select wins over click-to-move ONLY when all three hold:
+	#   1. the clicked hex is occupied at all (get_combatant_id_at_hex()
+	#      returns a non-empty id -- an empty click, e.g. bare terrain,
+	#      never matches, RISK-010's "empty hex" edge case);
+	#   2. that id is a PARTY member (IPartyMembership: present in
+	#      scenario_session.party_hex_positions) -- an enemy combatant's id,
+	#      or any id foreign to the party, falls straight through to move
+	#      instead of ever reaching _select_party_member() (RISK-001: a
+	#      click on an enemy must never silently reassign the party
+	#      selection);
+	#   3. that id DIFFERS from `selected_party_member_id` -- clicking the
+	#      currently-selected member's OWN hex (RISK-010's "own-hex click"
+	#      edge case) is deliberately EXCLUDED here so it falls through to
+	#      the unchanged move/pathfinding logic below (HexPathfinder.
+	#      find_path() then trivially resolves start==goal to the
+	#      single-element `[start]` path, a real no-movement walk -- never a
+	#      redundant re-selection call).
+	#
+	# `_hex_grid_view == null`, OR a wired hex_grid_view double that does
+	# not implement get_combatant_id_at_hex() at all (this codebase's
+	# established convention: many pre-existing GUT suites hand-write a
+	# minimal, duck-typed hex_grid_view fake/spy exposing only the methods
+	# a given feature's own tests need -- FEAT-001 predates this feature,
+	# but not every one of those pre-existing doubles was updated to add
+	# it), short-circuits this whole block via the `has_method()` guard --
+	# no lookup is even attempted, so every click falls straight through to
+	# move, exactly as it did before this feature (error_handling: "any
+	# lookup failure ... is treated as 'fall through to move'").
+	if _hex_grid_view != null and _hex_grid_view.has_method("get_combatant_id_at_hex"):
+		var clicked_combatant_id: String = _hex_grid_view.get_combatant_id_at_hex(hex_coord)
+		if (
+			clicked_combatant_id != ""
+			and scenario_session.party_hex_positions.has(clicked_combatant_id)
+			and clicked_combatant_id != selected_party_member_id
+		):
+			_select_party_member(clicked_combatant_id)
+			return
 
 	var start_hex = scenario_session.party_hex_positions[selected_party_member_id]
 	var path: Array = HexPathfinderClass.find_path(start_hex, hex_coord, _is_passable_fn, _move_cost_fn)

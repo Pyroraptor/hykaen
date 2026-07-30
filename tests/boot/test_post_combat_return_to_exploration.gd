@@ -161,16 +161,23 @@ func test_reclicking_the_trigger_hex_after_completion_does_not_re_enter_combat()
 
 	watch_signals(instance.exploration_controller)
 
-	# (-1, 0) is one of prologue_scenario.tres' authored trigger_hexes AND is
+	# (-1, 1) is one of prologue_scenario.tres' authored trigger_hexes AND is
 	# hex-adjacent to Titus' authored start hex (0, 0) — a real click there
 	# fires combat_triggered through the genuine
 	# ExplorationController.move_party_member() -> _evaluate_triggers() path.
+	# FEAT-006 (US-006 / FR-004): deliberately NOT (-1, 0) -- that hex is
+	# Marigold's (player_1) own authored start position, so a click there
+	# now resolves to the click-to-SELECT branch (a different party member
+	# occupies it) rather than click-to-move, per this feature's own
+	# disambiguation contract. (-1, 1) is unoccupied by any party member,
+	# so this click still exercises the pre-existing click-to-move ->
+	# combat-trigger path this test is actually about.
 	# FEAT-324 moved `_on_exploration_hex_clicked` off MainScene and onto
 	# `_exploration` (ExplorationModeController); it is a coroutine (ADR-007),
 	# so the call must go through `instance._exploration` and be awaited
 	# (mirrors tests/boot/test_exploration_to_combat_handoff.gd's FEAT-002
 	# `_click()` convention).
-	await instance._exploration._on_exploration_hex_clicked(HexCoordClass.new(-1, 0))
+	await instance._exploration._on_exploration_hex_clicked(HexCoordClass.new(-1, 1))
 	await get_tree().process_frame
 	await get_tree().process_frame
 
