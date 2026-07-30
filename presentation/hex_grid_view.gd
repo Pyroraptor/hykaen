@@ -73,9 +73,21 @@ extends Node2D
 const HexCoordClass = preload("res://core/geometry/hex_coord.gd")
 const CombatantTokenViewScene: PackedScene = preload("res://presentation/combatant_token_view.tscn")
 const CoordinateTransformClass = preload("res://presentation/infrastructure/coordinate_transform.gd")
+const MapBoundsCalculatorClass = preload("res://core/domain/map_bounds_calculator.gd")
 
 ## Pixel radius of one hex cell (center to corner), flat-top orientation.
 const HEX_SIZE: float = 48.0
+
+## FEAT-004 (US-002, mitigates RISK-005): the margin get_world_bounds() below
+## expands its computed AABB by on every side, in pixels — passed straight
+## through to core/domain/map_bounds_calculator.gd's
+## MapBoundsCalculator.compute_bounds(). Defaults to HEX_SIZE * 1.5 (the
+## design notes' pinned value: enough padding that a token/selectable hex
+## sitting exactly on the camera-bounds edge still renders with a full hex
+## of breathing room around it) but is `@export`-ed so a scene/level author
+## can retune it per-map without editing this script, per RISK-005
+## ("hardcoded margin may not suit every map").
+@export var world_bounds_margin: float = HEX_SIZE * 1.5
 
 ## Number of concentric rings of hex cells drawn around the origin for the
 ## background battlefield grid — a fixed, generous bound; the prologue
@@ -1029,3 +1041,37 @@ func get_token(combatant_id: String):
 ## get_token_count() → int — number of currently instantiated tokens.
 func get_token_count() -> int:
 	return _tokens.size()
+
+
+## get_world_bounds() → Rect2 — FEAT-004 (US-002 / API contract #4,
+## mitigates RISK-005): the Node-level adapter for "camera bounds hug the
+## placed tokens/selectable hexes". Gathers the pixel-space position of every
+## entry in `_tokens` AND every hex currently reported by
+## `_selectable_hexes` (set_selectable_hexes()) — each converted via
+## axial_to_pixel_with_offset() (the SAME offset-aware conversion every other
+## drawing path on this view uses, honoring this view's currently configured
+## `_origin_offset` — this establishes the canonical
+## axial_to_pixel_with_offset() call path RISK-002 references) — then
+## delegates the actual AABB + margin math entirely to
+## core/domain/map_bounds_calculator.gd's
+## MapBoundsCalculator.compute_bounds(), passing `world_bounds_margin`
+## (defaults to HEX_SIZE * 1.5, `@export`-ed per RISK-005). This view itself
+## performs no AABB arithmetic of its own — it is purely the infrastructure
+## adapter gathering points from `_tokens`/`_selectable_hexes` (Node/scene
+## state) and handing them to the domain-pure calculator (ADR-001).
+##
+## Error/edge case (API contract #4, matching MapBoundsCalculator's own
+## documented contract): zero tokens AND zero selectable hexes -> returns an
+## empty Rect2() — callers (e.g. a future RecomputeMapBoundsUseCase/
+## MainScene) MUST check for this (equality with Rect2(), or
+## `not result.has_area()`) before treating the result as authoritative
+## camera bounds, since `GameCamera.set_bounds(Rect2())` is itself a
+## meaningful "reset to unbounded" contract, not a failure.
+func get_world_bounds() -> Rect2:
+	var points: Array = []
+	for token in _tokens.values():
+		if token != null and token.hex_coord != null:
+			points.append(axial_to_pixel_with_offset(token.hex_coord))
+	for hex_coord in _selectable_hexes:
+		points.append(axial_to_pixel_with_offset(hex_coord))
+	return MapBoundsCalculatorClass.compute_bounds(points, world_bounds_margin)
