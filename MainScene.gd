@@ -224,7 +224,7 @@ func _ready() -> void:
 	centering_offset = _compute_boot_centering_offset(hex_combatants)
 	if hex_grid_view != null:
 		hex_grid_view.set_origin_offset(centering_offset)
-		hex_grid_view.load_combatants(hex_combatants)
+		hex_grid_view.load_combatants(hex_combatants); if _game_camera != null: _game_camera.set_bounds(hex_grid_view.get_world_bounds())  # FEAT-008 (US-006): recompute+apply map bounds after scenario load
 
 	_game_mode = GameMode.EXPLORATION
 	_exploration.setup({  # FEAT-007 (ADR-004): + on_selection_changed -> status_panel_view
@@ -758,10 +758,10 @@ func _current_enemies() -> Array:
 func _current_turn_order():
 	return encounter.get_turn_order() if encounter != null else null
 
-## Delegate to TurnPresentationController + FEAT-008/FEAT-007's use cases (AutoSelectActiveActorUseCase; CombatCameraFollowUseCase, US-005/RISK-009).
+## Delegate to TurnPresentationController + FEAT-008/FEAT-007's use cases (AutoSelectActiveActorUseCase; CombatCameraFollowUseCase, US-005/RISK-009); trailing statement re-applies _game_camera.set_bounds(hex_grid_view.get_world_bounds()) immediately after TurnPresentationController's set_selectable_hexes() combat-highlighting call above (FEAT-008/US-006/RISK-002), so bounds always hug the CURRENT highlight, never a stale pre-highlight snapshot.
 func _on_active_actor_changed(combatant) -> void:
 	_turn_presentation().on_active_actor_changed(combatant)
-	AutoSelectActiveActorUseCaseClass.new(hex_grid_view, status_panel_view, Callable(self, "_current_party")).execute(combatant); preload("res://presentation/combat_camera_follow_use_case.gd").new(hex_grid_view, Callable(_game_camera, "move_to"), scenario_session, Callable(self, "_current_party"), Callable(self, "_current_enemies")).execute(combatant)
+	AutoSelectActiveActorUseCaseClass.new(hex_grid_view, status_panel_view, Callable(self, "_current_party")).execute(combatant); preload("res://presentation/combat_camera_follow_use_case.gd").new(hex_grid_view, Callable(_game_camera, "move_to"), scenario_session, Callable(self, "_current_party"), Callable(self, "_current_enemies")).execute(combatant); if hex_grid_view != null and _game_camera != null: _game_camera.set_bounds(hex_grid_view.get_world_bounds())
 
 ## Finish round: undecided→ROUND_NUMBER++ + rewire_session(); won→_on_combat_won().
 ## Relays to round_flow_controller.notify_round_concluded() at end.
