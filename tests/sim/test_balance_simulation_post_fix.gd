@@ -138,9 +138,22 @@ const MAX_ROUNDS_GUARD: int = 50
 ## tests/pytest/test_sim_results_provenance.py (re-pinned to the same new
 ## values) and tests/unit/test_enemy_resource_weapon_defense_fields.gd for
 ## the FEAT-001 data suite.
+##
+## FEAT-008 (this iteration, US-008 / FR-008) intentionally re-pins the
+## titus.tres hash below AGAIN: that feature additively wires
+## level=1/equipped_items=[longsword_titus, shield_titus] onto titus.tres
+## (and the other three party-member fixtures, which are not in this
+## guard's pinned set) per ADR-004. Neither `level` nor `equipped_items` is
+## read anywhere on the passive-defense-only simulator.gd path exercised by
+## this test — Titus's simulated combatant stats are built from
+## `attributes`/`class_ref`/`skills`/weapon proficiency, none of which
+## changed — so this change is not expected to shift win_rate. See
+## tests/unit/test_prologue_character_equipment_fixtures.gd for the FEAT-008
+## data suite and its field-diff regression test confirming every other
+## field (including attributes/skills) is unchanged.
 const _EXPECTED_HASHES: Dictionary = {
 	"res://core/sim/simulator.gd":      "6120b8e4b096193d2f5c587f683ae4a9",
-	"res://data/characters/titus.tres": "da31ef348d95fd313c1a895ca02e0417",
+	"res://data/characters/titus.tres": "c2f1101a4fdcdbbb07c56920170df146",
 	"res://data/enemies/skeleton.tres": "a197dd1bc0c15c016b1ee33dc202951c",
 	"res://data/weapons/longsword.tres": "248339f6e3f256d6cdc6a943ca824587",
 	"res://data/armor/chain_shirt.tres": "6be0c7c1b55b7a91233bca0f62fadd16",
