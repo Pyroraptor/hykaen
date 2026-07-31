@@ -159,8 +159,25 @@ func test_off_hand_not_blocked_on_fresh_character() -> void:
 
 # ── RISK-004 mitigation: pre-iteration .tres fixtures omitting new fields ──
 
-## Criterion: loading an existing pre-iteration .tres character fixture that
-## omits level/equipped_items yields level==1 and equipped_items==[].
+## Criterion (superseded by FEAT-008): originally, loading an existing
+## pre-iteration .tres character fixture that omitted level/equipped_items
+## had to yield level==1 and equipped_items==[]. FEAT-008 additively wires
+## real equipped_items (and an explicit level=1) into all four party-member
+## fixtures (data/characters/{gram_marx,titus,marigold,dwarf_channeler}.tres)
+## per US-008, so equipped_items is no longer empty for these specific
+## files -- that is the intended, tested outcome of FEAT-008 (see
+## tests/unit/test_prologue_character_equipment_fixtures.gd for the
+## level==1 / equipped_items-contains-expected-item-ids assertions and the
+## accompanying field-diff regression test covering every OTHER field).
+##
+## The general "omitting these fields yields the documented defaults"
+## contract this test was guarding is still fully covered above by
+## test_default_level_is_1() and test_default_equipped_items_is_empty_array()
+## against a synthetic CharacterResource.new() (no .tres involved), so this
+## test now only re-asserts the part of the original contract that still
+## holds for these fixtures: level defaults to 1 whether or not a .tres
+## explicitly declares it (all four now declare it explicitly as 1, per
+## FEAT-008), and every fixture still loads non-null.
 func test_pre_iteration_fixture_omitting_new_fields_gets_defaults() -> void:
 	var paths: Array = [
 		"res://data/characters/titus.tres",
@@ -175,11 +192,7 @@ func test_pre_iteration_fixture_omitting_new_fields_gets_defaults() -> void:
 			continue
 		assert_eq(
 			character.level, 1,
-			"%s omits `level` in its .tres -- must default to 1; got %s" % [path, str(character.level)]
-		)
-		assert_eq(
-			character.equipped_items, [],
-			"%s omits `equipped_items` in its .tres -- must default to []; got %s" % [path, str(character.equipped_items)]
+			"%s must have level == 1; got %s" % [path, str(character.level)]
 		)
 
 

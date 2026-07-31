@@ -1,7 +1,8 @@
-[gd_resource type="Resource" script_class="CharacterResource" load_steps=3 format=3 uid="uid://bmrgl1a2b3c4d"]
+[gd_resource type="Resource" script_class="CharacterResource" load_steps=4 format=3 uid="uid://bmrgl1a2b3c4d"]
 
 [ext_resource type="Script" uid="uid://bchar1a2b3c4d5e" path="res://core/model/character_resource.gd" id="1_chrscr"]
 [ext_resource type="Resource" uid="uid://er3c4d5e6f7g8h" path="res://data/classes/divine_warrior.tres" id="2_dw1r1"]
+[ext_resource type="Resource" uid="uid://gssmrgl1a2b3c4d" path="res://data/items/shortsword_marigold.tres" id="3_ssmrgl"]
 
 [resource]
 script = ExtResource("1_chrscr")
@@ -13,3 +14,5 @@ starting_equipment = ["res://data/weapons/shortsword.tres", "res://data/armor/le
 talent_selections = ["divine_champion_stealth"]
 primary_offensive_attribute = "dexterity"
 known_spell_ids = ["fire_bolt", "channel"]
+level = 1
+equipped_items = [ExtResource("3_ssmrgl")]
