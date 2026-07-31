@@ -39,7 +39,7 @@ class _FakeHexGridView:
 	extends RefCounted
 	var axial_to_pixel_calls: Array = []
 
-	func axial_to_pixel_with_offset(hex_coord) -> Vector2:
+	func axial_to_pixel(hex_coord) -> Vector2:
 		axial_to_pixel_calls.append(hex_coord)
 		# Deterministic, distinguishable mapping for assertion purposes.
 		return Vector2(hex_coord.q * 10.0, hex_coord.r * 10.0)
@@ -109,8 +109,8 @@ func test_resolvable_via_party_hex_positions_calls_move_to_with_correct_world_po
 	assert_eq(_game_camera.move_to_calls.size(), 1, "move_to() must be called exactly once")
 	if _game_camera.move_to_calls.size() > 0:
 		assert_eq(
-			_game_camera.move_to_calls[0], _hex_grid_view.axial_to_pixel_with_offset(hex_coord),
-			"move_to() must receive axial_to_pixel_with_offset(hex_coord) for the resolved hex"
+			_game_camera.move_to_calls[0], _hex_grid_view.axial_to_pixel(hex_coord),
+			"move_to() must receive axial_to_pixel(hex_coord) for the resolved hex (FEAT-002: pure world coords)"
 		)
 
 

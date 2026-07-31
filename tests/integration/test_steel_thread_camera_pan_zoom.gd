@@ -250,7 +250,7 @@ func test_clicking_a_party_member_token_in_exploration_mode_pans_camera_and_stay
 	assert_eq(instance.scenario_session.party_hex_positions["player_1"].r, 0, "fixture assumption: Marigold (player_1) starts at (-1, 0)")
 
 	var target_hex := HexCoordClass.new(-1, 0)
-	var expected_world_pos: Vector2 = instance.hex_grid_view.axial_to_pixel_with_offset(target_hex)
+	var expected_world_pos: Vector2 = instance.hex_grid_view.axial_to_pixel(target_hex)
 
 	# Simulate clicking Marigold's token by emitting the REAL
 	# hex_grid_view.hex_clicked signal -- the exact production connection
@@ -288,7 +288,7 @@ func test_pressing_end_turn_in_combat_mode_pans_camera_to_new_active_actor_and_s
 	var new_actor = instance.round_session.current_actor_entity()
 	assert_not_null(new_actor, "pressing End Turn must settle on a live current actor (or the round ends)")
 
-	var expected_world_pos: Vector2 = instance.hex_grid_view.axial_to_pixel_with_offset(new_actor.hex_coord)
+	var expected_world_pos: Vector2 = instance.hex_grid_view.axial_to_pixel(new_actor.hex_coord)
 
 	_pan_converges_within_bounds(instance._game_camera, expected_world_pos, "combat End Turn pan")
 

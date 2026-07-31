@@ -84,7 +84,7 @@ func execute(combatant) -> void:
 		)
 		return
 
-	_camera_follow_fn.call(_hex_grid_view.axial_to_pixel_with_offset(hex_coord))
+	_camera_follow_fn.call(_hex_grid_view.axial_to_pixel(hex_coord))
 
 
 ## _get_combatant_hex(combatant_id) -> HexCoord or null — scenario_session.

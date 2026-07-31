@@ -81,7 +81,7 @@ func test_active_actor_changed_with_resolvable_hex_pans_camera_to_correct_target
 	var actor = _find_combatant_by_id(instance, "player_1")
 	assert_not_null(actor, "fixture assumption: prologue_encounter.tres seats a live 'player_1' (Marigold)")
 
-	var expected_world_pos: Vector2 = instance.hex_grid_view.axial_to_pixel_with_offset(actor.hex_coord)
+	var expected_world_pos: Vector2 = instance.hex_grid_view.axial_to_pixel(actor.hex_coord)
 
 	instance._on_active_actor_changed(actor)
 
@@ -91,7 +91,7 @@ func test_active_actor_changed_with_resolvable_hex_pans_camera_to_correct_target
 	)
 	assert_eq(
 		instance._game_camera._target_pos, expected_world_pos,
-		"_game_camera's lerp target must equal hex_grid_view.axial_to_pixel_with_offset(actor.hex_coord)"
+		"_game_camera's lerp target must equal hex_grid_view.axial_to_pixel(actor.hex_coord) (FEAT-002: pure world coords)"
 	)
 
 
@@ -162,7 +162,7 @@ func test_pressing_end_turn_in_combat_mode_pans_camera_to_the_new_active_actor()
 	var new_actor = instance.round_session.current_actor_entity()
 	assert_not_null(new_actor, "pressing End Turn must settle on a live current actor (or the round ends)")
 
-	var expected_world_pos: Vector2 = instance.hex_grid_view.axial_to_pixel_with_offset(new_actor.hex_coord)
+	var expected_world_pos: Vector2 = instance.hex_grid_view.axial_to_pixel(new_actor.hex_coord)
 
 	assert_eq(
 		instance._game_camera._target_pos, expected_world_pos,

@@ -15,25 +15,25 @@ extends GutTest
 ##
 ## RISK-002 (per this steel thread's design notes): three independent call
 ## sites each convert a hex coordinate to world-space pixels via
-## presentation/hex_grid_view.gd's HexGridView.axial_to_pixel_with_offset():
+## presentation/hex_grid_view.gd's HexGridView.axial_to_pixel() (pure
+## world-space, no _origin_offset — FEAT-002: tokens are drawn at
+## axial_to_pixel(), so camera and bounds must use the same coordinate):
 ##   1. HexGridView.get_world_bounds() (FEAT-004/US-002) — internally calls
-##      axial_to_pixel_with_offset() on every token/selectable-hex position
-##      before handing the resulting points to MapBoundsCalculator.
+##      axial_to_pixel() on every token position before handing the
+##      resulting points to MapBoundsCalculator.
 ##   2. ExplorationModeController._select_party_member() (FEAT-006/US-004)
 ##      — the exploration-mode camera-follow path — calls
-##      _hex_grid_view.axial_to_pixel_with_offset(hex_coord) before
-##      invoking on_camera_follow.
+##      _hex_grid_view.axial_to_pixel(hex_coord) before invoking
+##      on_camera_follow.
 ##   3. presentation/combat_camera_follow_use_case.gd's
 ##      CombatCameraFollowUseCase.execute() (FEAT-007/US-005) — the
 ##      combat-mode camera-follow path, invoked by MainScene.
 ##      _on_active_actor_changed() — calls
-##      _hex_grid_view.axial_to_pixel_with_offset(hex_coord) before
-##      invoking the camera_follow_fn.
+##      _hex_grid_view.axial_to_pixel(hex_coord) before invoking
+##      the camera_follow_fn.
 ##
 ## A regression that introduced a SECOND, subtly different offset/scale
-## conversion at any one of these three call sites (rather than every call
-## site sharing the exact same HexGridView.axial_to_pixel_with_offset()
-## method on the exact same HexGridView instance) would desync the camera
+## conversion at any one of these three call sites would desync the camera
 ## bounds computed at boot from where the camera actually pans during
 ## exploration/combat follow -- this suite pins that all three call sites
 ## are provably the SAME function on the SAME instance, by boot-ing the
@@ -72,14 +72,13 @@ func _find_combatant_by_id(instance, combatant_id: String):
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Source-inspection precondition — proves get_world_bounds() really does
-# route through axial_to_pixel_with_offset() (established as the "bounds
-# computation's internal conversion" call path this test's Path A stands
-# in for), so a direct call to hex_grid_view.axial_to_pixel_with_offset()
-# on the same instance is a faithful proxy for it.
+# Source-inspection precondition — proves get_world_bounds() routes through
+# axial_to_pixel() (NOT axial_to_pixel_with_offset), so a direct call to
+# hex_grid_view.axial_to_pixel() on the same instance is a faithful proxy
+# for what get_world_bounds() computes internally (FEAT-002).
 # ══════════════════════════════════════════════════════════════════════════
 
-func test_get_world_bounds_source_routes_through_axial_to_pixel_with_offset() -> void:
+func test_get_world_bounds_source_routes_through_axial_to_pixel_no_offset() -> void:
 	var source: String = FileAccess.get_file_as_string("res://presentation/hex_grid_view.gd")
 	var method_start: int = source.find("func get_world_bounds(")
 	assert_true(method_start >= 0, "HexGridView must define get_world_bounds()")
@@ -87,9 +86,13 @@ func test_get_world_bounds_source_routes_through_axial_to_pixel_with_offset() ->
 	if method_end < 0:
 		method_end = source.length()  # get_world_bounds() may be the last function in the file
 	var method_body: String = source.substr(method_start, method_end - method_start)
-	assert_true(
+	assert_false(
 		method_body.contains("axial_to_pixel_with_offset("),
-		"get_world_bounds() must convert its points via axial_to_pixel_with_offset() (RISK-002's canonical call path)"
+		"get_world_bounds() must NOT use axial_to_pixel_with_offset(); tokens are in pure world coords (FEAT-002)"
+	)
+	assert_true(
+		method_body.contains("axial_to_pixel("),
+		"get_world_bounds() must convert token positions via axial_to_pixel() to match where tokens are drawn (FEAT-002)"
 	)
 
 
@@ -110,11 +113,10 @@ func test_axial_to_pixel_with_offset_is_consistent_across_bounds_exploration_and
 	)
 	var hex_coord = instance.scenario_session.party_hex_positions["player_1"]
 
-	# ── Path A: the canonical conversion get_world_bounds() itself uses
-	# internally -- the SAME HexGridView instance's axial_to_pixel_with_
-	# offset(), called directly (proven above to be get_world_bounds()'s own
-	# internal call path). ──────────────────────────────────────────────────
-	var bounds_path_world_pos: Vector2 = instance.hex_grid_view.axial_to_pixel_with_offset(hex_coord)
+	# ── Path A: the canonical conversion all follow paths now use —
+	# pure-world-space axial_to_pixel(), no _origin_offset (FEAT-002: tokens
+	# are drawn at axial_to_pixel(); camera must target the same coordinate). ─
+	var bounds_path_world_pos: Vector2 = instance.hex_grid_view.axial_to_pixel(hex_coord)
 
 	# ── Path B: ExplorationModeController's follow path. ────────────────────
 	instance._exploration._select_party_member("player_1")
@@ -129,11 +131,11 @@ func test_axial_to_pixel_with_offset_is_consistent_across_bounds_exploration_and
 
 	assert_eq(
 		exploration_path_world_pos, bounds_path_world_pos,
-		"ExplorationModeController's camera-follow conversion must match the bounds-computation conversion for the same hex"
+		"ExplorationModeController's camera-follow conversion must match the pure-world axial_to_pixel() reference for the same hex"
 	)
 	assert_eq(
 		combat_path_world_pos, bounds_path_world_pos,
-		"MainScene's combat camera-follow conversion must match the bounds-computation conversion for the same hex"
+		"MainScene's combat camera-follow conversion must match the pure-world axial_to_pixel() reference for the same hex"
 	)
 	assert_eq(
 		exploration_path_world_pos, combat_path_world_pos,
@@ -155,7 +157,7 @@ func test_axial_to_pixel_with_offset_is_consistent_for_a_second_distinct_hex() -
 	)
 	var hex_coord = instance.scenario_session.party_hex_positions["player_0"]
 
-	var bounds_path_world_pos: Vector2 = instance.hex_grid_view.axial_to_pixel_with_offset(hex_coord)
+	var bounds_path_world_pos: Vector2 = instance.hex_grid_view.axial_to_pixel(hex_coord)
 
 	instance._exploration._select_party_member("player_0")
 	var exploration_path_world_pos: Vector2 = instance._game_camera._target_pos
@@ -166,6 +168,6 @@ func test_axial_to_pixel_with_offset_is_consistent_for_a_second_distinct_hex() -
 	var combat_path_world_pos: Vector2 = instance._game_camera._target_pos
 
 	assert_eq(exploration_path_world_pos, bounds_path_world_pos,
-		"ExplorationModeController's camera-follow conversion must match the bounds-computation conversion for player_0's hex")
+		"ExplorationModeController's camera-follow conversion must match the pure-world axial_to_pixel() reference for player_0's hex")
 	assert_eq(combat_path_world_pos, bounds_path_world_pos,
-		"MainScene's combat camera-follow conversion must match the bounds-computation conversion for player_0's hex")
+		"MainScene's combat camera-follow conversion must match the pure-world axial_to_pixel() reference for player_0's hex")

@@ -118,6 +118,14 @@ func is_moving() -> bool:
 	return _moving
 
 
+## cancel_move — immediately stops any in-progress lerp by syncing _target_pos
+## to the current position. Called by HexGridView's drag-pan handler so that
+## manual middle-click panning is not fought by an in-progress follow lerp.
+func cancel_move() -> void:
+	_target_pos = position
+	_moving = false
+
+
 ## set_bounds — see class-level doc for the full contract.
 func set_bounds(rect: Rect2) -> void:
 	if rect == Rect2():

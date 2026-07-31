@@ -8,7 +8,7 @@ extends GutTest
 ## selection state (FEAT-002/FEAT-005) — invokes it, AFTER
 ## hex_grid_view.set_selected_combatant(id), with the newly-selected party
 ## member's world position, computed via
-## hex_grid_view.axial_to_pixel_with_offset(hex_coord). Absent/invalid
+## hex_grid_view.axial_to_pixel(hex_coord). Absent/invalid
 ## `on_camera_follow` must be a silent no-op (backward compatibility —
 ## every pre-existing caller/test that never supplies this key must keep
 ## working unmodified).
@@ -66,6 +66,9 @@ class _FakeHexGridView:
 
 	func get_selected_combatant() -> String:
 		return _selected_combatant_id
+
+	func axial_to_pixel(hex_coord) -> Vector2:
+		return CoordinateTransformClass.axial_to_pixel(hex_coord, HEX_SIZE)
 
 	func axial_to_pixel_with_offset(hex_coord) -> Vector2:
 		return CoordinateTransformClass.axial_to_pixel(hex_coord, HEX_SIZE, origin_offset)
@@ -125,7 +128,7 @@ func test_select_party_member_invokes_on_camera_follow_with_correct_world_positi
 		_FakeHexCombatant.new("hero_a", hex_coord),
 	])
 
-	var expected_world_pos: Vector2 = hex_grid_view.axial_to_pixel_with_offset(hex_coord)
+	var expected_world_pos: Vector2 = hex_grid_view.axial_to_pixel(hex_coord)
 
 	assert_eq(
 		camera_follow_spy.calls.size(), 1,
@@ -134,7 +137,7 @@ func test_select_party_member_invokes_on_camera_follow_with_correct_world_positi
 	if camera_follow_spy.calls.size() > 0:
 		assert_eq(
 			camera_follow_spy.calls[0], expected_world_pos,
-			"on_camera_follow must be invoked with axial_to_pixel_with_offset(token.hex_coord)"
+			"on_camera_follow must be invoked with axial_to_pixel(token.hex_coord) (FEAT-002: pure world coords)"
 		)
 
 
@@ -166,7 +169,7 @@ func test_select_party_member_invokes_on_camera_follow_after_set_selected_combat
 	)
 	if camera_follow_spy.calls.size() > 0:
 		assert_eq(
-			camera_follow_spy.calls[0], hex_grid_view.axial_to_pixel_with_offset(hex_coord),
+			camera_follow_spy.calls[0], hex_grid_view.axial_to_pixel(hex_coord),
 			"on_camera_follow must receive the world position for the newly-selected member's hex"
 		)
 

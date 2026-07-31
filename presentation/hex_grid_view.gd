@@ -437,7 +437,7 @@ func _is_selectable_hex(coord) -> bool:
 ## mutually exclusive by construction, never by an extra guard duplicated at
 ## each call site.
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_MIDDLE:
+	if event is InputEventMouseButton and (event.button_index == MOUSE_BUTTON_MIDDLE or event.button_index == MOUSE_BUTTON_RIGHT):
 		_handle_middle_mouse_button(event)
 	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		if not _drag_panning:
@@ -481,6 +481,8 @@ func _handle_middle_mouse_button(event: InputEventMouseButton) -> void:
 ## up yet.
 func _handle_drag_pan_motion(event: InputEventMouseMotion) -> void:
 	if _camera != null:
+		if _camera.has_method("cancel_move"):
+			_camera.call("cancel_move")
 		_camera.position -= event.relative
 	get_viewport().set_input_as_handled()
 
@@ -1071,7 +1073,5 @@ func get_world_bounds() -> Rect2:
 	var points: Array = []
 	for token in _tokens.values():
 		if token != null and token.hex_coord != null:
-			points.append(axial_to_pixel_with_offset(token.hex_coord))
-	for hex_coord in _selectable_hexes:
-		points.append(axial_to_pixel_with_offset(hex_coord))
+			points.append(axial_to_pixel(token.hex_coord))
 	return MapBoundsCalculatorClass.compute_bounds(points, world_bounds_margin)

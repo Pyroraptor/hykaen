@@ -13,10 +13,11 @@ extends GutTest
 ##
 ## get_world_bounds() (design notes / API contract #4) is the Node-level
 ## adapter for US-002: it gathers pixel-space points for every entry in
-## `_tokens` AND every currently-selectable hex (`_selectable_hexes`), each
-## converted via axial_to_pixel_with_offset() (the offset-aware conversion —
-## this establishes the canonical axial_to_pixel_with_offset() call path
-## RISK-002 references), then delegates the AABB + margin math entirely to
+## `_tokens` (selectable hexes are NOT included — they would shrink bounds
+## to movement options during combat, blocking pan), each converted via
+## pure-world-space axial_to_pixel() (FEAT-002: tokens are drawn at
+## axial_to_pixel(), so camera bounds must use the same coordinate), then
+## delegates the AABB + margin math entirely to
 ## core/domain/map_bounds_calculator.gd's MapBoundsCalculator.compute_bounds()
 ## (already implemented/tested by FEAT-003's
 ## tests/unit/core/domain/test_map_bounds_calculator.gd) with
@@ -24,18 +25,15 @@ extends GutTest
 ##
 ## Verifies (test_criteria):
 ##   1. get_world_bounds() with 3 known tokens returns the expected bounds
-##      using axial_to_pixel_with_offset() conversions — proven with a
-##      non-zero configured origin offset, so a test that accidentally used
-##      the offset-LESS axial_to_pixel() instead would fail (the expected
-##      value would not match).
-##   2. get_world_bounds() with zero tokens/selectable hexes returns an
-##      empty Rect2() (MapBoundsCalculator's documented "no bounds" contract
-##      for an empty points array).
-##   3. get_world_bounds() includes BOTH _tokens and selectable-hex
-##      positions in the AABB input set — proven by placing a token and a
-##      selectable hex at two very different hexes and asserting the result
-##      matches the AABB over BOTH points (a bounds computed from only one
-##      of the two sets would not match).
+##      using axial_to_pixel() conversions — proven with a non-zero configured
+##      origin offset so a test that accidentally used axial_to_pixel_with_offset()
+##      instead would fail (offset shifts the result).
+##   2. get_world_bounds() with zero tokens returns an empty Rect2()
+##      (MapBoundsCalculator's documented "no bounds" contract for an empty
+##      points array).
+##   3. get_world_bounds() includes ONLY _tokens (not selectable hexes) in the
+##      AABB input set — proven by placing a token and a selectable hex at two
+##      very different hexes and asserting the result matches the token-only AABB.
 
 const HexGridViewScene: PackedScene = preload("res://presentation/hex_grid_view.tscn")
 const HexGridViewClass: GDScript = preload("res://presentation/hex_grid_view.gd")
@@ -56,15 +54,15 @@ func before_each() -> void:
 
 # ══════════════════════════════════════════════════════════════════════════
 # Criterion 1 — 3 known tokens -> expected bounds via
-# axial_to_pixel_with_offset() conversions.
+# axial_to_pixel() (pure world coords, no offset).
 # ══════════════════════════════════════════════════════════════════════════
 
-func test_get_world_bounds_with_three_tokens_matches_axial_to_pixel_with_offset_aabb() -> void:
+func test_get_world_bounds_with_three_tokens_matches_axial_to_pixel_no_offset_aabb() -> void:
 	# A non-zero origin offset is configured deliberately: if the production
-	# implementation used the offset-LESS axial_to_pixel() instead of
-	# axial_to_pixel_with_offset(), the actual result would drift from this
-	# expected value (computed via the SAME offset-aware conversion), and
-	# this assertion would fail.
+	# implementation mistakenly used axial_to_pixel_with_offset() instead of
+	# axial_to_pixel(), the actual result would include the offset and drift
+	# from this expected value (computed via the pure no-offset conversion),
+	# and this assertion would fail.
 	_hex_grid_view.set_origin_offset(Vector2(50.0, -20.0))
 
 	var hex_a = HexCoordClass.new(0, 0)
@@ -78,9 +76,9 @@ func test_get_world_bounds_with_three_tokens_matches_axial_to_pixel_with_offset_
 	])
 
 	var expected_points: Array = [
-		_hex_grid_view.axial_to_pixel_with_offset(hex_a),
-		_hex_grid_view.axial_to_pixel_with_offset(hex_b),
-		_hex_grid_view.axial_to_pixel_with_offset(hex_c),
+		_hex_grid_view.axial_to_pixel(hex_a),
+		_hex_grid_view.axial_to_pixel(hex_b),
+		_hex_grid_view.axial_to_pixel(hex_c),
 	]
 	var expected: Rect2 = MapBoundsCalculatorClass.compute_bounds(
 		expected_points, HexGridViewClass.HEX_SIZE * 1.5
@@ -90,10 +88,10 @@ func test_get_world_bounds_with_three_tokens_matches_axial_to_pixel_with_offset_
 
 	assert_almost_eq(actual.position, expected.position, Vector2(EPSILON, EPSILON),
 		"get_world_bounds() position must match the AABB (+ margin) over the tokens' " +
-		"axial_to_pixel_with_offset() pixel positions")
+		"pure-world axial_to_pixel() positions (FEAT-002: no _origin_offset)")
 	assert_almost_eq(actual.size, expected.size, Vector2(EPSILON, EPSILON),
 		"get_world_bounds() size must match the AABB (+ margin) over the tokens' " +
-		"axial_to_pixel_with_offset() pixel positions")
+		"pure-world axial_to_pixel() positions (FEAT-002: no _origin_offset)")
 
 
 func test_get_world_bounds_uses_hex_size_one_point_five_margin() -> void:
@@ -118,22 +116,23 @@ func test_get_world_bounds_uses_hex_size_one_point_five_margin() -> void:
 # Criterion 2 — zero tokens/selectable hexes -> empty Rect2().
 # ══════════════════════════════════════════════════════════════════════════
 
-func test_get_world_bounds_with_no_tokens_or_selectable_hexes_returns_empty_rect() -> void:
+func test_get_world_bounds_with_no_tokens_returns_empty_rect() -> void:
 	var actual: Rect2 = _hex_grid_view.get_world_bounds()
 
 	assert_eq(actual, Rect2(),
 		"get_world_bounds() must return an empty Rect2() (MapBoundsCalculator's " +
-		"documented no-bounds contract) when there are no tokens and no selectable hexes")
+		"documented no-bounds contract) when there are no tokens")
 	assert_false(actual.has_area(),
 		"an empty Rect2() must have no area")
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Criterion 3 — includes BOTH _tokens and selectable-hex positions in the
-# AABB input set.
+# Criterion 3 — includes ONLY _tokens (not selectable-hex positions) in the
+# AABB input set. Selectable hexes shrink bounds to movement options during
+# combat, blocking camera pan — they must be excluded.
 # ══════════════════════════════════════════════════════════════════════════
 
-func test_get_world_bounds_includes_both_tokens_and_selectable_hexes() -> void:
+func test_get_world_bounds_includes_only_tokens_not_selectable_hexes() -> void:
 	var token_hex = HexCoordClass.new(0, 0)
 	var selectable_hex = HexCoordClass.new(6, 6)
 
@@ -143,8 +142,7 @@ func test_get_world_bounds_includes_both_tokens_and_selectable_hexes() -> void:
 	_hex_grid_view.set_selectable_hexes([selectable_hex])
 
 	var expected_points: Array = [
-		_hex_grid_view.axial_to_pixel_with_offset(token_hex),
-		_hex_grid_view.axial_to_pixel_with_offset(selectable_hex),
+		_hex_grid_view.axial_to_pixel(token_hex),
 	]
 	var expected: Rect2 = MapBoundsCalculatorClass.compute_bounds(
 		expected_points, HexGridViewClass.HEX_SIZE * 1.5
@@ -153,18 +151,16 @@ func test_get_world_bounds_includes_both_tokens_and_selectable_hexes() -> void:
 	var actual: Rect2 = _hex_grid_view.get_world_bounds()
 
 	assert_almost_eq(actual.position, expected.position, Vector2(EPSILON, EPSILON),
-		"get_world_bounds() must include both the token's and the selectable hex's " +
-		"positions in its AABB input set")
+		"get_world_bounds() must include ONLY the token's position (not selectable hexes)")
 	assert_almost_eq(actual.size, expected.size, Vector2(EPSILON, EPSILON),
-		"get_world_bounds() must include both the token's and the selectable hex's " +
-		"positions in its AABB input set")
+		"get_world_bounds() must include ONLY the token's position (not selectable hexes)")
 
 
-func test_get_world_bounds_with_only_selectable_hexes_and_no_tokens_is_not_empty() -> void:
+func test_get_world_bounds_with_only_selectable_hexes_and_no_tokens_is_empty() -> void:
 	_hex_grid_view.set_selectable_hexes([HexCoordClass.new(3, -2)])
 
 	var actual: Rect2 = _hex_grid_view.get_world_bounds()
 
-	assert_true(actual.has_area(),
-		"get_world_bounds() must include selectable-hex positions even when there " +
-		"are zero tokens -- the AABB input set is not tokens-only")
+	assert_false(actual.has_area(),
+		"get_world_bounds() must return empty Rect2() when there are no tokens, " +
+		"even if selectable hexes are set -- selectable hexes are excluded from bounds")

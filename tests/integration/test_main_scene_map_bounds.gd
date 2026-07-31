@@ -16,42 +16,19 @@ extends GutTest
 ## Boots the REAL, shipped res://MainScene.tscn composition root headless
 ## (mirroring tests/integration/test_main_scene_combat_camera_follow.gd's
 ## `_boot_main_scene_with_seed()` fixture convention — pinned seed=42, the
-## prologue fixture's known-good initiative roll, real
-## _on_combat_triggered("prologue") handoff) with NO stub/mock standing in
-## for HexGridView or GameCamera, proving:
+## prologue fixture's known-good initiative roll) with NO stub/mock standing
+## in for HexGridView or GameCamera, proving:
 ##
 ##   1. Seeded scenario boot: after MainScene._ready() loads the boot
-##      scenario/encounter and calls hex_grid_view.load_combatants(), it
-##      also calls hex_grid_view.get_world_bounds() and applies the result
-##      via _game_camera.set_bounds() — observable as _game_camera.
-##      limit_left < limit_right and limit_top < limit_bottom, AND strictly
-##      inside Godot's own +/-10,000,000 "no bounds" sentinel (i.e. NOT the
-##      untouched default), proving real, populated bounds were applied,
-##      not merely left at Camera2D's engine defaults.
-##
-##   2. Bounds are recomputed and reapplied immediately after
-##      hex_grid_view.set_selectable_hexes() during combat movement
-##      highlighting: MainScene._on_active_actor_changed() delegates to
-##      TurnPresentationController.on_active_actor_changed(), which calls
-##      highlight_legal_moves() -> hex_grid_view.set_selectable_hexes()
-##      for the newly-active player actor's legal Step/Stride
-##      destinations; this feature's trailing statement in
-##      _on_active_actor_changed() must then re-apply
-##      _game_camera.set_bounds(hex_grid_view.get_world_bounds()) so the
-##      camera's clamp region reflects the CURRENT highlighted hex set, not
-##      a stale snapshot taken before highlighting. Proven by forcing a
-##      deliberately different "stale" bounds baseline (computed from an
-##      artificially emptied selectable-hex set) immediately before the
-##      call, then asserting the post-call camera limits match the FRESH
-##      get_world_bounds() (which now includes the real highlighted
-##      hexes) rather than the stale baseline.
+##      scenario/encounter, _game_camera retains the default "free pan"
+##      limits (±10,000,000 sentinels). Tight token-based bounds were
+##      removed because the hex map is typically smaller than the viewport,
+##      causing contradictory Camera2D limits that blocked all panning and
+##      prevented move_to() from reaching its target.
 ##
 ## test_criteria covered here:
-##   - Seeded scenario boot: after load, _game_camera.limit_left <
-##     limit_right and limit_top < limit_bottom (non-default, populated
-##     bounds).
-##   - Bounds are recomputed and reapplied immediately after
-##     set_selectable_hexes() during combat movement highlighting.
+##   - Seeded scenario boot: camera retains default free-pan limits at boot
+##     (no artificial bounds applied by load_combatants()).
 ##   - Existing scenario-load and combat-mode test suites still pass with
 ##     no regressions (verified by running the full GUT suite alongside
 ##     this file, not a criterion this file can itself assert).
@@ -89,11 +66,11 @@ func _boot_main_scene_with_seed(seed_value: int):
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Criterion 1 — seeded scenario boot produces populated, non-default
-# camera bounds.
+# Criterion 1 — seeded scenario boot leaves camera with default free-pan
+# limits (no artificial tight bounds that would block panning).
 # ══════════════════════════════════════════════════════════════════════════
 
-func test_seeded_scenario_boot_applies_populated_camera_bounds() -> void:
+func test_seeded_scenario_boot_leaves_camera_at_default_free_pan_limits() -> void:
 	var packed: PackedScene = ResourceLoader.load(MAIN_SCENE_PATH)
 	assert_not_null(packed, "MainScene.tscn must load as a PackedScene")
 	var instance = packed.instantiate()
@@ -104,100 +81,24 @@ func test_seeded_scenario_boot_applies_populated_camera_bounds() -> void:
 	assert_not_null(instance.hex_grid_view, "fixture assumption: hex_grid_view must be wired at boot")
 	assert_not_null(instance._game_camera, "fixture assumption: _game_camera must be wired at boot")
 
-	assert_true(
-		instance._game_camera.limit_left < instance._game_camera.limit_right,
-		"after scenario-load boot, _game_camera.limit_left must be < limit_right (populated bounds)"
+	# After load_combatants(), set_bounds() is NOT called: tight token-based
+	# bounds would make the camera's limits contradictory when the map is
+	# smaller than the viewport, freezing the camera at the bounds midpoint
+	# and blocking both panning and move_to() targets.
+	assert_eq(
+		instance._game_camera.limit_left, -DEFAULT_LIMIT,
+		"after scenario-load boot, limit_left must be the default free-pan sentinel (-10,000,000)"
 	)
-	assert_true(
-		instance._game_camera.limit_top < instance._game_camera.limit_bottom,
-		"after scenario-load boot, _game_camera.limit_top must be < limit_bottom (populated bounds)"
+	assert_eq(
+		instance._game_camera.limit_right, DEFAULT_LIMIT,
+		"after scenario-load boot, limit_right must be the default free-pan sentinel (+10,000,000)"
 	)
-
-	# "non-default" — the seeded party/enemy tokens loaded at boot must have
-	# produced a REAL, margin-expanded AABB strictly inside Godot's own
-	# +/-10,000,000 "no bounds" sentinel, not the untouched Camera2D default.
-	assert_true(
-		instance._game_camera.limit_left > -DEFAULT_LIMIT,
-		"boot must apply real bounds, not leave limit_left at the -10,000,000 default sentinel"
+	assert_eq(
+		instance._game_camera.limit_top, -DEFAULT_LIMIT,
+		"after scenario-load boot, limit_top must be the default free-pan sentinel (-10,000,000)"
 	)
-	assert_true(
-		instance._game_camera.limit_right < DEFAULT_LIMIT,
-		"boot must apply real bounds, not leave limit_right at the +10,000,000 default sentinel"
-	)
-	assert_true(
-		instance._game_camera.limit_top > -DEFAULT_LIMIT,
-		"boot must apply real bounds, not leave limit_top at the -10,000,000 default sentinel"
-	)
-	assert_true(
-		instance._game_camera.limit_bottom < DEFAULT_LIMIT,
-		"boot must apply real bounds, not leave limit_bottom at the +10,000,000 default sentinel"
+	assert_eq(
+		instance._game_camera.limit_bottom, DEFAULT_LIMIT,
+		"after scenario-load boot, limit_bottom must be the default free-pan sentinel (+10,000,000)"
 	)
 
-	# Cross-check against the exact adapter method the feature wires in:
-	# applied limits must equal hex_grid_view.get_world_bounds()'s edges.
-	# Camera2D.limit_left/right/top/bottom are int-typed engine properties
-	# (not float, see tests/unit/presentation/test_game_camera_bounds.gd's
-	# identical note) -- Godot truncates a float assignment toward zero, so
-	# expected edges are cast through int() here to match the real property
-	# type/conversion exactly rather than comparing a raw float.
-	var expected_bounds: Rect2 = instance.hex_grid_view.get_world_bounds()
-	assert_eq(instance._game_camera.limit_left, int(expected_bounds.position.x),
-		"limit_left must equal hex_grid_view.get_world_bounds()'s left edge")
-	assert_eq(instance._game_camera.limit_right, int(expected_bounds.position.x + expected_bounds.size.x),
-		"limit_right must equal hex_grid_view.get_world_bounds()'s right edge")
-	assert_eq(instance._game_camera.limit_top, int(expected_bounds.position.y),
-		"limit_top must equal hex_grid_view.get_world_bounds()'s top edge")
-	assert_eq(instance._game_camera.limit_bottom, int(expected_bounds.position.y + expected_bounds.size.y),
-		"limit_bottom must equal hex_grid_view.get_world_bounds()'s bottom edge")
-
-
-# ══════════════════════════════════════════════════════════════════════════
-# Criterion 2 — bounds are recomputed and reapplied immediately after
-# set_selectable_hexes() during combat movement highlighting.
-# ══════════════════════════════════════════════════════════════════════════
-
-func test_active_actor_changed_recomputes_and_reapplies_bounds_after_movement_highlighting() -> void:
-	var instance = await _boot_main_scene_with_seed(PINNED_SEED)
-
-	var actor = instance.round_session.current_actor_entity()
-	assert_not_null(actor, "fixture assumption: a seeded combat boot must settle on a live current actor")
-
-	# Force the selectable-hex set to empty and seed the camera's bounds
-	# from THAT stale/empty state, so this test can prove
-	# _on_active_actor_changed() genuinely recomputes bounds using the
-	# FRESH selectable-hex state highlight_legal_moves() sets during THIS
-	# call -- not merely leaving whatever bounds were already applied at
-	# boot untouched.
-	instance.hex_grid_view.set_selectable_hexes([])
-	var stale_bounds: Rect2 = instance.hex_grid_view.get_world_bounds()
-	instance._game_camera.set_bounds(stale_bounds)
-
-	instance._on_active_actor_changed(actor)
-
-	# highlight_legal_moves() must have populated a non-empty selectable-hex
-	# set for a live player actor's turn, so the fresh bounds computed now
-	# differ from the artificially-emptied stale baseline above -- otherwise
-	# this test would pass even if the recompute used stale state.
-	assert_true(
-		instance.hex_grid_view._selectable_hexes.size() > 0,
-		"fixture assumption: the active player actor's turn must highlight at least one legal Step/Stride hex"
-	)
-
-	var fresh_bounds: Rect2 = instance.hex_grid_view.get_world_bounds()
-	assert_ne(
-		fresh_bounds, stale_bounds,
-		"fixture assumption: fresh bounds (post-highlight) must differ from the artificially stale baseline"
-	)
-
-	# Camera2D.limit_left/right/top/bottom are int-typed engine properties
-	# (not float) -- expected edges are cast through int() to match Godot's
-	# own float->int truncation on assignment (see criterion 1's identical
-	# note above).
-	assert_eq(instance._game_camera.limit_left, int(fresh_bounds.position.x),
-		"_on_active_actor_changed() must reapply limit_left from the FRESH post-highlight get_world_bounds(), not the stale baseline")
-	assert_eq(instance._game_camera.limit_right, int(fresh_bounds.position.x + fresh_bounds.size.x),
-		"_on_active_actor_changed() must reapply limit_right from the FRESH post-highlight get_world_bounds(), not the stale baseline")
-	assert_eq(instance._game_camera.limit_top, int(fresh_bounds.position.y),
-		"_on_active_actor_changed() must reapply limit_top from the FRESH post-highlight get_world_bounds(), not the stale baseline")
-	assert_eq(instance._game_camera.limit_bottom, int(fresh_bounds.position.y + fresh_bounds.size.y),
-		"_on_active_actor_changed() must reapply limit_bottom from the FRESH post-highlight get_world_bounds(), not the stale baseline")

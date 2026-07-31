@@ -440,7 +440,7 @@ func _select_party_member(id: String) -> void:
 		and scenario_session.party_hex_positions.has(id)
 	):
 		var hex_coord = scenario_session.party_hex_positions[id]
-		var world_pos: Vector2 = _hex_grid_view.axial_to_pixel_with_offset(hex_coord)
+		var world_pos: Vector2 = _hex_grid_view.axial_to_pixel(hex_coord)
 		_on_camera_follow_target.call(world_pos)
 
 
