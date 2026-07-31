@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="ItemResource" load_steps=2 format=3 uid="uid://gringchn1a2b3cd"]
+
+[ext_resource type="Script" uid="uid://ditmres1a2b3c4d" path="res://core/resources/item_resource.gd" id="1_rngchn"]
+
+[resource]
+script = ExtResource("1_rngchn")
+item_id = "ring_channeling"
+display_name = "Ring of Channeling"
+slot = 11
+two_handed = false
+is_implement = false
+prepared_spell_id = "channel"
+is_charged = true

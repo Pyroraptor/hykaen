@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="ItemResource" load_steps=2 format=3 uid="uid://gaxedwrf1a2b3cde"]
+
+[ext_resource type="Script" uid="uid://ditmres1a2b3c4d" path="res://core/resources/item_resource.gd" id="1_axedwr"]
+
+[resource]
+script = ExtResource("1_axedwr")
+item_id = "axe_dwarf"
+display_name = "Dwarf Channeler's Axe"
+slot = 0
+two_handed = false
+is_implement = false
+prepared_spell_id = ""
+is_charged = false

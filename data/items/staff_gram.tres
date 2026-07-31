@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="ItemResource" load_steps=2 format=3 uid="uid://gstfgrm1a2b3c4d"]
+
+[ext_resource type="Script" uid="uid://ditmres1a2b3c4d" path="res://core/resources/item_resource.gd" id="1_stfgrm"]
+
+[resource]
+script = ExtResource("1_stfgrm")
+item_id = "staff_gram"
+display_name = "Gram's Quarterstaff"
+slot = 0
+two_handed = true
+is_implement = true
+prepared_spell_id = "fire_bolt"
+is_charged = true
