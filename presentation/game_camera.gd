@@ -47,11 +47,22 @@
 ##     `_target_pos` into the CURRENT limits on every tick (not only
 ##     inside set_bounds()), so position always lerps toward an in-bounds
 ##     target and never snaps/oscillates when bounds change mid-motion.
+##
+## _unhandled_input(event) — FEAT-009 (US-007, ADR-004/ADR-005 zoom): reacts
+## to InputEventMouseButton MOUSE_BUTTON_WHEEL_UP/DOWN, adjusting `zoom` by
+## +/- `zoom_step` per axis and delegating clamping to DOMAIN's
+## core/domain/zoom_clamp.gd ZoomClamp.apply_delta(current, delta, min_zoom,
+## max_zoom) — see that function's doc header for the full contract. All
+## other events (including other mouse buttons/motion) pass through
+## unhandled; a consumed wheel event calls
+## get_viewport().set_input_as_handled() so HexGridView does not also react
+## to the same scroll.
 
 class_name GameCamera
 extends Camera2D
 
 const CameraMotion = preload("res://core/domain/camera_motion.gd")
+const ZoomClamp = preload("res://core/domain/zoom_clamp.gd")
 
 ## Godot's own Camera2D default limit_left/right/top/bottom sentinel
 ## values, restored by set_bounds(Rect2()) as the documented "no bounds"
@@ -68,6 +79,18 @@ const _DEFAULT_LIMIT: float = 10000000.0
 ## "arrived" at _target_pos and the lerp stops. Exported for the same
 ## RISK-005 tunability reason as lerp_speed.
 @export var stop_threshold: float = 1.0
+
+## zoom_step / min_zoom / max_zoom — FEAT-009 (US-007, ADR-004/ADR-005):
+## `_unhandled_input()` below reacts to InputEventMouseButton wheel events
+## (MOUSE_BUTTON_WHEEL_UP/DOWN), adjusting `zoom` by +/- zoom_step per axis
+## and delegating the clamp itself to DOMAIN's `ZoomClamp.apply_delta` so
+## the "zoom is always in range" guarantee lives in exactly one place.
+## Exported per RISK-005 (designer/tunability requirement), matching
+## lerp_speed/stop_threshold above -- min_zoom/max_zoom default to
+## (0.5,0.5)/(2.0,2.0) per this feature's design notes.
+@export var zoom_step: float = 0.1
+@export var min_zoom: Vector2 = Vector2(0.5, 0.5)
+@export var max_zoom: Vector2 = Vector2(2.0, 2.0)
 
 ## The current lerp destination, in world-space coordinates. Only
 ## meaningful while _moving is true; otherwise stale/unused.
@@ -121,6 +144,44 @@ func _clamp_to_limits(pos: Vector2) -> Vector2:
 		clamp(pos.x, limit_left, limit_right),
 		clamp(pos.y, limit_top, limit_bottom)
 	)
+
+
+## _unhandled_input(event) -> void -- FEAT-009 (US-007, ADR-004/ADR-005):
+## reacts ONLY to InputEventMouseButton with button_index
+## MOUSE_BUTTON_WHEEL_UP/MOUSE_BUTTON_WHEEL_DOWN (checking `event.pressed`
+## so the paired press+release wheel event pair only adjusts zoom once, not
+## twice); every other InputEvent -- other mouse buttons, mouse motion, etc.
+## -- passes through entirely untouched (no zoom change, no
+## set_input_as_handled() call), so callers/siblings (e.g. HexGridView) that
+## might also implement _unhandled_input() are free to react to those events
+## themselves.
+##
+## Adjusts `zoom` by +/- zoom_step per axis (wheel up = zoom in = larger
+## zoom value; wheel down = zoom out = smaller zoom value), delegating the
+## actual add-then-clamp math to DOMAIN's ZoomClamp.apply_delta(current,
+## delta, min_zoom, max_zoom) rather than re-deriving the clamp here -- this
+## guarantees `zoom` can never leave [min_zoom, max_zoom] regardless of how
+## many wheel events fire.
+##
+## A consumed wheel event calls get_viewport().set_input_as_handled() so
+## HexGridView does not also react to the same scroll (documented
+## event-ownership contract, ADR-005).
+func _unhandled_input(event: InputEvent) -> void:
+	if not (event is InputEventMouseButton):
+		return
+	if not event.pressed:
+		return
+
+	var delta: Vector2
+	if event.button_index == MOUSE_BUTTON_WHEEL_UP:
+		delta = Vector2(zoom_step, zoom_step)
+	elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+		delta = Vector2(-zoom_step, -zoom_step)
+	else:
+		return
+
+	zoom = ZoomClamp.apply_delta(zoom, delta, min_zoom, max_zoom)
+	get_viewport().set_input_as_handled()
 
 
 func _process(delta: float) -> void:
