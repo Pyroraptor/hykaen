@@ -36,6 +36,13 @@
 class_name CharacterResource
 extends Resource
 
+## Preloaded (not referenced via bare global class_name) because the
+## project's .godot/global_script_class_cache.cfg is not guaranteed to be
+## regenerated between headless CI test runs -- using preload() here keeps
+## this file's dependency on EquipmentSlot's constants resolvable
+## regardless of global class cache state.
+const _EquipmentSlot = preload("res://core/model/equipment_slot.gd")
+
 ## Display name for this character.
 @export var name: String = ""
 
@@ -77,3 +84,44 @@ extends Resource
 ## Empty string ("") is the default for backward compatibility with
 ## existing .tres files that do not declare this field (e.g. Titus v0).
 @export var primary_offensive_attribute: String = ""
+
+## Character level (FEAT-003, Iteration steel-thread equipment/spell-prep).
+## Drives PrepareSpellUseCase's prepared-spell-count cap (design notes'
+## API contract #7). Defaults to 1 for backward compatibility with
+## existing .tres files that do not declare this field (RISK-004).
+@export var level: int = 1
+
+## Array of ItemResource instances (core/resources/item_resource.gd)
+## currently equipped by this character, keyed implicitly by each item's
+## own `slot` field (see EquipmentSlot). Composite conceptual key
+## (character, slot) uniqueness is enforced by EquipItemUseCase, not by
+## this Resource (design notes' data_model, CHARACTER_EQUIPMENT). Empty
+## by default for backward compatibility with existing .tres files that
+## do not declare this field (RISK-004).
+@export var equipped_items: Array = []
+
+
+## get_item_in_slot(slot: int) -> ItemResource
+##
+## Returns the first ItemResource in `equipped_items` whose `slot` field
+## matches `slot`, or null if no equipped item occupies that slot. Pure
+## domain accessor: never raises, never mutates state (API contract #3).
+func get_item_in_slot(slot: int) -> Resource:
+	for item in equipped_items:
+		if item != null and item.slot == slot:
+			return item
+	return null
+
+
+## is_slot_blocked(slot: int) -> bool
+##
+## True only when `slot` is OFF_HAND and the currently equipped MAIN_HAND
+## item exists and has `two_handed == true` (RISK-006's asymmetric
+## two-handed/off-hand blocking rule: MAIN_HAND's two_handed flag blocks
+## OFF_HAND, never the reverse). False for every other slot/state
+## combination. Pure predicate: never raises (API contract #4).
+func is_slot_blocked(slot: int) -> bool:
+	if slot != _EquipmentSlot.OFF_HAND:
+		return false
+	var main_hand_item: Resource = get_item_in_slot(_EquipmentSlot.MAIN_HAND)
+	return main_hand_item != null and main_hand_item.two_handed == true
