@@ -1,0 +1,317 @@
+#+TITLE: Iteration Z — Equipment Slots
+#+SPRINT: 34
+#+VERSION: 0.2.3
+
+* Goal
+
+Every humanoid character (party members and many enemies) has 15 named
+equipment slots.  Any equipped item — even a mundane one — can hold a
+prepared spell for Wizards.  The Wizard's preparation budget is capped
+by character level (at most =level= spells prepared at once, counting 1
+energy unit per spell).  This iteration establishes the domain model,
+use cases, starter loadouts for the prologue party, and a read-only
+equipment panel so the player can inspect what each character has
+equipped.
+
+* Background
+
+=CharacterResource= (=core/model/character_resource.gd=) has a
+=starting_equipment= field (Array of resource-path strings) that was a
+rough placeholder for weapon and armour.  Tests reference it for weapon
+loading, so it must remain intact and unchanged.  The new equipment
+system is ADDITIVE: a new =equipped_items= Array holds =ItemResource=
+objects with explicit slot assignments.
+
+Wizard spell casting already works (Iteration M): =CastSpellVerbController=
+dispatches =CAST_SPELL= using the character's =known_spell_ids= list.  The
+link between equipped items and spell casting (discharging an item's
+prepared spell on cast) is deferred; that connection is out of scope for Z.
+
+The prologue party is Titus (fighter), Gram Marx (wizard), Marigold, and
+Dwarf Channeler.  Gram Marx's wizard flavour is the primary motivator:
+he prepares Fire Bolt in his staff, and Channel in a ring — both visible
+in the equipment panel.
+
+* Non-goals
+
+- Somatic component validation (implement vs. shield) — deferred.
+- Discharging a prepared spell on cast (CAST_SPELL → is_charged gate) — deferred.
+- Loot drops, item trading, shops — deferred.
+- Equipment affecting combat stats (AC from armour, attack from weapon) — deferred.
+- Equip / unequip via UI interaction — deferred (panel is read-only this iteration).
+- Enemy equipment slots — deferred; current enemy data model is separate.
+
+* Features
+
+** Z0 — Equipment domain model
+
+*** Z0-0  =EquipmentSlot= enum — =core/model/equipment_slot.gd=
+
+Define 15 slot constants in a plain GDScript class (no =extends=):
+
+| Constant        | Value |
+|-----------------+-------|
+| MAIN_HAND       |     0 |
+| OFF_HAND        |     1 |
+| RIGHT_RING      |     2 |
+| LEFT_RING       |     3 |
+| AMULET          |     4 |
+| CLOAK           |     5 |
+| HEAD            |     6 |
+| TORSO           |     7 |
+| LEGS            |     8 |
+| BELT            |     9 |
+| GLOVES          |    10 |
+| ARMS            |    11 |
+| BOOTS           |    12 |
+| ACCESSORY_1     |    13 |
+| ACCESSORY_2     |    14 |
+
+Also expose =ALL_SLOTS: Array= (constant containing all 15 values in the
+order above) and =slot_name(slot: int) -> String= returning a human-readable
+label (e.g. "Main Hand", "Off Hand", "Amulet", "Accessory 1").
+
+Test: =EquipmentSlot.ALL_SLOTS.size() == 15=; =slot_name(MAIN_HAND) == "Main Hand"=.
+
+*** Z0-1  =ItemResource= — =core/resources/item_resource.gd=
+
+Custom =Resource= (extends Resource, zero business logic):
+
+| Field               | Type   | Notes                                                                 |
+|---------------------+--------+-----------------------------------------------------------------------|
+| =item_id=           | String | Canonical identifier matching the =.tres= filename (e.g. "staff_gram") |
+| =display_name=      | String | Player-visible name (e.g. "Quarterstaff")                             |
+| =slot=              | int    | One of the =EquipmentSlot= constants above                            |
+| =two_handed=        | bool   | true → equipping this item also occupies =OFF_HAND=                  |
+| =is_implement=      | bool   | true → can satisfy somatic components (deferred; stored for future)   |
+| =prepared_spell_id= | String | Spell ID prepared in this item ("" = none)                           |
+| =is_charged=        | bool   | true = prepared spell is available; false = discharged. Default true. |
+
+All fields exported.  Add =is_valid() -> bool= and =validation_error() -> String=
+(same pattern as =SpellResource=): =item_id= must be non-empty; =slot= must be
+in range [0, 14].
+
+Test: construct an =ItemResource=, set fields, call =is_valid()= → true; omit
+=item_id= → =validation_error()= is non-empty.
+
+*** Z0-2  =CharacterResource= additions — =core/model/character_resource.gd=
+
+Add two exported fields (DO NOT remove or rename any existing field):
+
+#+BEGIN_SRC gdscript
+## Character level — caps how many spells a Wizard can prepare (one
+## preparation energy per spell; total prepared spells <= level).
+@export var level: int = 1
+
+## Items currently equipped, as an Array of ItemResource objects.
+## Keyed conceptually by slot — use get_item_in_slot() for lookup.
+## The legacy `starting_equipment` Array (resource-path strings) is
+## preserved for backward compatibility with existing tests and loaders.
+@export var equipped_items: Array = []
+#+END_SRC
+
+Add two pure helper methods (no business logic, no I/O):
+
+- =get_item_in_slot(slot: int) -> ItemResource= — returns the first
+  ItemResource in =equipped_items= whose =slot= matches, or =null= if none.
+- =is_slot_blocked(slot: int) -> bool= — returns =true= if =slot == OFF_HAND=
+  and the item in =MAIN_HAND= has =two_handed == true=; otherwise =false=.
+
+Existing .tres files that omit =level= and =equipped_items= will read the
+GDScript defaults (1 and []) without any change — NO .tres edits needed for
+backward compatibility.
+
+Test: construct a =CharacterResource=, add an =ItemResource= with
+=slot == MAIN_HAND= and =two_handed == true=; assert
+=get_item_in_slot(MAIN_HAND)= is not null and
+=is_slot_blocked(OFF_HAND) == true=.
+
+** Z1 — Equipment use cases
+
+*** Z1-0  =EquipItemUseCase= — =core/use_cases/equip_item_use_case.gd=
+
+Single public method: =execute(character: CharacterResource, item: ItemResource) -> Dictionary=
+
+Returns ={ok: true}= on success or ={ok: false, error: String}= on failure.
+
+Validation rules (checked in order):
+1. =item.slot= is a valid EquipmentSlot value [0–14].
+2. The slot is not already occupied (=get_item_in_slot(item.slot) == null=).
+3. If =item.slot == OFF_HAND=: the slot is not blocked by a two-handed main-hand
+   item (=is_slot_blocked(OFF_HAND) == false=).
+4. If =item.two_handed == true=: =OFF_HAND= must be unoccupied (cannot dual-wield
+   a two-hander alongside an off-hand item).
+
+On success: append =item= to =character.equipped_items=.
+
+Test (unit): equip a two-handed staff → ok; then attempt to equip an off-hand
+shield → error "OFF_HAND blocked by two-handed item".  Equip two separate
+one-handed items → both succeed.
+
+*** Z1-1  =UnequipItemUseCase= — =core/use_cases/unequip_item_use_case.gd=
+
+Single method: =execute(character: CharacterResource, slot: int) -> Dictionary=
+
+Returns ={ok: true, item: ItemResource}= (the removed item) or
+={ok: false, error: String}= (slot was empty).
+
+On success: removes the matching item from =character.equipped_items=.
+
+Test: equip then unequip → equipped_items is empty; unequip empty slot → ok==false.
+
+*** Z1-2  =PrepareSpellUseCase= — =core/use_cases/prepare_spell_use_case.gd=
+
+Method: =execute(character: CharacterResource, slot: int, spell_id: String) -> Dictionary=
+
+Validation:
+1. An item exists in =slot= (=get_item_in_slot(slot) != null=).
+2. =spell_id= is non-empty (or empty string to CLEAR the prepared spell —
+   clearing always succeeds if an item is in the slot).
+3. Count of items in =character.equipped_items= that have a non-empty
+   =prepared_spell_id= AFTER this change must not exceed =character.level=.
+   (Rule: 1 preparation energy per spell; budget = level.)
+
+On success: set =item.prepared_spell_id = spell_id=; if setting a new spell
+also set =item.is_charged = true=; if clearing set =item.is_charged = false=.
+
+Returns ={ok: true}= or ={ok: false, error: String}=.
+
+Test: level 1 character with 2 item slots; prepare spell A in slot 1 → ok;
+prepare spell B in slot 2 → error "prepared spell count (2) exceeds level (1)";
+clear slot 1 → ok; prepare spell B in slot 2 → ok.
+
+** Z2 — Prologue starter equipment fixture data
+
+*** Z2-0  Item =.tres= files — =data/items/=
+
+Create the following =ItemResource= .tres files.  All =is_charged = true= unless
+otherwise noted.
+
+For Gram Marx (wizard, level 1):
+- =data/items/staff_gram.tres=: slot=MAIN_HAND, two_handed=true, is_implement=true,
+  prepared_spell_id="fire_bolt"
+- =data/items/ring_channeling.tres=: slot=RIGHT_RING, is_implement=false,
+  prepared_spell_id="channel"
+
+For Titus (fighter, level 1):
+- =data/items/longsword_titus.tres=: slot=MAIN_HAND, two_handed=false
+- =data/items/shield_titus.tres=: slot=OFF_HAND
+
+For Marigold (level 1):
+- =data/items/shortsword_marigold.tres=: slot=MAIN_HAND, two_handed=false
+
+For Dwarf Channeler (level 1):
+- =data/items/axe_dwarf.tres=: slot=MAIN_HAND, two_handed=false
+
+All item =display_name= values should be human-readable (e.g. "Gram's Quarterstaff",
+"Ring of Channeling", "Titus's Longsword").
+
+*** Z2-1  Update character =.tres= files with =equipped_items=
+
+Edit =data/characters/gram_marx.tres=, =titus.tres=, =marigold.tres=, and
+=dwarf_channeler.tres= to add =level= and =equipped_items= arrays referencing
+the =.tres= files from Z2-0.
+
+Gram Marx: =level = 1=; equipped_items = [staff_gram, ring_channeling].
+Titus: =level = 1=; equipped_items = [longsword_titus, shield_titus].
+Marigold: =level = 1=; equipped_items = [shortsword_marigold].
+Dwarf Channeler: =level = 1=; equipped_items = [axe_dwarf].
+
+DO NOT modify any existing field (name, race, class_ref, attributes, skills,
+starting_equipment, talent_selections, known_spell_ids, primary_offensive_attribute).
+
+Per =CLAUDE.md=: stage and commit ALL data/ files (item .tres files + updated
+character .tres files) before finishing this feature step.  =git status= must
+show a clean working tree after commit.
+
+** Z3 — Equipment panel UI
+
+*** Z3-0  =EquipmentPanelUI= — =presentation/equipment_panel_ui.gd= + =scenes/equipment_panel.tscn=
+
+A =Control= node showing all 15 equipment slots as rows.  Each row displays:
+- Slot name (from =EquipmentSlot.slot_name()=)
+- Equipped item display_name or "—" if empty
+- If item has =prepared_spell_id != ""=: append " [Fire Bolt ✦]" (or spell name
+  + ✦ for charged, ✧ for discharged) — these characters are acceptable; use
+  plain text equivalents "[charged]" / "[uncharged]" if font rendering is a concern
+
+The panel is a popup (start hidden, show/hide via toggle).  Do NOT add
+interaction: all rows are read-only labels, no click handling.
+
+Public API:
+- =setup(character: CharacterResource) -> void= — populates rows from
+  =character.equipped_items= using =get_item_in_slot()=.
+- =clear() -> void= — resets all rows to "—".
+
+No test is required for the scene itself (UI scenes are excluded from the GUT
+domain gate); a minimal unit test verifying =setup()= populates the row data
+is acceptable but not required if it proves awkward.
+
+*** Z3-1  Wire panel into MainScene
+
+Add an =EquipmentPanelUI= instance to =MainScene.tscn= (initially hidden).
+
+Add a keyboard shortcut: pressing =E= opens/closes the equipment panel for the
+currently selected party member.  If no party member is selected, pressing =E=
+does nothing.
+
+When the active actor changes (=_on_active_actor_changed=), if the panel is open,
+call =setup()= with the new actor's =CharacterResource= (if it is a player-team
+actor).
+
+Wire =MainScene._on_active_actor_changed= to call =_equipment_panel.setup(...)=
+only for player-team actors; close/clear the panel when an enemy is the active
+actor.
+
+No integration test is required for the 'E' shortcut.
+
+** Z4 — Gate integration test
+
+*** Z4-0  Boot + equipment smoke test — =tests/integration/test_equipment_smoke_e2e.gd=
+
+Boot =MainScene.tscn= with =seed_override = 42=, trigger =_on_combat_triggered("prologue")=,
+wait two process frames.
+
+Assertions:
+1. =gram_marx= CharacterResource loaded from =data/characters/gram_marx.tres= has
+   =level == 1= and =equipped_items.size() == 2=.
+2. =get_item_in_slot(EquipmentSlot.MAIN_HAND)= on gram_marx returns an ItemResource
+   with =display_name= non-empty and =prepared_spell_id == "fire_bolt"= and
+   =is_charged == true=.
+3. =get_item_in_slot(EquipmentSlot.RIGHT_RING)= on gram_marx returns an ItemResource
+   with =prepared_spell_id == "channel"=.
+4. =titus= CharacterResource has =get_item_in_slot(OFF_HAND)= non-null (shield equipped)
+   and =is_slot_blocked(OFF_HAND) == false= (because longsword is NOT two-handed).
+5. =gram_marx is_slot_blocked(OFF_HAND) == true= (staff is two-handed).
+
+Use the same =_boot_main_scene_with_seed()= fixture pattern as other integration
+tests.  The test must obtain CharacterResource instances via the game's existing
+character-loading path (not by calling =ResourceLoader.load()= directly in the test
+body).
+
+* Acceptance criteria
+
+1. EquipmentSlot defines 15 named constants.  =EquipmentSlot.slot_name()= returns
+   a non-empty string for every slot.
+2. ItemResource validates correctly; creating an item with empty =item_id= returns
+   a validation error.
+3. Equipping a two-handed item in MAIN_HAND blocks OFF_HAND; attempting to equip
+   an item there returns an error string.
+4. PrepareSpellUseCase refuses to exceed =character.level= prepared spells, but
+   clearing a slot (spell_id = "") always succeeds.
+5. Gram Marx boots into the prologue encounter with Fire Bolt prepared in his staff
+   and Channel in his ring; both =is_charged == true=.
+6. Pressing E in the running game shows/hides an equipment panel for the selected
+   party member.
+7. GUT gate passes (≥ 3278 passing, 0 failing, exit 0).
+
+* Follow-on (out of scope for Z)
+
+- Discharge prepared spell on cast: wire =CastSpellVerbController= to set
+  =item.is_charged = false= after casting; block cast if =is_charged == false=.
+- Somatic component validation: =is_implement= flag gates somatic spells when
+  both hands are occupied by non-implements.
+- Equip / unequip via UI (drag-and-drop or click-to-equip panel).
+- Equipment affecting combat stats (AC, attack, damage from items).
+- Item generation, loot, shops.
+- Rest mechanic to recharge =is_charged= items.
