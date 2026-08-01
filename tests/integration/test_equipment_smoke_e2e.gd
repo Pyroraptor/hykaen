@@ -65,7 +65,13 @@ extends GutTest
 ##   7. test_selecting_gram_marx_and_pressing_e_opens_equipment_panel_with_matching_rows()
 ##   8. test_full_steel_thread_boot_to_equipment_panel_no_regression() -- the
 ##      composite entry-point-to-exit-point smoke test driving all of the
-##      above through one continuous live MainScene session.
+##      above through one continuous live MainScene session; FEAT-366
+##      (FIX-001/FR-011 convergence) extends this SAME test to also advance
+##      the active actor from Gram Marx to Titus (panel refreshes to
+##      Titus's own gear via the real _on_active_actor_changed() reaction)
+##      and then to an enemy actor (panel auto-closes/clears), both
+##      resolved via the same real by-position character-loading seam --
+##      never a direct ResourceLoader.load() call in this file.
 ##   9. test_no_resourceloader_load_appears_in_this_file() -- ADR-005 gate.
 
 ## Preloaded (compile-time resource reference), never a runtime
@@ -201,6 +207,24 @@ func _resolve_titus_character(instance):
 	return instance.equipment_panel_toggle_controller._resolve_character(
 		instance._exploration, instance.scenario_session, instance._party
 	)
+
+
+## _find_combatant_by_id(combatants, combatant_id) -> Combatant|null --
+## FEAT-366 (FIX-001/FR-011 convergence coverage). A plain-Array linear
+## scan mirroring tests/scene/test_main_scene_equipment_panel_refresh.gd's
+## identically-named helper -- used to pull the REAL, live "player_0"
+## (Titus) and "enemy_0" (Skeleton) Combatant instances out of an already-
+## booted instance's own `_party`/`_enemies` arrays so this suite can drive
+## the REAL TurnController reaction, `MainScene._on_active_actor_changed()`,
+## with them (never a hand-rolled stand-in), keeping this the SAME
+## by-position resolution seam _resolve_character()/refresh_for_active_actor()
+## already use in production. No ResourceLoader.load() call is involved --
+## see ADR-005 gate below.
+func _find_combatant_by_id(combatants: Array, combatant_id: String):
+	for combatant in combatants:
+		if combatant != null and combatant.display_id() == combatant_id:
+			return combatant
+	return null
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -391,6 +415,14 @@ func test_full_steel_thread_boot_to_equipment_panel_no_regression() -> void:
 	assert_not_null(titus.get_item_in_slot(EquipmentSlotClass.OFF_HAND))
 	assert_false(titus.is_slot_blocked(EquipmentSlotClass.OFF_HAND))
 
+	# Capture the instance's REAL, live scenario_session/_party BEFORE the
+	# synthetic Gram Marx fixture is swapped in below -- FR-011's
+	# turn-change steps (further down) restore these to advance the active
+	# actor to the REAL Titus/enemy Combatant instances drawn from the
+	# REAL prologue roster, never a hand-rolled stand-in.
+	var real_scenario_session = instance.scenario_session
+	var real_party: Array = instance._party
+
 	# ── Exit point: selecting Gram Marx and pressing 'E' opens the real,
 	# player-facing EquipmentPanelUI, rendering the SAME gear/charge state
 	# just asserted above -- closing the loop entry point to exit point. ────
@@ -405,6 +437,68 @@ func test_full_steel_thread_boot_to_equipment_panel_no_regression() -> void:
 	assert_eq(instance.equipment_panel_ui.get_charge_indicator_text(EquipmentSlotClass.MAIN_HAND), "⚡ Charged")
 	assert_eq(instance.equipment_panel_ui.get_item_text(EquipmentSlotClass.RING_1), gram_ring.display_name)
 	assert_eq(instance.equipment_panel_ui.get_charge_indicator_text(EquipmentSlotClass.RING_1), "⚡ Charged")
+
+	# ── FIX-001 FR-011 convergence: advancing the active actor to Titus
+	# while the panel is open must REFRESH it (via the real
+	# MainScene._on_active_actor_changed() -> EquipmentPanelToggleController.
+	# refresh_for_active_actor() reaction, FEAT-365) to show Titus's own
+	# gear instead of Gram Marx's. Restore the real, live
+	# scenario_session/_party captured above so the by-position resolution
+	# this reaction depends on resolves against the REAL prologue roster. ──
+	instance.scenario_session = real_scenario_session
+	instance._party = real_party
+
+	var titus_combatant = _find_combatant_by_id(real_party, "player_0")
+	assert_not_null(titus_combatant, "fixture assumption: the real prologue party seats 'player_0' (Titus)")
+	assert_false(titus_combatant.is_enemy, "fixture assumption: 'player_0' is on the Player team")
+
+	instance._on_active_actor_changed(titus_combatant)
+
+	assert_true(
+		instance.equipment_panel_ui.visible,
+		"FR-011: the panel must REFRESH (stay open), not close, when the active actor advances to Titus"
+	)
+	assert_true(
+		instance.equipment_panel_toggle_controller.is_open(),
+		"FR-011: the toggle controller's open/closed state must remain OPEN after a refresh"
+	)
+	var titus_off_hand = titus.get_item_in_slot(EquipmentSlotClass.OFF_HAND)
+	assert_not_null(titus_off_hand)
+	assert_eq(
+		instance.equipment_panel_ui.get_item_text(EquipmentSlotClass.OFF_HAND), titus_off_hand.display_name,
+		"FR-011: the refreshed panel's OFF_HAND row must show Titus's own item (Titus's Shield), not Gram Marx's"
+	)
+	assert_false(
+		titus.is_slot_blocked(EquipmentSlotClass.OFF_HAND),
+		"FR-011: Titus's OFF_HAND must not be blocked -- his longsword is not two-handed"
+	)
+
+	# ── FIX-001 FR-011 convergence: advancing the active actor further, to
+	# a non-player-team (enemy) actor, must auto-CLOSE the panel and clear
+	# every row -- no leftover Titus/Gram Marx gear data left visible. ────
+	var enemy_combatant = _find_combatant_by_id(instance._enemies, "enemy_0")
+	assert_not_null(enemy_combatant, "fixture assumption: the prologue encounter seats a live 'enemy_0' (Skeleton)")
+	assert_true(enemy_combatant.is_enemy, "fixture assumption: 'enemy_0' is on the Enemy team")
+
+	instance._on_active_actor_changed(enemy_combatant)
+
+	assert_false(
+		instance.equipment_panel_ui.visible,
+		"FR-011: the panel must auto-close when the active actor advances to a non-player-team (enemy) actor"
+	)
+	assert_false(
+		instance.equipment_panel_toggle_controller.is_open(),
+		"FR-011: the toggle controller's open/closed state must flip to CLOSED on an enemy turn"
+	)
+	for slot in EquipmentSlotClass.ALL_SLOTS:
+		assert_eq(
+			instance.equipment_panel_ui.get_item_text(slot), "—",
+			"FR-011: clear() must reset every row back to '—' -- no leftover gear data (slot %d)" % slot
+		)
+		assert_eq(
+			instance.equipment_panel_ui.get_charge_indicator_text(slot), "",
+			"FR-011: clear() must reset every charge indicator too (slot %d)" % slot
+		)
 
 
 # ══════════════════════════════════════════════════════════════════════════
