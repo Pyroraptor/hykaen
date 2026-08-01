@@ -150,6 +150,17 @@ extends RefCounted
 ##                           `_energy_pool_for()`, reading the LIVE
 ##                           RoundSession's energy pool for the given caster.
 ##
+## FEAT-009 (US-008; FR-011, ADR-005): after ANY successful resolve above
+## (self-cast, pre-chosen-target, or live-TargetingPort), `_maybe_discharge_item()`
+## discharges the equipped item that PREPARED the resolved spell (if any) —
+## see that method's own doc for the exact "energy_cost > 0 AND
+## resolve_cast_result.success" gate and its no-throw-on-no-match
+## contract. This is the exit-point half of the item-implement steel
+## thread AA-3-2 (BeginCastUseCase's FEAT-007 charge-state guard is the
+## entry-point half): `orb_gram.is_charged` flips true -> false the
+## instant Frost Breath resolves, so a subsequent `castable_spell_ids()`
+## call no longer offers "frost_breath" (mitigates RISK-001).
+##
 ## Usage:
 ##   var controller := ResolveSpellController.new({
 ##       "spell_catalog_port": catalog, "targeting_port": targeting,
@@ -228,6 +239,7 @@ func execute(actor, round_number: int = 0, pre_chosen_target_id: String = "") ->
 		var resolve_cast_result = _maybe_resolve_self_cast(actor, spell, round_number)
 		if resolve_cast_result != null:
 			self_cast_result["resolve_cast_result"] = resolve_cast_result
+		_maybe_discharge_item(actor, spell, resolve_cast_result)
 		return self_cast_result
 
 	var legal_targets: Array = _in_range_candidates(actor, spell.range_ft)
@@ -248,6 +260,7 @@ func execute(actor, round_number: int = 0, pre_chosen_target_id: String = "") ->
 			var resolve_cast_result = _maybe_resolve_attack(actor, spell, pre_target, round_number)
 			if resolve_cast_result != null:
 				pre_result["resolve_cast_result"] = resolve_cast_result
+			_maybe_discharge_item(actor, spell, resolve_cast_result)
 			return pre_result
 		return {"success": false, "target_id": null, "target": null, "error": ErrorCodeClass.ERR_NO_VALID_TARGET}
 
@@ -268,6 +281,7 @@ func execute(actor, round_number: int = 0, pre_chosen_target_id: String = "") ->
 	var resolve_cast_result = _maybe_resolve_attack(actor, spell, target, round_number)
 	if resolve_cast_result != null:
 		result["resolve_cast_result"] = resolve_cast_result
+	_maybe_discharge_item(actor, spell, resolve_cast_result)
 	return result
 
 
@@ -365,3 +379,59 @@ func _skip_result() -> Dictionary:
 
 func _fail(error_code: int) -> Dictionary:
 	return {"success": false, "target_id": null, "target": null, "error": error_code}
+
+
+## _maybe_discharge_item(actor, spell, resolve_cast_result) -> void —
+## FEAT-009 (US-008; FR-011, ADR-005): the discharge-on-cast exit-point
+## requirement. Called from EVERY resolve path above (self-cast,
+## pre-chosen-target, and live TargetingPort) immediately after
+## `resolve_cast_result` has been computed. A no-op (never throws) unless
+## ALL of the following hold:
+##   1. `resolve_cast_result` is non-null AND its `success` key is true —
+##      an unresolved/failed cast (e.g. no ResolutionPort wired, per
+##      `_maybe_resolve_attack()`'s own "return null when there is nothing
+##      to resolve" doc) never discharges anything.
+##   2. `spell.energy_cost > 0` — a 0-cost spell (e.g. fire_bolt/Channel)
+##      never discharges an equipped item, even if one happens to prepare
+##      that spell_id (test_criteria #2).
+## When both hold, this scans `actor`'s equipped items (the SAME
+## `_duck_get(actor, "equipped_items", [])` duck-typed read
+## core/application/use_cases/begin_cast_use_case.gd's BeginCastUseCase
+## already established — no static ItemResource/Combatant.equipped_items
+## type dependency, ADR-004) for the FIRST item whose `prepared_spell_id`
+## matches the resolved `spell.spell_id`, and sets `item.is_charged =
+## false` — a presentation-layer mutation on the live Resource reference
+## already held via the combatant dict (ADR-005's documented exception,
+## design notes' architecture section), NOT a new use case.
+## No matching item (should not happen given BeginCastUseCase's FEAT-007
+## charge-state guard, but must never throw per the design notes' own
+## error_handling doc) is a silent no-op — the equipped_items walk simply
+## finds nothing to mutate.
+func _maybe_discharge_item(actor, spell, resolve_cast_result) -> void:
+	if resolve_cast_result == null or not resolve_cast_result.get("success", false):
+		return
+	if spell.energy_cost <= 0:
+		return
+
+	var equipped_items: Array = _duck_get(actor, "equipped_items", [])
+	for item in equipped_items:
+		if item == null:
+			continue
+		var prepared_spell_id: String = String(_duck_get(item, "prepared_spell_id", ""))
+		if prepared_spell_id != "" and prepared_spell_id == spell.spell_id:
+			item.is_charged = false
+			return
+
+
+## _duck_get(obj, key, default) -> Variant — mirrors
+## core/application/use_cases/begin_cast_use_case.gd's BeginCastUseCase._duck_get()
+## verbatim (NFR-003 defensive duck-typing): tolerates `obj` being a
+## Dictionary, an Object exposing `key` as a real property, or null/an
+## Object with no such property (falls back to `default`, never raises).
+func _duck_get(obj, key: String, default = null):
+	if obj == null:
+		return default
+	if obj is Dictionary:
+		return obj.get(key, default)
+	var value = obj.get(key)
+	return value if value != null else default
