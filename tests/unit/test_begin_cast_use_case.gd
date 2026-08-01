@@ -375,3 +375,44 @@ func test_castable_spell_ids_and_execute_round_trip_for_uncharged_item_prepared_
 	var result: Dictionary = use_case.execute(actor, "frost_breath", catalog, pool)
 	assert_false(result.get("success"), "the same uncharged item-prepared spell must also be blocked on direct execute()")
 	assert_eq(result.get("error"), ErrorCodeClass.ERR_INVALID_STATE)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# FEAT-008 (US-009; FR-013, RISK-007) — regression-protect free-cast innate
+# spell behavior against the FEAT-007 item-charge gate. Mirrors
+# tests/unit/core/application/test_castable_spell_ids_regression.gd's
+# broader multi-fixture snapshot suite; this file's own narrower, fully
+# fake-port version pins the exact "0-cost/innate spell, no equipped items
+# at all" shape Marigold's real fire_bolt cast exercises (real fire_bolt.tres
+# has energy_cost == 0), so a future change to the charge-state guard's
+# `is_known` short-circuit (execute(), above) cannot silently regress the
+# single most common cast in the game.
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_execute_zero_cost_innate_spell_with_no_equipped_items_unaffected_by_charge_state_guard() -> void:
+	var actor = _caster(["fire_bolt"])
+	assert_eq(_duck_get_equipped_items_for_test(actor), [], "fixture assumption: a plain Combatant carries no equipped_items at all -- the FEAT-007 guard's _find_item_preparing() must never even be reached for this actor")
+
+	var catalog := FakeSpellCatalogPort.new()
+	catalog.spells["fire_bolt"] = _fire_bolt(0, 2)
+	var pool := FakeRoundEnergyPoolPort.new(5)
+	var action_economy := FakeActionEconomy.new()
+
+	var use_case := BeginCastUseCaseClass.new()
+	var result: Dictionary = use_case.execute(actor, "fire_bolt", catalog, pool, action_economy)
+
+	assert_true(result.get("success"), "a 0-cost/innate known spell with no equipped items must cast identically pre- and post-FEAT-007")
+	assert_eq(result.get("error"), ErrorCodeClass.NONE, "no ERR_INVALID_STATE regression for a 0-cost/innate spell")
+	assert_eq(pool.balance("marigold_1"), 5, "a 0-cost spell must reserve exactly 0 energy from the round pool")
+	assert_eq(action_economy.spend_calls.size(), 1)
+
+
+## _duck_get_equipped_items_for_test(actor) -> Array — a plain Combatant
+## (core/domain/combatant.gd) declares no `equipped_items` field, so
+## `Object.get("equipped_items")` resolves to null; this local helper
+## mirrors that exact read (never the production _duck_get(), which is a
+## private method on BeginCastUseCase) purely to make the fixture assumption
+## above self-documenting.
+func _duck_get_equipped_items_for_test(actor) -> Array:
+	var value = actor.get("equipped_items")
+	return [] if value == null else value
