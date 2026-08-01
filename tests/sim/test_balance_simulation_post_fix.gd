@@ -139,9 +139,9 @@ const MAX_ROUNDS_GUARD: int = 50
 ## values) and tests/unit/test_enemy_resource_weapon_defense_fields.gd for
 ## the FEAT-001 data suite.
 ##
-## FEAT-008 (this iteration, US-008 / FR-008) intentionally re-pins the
-## titus.tres hash below AGAIN: that feature additively wires
-## level=1/equipped_items=[longsword_titus, shield_titus] onto titus.tres
+## post-Z fixture fix intentionally re-pins the titus.tres hash below:
+## longsword_titus changed to two_handed=true (HEMA convention) and
+## shield_titus removed from equipped_items (blocked by two-hander).
 ## (and the other three party-member fixtures, which are not in this
 ## guard's pinned set) per ADR-004. Neither `level` nor `equipped_items` is
 ## read anywhere on the passive-defense-only simulator.gd path exercised by
@@ -153,7 +153,7 @@ const MAX_ROUNDS_GUARD: int = 50
 ## field (including attributes/skills) is unchanged.
 const _EXPECTED_HASHES: Dictionary = {
 	"res://core/sim/simulator.gd":      "6120b8e4b096193d2f5c587f683ae4a9",
-	"res://data/characters/titus.tres": "c2f1101a4fdcdbbb07c56920170df146",
+	"res://data/characters/titus.tres": "acf236d8858a0cf0a714415a6f3d69c9",
 	"res://data/enemies/skeleton.tres": "a197dd1bc0c15c016b1ee33dc202951c",
 	"res://data/weapons/longsword.tres": "248339f6e3f256d6cdc6a943ca824587",
 	"res://data/armor/chain_shirt.tres": "6be0c7c1b55b7a91233bca0f62fadd16",
