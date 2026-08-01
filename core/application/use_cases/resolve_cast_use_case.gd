@@ -117,6 +117,7 @@ extends RefCounted
 const ErrorCodeClass = preload("res://core/application/ports/errors.gd")
 const EffectsApplierClass = preload("res://core/domain/effects_applier.gd")
 const DamageEffectClass = preload("res://core/domain/effects/damage_effect.gd")
+const ConditionEffectClass = preload("res://core/domain/effects/condition_effect.gd")
 const AddEnergyEffectClass = preload("res://core/domain/effects/add_energy_effect.gd")
 const EffectKindClass = preload("res://core/domain/effects/effect_kind.gd")
 const CombatLogEntryClass = preload("res://core/domain/combat_log_entry.gd")
@@ -192,6 +193,7 @@ func execute(caster, spell, targets: Array, resolution_port, combat_log_port = n
 			continue
 		var attack_result: Dictionary = resolution_port.resolve_spell_attack(caster, target, spell, spell.defense)
 		var damage_applied: int = _apply_damage_on_hit(target, attack_result)
+		_apply_condition_on_hit(target, spell, attack_result)
 		results.append({
 			"target_id": target.display_id(),
 			"attack_result": attack_result,
@@ -346,3 +348,29 @@ func _apply_damage_on_hit(target, attack_result: Dictionary) -> int:
 	var damage_effect = DamageEffectClass.new(target_id, damage)
 	_effects_applier.apply([damage_effect], {target_id: target})
 	return damage
+
+
+
+## _apply_condition_on_hit(target, spell, attack_result) -> void — FEAT-003
+## (US-007; FR-010): on a hit (`attack_result["hit"] == true`) against a
+## spell whose `spell.condition_on_hit == "dazed"` (e.g. Frost Breath),
+## builds a ConditionEffect(target.display_id(), "Dazed", true) — the SAME
+## pre-existing domain value object core/domain/effects/condition_effect.gd
+## already defines, no new domain type introduced — and dispatches it
+## through the identical `_effects_applier.apply()` seam
+## `_apply_damage_on_hit()` above uses (ADR-002 reuse of the existing
+## dispatch seam; no new port is introduced). A miss, or any spell whose
+## `condition_on_hit` is not exactly "dazed" (including "" for every
+## pre-existing spell fixture, e.g. Fire Bolt — NFR-001 backward
+## compatibility), is a no-op: no ConditionEffect is constructed or
+## dispatched at all.
+func _apply_condition_on_hit(target, spell, attack_result: Dictionary) -> void:
+	if spell.condition_on_hit != "dazed":
+		return
+
+	if not attack_result.get("hit", false):
+		return
+
+	var target_id: String = target.display_id()
+	var condition_effect = ConditionEffectClass.new(target_id, "Dazed", true)
+	_effects_applier.apply([condition_effect], {target_id: target})
