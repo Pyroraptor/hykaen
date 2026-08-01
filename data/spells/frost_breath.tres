@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="SpellResource" load_steps=2 format=3 uid="uid://c8fr0stbr3ath01"]
+
+[ext_resource type="Script" uid="uid://cspres0urce00001" path="res://core/resources/spell_resource.gd" id="1_frstbr"]
+
+[resource]
+script = ExtResource("1_frstbr")
+spell_id = "frost_breath"
+name = "Frost Breath"
+actions_cost = 2
+energy_cost = 1
+defense = 3
+range_ft = 30
+damage_formula = "2d6+ATTR"
+damage_type = "cold"
+traits = ["Concentrate"]
+effect_type = 0
+effect_params = {
+"formula": "2d6+ATTR",
+"type": "cold"
+}
+condition_on_hit = "dazed"

@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="ItemResource" load_steps=2 format=3 uid="uid://gorbgrm1a2b3c4d"]
+
+[ext_resource type="Script" uid="uid://ditmres1a2b3c4d" path="res://core/resources/item_resource.gd" id="1_orbgrm"]
+
+[resource]
+script = ExtResource("1_orbgrm")
+item_id = "orb_gram"
+display_name = "Gram's Focus Orb"
+slot = 13
+two_handed = false
+is_implement = true
+prepared_spell_id = "frost_breath"
+is_charged = true
