@@ -105,6 +105,12 @@ var effect_type: int = EffectKindClass.DAMAGE
 ## {"formula": ..., "type": ...} for DAMAGE).
 var effect_params: Dictionary = {}
 
+## Condition name applied to the target on a hit (e.g. "dazed"). Empty
+## string for spells with no on-hit condition (FEAT-001; NFR-001 backward
+## compatibility default — every pre-existing caller/fixture omitting this
+## trailing constructor argument is unaffected).
+var condition_on_hit: String = ""
+
 
 func _init(
 	p_spell_id: String = "",
@@ -117,7 +123,8 @@ func _init(
 	p_damage_type: String = "",
 	p_traits: Array = [],
 	p_effect_type: int = EffectKindClass.DAMAGE,
-	p_effect_params: Dictionary = {}
+	p_effect_params: Dictionary = {},
+	p_condition_on_hit: String = ""
 ) -> void:
 	spell_id = p_spell_id
 	spell_name = p_spell_name
@@ -130,6 +137,7 @@ func _init(
 	traits = p_traits.duplicate()
 	effect_type = p_effect_type
 	effect_params = p_effect_params.duplicate()
+	condition_on_hit = p_condition_on_hit
 
 
 ## has_trait(trait_name) -> bool — true iff `trait_name` is present in this

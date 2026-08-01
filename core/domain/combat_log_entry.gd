@@ -79,6 +79,12 @@ var energy_delta = null   ## int | null
 var roll_total = null     ## int | null — attack roll total; null for non-attack spells
 var round_number: int = 0
 
+## Damage type string (e.g. "cold"), mirroring core/domain/spell.gd Spell's
+## `damage_type` field (FEAT-001). Empty string ("") for non-damage spells
+## and for any pre-existing caller omitting this trailing constructor
+## argument (NFR-001 backward compatibility default).
+var damage_type: String = ""
+
 
 func _init(
 	p_event_type: int = EventType.CAST_RESOLVE,
@@ -89,7 +95,8 @@ func _init(
 	p_damage_amount = null,
 	p_energy_delta = null,
 	p_round_number: int = 0,
-	p_roll_total = null
+	p_roll_total = null,
+	p_damage_type: String = ""
 ) -> void:
 	event_type = p_event_type
 	actor_id = p_actor_id
@@ -100,6 +107,7 @@ func _init(
 	energy_delta = p_energy_delta
 	roll_total = p_roll_total
 	round_number = p_round_number
+	damage_type = p_damage_type
 
 
 ## to_dict() -> Dictionary — snapshot of every field, for assertions/logging,
@@ -116,4 +124,5 @@ func to_dict() -> Dictionary:
 		"energy_delta": energy_delta,
 		"roll_total": roll_total,
 		"round_number": round_number,
+		"damage_type": damage_type,
 	}

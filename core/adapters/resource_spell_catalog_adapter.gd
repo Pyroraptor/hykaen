@@ -75,5 +75,6 @@ func get_spell(spell_id: String):
 		spell_resource.damage_type,
 		spell_resource.traits,
 		spell_resource.effect_type,
-		spell_resource.effect_params
+		spell_resource.effect_params,
+		spell_resource.condition_on_hit
 	)

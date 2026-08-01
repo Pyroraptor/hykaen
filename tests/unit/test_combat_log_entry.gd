@@ -73,6 +73,7 @@ func test_to_dict_snapshots_every_field() -> void:
 		"energy_delta": null,
 		"round_number": 2,
 		"roll_total": null,
+		"damage_type": "",
 	})
 
 
@@ -103,6 +104,42 @@ func test_event_type_enum_declares_the_full_closed_cast_vocabulary() -> void:
 	assert_eq(CombatLogEntryClass.EventType.CAST_CONTINUE, 1)
 	assert_eq(CombatLogEntryClass.EventType.CAST_RESOLVE, 2)
 	assert_eq(CombatLogEntryClass.EventType.CAST_CANCELLED, 3)
+
+
+## ══════════════════════════════════════════════════════════════════════════
+## FEAT-001 (US-001; FR-001, FR-002): damage_type field
+## ══════════════════════════════════════════════════════════════════════════
+
+func test_damage_type_defaults_to_empty_string_with_no_argument() -> void:
+	var entry := CombatLogEntryClass.new()
+
+	assert_eq(entry.damage_type, "")
+	assert_eq(entry.to_dict().get("damage_type"), "")
+
+
+func test_damage_type_defaults_to_empty_string_for_legacy_positional_construction() -> void:
+	# Mirrors the exact pre-existing 9-positional-argument call shape used by
+	# core/application/use_cases/resolve_cast_use_case.gd before this feature
+	# (roll_total as the last argument, no damage_type) -- NFR-001 backward
+	# compatibility.
+	var entry := CombatLogEntryClass.new(
+		CombatLogEntryClass.EventType.CAST_RESOLVE, "marigold_1", "fire_bolt",
+		["skeleton"], true, 9, null, 1, 18
+	)
+
+	assert_eq(entry.roll_total, 18)
+	assert_eq(entry.damage_type, "", "a pre-existing caller predating this feature must default damage_type to '' (NFR-001)")
+	assert_eq(entry.to_dict().get("damage_type"), "")
+
+
+func test_damage_type_param_is_stored_and_serialized() -> void:
+	var entry := CombatLogEntryClass.new(
+		CombatLogEntryClass.EventType.CAST_RESOLVE, "marigold_1", "frost_breath",
+		["skeleton"], true, 9, null, 1, 18, "cold"
+	)
+
+	assert_eq(entry.damage_type, "cold")
+	assert_eq(entry.to_dict().get("damage_type"), "cold")
 
 
 func test_domain_purity_extends_refcounted_only() -> void:

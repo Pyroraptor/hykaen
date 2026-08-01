@@ -95,6 +95,11 @@ const EffectKindClass = preload("res://core/domain/effects/effect_kind.gd")
 ## Effect-type-specific parameters (e.g. {"amount": 1} for ADD_ENERGY).
 @export var effect_params: Dictionary = {}
 
+## Condition name applied to the target on a hit (e.g. "dazed"); "" when
+## this spell applies no on-hit condition (FEAT-001). Mirrors
+## core/domain/spell.gd Spell's `condition_on_hit` field.
+@export var condition_on_hit: String = ""
+
 
 ## is_valid() -> bool — true when every load-time invariant holds (see
 ## validation_error()). Callers (adapters) MUST check this before trusting

@@ -96,3 +96,56 @@ func test_adapter_get_spell_unknown_id_returns_null() -> void:
 	var adapter := ResourceSpellCatalogAdapterClass.new()
 	var spell = adapter.get_spell("does_not_exist")
 	assert_null(spell, "get_spell() for an unknown spell_id must return null")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# FEAT-001 (US-001; FR-001, FR-002): Spell.condition_on_hit
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_spell_condition_on_hit_defaults_to_empty_string_with_no_argument() -> void:
+	var spell := SpellClass.new()
+	assert_eq(spell.condition_on_hit, "")
+
+
+func test_spell_condition_on_hit_defaults_to_empty_string_for_legacy_positional_construction() -> void:
+	# Mirrors the exact positional-argument shape used by pre-existing
+	# callers (e.g. tests/unit/test_resolve_cast_combat_log.gd's
+	# _fire_bolt()) that predate this feature and never pass
+	# condition_on_hit -- NFR-001 backward compatibility.
+	var spell := SpellClass.new(
+		"fire_bolt", "Fire Bolt", 2, 0, SpellClass.Defense.REFLEX, 50, "2d8+ATTR", "fire", []
+	)
+	assert_eq(spell.condition_on_hit, "", "a spell fixture predating this feature must default condition_on_hit to '' (NFR-001)")
+
+
+func test_spell_condition_on_hit_param_is_stored() -> void:
+	var spell := SpellClass.new(
+		"frost_breath", "Frost Breath", 2, 1, SpellClass.Defense.FORTITUDE, 30,
+		"2d6+ATTR", "cold", ["Concentrate"], EffectKindClass.DAMAGE,
+		{"formula": "2d6+ATTR", "type": "cold"}, "dazed"
+	)
+	assert_eq(spell.condition_on_hit, "dazed")
+
+
+func test_adapter_passes_condition_on_hit_through_to_the_domain_spell() -> void:
+	# Uses the adapter's existing `resource_dir` constructor injection (see
+	# resource_spell_catalog_adapter.gd's own doc: "so tests may inject a
+	# fixture directory without touching production data") to load a
+	# test-only fixture (tests/fixtures/spells/dazing_bolt_fixture.tres)
+	# carrying a non-empty condition_on_hit, since this feature does not
+	# author the production frost_breath.tres data (a later feature's scope).
+	var adapter := ResourceSpellCatalogAdapterClass.new("res://tests/fixtures/spells/")
+	var spell = adapter.get_spell("dazing_bolt_fixture")
+
+	assert_not_null(spell, "get_spell('dazing_bolt_fixture') must return a Spell")
+	assert_true(spell is SpellClass)
+	assert_eq(spell.condition_on_hit, "dazed")
+	assert_eq(spell.damage_type, "cold")
+
+
+func test_adapter_defaults_condition_on_hit_to_empty_string_for_a_pre_existing_spell() -> void:
+	var adapter := ResourceSpellCatalogAdapterClass.new()
+	var spell = adapter.get_spell("fire_bolt")
+
+	assert_not_null(spell, "get_spell('fire_bolt') must return a Spell")
+	assert_eq(spell.condition_on_hit, "", "fire_bolt.tres predates condition_on_hit -- must default to '' (NFR-001)")

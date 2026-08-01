@@ -287,6 +287,11 @@ func _apply_add_energy(caster, effect, energy_pool_fn) -> int:
 ## hands it to `combat_log_port.emit()` -- skipped entirely (no
 ## CombatLogEntry constructed at all) when `combat_log_port` is null (see
 ## execute()'s own doc).
+##
+## FEAT-001 (US-001; FR-001, FR-002): also passes `spell.damage_type`
+## through onto the built entry's `damage_type` field -- "" for spells with
+## no damage type (e.g. Channel), an unchanged value for every pre-existing
+## spell fixture (NFR-001).
 func _emit_combat_log_entry(caster, spell, results: Array, combat_log_port, round_number: int = 0) -> void:
 	if combat_log_port == null:
 		return
@@ -315,7 +320,8 @@ func _emit_combat_log_entry(caster, spell, results: Array, combat_log_port, roun
 		damage_amount,
 		null,
 		round_number,
-		roll_total
+		roll_total,
+		spell.damage_type
 	)
 	combat_log_port.emit(entry)
 

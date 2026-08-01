@@ -252,3 +252,37 @@ func test_defensive_invalid_state_path_never_emits_a_log_entry() -> void:
 	use_case.execute(caster, spell, [], null, log_spy)
 
 	assert_true(log_spy.entries.is_empty(), "the defensive ERR_INVALID_STATE path must never emit a CombatLogEntry")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# FEAT-001 (US-001; FR-001, FR-002): emitted entry carries spell.damage_type
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_emitted_combat_log_entry_carries_the_spells_damage_type_on_a_hit() -> void:
+	var caster := _caster_at(HexCoordClass.new(0, 0))
+	var target := _enemy("skeleton", HexCoordClass.new(1, 0))
+	var spell := _fire_bolt()
+
+	var resolution_spy := SpyResolutionPort.new()
+	resolution_spy.scripted_result = _hit_result(9)
+	var log_spy := SpyCombatLogPort.new()
+
+	var use_case := ResolveCastUseCaseClass.new()
+	use_case.execute(caster, spell, [target], resolution_spy, log_spy)
+
+	assert_eq(log_spy.entries.size(), 1)
+	var entry = log_spy.entries[0]
+	assert_eq(entry.damage_type, "fire", "the emitted CombatLogEntry must carry the resolved spell's damage_type")
+
+
+func test_emitted_combat_log_entry_defaults_damage_type_to_empty_string_for_a_non_damage_spell() -> void:
+	var caster := _caster_at(HexCoordClass.new(0, 0))
+	var spell := SpellClass.new("channel", "Channel", 1, 0, SpellClass.Defense.NONE, 0, "", "", ["Concentrate"])
+	var log_spy := SpyCombatLogPort.new()
+
+	var use_case := ResolveCastUseCaseClass.new()
+	use_case.execute(caster, spell, [], SpyResolutionPort.new(), log_spy)
+
+	assert_eq(log_spy.entries.size(), 1)
+	var entry = log_spy.entries[0]
+	assert_eq(entry.damage_type, "", "a spell fixture predating this feature (empty damage_type) must not regress")

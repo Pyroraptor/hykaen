@@ -1,0 +1,324 @@
+#+TITLE: Iteration AA — Wizard Discharge, Frost Breath, Damage Type Logging
+#+SPRINT: 38
+#+VERSION: 0.2.4
+
+* Goal
+
+Wire the Wizard's item-discharge mechanic: a spell prepared in an equipped
+item can only be cast while that item is =is_charged= (true); casting a
+spell with =energy_cost > 0= discharges the item (=is_charged= → false).
+Add Frost Breath — a new energy-costing spell — so this mechanic has a
+real test-case.  Log damage types in the combat log for every resolved
+spell hit.
+
+* Background
+
+Iteration Z (sprint 37) added the equipment-slot system: =ItemResource=
+with =prepared_spell_id= and =is_charged=; =CharacterResource.equipped_items=;
+prologue party loadouts.  The link between equipped items and the cast flow
+was explicitly deferred to this iteration.
+
+Current casting flow (summary):
+- =SpellActionController.enter_selection()= calls
+  =BeginCastUseCase.castable_spell_ids()=, which reads
+  =actor.known_spell_ids= filtered by the round energy pool balance.
+- =BeginCastUseCase.execute()= starts the cast, spending energy.
+- After =remaining_actions= reaches 0, =ResolveSpellController= drives
+  =ResolveCastUseCase.execute()= (rolls vs target defense, applies DAMAGE
+  via =EffectsApplier=, emits a =CombatLogEntry=).
+
+Gram Marx (Wizard) has =known_spell_ids = []= and =equipped_items= holding
+=staff_gram= (=fire_bolt=, =energy_cost=0=) and =ring_channeling= (=channel=).
+His spells currently come from the equipped items (Wizard paradigm) but
+=BeginCastUseCase= only checks =known_spell_ids=, so Gram cannot cast
+anything yet.  This iteration connects the two systems.
+
+=CombatLogEntry= has a =damage_amount= field but no =damage_type= field;
+=SpellResource= and the =Spell= domain object already carry =damage_type:
+String= (e.g. ="fire"= on =fire_bolt.tres=) but it is never included in
+the log entry.
+
+The =ActionEconomy= rule object already implements =set_dazed(bool)= and
+gates =combine_actions()= when dazed.  The =EffectsApplier= already
+dispatches =ConditionEffect= objects to =Combatant.add_condition()=.  No
+new condition infrastructure is needed — only a =condition_on_hit= trigger
+on =ResolveCastUseCase=.
+
+* Non-goals
+
+- AoE / cone / multi-hex targeting UI — the =targeting_port.request_aoe_targets()=
+  stub exists but the verb bar's Layer-2b AoE preview/confirm state is not
+  implemented.  Frost Breath is **single-target** this iteration; spell
+  shaping (triangle / cone shapes) is deferred.
+- Resistances and vulnerability — deferred to a future sprint.  Only log
+  the damage type; do not gate or modify damage amounts by it yet.
+- Somatic component validation (=is_implement= gate) — already deferred
+  from Iter Z; still deferred.
+- Weapon damage type in the combat log — =WeaponResource.damage_type=
+  exists but wiring it through the Strike log path is deferred.
+- Persistent save/load of =is_charged= state — changes persist in-session
+  only (Resource objects in memory).
+- Rest / recharge mechanic — deferred.
+- Equipment panel made editable — deferred.
+
+* Features
+
+** AA-0  Spell-data extensions
+
+*** AA-0-0  =condition_on_hit= on =SpellResource= and =Spell= domain
+
+Add =@export var condition_on_hit: String = ""= to
+=core/resources/spell_resource.gd=.
+
+Add =var condition_on_hit: String = ""= to =core/domain/spell.gd= (init
+parameter, mirrors existing =damage_type= parameter pattern).
+
+Update =core/adapters/resource_spell_catalog_adapter.gd= to pass
+=spell_resource.condition_on_hit= when building a =Spell= from a
+=SpellResource=.
+
+Accepted condition_on_hit values for this iteration: =""= (none) and
+="dazed"=.  The field is a free String for forward compatibility; only
+="dazed"= triggers any game-mechanical effect in this iteration.
+
+Test: load a =SpellResource=, set =condition_on_hit = "dazed"=, build a
+=Spell= via the catalog adapter; assert =spell.condition_on_hit == "dazed"=.
+
+*** AA-0-1  =damage_type= in =CombatLogEntry=
+
+Add =var damage_type: String = ""= to =core/domain/combat_log_entry.gd=
+(additive — add as an optional trailing parameter to =_init()= with
+default =""=; existing callers pass nothing and get =""= unmodified).
+
+Update =to_dict()= to include ="damage_type"= in the returned Dictionary.
+
+Update =ResolveCastUseCase._emit_combat_log_entry()= to pass
+=spell.damage_type= as the new =damage_type= argument when constructing
+the =CombatLogEntry=.
+
+Test (unit): resolve a Fire Bolt cast; assert the emitted =CombatLogEntry=
+has =damage_type == "fire"=.  Resolve a Frost Breath cast; assert
+=damage_type == "cold"=.
+
+** AA-1  Frost Breath spell fixture
+
+*** AA-1-0  =frost_breath.tres= — =data/spells/frost_breath.tres=
+
+Create the Frost Breath =SpellResource= fixture.
+
+| Field             | Value                             |
+|-------------------+-----------------------------------|
+| =spell_id=        | ="frost_breath"=                  |
+| =name=            | ="Frost Breath"=                  |
+| =actions_cost=    | =2=                               |
+| =energy_cost=     | =1=                               |
+| =defense=         | =3= (=Spell.Defense.FORTITUDE=)   |
+| =range_ft=        | =30=                              |
+| =damage_formula=  | ="2d6+ATTR"=                      |
+| =damage_type=     | ="cold"=                          |
+| =condition_on_hit=| ="dazed"=                         |
+| =traits=          | =["Concentrate"]=                 |
+| =effect_type=     | =0= (=EffectKind.DAMAGE=)         |
+| =effect_params=   | ={"formula":"2d6+ATTR","type":"cold"}= |
+
+Single-target (same targeting flow as Fire Bolt).  Attacks vs Fortitude
+(=defense=3=).  On a successful hit: deals 2d6 + spellcasting modifier
+cold damage AND inflicts the Dazed condition (see AA-3-0).
+
+Dazed condition per master brief (=hollow-world-v0-spec.org=, conditions
+table): /Cannot Combine any actions.  Off-Guard to all attacks./
+
+Test: load =frost_breath.tres=, assert all fields match the table above.
+
+** AA-2  Gram Marx prologue loadout update
+
+*** AA-2-0  =orb_gram.tres= — new item fixture
+
+Create =data/items/orb_gram.tres=:
+
+| Field               | Value                |
+|---------------------+----------------------|
+| =item_id=           | ="orb_gram"=         |
+| =display_name=      | ="Gram's Focus Orb"= |
+| =slot=              | =13= (ACCESSORY_1)   |
+| =two_handed=        | =false=              |
+| =is_implement=      | =true=               |
+| =prepared_spell_id= | ="frost_breath"=     |
+| =is_charged=        | =true=               |
+
+*** AA-2-1  Update =gram_marx.tres=
+
+Add =orb_gram.tres= as a third =equipped_items= entry in
+=data/characters/gram_marx.tres= (increment =load_steps= accordingly).
+No other fields change.
+
+Update =tests/unit/test_prologue_item_fixtures.gd= to include
+=orb_gram.tres= in the fixture path list and assert its fields.
+
+Update =tests/unit/test_prologue_character_equipment_fixtures.gd= to
+assert =gram_marx.equipped_items= contains ="orb_gram"= and
+=equipped_items.size() == 3=.
+
+Re-pin =gram_marx.tres= MD5 hash in
+=tests/sim/test_balance_simulation_post_fix.gd= (same pattern as the
+=titus.tres= re-pin in Iter Z).
+
+*** AA-2-2  Weapon damage type fixtures
+
+Add =damage_type= to the following item fixtures (=WeaponResource.damage_type=
+already exists; these are data-only additions):
+
+| File                                    | =damage_type= |
+|-----------------------------------------+---------------|
+| =data/items/longsword_titus.tres=       | ="slashing"=  |
+| =data/items/mace_patience.tres=         | ="bludgeoning"= |
+| =data/items/shortsword_marigold.tres=   | ="piercing"=  |
+
+Test: load each fixture; assert =damage_type= matches the table.
+
+** AA-3  Equipped-item spells in the cast flow
+
+*** AA-3-0  Add =equipped_items= to Combatant Dictionary
+
+In =infrastructure/combatant_factory.gd=, =build_party_combatant()=:
+add ="equipped_items": character.equipped_items.duplicate()= to the
+returned Dictionary (shallow copy — keeps live =ItemResource= references
+so =is_charged= mutations are immediately visible to the equipment panel
+and any other reader).
+
+Follows the same pattern as ="known_spell_ids": character.known_spell_ids.duplicate()=
+already present at line 103.
+
+Test: build a party combatant from =gram_marx.tres=; assert
+=combatant["equipped_items"].size() == 3= (staff_gram, ring_channeling,
+orb_gram).
+
+*** AA-3-1  =castable_spell_ids()= includes charged equipped-item spells
+
+In =core/application/use_cases/begin_cast_use_case.gd=,
+=castable_spell_ids(actor, spell_catalog_port, round_energy_pool_port)=:
+
+After iterating =actor.known_spell_ids= (existing logic, untouched), also
+iterate =actor.get("equipped_items", [])= and for each item where
+=item.prepared_spell_id != ""= and =item.is_charged == true=, add
+=item.prepared_spell_id= to the castable list if:
+1. It is not already in the list (avoid duplicates).
+2. The spell's =energy_cost= is affordable against the pool balance.
+   If =spell_catalog_port.get_spell(spell_id)= returns null, skip.
+
+This enables Gram to see Fire Bolt and Frost Breath in the spell pick
+list without touching his =known_spell_ids=.
+
+Test: create a mock actor with =known_spell_ids = []= and
+=equipped_items = [ItemResource{prepared_spell_id="frost_breath", is_charged=true}]=;
+assert =castable_spell_ids()= returns =["frost_breath"]=.  Test uncharged
+item: set =is_charged = false=; assert =castable_spell_ids()= returns =[]=.
+
+*** AA-3-2  Discharge gate in =BeginCastUseCase.execute()=
+
+In =BeginCastUseCase.execute()=: after the existing
+=not actor.known_spell_ids.has(spell_id)= guard (which checks innate
+known spells), add a secondary check:
+
+If =actor.get("equipped_items", [])= contains any item with
+=prepared_spell_id == spell_id= (meaning this spell is item-prepared, not
+innate) AND =item.is_charged == false= → return
+={success: false, error: ERR_INVALID_STATE}= (or a new error code;
+mimic existing error contract shape).
+
+If no such item exists (innate channeler spell), no charge gate applies.
+This ensures Fire Bolt and Channel remain freely castable for Marigold
+and Patience (they have no equipped item with those spells).
+
+Test (unit): actor with uncharged item (=is_charged=false=) for spell_id
+"frost_breath"; assert =execute()= returns =success=false=.  Actor with
+charged item; assert =execute()= succeeds.  Actor with no equipped item
+for the spell (Marigold's fire_bolt); assert no charge gate blocks it.
+
+** AA-4  Daze condition on successful hit
+
+*** AA-4-0  =ResolveCastUseCase= applies Daze on hit
+
+In =core/application/use_cases/resolve_cast_use_case.gd=, within
+=execute()='s per-target loop, after =_apply_damage_on_hit(target, attack_result)=:
+
+If =spell.condition_on_hit == "dazed"= and =attack_result.get("hit") == true=:
+construct =ConditionEffect.new(target_id, "Dazed", true)= and dispatch via
+=_effects_applier.apply([condition_effect], {target_id: target})=.
+
+The =EffectsApplier= will call =target.add_condition("Dazed")=.  The
+existing =CombineActionController= already syncs
+=ActionEconomy.set_dazed()= from =actor.has_condition("Dazed")= each turn,
+so the combine gate is already wired — no additional changes needed there.
+
+Test (unit): resolve a Frost Breath cast that hits; assert the target has
+condition ="Dazed"=.  Resolve a Frost Breath cast that misses; assert the
+target does NOT have ="Dazed"=.  Resolve a Fire Bolt hit (no
+=condition_on_hit=); assert no condition is added.
+
+** AA-5  Discharge on resolve
+
+*** AA-5-0  =ResolveSpellController= discharges item after cast
+
+In =presentation/verbs/resolve_spell_controller.gd=, after
+=ResolveCastUseCase.execute()= returns =success == true=:
+
+Look up the spell's =energy_cost= from the resolved =Spell= object.  If
+=energy_cost > 0=: search =actor.get("equipped_items", [])= for the first
+item where =prepared_spell_id == spell.spell_id=; if found, set
+=item.is_charged = false=.
+
+0-energy spells (=fire_bolt=, =channel=) do NOT discharge their items.
+
+Test (unit / integration): cast Frost Breath (=energy_cost=1=) to
+resolution; assert =orb_gram.is_charged == false= after the cast.  Cast
+Fire Bolt (=energy_cost=0=); assert =staff_gram.is_charged= remains =true=.
+Attempt to begin a second Frost Breath cast after discharge; assert the
+spell is absent from =castable_spell_ids()= (AA-3-1 gate now excludes it).
+
+** AA-6  E2E smoke test
+
+*** AA-6-0  Frost Breath e2e discharge + Daze + combat log
+
+Add a GUT boot / integration test that:
+1. Boots the prologue encounter (or a minimal fixture).
+2. Selects Gram Marx as the caster.
+3. Executes a full Frost Breath cast sequence against a living enemy.
+4. Asserts:
+   - =orb_gram.is_charged == false= after the cast.
+   - The target has condition ="Dazed"= (on a hit) OR no Daze (on a miss
+     — use a seeded RNG to make this deterministic).
+   - The emitted =CombatLogEntry= carries =damage_type == "cold"=.
+5. Asserts that a subsequent =castable_spell_ids()= call for Gram no longer
+   includes ="frost_breath"= (discharge gate active).
+
+Use the project's established =PROLOGUE_SEED=42= pattern for determinism.
+
+* Architecture notes
+
+- =CombatantFactory= is in =infrastructure/= (allowed to read
+  =CharacterResource=); the additive ="equipped_items"= key follows the
+  same flattening convention as ="known_spell_ids"=.
+- =BeginCastUseCase= (=core/application/=) may read
+  =actor.get("equipped_items", [])= because the combatant dict is the
+  domain's own aggregate representation — this is NOT a dependency on
+  =ItemResource= as a type (just duck-typed Dictionary/Resource access,
+  same as all other dict key reads in the use case).
+- =ResolveCastUseCase= already owns =_effects_applier= and dispatches
+  =DamageEffect= objects through it; =ConditionEffect= uses the same
+  dispatch path — zero new seams needed.
+- =ResolveSpellController= is presentation-layer and may mutate
+  =item.is_charged= directly (the item is a live Resource reference).
+- =MainScene.gd= must remain at or below 1000 lines (established budget).
+  No changes to =MainScene.gd= are expected for this iteration.
+- All new =.tres= data files must be committed before the gate runs
+  (=CLAUDE.md= commit-hygiene rule).
+
+* Gate
+
+#+BEGIN_EXAMPLE
+python -m pytest -q --tb=short && \
+PATH=$HOME/.local/bin:$PATH godot --headless --path /workspace/hykaen -- --gut-run-all
+#+END_EXAMPLE
+
+Baseline: ≥ 3400 GUT tests passing, 0 failing, exit 0.
