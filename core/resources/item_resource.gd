@@ -26,6 +26,13 @@
 ##   prepared_spell_id  — spell catalog spell_id currently prepared on this
 ##                        item; "" == none prepared.
 ##   is_charged         — true when this item currently holds a charge.
+##   damage_type        — (FEAT-004; US-003/FR-005/FR-006) the damage type
+##                        this item deals when used as a weapon (e.g.
+##                        "slashing", "bludgeoning", "piercing"); "" ==
+##                        not applicable (non-weapon items). Additive/
+##                        backward-compatible: a pre-existing fixture
+##                        lacking this field loads with damage_type=="" and
+##                        identical prior behavior (NFR-001).
 ##
 ## Usage:
 ##   var sword = ResourceLoader.load("res://data/items/iron_sword.tres")
@@ -56,6 +63,12 @@ extends Resource
 
 ## True when this item currently holds a charge.
 @export var is_charged: bool = false
+
+## Damage type this item deals when used as a weapon (e.g. "slashing",
+## "bludgeoning", "piercing"); "" == not applicable. FEAT-004 (US-003;
+## FR-005/FR-006). Defaults to "" so pre-existing fixtures/callers are
+## unaffected (NFR-001 backward compatibility).
+@export var damage_type: String = ""
 
 
 ## is_valid() -> bool — true when every load-time invariant holds (see

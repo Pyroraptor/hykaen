@@ -247,8 +247,13 @@ func test_boot_and_combat_trigger_succeeds_without_error() -> void:
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Criterion 2 — gram_marx.level==1, equipped_items.size()==2, via the
+# Criterion 2 — gram_marx.level==1, equipped_items.size()==3, via the
 # existing character-loading path only.
+#
+# FEAT-004 (US-003; FR-005/FR-006) additively equips orb_gram as a 3rd
+# equipped_items entry (staff_gram, ring_channeling, orb_gram) — this
+# assertion count is updated 2->3 to match the new, intentionally-authored
+# gram_marx.tres content (not a regression; see gram_marx.tres itself).
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_gram_marx_level_and_equipped_items_size_via_existing_loading_path() -> void:
@@ -259,7 +264,7 @@ func test_gram_marx_level_and_equipped_items_size_via_existing_loading_path() ->
 	if gram_marx == null:
 		return
 	assert_eq(gram_marx.level, 1, "gram_marx.level must be 1")
-	assert_eq(gram_marx.equipped_items.size(), 2, "gram_marx.equipped_items must contain exactly 2 items (staff_gram, ring_channeling)")
+	assert_eq(gram_marx.equipped_items.size(), 3, "gram_marx.equipped_items must contain exactly 3 items (staff_gram, ring_channeling, orb_gram) — FEAT-004")
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -397,7 +402,7 @@ func test_full_steel_thread_boot_to_equipment_panel_no_regression() -> void:
 	var gram_marx = _resolve_gram_marx_character(instance)
 	assert_not_null(gram_marx)
 	assert_eq(gram_marx.level, 1)
-	assert_eq(gram_marx.equipped_items.size(), 2)
+	assert_eq(gram_marx.equipped_items.size(), 3)  # FEAT-004: staff_gram, ring_channeling, orb_gram
 	var gram_main_hand = gram_marx.get_item_in_slot(EquipmentSlotClass.MAIN_HAND)
 	assert_not_null(gram_main_hand)
 	assert_true(gram_main_hand.display_name.length() > 0)

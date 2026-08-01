@@ -1,9 +1,10 @@
-[gd_resource type="Resource" script_class="CharacterResource" load_steps=5 format=3 uid="uid://bgrmx1a2b3c4d"]
+[gd_resource type="Resource" script_class="CharacterResource" load_steps=6 format=3 uid="uid://bgrmx1a2b3c4d"]
 
 [ext_resource type="Script" uid="uid://bchar1a2b3c4d5e" path="res://core/model/character_resource.gd" id="1_chrscr"]
 [ext_resource type="Resource" uid="uid://dr2b3c4d5e6f7g" path="res://data/classes/wizard.tres" id="2_wz1d1"]
 [ext_resource type="Resource" uid="uid://gstfgrm1a2b3c4d" path="res://data/items/staff_gram.tres" id="3_stfgrm"]
 [ext_resource type="Resource" uid="uid://gringchn1a2b3cd" path="res://data/items/ring_channeling.tres" id="4_rngchn"]
+[ext_resource type="Resource" uid="uid://gorbgrm1a2b3c4d" path="res://data/items/orb_gram.tres" id="5_orbgrm"]
 
 [resource]
 script = ExtResource("1_chrscr")
@@ -14,4 +15,4 @@ attributes = {"constitution": 2, "dexterity": 2, "intellect": 5, "intuition": 3,
 starting_equipment = ["res://data/weapons/quarterstaff.tres", "res://data/armor/robes.tres"]
 talent_selections = []
 level = 1
-equipped_items = [ExtResource("3_stfgrm"), ExtResource("4_rngchn")]
+equipped_items = [ExtResource("3_stfgrm"), ExtResource("4_rngchn"), ExtResource("5_orbgrm")]

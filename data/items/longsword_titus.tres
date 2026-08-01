@@ -11,3 +11,4 @@ two_handed = true
 is_implement = false
 prepared_spell_id = ""
 is_charged = false
+damage_type = "slashing"

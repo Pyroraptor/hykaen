@@ -12,6 +12,10 @@ extends GutTest
 ## Validates the US-008 test_criteria:
 ##   - gram_marx.tres loads with level==1 and equipped_items containing
 ##     staff_gram and ring_channeling
+##
+## FEAT-004 (US-003; FR-005/FR-006) additively extends this suite:
+##   - gram_marx.tres equipped_items now also contains orb_gram (3rd
+##     equipped item, ACCESSORY_1 slot) alongside staff_gram/ring_channeling
 ##   - titus.tres loads with level==1 and equipped_items containing
 ##     longsword_titus only (two-handed; shield removed)
 ##   - marigold.tres loads with level==1 and equipped_items containing
@@ -71,6 +75,30 @@ func test_gram_marx_equipped_items_contains_ring_channeling() -> void:
 	assert_true(
 		_has_item_id(character.equipped_items, "ring_channeling"),
 		"gram_marx.equipped_items must contain item_id 'ring_channeling'"
+	)
+
+
+# ── gram_marx.tres — orb_gram (FEAT-004; US-003/FR-005/FR-006) ─────────────
+
+func test_gram_marx_equipped_items_contains_orb_gram() -> void:
+	var character = ResourceLoader.load("res://data/characters/gram_marx.tres")
+	assert_not_null(character, "gram_marx.tres must load non-null")
+	if character == null:
+		return
+	assert_true(
+		_has_item_id(character.equipped_items, "orb_gram"),
+		"gram_marx.equipped_items must contain item_id 'orb_gram' (FEAT-004)"
+	)
+
+
+func test_gram_marx_equipped_items_has_exactly_3_entries() -> void:
+	var character = ResourceLoader.load("res://data/characters/gram_marx.tres")
+	assert_not_null(character, "gram_marx.tres must load non-null")
+	if character == null:
+		return
+	assert_eq(
+		character.equipped_items.size(), 3,
+		"gram_marx.equipped_items must have exactly 3 items (staff_gram, ring_channeling, orb_gram) — FEAT-004"
 	)
 
 

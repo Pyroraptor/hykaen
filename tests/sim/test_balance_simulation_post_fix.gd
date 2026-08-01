@@ -151,6 +151,23 @@ const MAX_ROUNDS_GUARD: int = 50
 ## tests/unit/test_prologue_character_equipment_fixtures.gd for the FEAT-008
 ## data suite and its field-diff regression test confirming every other
 ## field (including attributes/skills) is unchanged.
+##
+## FEAT-004 (US-003; FR-005/FR-006; mitigates RISK-004 pin fragility) adds
+## data/characters/gram_marx.tres to this pinned set (it was previously
+## UNPINNED/untracked by this guard) and re-pins it to the hash BELOW:
+## gram_marx.tres now equips orb_gram.tres as a 3rd equipped_items entry
+## (staff_gram, ring_channeling, orb_gram) alongside bumping load_steps
+## 5->6 for the new ext_resource reference. Gram Marx is NOT a member of
+## the live prologue simulator roster (only Titus + the skeleton enemy are
+## driven through core/sim/simulator.gd — see test_run_round_entry_exit_
+## contract_no_mocking() below, which uses titus_char/skeleton_res only),
+## so this content change cannot shift win_rate; pinning it here going
+## forward is purely a documented, intentional RISK-004 mitigation so any
+## FUTURE undocumented drift to gram_marx.tres is caught explicitly by
+## this guard, exactly like the other fixtures pinned above. Re-pin
+## location/rationale: this comment + the dictionary entry immediately
+## below (see also tests/unit/test_prologue_character_equipment_fixtures.gd
+## for the FEAT-004 data suite asserting the new orb_gram entry directly).
 const _EXPECTED_HASHES: Dictionary = {
 	"res://core/sim/simulator.gd":      "6120b8e4b096193d2f5c587f683ae4a9",
 	"res://data/characters/titus.tres": "acf236d8858a0cf0a714415a6f3d69c9",
@@ -158,6 +175,7 @@ const _EXPECTED_HASHES: Dictionary = {
 	"res://data/weapons/longsword.tres": "248339f6e3f256d6cdc6a943ca824587",
 	"res://data/armor/chain_shirt.tres": "6be0c7c1b55b7a91233bca0f62fadd16",
 	"res://data/armor/scale_mail.tres":  "7c724303a7db4ad78a7341bc9e7f46f1",
+	"res://data/characters/gram_marx.tres": "657b975c889744fac47f629af3813b71",
 }
 
 ## Results from the single 1000-battle run, shared across all tests via

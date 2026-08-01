@@ -29,6 +29,13 @@ extends GutTest
 ##   - mace_patience: slot==MAIN_HAND, two_handed==false
 ##   - shield_patience: slot==OFF_HAND, two_handed==false
 ##   - All fixtures have a non-empty, human-readable display_name
+##
+## Test criteria (FEAT-004; US-003/FR-005/FR-006): weapon damage_type tags
+## added to the three prologue weapon fixtures per the design notes' data
+## model (ITEM.damage_type, weapon items only) —
+##   - longsword_titus.damage_type == 'slashing'
+##   - mace_patience.damage_type == 'bludgeoning'
+##   - shortsword_marigold.damage_type == 'piercing'
 
 const ItemResourceClass = preload("res://core/resources/item_resource.gd")
 const EquipmentSlotClass = preload("res://core/model/equipment_slot.gd")
@@ -107,6 +114,7 @@ func test_longsword_titus_fields() -> void:
 		return
 	assert_eq(item.slot, EquipmentSlotClass.MAIN_HAND, "longsword_titus.slot must be MAIN_HAND")
 	assert_true(item.two_handed, "longsword_titus.two_handed must be true (HEMA longsword is two-handed)")
+	assert_eq(item.damage_type, "slashing", "longsword_titus.damage_type must be 'slashing' (FEAT-004)")
 
 
 # ── mace_patience / shield_patience ────────────────────────────────────
@@ -118,6 +126,7 @@ func test_mace_patience_fields() -> void:
 		return
 	assert_eq(item.slot, EquipmentSlotClass.MAIN_HAND, "mace_patience.slot must be MAIN_HAND")
 	assert_false(item.two_handed, "mace_patience.two_handed must be false")
+	assert_eq(item.damage_type, "bludgeoning", "mace_patience.damage_type must be 'bludgeoning' (FEAT-004)")
 
 
 func test_shield_patience_fields() -> void:
@@ -138,3 +147,4 @@ func test_shortsword_marigold_fields() -> void:
 		return
 	assert_eq(item.slot, EquipmentSlotClass.MAIN_HAND, "shortsword_marigold.slot must be MAIN_HAND")
 	assert_false(item.two_handed, "shortsword_marigold.two_handed must be false")
+	assert_eq(item.damage_type, "piercing", "shortsword_marigold.damage_type must be 'piercing' (FEAT-004)")
