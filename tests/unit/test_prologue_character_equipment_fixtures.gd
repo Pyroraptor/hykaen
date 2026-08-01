@@ -13,7 +13,7 @@ extends GutTest
 ##   - gram_marx.tres loads with level==1 and equipped_items containing
 ##     staff_gram and ring_channeling
 ##   - titus.tres loads with level==1 and equipped_items containing
-##     longsword_titus and shield_titus
+##     longsword_titus only (two-handed; shield removed)
 ##   - marigold.tres loads with level==1 and equipped_items containing
 ##     shortsword_marigold
 ##   - dwarf_channeler.tres loads with level==1 and equipped_items

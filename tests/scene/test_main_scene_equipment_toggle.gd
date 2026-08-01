@@ -44,7 +44,6 @@ const PROLOGUE_SEED: int = 42
 ## FIRST seeded party member" doc) — so a fresh boot already has Titus
 ## selected with no test-side selection step required.
 const TITUS_MAIN_HAND_ITEM_NAME: String = "Titus's Longsword"
-const TITUS_OFF_HAND_ITEM_NAME: String = "Titus's Shield"
 
 
 func before_each() -> void:
@@ -138,8 +137,8 @@ func test_pressing_e_with_selected_party_member_opens_panel_via_setup() -> void:
 		"panel must be populated via setup() with the selected member's MAIN_HAND item"
 	)
 	assert_eq(
-		instance.equipment_panel_ui.get_item_text(EquipmentSlotClass.OFF_HAND), TITUS_OFF_HAND_ITEM_NAME,
-		"panel must be populated via setup() with the selected member's OFF_HAND item"
+		instance.equipment_panel_ui.get_item_text(EquipmentSlotClass.OFF_HAND), "—",
+		"panel must show '—' for Titus's OFF_HAND -- blocked by two-handed longsword, no shield equipped"
 	)
 
 

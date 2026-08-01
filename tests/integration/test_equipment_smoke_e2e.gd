@@ -462,15 +462,17 @@ func test_full_steel_thread_boot_to_equipment_panel_no_regression() -> void:
 		instance.equipment_panel_toggle_controller.is_open(),
 		"FR-011: the toggle controller's open/closed state must remain OPEN after a refresh"
 	)
+	# Titus wields a two-handed longsword (HEMA convention) — OFF_HAND is
+	# null and blocked. The refreshed panel must show "—" for OFF_HAND.
 	var titus_off_hand = titus.get_item_in_slot(EquipmentSlotClass.OFF_HAND)
-	assert_not_null(titus_off_hand)
+	assert_null(titus_off_hand, "FR-011: Titus has no OFF_HAND item -- longsword is two-handed")
 	assert_eq(
-		instance.equipment_panel_ui.get_item_text(EquipmentSlotClass.OFF_HAND), titus_off_hand.display_name,
-		"FR-011: the refreshed panel's OFF_HAND row must show Titus's own item (Titus's Shield), not Gram Marx's"
+		instance.equipment_panel_ui.get_item_text(EquipmentSlotClass.OFF_HAND), "—",
+		"FR-011: the refreshed panel's OFF_HAND row must show '—' for Titus (no shield; two-handed longsword)"
 	)
-	assert_false(
+	assert_true(
 		titus.is_slot_blocked(EquipmentSlotClass.OFF_HAND),
-		"FR-011: Titus's OFF_HAND must not be blocked -- his longsword is not two-handed"
+		"FR-011: Titus's OFF_HAND must be blocked -- his longsword IS two-handed (HEMA convention)"
 	)
 
 	# ── FIX-001 FR-011 convergence: advancing the active actor further, to
