@@ -1,9 +1,8 @@
-[gd_resource type="Resource" script_class="CharacterResource" load_steps=5 format=3 uid="uid://btitus1a2b3c4d"]
+[gd_resource type="Resource" script_class="CharacterResource" load_steps=4 format=3 uid="uid://btitus1a2b3c4d"]
 
 [ext_resource type="Script" uid="uid://bchar1a2b3c4d5e" path="res://core/model/character_resource.gd" id="1_chrscr"]
 [ext_resource type="Resource" uid="uid://cr1a2b3c4d5e6f" path="res://data/classes/fighter.tres" id="2_fghtr"]
 [ext_resource type="Resource" uid="uid://glswtts1a2b3c4d" path="res://data/items/longsword_titus.tres" id="3_lswtts"]
-[ext_resource type="Resource" uid="uid://gshldtts1a2b3cd" path="res://data/items/shield_titus.tres" id="4_shdtts"]
 
 [resource]
 script = ExtResource("1_chrscr")
@@ -15,4 +14,4 @@ skills = {"determination": 2, "mobility": 2}
 starting_equipment = ["res://data/weapons/longsword.tres", "res://data/armor/chain_shirt.tres"]
 talent_selections = []
 level = 1
-equipped_items = [ExtResource("3_lswtts"), ExtResource("4_shdtts")]
+equipped_items = [ExtResource("3_lswtts")]

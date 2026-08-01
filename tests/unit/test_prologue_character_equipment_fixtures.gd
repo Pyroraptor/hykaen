@@ -74,7 +74,7 @@ func test_gram_marx_equipped_items_contains_ring_channeling() -> void:
 	)
 
 
-# ── titus.tres — level + equipped_items (longsword_titus, shield_titus) ───
+# ── titus.tres — level + equipped_items (longsword_titus only; two-handed) ──
 
 func test_titus_level_is_1() -> void:
 	var character = ResourceLoader.load("res://data/characters/titus.tres")
@@ -95,14 +95,14 @@ func test_titus_equipped_items_contains_longsword_titus() -> void:
 	)
 
 
-func test_titus_equipped_items_contains_shield_titus() -> void:
+func test_titus_equipped_items_has_only_longsword() -> void:
 	var character = ResourceLoader.load("res://data/characters/titus.tres")
 	assert_not_null(character, "titus.tres must load non-null")
 	if character == null:
 		return
-	assert_true(
-		_has_item_id(character.equipped_items, "shield_titus"),
-		"titus.equipped_items must contain item_id 'shield_titus'"
+	assert_eq(
+		character.equipped_items.size(), 1,
+		"titus.equipped_items must have exactly 1 item (longsword; two-handed blocks OFF_HAND)"
 	)
 
 
@@ -127,7 +127,7 @@ func test_marigold_equipped_items_contains_shortsword_marigold() -> void:
 	)
 
 
-# ── dwarf_channeler.tres — level + equipped_items (axe_dwarf) ─────────────
+# ── dwarf_channeler.tres — level + equipped_items (mace_patience, shield_patience) ──
 
 func test_dwarf_channeler_level_is_1() -> void:
 	var character = ResourceLoader.load("res://data/characters/dwarf_channeler.tres")
@@ -137,14 +137,25 @@ func test_dwarf_channeler_level_is_1() -> void:
 	assert_eq(character.level, 1, "dwarf_channeler.level must be 1")
 
 
-func test_dwarf_channeler_equipped_items_contains_axe_dwarf() -> void:
+func test_dwarf_channeler_equipped_items_contains_mace_patience() -> void:
 	var character = ResourceLoader.load("res://data/characters/dwarf_channeler.tres")
 	assert_not_null(character, "dwarf_channeler.tres must load non-null")
 	if character == null:
 		return
 	assert_true(
-		_has_item_id(character.equipped_items, "axe_dwarf"),
-		"dwarf_channeler.equipped_items must contain item_id 'axe_dwarf'"
+		_has_item_id(character.equipped_items, "mace_patience"),
+		"dwarf_channeler.equipped_items must contain item_id 'mace_patience' (Patience's Mace)"
+	)
+
+
+func test_dwarf_channeler_equipped_items_contains_shield_patience() -> void:
+	var character = ResourceLoader.load("res://data/characters/dwarf_channeler.tres")
+	assert_not_null(character, "dwarf_channeler.tres must load non-null")
+	if character == null:
+		return
+	assert_true(
+		_has_item_id(character.equipped_items, "shield_patience"),
+		"dwarf_channeler.equipped_items must contain item_id 'shield_patience' (Patience's Shield)"
 	)
 
 

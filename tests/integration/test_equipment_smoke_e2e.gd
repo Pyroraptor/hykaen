@@ -60,7 +60,7 @@ extends GutTest
 ##   2. test_gram_marx_level_and_equipped_items_size_via_existing_loading_path()
 ##   3. test_gram_marx_main_hand_item_display_name_and_fire_bolt_charge()
 ##   4. test_gram_marx_ring_1_item_prepared_spell_is_channel()
-##   5. test_titus_off_hand_equipped_and_not_blocked()
+##   5. test_titus_off_hand_blocked_by_two_handed_longsword()
 ##   6. test_gram_marx_off_hand_is_blocked_by_two_handed_staff()
 ##   7. test_selecting_gram_marx_and_pressing_e_opens_equipment_panel_with_matching_rows()
 ##   8. test_full_steel_thread_boot_to_equipment_panel_no_regression() -- the
@@ -303,11 +303,11 @@ func test_gram_marx_ring_1_item_prepared_spell_is_channel() -> void:
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Criterion 5 — titus has a non-null OFF_HAND item and
-# titus.is_slot_blocked(OFF_HAND)==false.
+# Criterion 5 — titus's longsword is two-handed; OFF_HAND is null and
+# is_slot_blocked(OFF_HAND)==true (HEMA longsword, no shield).
 # ══════════════════════════════════════════════════════════════════════════
 
-func test_titus_off_hand_equipped_and_not_blocked() -> void:
+func test_titus_off_hand_blocked_by_two_handed_longsword() -> void:
 	var instance = await _boot_main_scene_with_seed(42)
 	var titus = _resolve_titus_character(instance)
 
@@ -315,10 +315,10 @@ func test_titus_off_hand_equipped_and_not_blocked() -> void:
 	if titus == null:
 		return
 	var off_hand_item = titus.get_item_in_slot(EquipmentSlotClass.OFF_HAND)
-	assert_not_null(off_hand_item, "titus must have a non-null OFF_HAND item (Titus's Shield)")
-	assert_false(
+	assert_null(off_hand_item, "titus must have no OFF_HAND item -- longsword is two-handed, shield not equipped")
+	assert_true(
 		titus.is_slot_blocked(EquipmentSlotClass.OFF_HAND),
-		"titus.is_slot_blocked(OFF_HAND) must be false -- Titus's longsword is NOT two-handed"
+		"titus.is_slot_blocked(OFF_HAND) must be true -- Titus's longsword IS two-handed (HEMA convention)"
 	)
 
 
