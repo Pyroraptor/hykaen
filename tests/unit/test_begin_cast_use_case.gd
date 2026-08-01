@@ -104,10 +104,22 @@ func _caster(known_spell_ids: Array = ["fire_bolt"]):
 ## mirrors this file's own established "fake, duck-typed... no adapter"
 ## convention (header doc) exactly, matching FakeSpellCatalogPort/
 ## FakeRoundEnergyPoolPort/FakeActionEconomy above.
+##
+## FEAT-007 (US-006; FR-009, ADR-006) additionally exercises this double
+## through BeginCastUseCase.execute()'s SUCCESS path (not just
+## castable_spell_ids()), which -- on a charged item-prepared spell or an
+## innate known spell -- calls `actor.begin_cast()`/reads `actor.casting_state`
+## exactly as it does on a real core/domain/combatant.gd Combatant. `casting_state`/
+## `is_casting()`/`begin_cast()` below mirror Combatant's own identically-named
+## members verbatim (Combatant.begin_cast(): "var state :=
+## CastingStateClass.new(spell_id, actions_cost - 1, committed_energy,
+## display_id()); casting_state = state.to_dict()") so this fake satisfies
+## execute()'s full contract, not just castable_spell_ids()'s narrower one.
 class FakeItemUserActor:
 	extends RefCounted
 	var known_spell_ids: Array = []
 	var equipped_items: Array = []
+	var casting_state: Dictionary = {}
 	var _combatant_id: String
 
 	func _init(combatant_id: String, p_known_spell_ids: Array = [], p_equipped_items: Array = []) -> void:
@@ -117,6 +129,13 @@ class FakeItemUserActor:
 
 	func display_id() -> String:
 		return _combatant_id
+
+	func is_casting() -> bool:
+		return not casting_state.is_empty()
+
+	func begin_cast(spell_id: String, actions_cost: int, committed_energy: int) -> void:
+		var state := CastingStateClass.new(spell_id, actions_cost - 1, committed_energy, display_id())
+		casting_state = state.to_dict()
 
 
 ## _gram_marx_combatant(equipped_items) -> FakeItemUserActor — the steel
@@ -279,3 +298,80 @@ func test_execute_unknown_spell_id_returns_not_castable_without_reserving() -> v
 	assert_null(result.get("casting_state"))
 	assert_true(pool.reserve_calls.is_empty(), "an unknown/not-known spell_id must never even attempt a reservation")
 	assert_false(actor.is_casting())
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# FEAT-007 (US-006; FR-009, ADR-006) — secondary charge-state guard
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_execute_uncharged_item_prepared_spell_returns_invalid_state_without_reserving() -> void:
+	var orb_gram := FakeEquippedItem.new("frost_breath", false)
+	var actor := _gram_marx_combatant([orb_gram])
+	var catalog := FakeSpellCatalogPort.new()
+	catalog.spells["frost_breath"] = _frost_breath(1)
+	var pool := FakeRoundEnergyPoolPort.new(5)
+	var action_economy := FakeActionEconomy.new()
+
+	var use_case := BeginCastUseCaseClass.new()
+	var result: Dictionary = use_case.execute(actor, "frost_breath", catalog, pool, action_economy)
+
+	assert_false(result.get("success"))
+	assert_eq(result.get("error"), ErrorCodeClass.ERR_INVALID_STATE, "an item-prepared spell whose item.is_charged==false must be rejected as ERR_INVALID_STATE")
+	assert_null(result.get("casting_state"))
+	assert_true(pool.reserve_calls.is_empty(), "an uncharged item-prepared spell must never even attempt an energy reservation")
+	assert_eq(action_economy.spend_calls.size(), 0, "no action may be spent when the charge-state guard rejects the cast")
+
+
+func test_execute_charged_item_prepared_spell_succeeds() -> void:
+	var orb_gram := FakeEquippedItem.new("frost_breath", true)
+	var actor := _gram_marx_combatant([orb_gram])
+	var catalog := FakeSpellCatalogPort.new()
+	catalog.spells["frost_breath"] = _frost_breath(1)
+	var pool := FakeRoundEnergyPoolPort.new(5)
+	var action_economy := FakeActionEconomy.new()
+
+	var use_case := BeginCastUseCaseClass.new()
+	var result: Dictionary = use_case.execute(actor, "frost_breath", catalog, pool, action_economy)
+
+	assert_true(result.get("success"), "a charged item-prepared spell must be castable")
+	assert_eq(result.get("error"), ErrorCodeClass.NONE)
+	assert_eq(pool.balance("gram_marx_1"), 4, "the spell's energy_cost (1) must be reserved from the round pool")
+	assert_eq(action_economy.spend_calls.size(), 1)
+
+
+func test_execute_innate_known_spell_unaffected_by_charge_state_guard() -> void:
+	# A known (non-item) spell must never be gated by the new charge-state
+	# guard, even for an actor that also happens to carry an uncharged item
+	# whose prepared_spell_id differs from the requested spell_id.
+	var orb_gram := FakeEquippedItem.new("frost_breath", false)
+	var actor := FakeItemUserActor.new("marigold_1", ["fire_bolt"], [orb_gram])
+	var catalog := FakeSpellCatalogPort.new()
+	catalog.spells["fire_bolt"] = _fire_bolt(2, 2)
+	catalog.spells["frost_breath"] = _frost_breath(1)
+	var pool := FakeRoundEnergyPoolPort.new(5)
+
+	var use_case := BeginCastUseCaseClass.new()
+	var result: Dictionary = use_case.execute(actor, "fire_bolt", catalog, pool)
+
+	assert_true(result.get("success"), "an innate known spell must be unaffected by the item charge-state guard")
+	assert_eq(result.get("error"), ErrorCodeClass.NONE)
+
+
+func test_castable_spell_ids_and_execute_round_trip_for_uncharged_item_prepared_spell() -> void:
+	# Incremental smoke check (test_criteria #4): an uncharged item-prepared
+	# spell must be BOTH excluded from castable_spell_ids() AND blocked on a
+	# direct execute() attempt -- the two surfaces must agree.
+	var orb_gram := FakeEquippedItem.new("frost_breath", false)
+	var actor := _gram_marx_combatant([orb_gram])
+	var catalog := FakeSpellCatalogPort.new()
+	catalog.spells["frost_breath"] = _frost_breath(1)
+	var pool := FakeRoundEnergyPoolPort.new(5)
+
+	var use_case := BeginCastUseCaseClass.new()
+
+	var castable: Array = use_case.castable_spell_ids(actor, catalog, pool)
+	assert_false(castable.has("frost_breath"), "an uncharged item-prepared spell must not appear in the castable pick list")
+
+	var result: Dictionary = use_case.execute(actor, "frost_breath", catalog, pool)
+	assert_false(result.get("success"), "the same uncharged item-prepared spell must also be blocked on direct execute()")
+	assert_eq(result.get("error"), ErrorCodeClass.ERR_INVALID_STATE)

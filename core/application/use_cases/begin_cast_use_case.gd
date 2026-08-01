@@ -87,8 +87,21 @@ func execute(actor, spell_id: String, spell_catalog_port, round_energy_pool_port
 	if actor == null:
 		return _fail(ErrorCodeClass.ERR_NOT_CASTABLE)
 
-	if not actor.known_spell_ids.has(spell_id):
+	var is_known: bool = actor.known_spell_ids.has(spell_id)
+	var prepared_item = null if is_known else _find_item_preparing(actor, spell_id)
+	if not is_known and prepared_item == null:
 		return _fail(ErrorCodeClass.ERR_NOT_CASTABLE)
+
+	# FEAT-007 (US-006; FR-009, ADR-006): secondary charge-state guard.
+	# Checked AFTER the known_spell_ids/prepared_item resolution above but
+	# BEFORE any energy reservation/state mutation -- an item-prepared spell
+	# whose item.is_charged==false is rejected as ERR_INVALID_STATE, the
+	# SAME "abort before any side effect" contract the existing
+	# ERR_INSUFFICIENT_ENERGY branch below already honors (error_handling
+	# design note). An innate known spell (`is_known == true`) never reaches
+	# `prepared_item` at all, so it is completely unaffected by this guard.
+	if not is_known and not bool(_duck_get(prepared_item, "is_charged", false)):
+		return _fail(ErrorCodeClass.ERR_INVALID_STATE)
 
 	var spell = spell_catalog_port.get_spell(spell_id) if spell_catalog_port != null else null
 	if spell == null:
@@ -211,6 +224,28 @@ func castable_spell_ids(actor, spell_catalog_port, round_energy_pool_port) -> Ar
 ##     which declare no `equipped_items` field at all, degrade to `[]`
 ##     rather than crashing castable_spell_ids() for the whole party
 ##     (NFR-003).
+## _find_item_preparing(actor, spell_id) -> Variant — FEAT-007 (US-006;
+## FR-009, ADR-006): walks `actor`'s equipped items (the SAME
+## `_duck_get(actor, "equipped_items", [])` read castable_spell_ids() above
+## already uses) looking for the first item whose `prepared_spell_id`
+## matches `spell_id`, REGARDLESS of that item's `is_charged` state -- this
+## is deliberately charge-state-agnostic so execute()'s caller (above) can
+## distinguish "no item prepares this spell at all" (ERR_NOT_CASTABLE, the
+## existing contract) from "an item prepares it but it's uncharged"
+## (ERR_INVALID_STATE, this feature's new guard). Returns null when no
+## equipped item's `prepared_spell_id` matches -- never raises, mirroring
+## `_duck_get()`'s own defensive-duck-typing contract (NFR-003).
+func _find_item_preparing(actor, spell_id: String):
+	var equipped_items: Array = _duck_get(actor, "equipped_items", [])
+	for item in equipped_items:
+		if item == null:
+			continue
+		var prepared_spell_id: String = String(_duck_get(item, "prepared_spell_id", ""))
+		if prepared_spell_id != "" and prepared_spell_id == spell_id:
+			return item
+	return null
+
+
 func _duck_get(obj, key: String, default = null):
 	if obj == null:
 		return default
