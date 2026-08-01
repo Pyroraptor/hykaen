@@ -1,0 +1,18 @@
+[gd_scene load_steps=2 format=3 uid="uid://hykaen_equipmentpanelui"]
+
+[ext_resource type="Script" path="res://presentation/equipment_panel_ui.gd" id="1_equipmentpanelui"]
+
+[node name="EquipmentPanelUI" type="Control"]
+layout_mode = 3
+anchors_preset = 0
+offset_left = 8.0
+offset_top = 8.0
+offset_right = 300.0
+offset_bottom = 420.0
+visible = false
+script = ExtResource("1_equipmentpanelui")
+
+[node name="Rows" type="VBoxContainer" parent="."]
+layout_mode = 2
+offset_right = 292.0
+offset_bottom = 412.0
