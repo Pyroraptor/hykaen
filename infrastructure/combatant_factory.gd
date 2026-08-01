@@ -128,7 +128,24 @@ func build_party_combatant(character_path: String, hex_coord, combatant_id: Stri
 	# resolution signatures to consume the instance directly. The FEAT-227
 	# fail-fast error path above is deliberately NOT routed through the entity —
 	# it keeps returning the {"error": ...} Dictionary the call-site guard checks.
-	return CombatantClass.from_dict(combatant).to_dict()
+	var result: Dictionary = CombatantClass.from_dict(combatant).to_dict()
+	# FEAT-005 (US-004 / FR-007, ADR-004): expose equipped_items on the
+	# combatant dict. Combatant.to_dict()/from_dict() round-trip a FIXED,
+	# named field set (see core/domain/combatant.gd) and does not carry
+	# arbitrary keys through, so this is set on the Dictionary AFTER the
+	# entity round-trip rather than inside the `combatant` literal above
+	# (which would be silently dropped). .duplicate() is a SHALLOW copy —
+	# a new Array container per build, but the SAME live ItemResource
+	# instances character.equipped_items holds — so a mutation to a field
+	# on one of those Resources (e.g. is_charged, set by
+	# ResolveSpellController's post-resolve discharge hook) stays visible
+	# everywhere else holding this combatant dict, and via
+	# character.equipped_items directly, since both arrays alias the same
+	# underlying Resource objects. This is the infrastructure seam that
+	# lets the application layer duck-type-read equipped_items without any
+	# core/resources/.tres import of its own.
+	result["equipped_items"] = character.equipped_items.duplicate()
+	return result
 
 
 ## _fail_enemy_resource_load(error_code, message, enemy_path) -> Dictionary
