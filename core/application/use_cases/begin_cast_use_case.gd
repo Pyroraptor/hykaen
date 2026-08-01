@@ -137,6 +137,34 @@ func _fail(error_code: int) -> Dictionary:
 ## crashing the pick list, matching ResourceSpellCatalogAdapter's own
 ## "malformed data is treated as unknown" convention. A null actor/
 ## spell_catalog_port/round_energy_pool_port fails safe to an empty Array.
+##
+## FEAT-006 (US-005; FR-008, steel thread iteration AA-3-1): after the
+## known_spell_ids pass above (untouched), this method ALSO walks
+## `actor`'s equipped items -- read via `_duck_get(actor, "equipped_items",
+## [])`, NEVER a static ItemResource/Combatant.equipped_items type
+## dependency (ADR-004) -- and unions in each item's `prepared_spell_id`
+## where ALL of the following hold:
+##   1. `prepared_spell_id` is non-empty (an implement with nothing
+##      prepared contributes nothing).
+##   2. `is_charged == true` (an uncharged implement's spell is not
+##      offered -- discharging/recharging is a later feature's concern).
+##   3. the spell_id is not already present in `result` (dedupe -- a spell
+##      known innately AND item-prepared, e.g. a future overlap, is listed
+##      exactly once, in known_spell_ids' position).
+##   4. `spell_catalog_port.get_spell(prepared_spell_id)` resolves
+##      non-null AND its `energy_cost` is affordable against the SAME pool
+##      `balance` read once above (the identical affordability rule the
+##      known_spell_ids pass already applies) -- an unresolvable
+##      prepared_spell_id is silently skipped (NFR-003 defensive
+##      duck-typing), never a crash.
+## `_duck_get()` (below) tolerates `actor`/an item being either a plain
+## Dictionary (`.get(key, default)`) or an Object exposing the field as a
+## property (Object.get(property), which itself safely returns null --
+## never raises -- for an undeclared property, e.g. Marigold/Patience's
+## Combatant instances, which carry no `equipped_items` field at all) --
+## so a non-item-user actor's `known_spell_ids` list passes through this
+## method completely unchanged, with no exception (steel thread's own
+## AA-3-1 test criterion).
 func castable_spell_ids(actor, spell_catalog_port, round_energy_pool_port) -> Array:
 	if actor == null or spell_catalog_port == null or round_energy_pool_port == null:
 		return []
@@ -149,4 +177,44 @@ func castable_spell_ids(actor, spell_catalog_port, round_energy_pool_port) -> Ar
 		var spell = spell_catalog_port.get_spell(spell_id)
 		if spell != null and spell.energy_cost <= balance:
 			result.append(spell_id)
+
+	var equipped_items: Array = _duck_get(actor, "equipped_items", [])
+	for item in equipped_items:
+		if item == null:
+			continue
+		var prepared_spell_id: String = String(_duck_get(item, "prepared_spell_id", ""))
+		if prepared_spell_id == "" or not bool(_duck_get(item, "is_charged", false)):
+			continue
+		if result.has(prepared_spell_id):
+			continue
+		var prepared_spell = spell_catalog_port.get_spell(prepared_spell_id)
+		if prepared_spell != null and prepared_spell.energy_cost <= balance:
+			result.append(prepared_spell_id)
+
 	return result
+
+
+## _duck_get(obj, key, default) -> Variant — FEAT-006: a single defensive
+## duck-typed field read shared by castable_spell_ids()'s equipped-items
+## walk (above), tolerating THREE shapes without ever raising:
+##   - `obj` is a Dictionary: `obj.get(key, default)` (the established
+##     dict-key-read idiom used throughout this codebase's Application
+##     layer).
+##   - `obj` is an Object exposing `key` as a real property (e.g. a
+##     duck-typed item double, or an ItemResource handed in through an
+##     adapter/presentation caller): `Object.get(key)`, which itself
+##     returns null (never raises/pushes an error) for a property that
+##     genuinely doesn't exist on that Object -- verified against this
+##     project's Godot 4.3 runtime.
+##   - `obj` is null, or an Object with no such property: falls back to
+##     `default` -- e.g. Marigold/Patience's plain Combatant instances,
+##     which declare no `equipped_items` field at all, degrade to `[]`
+##     rather than crashing castable_spell_ids() for the whole party
+##     (NFR-003).
+func _duck_get(obj, key: String, default = null):
+	if obj == null:
+		return default
+	if obj is Dictionary:
+		return obj.get(key, default)
+	var value = obj.get(key)
+	return value if value != null else default

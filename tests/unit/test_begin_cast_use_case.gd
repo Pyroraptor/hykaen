@@ -21,6 +21,7 @@ const CombatantClass        = preload("res://core/domain/combatant.gd")
 const HexCoordClass         = preload("res://core/geometry/hex_coord.gd")
 const SpellClass             = preload("res://core/domain/spell.gd")
 const ErrorCodeClass        = preload("res://core/application/ports/errors.gd")
+const EffectKindClass        = preload("res://core/domain/effects/effect_kind.gd")
 
 
 ## FakeSpellCatalogPort — duck-typed SpellCatalogPort double: a plain
@@ -69,14 +70,69 @@ class FakeActionEconomy:
 		return {"success": true, "ok": true}
 
 
+## FakeEquippedItem — FEAT-006 (US-005; FR-008): a duck-typed equipped-item
+## double, deliberately NOT core/resources/item_resource.gd's ItemResource
+## (an adapter/infrastructure Resource type) — mirrors this project's
+## established "fake, duck-typed... no adapter" convention (file header)
+## exactly. Exposes only the two fields castable_spell_ids()'s
+## BeginCastUseCase._duck_get() reads: `prepared_spell_id`/`is_charged`.
+class FakeEquippedItem:
+	extends RefCounted
+	var prepared_spell_id: String = ""
+	var is_charged: bool = false
+
+	func _init(p_prepared_spell_id: String = "", p_is_charged: bool = false) -> void:
+		prepared_spell_id = p_prepared_spell_id
+		is_charged = p_is_charged
+
+
 func _caster(known_spell_ids: Array = ["fire_bolt"]):
 	var c := CombatantClass.new("marigold_1", "Marigold", "Player", HexCoordClass.new(0, 0))
 	c.known_spell_ids = known_spell_ids
 	return c
 
 
+## FakeItemUserActor — FEAT-006 (US-005; FR-008): a duck-typed actor double
+## exposing exactly the surface castable_spell_ids() reads off `actor`
+## (`known_spell_ids`, `display_id()`, and — unlike core/domain/combatant.gd's
+## Combatant, which carries no such field yet; only infrastructure/
+## combatant_factory.gd's OUTPUT DICTIONARY does, FEAT-005 — a REAL,
+## declared `equipped_items` property, so `Object.get("equipped_items")`
+## resolves it rather than falling back to `_duck_get()`'s default). Stands
+## in for the steel thread's item-user caster, Gram Marx (Wizard,
+## `known_spell_ids == []`, casts entirely through equipped implements) —
+## mirrors this file's own established "fake, duck-typed... no adapter"
+## convention (header doc) exactly, matching FakeSpellCatalogPort/
+## FakeRoundEnergyPoolPort/FakeActionEconomy above.
+class FakeItemUserActor:
+	extends RefCounted
+	var known_spell_ids: Array = []
+	var equipped_items: Array = []
+	var _combatant_id: String
+
+	func _init(combatant_id: String, p_known_spell_ids: Array = [], p_equipped_items: Array = []) -> void:
+		_combatant_id = combatant_id
+		known_spell_ids = p_known_spell_ids
+		equipped_items = p_equipped_items
+
+	func display_id() -> String:
+		return _combatant_id
+
+
+## _gram_marx_combatant(equipped_items) -> FakeItemUserActor — the steel
+## thread's own named scenario actor (AA-3-1's "Gram Marx" caster), a
+## known-spell-less item-user whose only castable spells come from
+## `equipped_items`.
+func _gram_marx_combatant(equipped_items: Array = []) -> FakeItemUserActor:
+	return FakeItemUserActor.new("gram_marx_1", [], equipped_items)
+
+
 func _fire_bolt(energy_cost: int = 2, actions_cost: int = 2) -> SpellClass:
 	return SpellClass.new("fire_bolt", "Fire Bolt", actions_cost, energy_cost, SpellClass.Defense.REFLEX, 50, "2d8+ATTR", "fire", [])
+
+
+func _frost_breath(energy_cost: int = 1) -> SpellClass:
+	return SpellClass.new("frost_breath", "Frost Breath", 2, energy_cost, SpellClass.Defense.FORTITUDE, 30, "2d6+ATTR", "cold", ["Concentrate"], EffectKindClass.DAMAGE, {}, "dazed")
 
 
 # ══════════════════════════════════════════════════════════════════════════
