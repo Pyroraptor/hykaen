@@ -412,8 +412,8 @@ func test_full_steel_thread_boot_to_equipment_panel_no_regression() -> void:
 	# character-loading path, driven off the instance's REAL live party. ────
 	var titus = _resolve_titus_character(instance)
 	assert_not_null(titus)
-	assert_not_null(titus.get_item_in_slot(EquipmentSlotClass.OFF_HAND))
-	assert_false(titus.is_slot_blocked(EquipmentSlotClass.OFF_HAND))
+	assert_null(titus.get_item_in_slot(EquipmentSlotClass.OFF_HAND), "Titus has no shield -- longsword is two-handed")
+	assert_true(titus.is_slot_blocked(EquipmentSlotClass.OFF_HAND), "Titus OFF_HAND blocked by two-handed longsword")
 
 	# Capture the instance's REAL, live scenario_session/_party BEFORE the
 	# synthetic Gram Marx fixture is swapped in below -- FR-011's
