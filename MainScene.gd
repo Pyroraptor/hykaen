@@ -149,8 +149,10 @@ var outcome: String = ""
 @onready var verb_bar_view       = $UILayer/VerbBarView
 @onready var reaction_prompt_ui  = $UILayer/ReactionPromptUI
 @onready var result_screen_view  = $UILayer/ResultScreenView
+@onready var equipment_panel_ui  = $UILayer/EquipmentPanelUI  # FEAT-010 (US-011): hidden by default, toggled by 'E'
 
 var movement_input_controller = MovementInputControllerClass.new()
+var equipment_panel_toggle_controller = preload("res://presentation/equipment_panel_toggle_controller.gd").new()  # FEAT-010 (US-011)
 
 var _verb_registry = null
 var selection_overlay = SelectionOverlayClass.new()
@@ -532,7 +534,6 @@ func _rewire_combat_pathfinder(ai_decision_port, encounter_id: String) -> void:
 		ai_decision_port.set_stride_pathfinder_fn(Callable(HexPathfinderClass, "find_path").bind(enemy_passable_fn, move_cost_fn))
 
 
-
 ## Looks up the EncounterResource for encounter_id from the active scenario.
 func _active_encounter_resource(encounter_id: String):
 	var scenario = scenario_session.scenario if scenario_session != null else null
@@ -544,7 +545,6 @@ func _active_encounter_resource(encounter_id: String):
 	return null
 
 
-
 ## Animates an enemy token along a Stride path hex-by-hex (FEAT-007).
 func _animate_token_along_stride_path(actor_id: String, path: Array) -> void:
 	if hex_grid_view == null:
@@ -554,9 +554,9 @@ func _animate_token_along_stride_path(actor_id: String, path: Array) -> void:
 	_refresh_off_guard_conditions()
 
 
-## Route Esc/right-click to cancel_controller.
+## Route Esc/right-click to cancel_controller; 'E' toggles equipment_panel_ui (FEAT-010, US-011).
 func _unhandled_input(event: InputEvent) -> void:
-	if cancel_controller.handle_input(event):
+	if cancel_controller.handle_input(event) or equipment_panel_toggle_controller.handle_input(event, equipment_panel_ui, _exploration, scenario_session, _party):
 		get_viewport().set_input_as_handled()
 
 

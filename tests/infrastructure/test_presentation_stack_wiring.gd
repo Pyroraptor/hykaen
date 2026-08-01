@@ -59,6 +59,7 @@ const TurnControllerClass          = preload("res://presentation/turn_controller
 const MovementInputControllerClass = preload("res://presentation/movement_input_controller.gd")
 const VerbBarViewClass             = preload("res://presentation/verb_bar_view.gd")
 const ReactionPromptUIClass        = preload("res://scenes/ui/reaction_prompt_ui.gd")
+const EquipmentPanelUIClass        = preload("res://presentation/equipment_panel_ui.gd")
 
 ## Every path under presentation/* is a legitimate signal-handler home; the
 ## composition root itself (MainScene.gd, res:// root, NOT presentation/*) is
@@ -103,6 +104,13 @@ const _EXPECTED_CHILDREN: Dictionary = {
 ## (layer >= 1) so they render in screen space, unaffected by GameCamera's
 ## world-space transform. None of these are direct children of MainScene
 ## anymore -- verified separately here, as children of UILayer.
+##
+## FEAT-010 (US-011 / FR-010) added EquipmentPanelUI here: the read-only
+## equipment panel (presentation/equipment_panel_ui.gd, scenes/
+## equipment_panel.tscn), hidden by default and toggled open/closed by the
+## 'E' key via presentation/equipment_panel_toggle_controller.gd — a
+## legitimate, additional presentation/* component, not a re-introduction of
+## the removed scenes/battlefield/* stack this suite guards against.
 const _UI_LAYER_NODE_NAME: String = "UILayer"
 const _EXPECTED_UI_LAYER_CHILDREN: Dictionary = {
 	"StatusPanelView": StatusPanelViewClass,
@@ -112,6 +120,7 @@ const _EXPECTED_UI_LAYER_CHILDREN: Dictionary = {
 	"VerbBarView":     VerbBarViewClass,
 	"ResultScreenView": ResultScreenViewClass,
 	"ReactionPromptUI": ReactionPromptUIClass,
+	"EquipmentPanelUI": EquipmentPanelUIClass,
 }
 
 ## _SPELL_PICKER_PANEL_NAME -- the spell-picker Panel node added dynamically

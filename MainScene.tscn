@@ -11,6 +11,7 @@
 [ext_resource type="PackedScene" path="res://presentation/verb_bar_view.tscn" id="11_verbbarview"]
 [ext_resource type="PackedScene" path="res://scenes/ui/reaction_prompt_ui.tscn" id="12_reactionpromptui"]
 [ext_resource type="Script" path="res://presentation/game_camera.gd" id="13_gamecamera"]
+[ext_resource type="PackedScene" path="res://scenes/equipment_panel.tscn" id="14_equipmentpanel"]
 
 [node name="MainScene" type="Node"]
 script = ExtResource("1_mainscene")
@@ -41,3 +42,5 @@ script = ExtResource("7_turncontroller")
 [node name="ResultScreenView" parent="UILayer" instance=ExtResource("9_resultscreenview")]
 
 [node name="ReactionPromptUI" parent="UILayer" instance=ExtResource("12_reactionpromptui")]
+
+[node name="EquipmentPanelUI" parent="UILayer" instance=ExtResource("14_equipmentpanel")]
