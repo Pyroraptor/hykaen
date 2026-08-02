@@ -11,11 +11,12 @@ extends GutTest
 ##
 ## Validates the US-008 test_criteria:
 ##   - gram_marx.tres loads with level==1 and equipped_items containing
-##     staff_gram and ring_channeling
+##     staff_gram and orb_gram (NOT ring_channeling — Wizards do not Channel)
 ##
 ## FEAT-004 (US-003; FR-005/FR-006) additively extends this suite:
-##   - gram_marx.tres equipped_items now also contains orb_gram (3rd
-##     equipped item, ACCESSORY_1 slot) alongside staff_gram/ring_channeling
+##   - gram_marx.tres equipped_items contains staff_gram (MAIN_HAND) and
+##     orb_gram (ACCESSORY_1); ring_channeling is a Channeler item and is
+##     NOT in a Wizard's loadout
 ##   - titus.tres loads with level==1 and equipped_items containing
 ##     longsword_titus only (two-handed; shield removed)
 ##   - marigold.tres loads with level==1 and equipped_items containing
@@ -67,14 +68,16 @@ func test_gram_marx_equipped_items_contains_staff_gram() -> void:
 	)
 
 
-func test_gram_marx_equipped_items_contains_ring_channeling() -> void:
+func test_gram_marx_equipped_items_does_not_contain_ring_channeling() -> void:
+	# Wizards do not Channel — ring_channeling is a Channeler item and must
+	# not appear in a Wizard's loadout.
 	var character = ResourceLoader.load("res://data/characters/gram_marx.tres")
 	assert_not_null(character, "gram_marx.tres must load non-null")
 	if character == null:
 		return
-	assert_true(
+	assert_false(
 		_has_item_id(character.equipped_items, "ring_channeling"),
-		"gram_marx.equipped_items must contain item_id 'ring_channeling'"
+		"gram_marx.equipped_items must NOT contain ring_channeling — Wizards do not Channel"
 	)
 
 
@@ -97,8 +100,8 @@ func test_gram_marx_equipped_items_has_exactly_3_entries() -> void:
 	if character == null:
 		return
 	assert_eq(
-		character.equipped_items.size(), 3,
-		"gram_marx.equipped_items must have exactly 3 items (staff_gram, ring_channeling, orb_gram) — FEAT-004"
+		character.equipped_items.size(), 2,
+		"gram_marx.equipped_items must have exactly 2 items (staff_gram, orb_gram) — Wizards do not Channel"
 	)
 
 

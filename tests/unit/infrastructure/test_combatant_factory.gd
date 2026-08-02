@@ -37,7 +37,7 @@ func test_gram_marx_equipped_items_has_3_entries_including_orb_gram() -> void:
 	assert_true(combatant.has("equipped_items"), "build_party_combatant() must expose 'equipped_items' on the combatant dict")
 
 	var equipped_items: Array = combatant.get("equipped_items", [])
-	assert_eq(equipped_items.size(), 3, "gram_marx's combatant['equipped_items'] must have exactly 3 entries (staff_gram, ring_channeling, orb_gram)")
+	assert_eq(equipped_items.size(), 2, "gram_marx's combatant['equipped_items'] must have exactly 2 entries (staff_gram, orb_gram) — Wizards do not Channel")
 	assert_true(
 		_has_item_id(equipped_items, "orb_gram"),
 		"gram_marx's combatant['equipped_items'] must include orb_gram"

@@ -99,7 +99,7 @@ func test_setup_gram_marx_renders_staff_gram_in_main_hand_with_charge_indicator(
 	)
 
 
-func test_setup_gram_marx_renders_ring_channeling_in_right_ring_with_charge_indicator() -> void:
+func test_setup_gram_marx_renders_empty_ring_1_slot() -> void:
 	var gram_marx = _load_gram_marx()
 	assert_not_null(gram_marx, "gram_marx.tres must load non-null")
 	if gram_marx == null:
@@ -107,15 +107,15 @@ func test_setup_gram_marx_renders_ring_channeling_in_right_ring_with_charge_indi
 
 	_panel.setup(gram_marx)
 
-	# ring_channeling.tres declares slot = 11 == EquipmentSlot.RING_1, the
-	# "right ring" slot in EquipmentSlot.ALL_SLOTS order.
+	# Gram Marx is a Wizard — he does not Channel; ring_channeling is a
+	# Channeler item and is not in his loadout. RING_1 must show "—".
 	assert_eq(
-		_panel.get_item_text(EquipmentSlotClass.RING_1), "Ring of Channeling",
-		"RING_1 (right ring) row must show ring_channeling's display_name"
+		_panel.get_item_text(EquipmentSlotClass.RING_1), "—",
+		"RING_1 (right ring) row must show '—' — Wizards do not Channel; gram_marx has no ring equipped"
 	)
-	assert_true(
+	assert_false(
 		_panel.has_charge_indicator(EquipmentSlotClass.RING_1),
-		"RING_1 (right ring) row must show a charged indicator for ring_channeling (non-empty prepared_spell_id)"
+		"RING_1 row must have no charge indicator — no ring is equipped"
 	)
 
 

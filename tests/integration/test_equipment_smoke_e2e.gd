@@ -375,12 +375,12 @@ func test_selecting_gram_marx_and_pressing_e_opens_equipment_panel_with_matching
 		"the rendered MAIN_HAND row must show the charged indicator (Fire Bolt, is_charged==true)"
 	)
 	assert_eq(
-		instance.equipment_panel_ui.get_item_text(EquipmentSlotClass.RING_1), "Ring of Channeling",
-		"the rendered RING_1 row must show Gram Marx's ring display_name"
+		instance.equipment_panel_ui.get_item_text(EquipmentSlotClass.RING_1), "—",
+		"the rendered RING_1 row must show '—' — Wizards do not Channel; Gram's RING_1 is empty"
 	)
 	assert_eq(
-		instance.equipment_panel_ui.get_charge_indicator_text(EquipmentSlotClass.RING_1), "⚡ Charged",
-		"the rendered RING_1 row must show the charged indicator (Channel, is_charged==true)"
+		instance.equipment_panel_ui.get_charge_indicator_text(EquipmentSlotClass.RING_1), "",
+		"the rendered RING_1 charge indicator must be empty — no ring equipped"
 	)
 
 

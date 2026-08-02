@@ -155,9 +155,9 @@ const MAX_ROUNDS_GUARD: int = 50
 ## FEAT-004 (US-003; FR-005/FR-006; mitigates RISK-004 pin fragility) adds
 ## data/characters/gram_marx.tres to this pinned set (it was previously
 ## UNPINNED/untracked by this guard) and re-pins it to the hash BELOW:
-## gram_marx.tres now equips orb_gram.tres as a 3rd equipped_items entry
-## (staff_gram, ring_channeling, orb_gram) alongside bumping load_steps
-## 5->6 for the new ext_resource reference. Gram Marx is NOT a member of
+## gram_marx.tres equips staff_gram (MAIN_HAND) + orb_gram (ACCESSORY_1);
+## ring_channeling is a Channeler item and is NOT in a Wizard's loadout.
+## load_steps is 5 (no ring_channeling ext_resource). Gram Marx is NOT a member of
 ## the live prologue simulator roster (only Titus + the skeleton enemy are
 ## driven through core/sim/simulator.gd — see test_run_round_entry_exit_
 ## contract_no_mocking() below, which uses titus_char/skeleton_res only),
@@ -175,7 +175,7 @@ const _EXPECTED_HASHES: Dictionary = {
 	"res://data/weapons/longsword.tres": "248339f6e3f256d6cdc6a943ca824587",
 	"res://data/armor/chain_shirt.tres": "6be0c7c1b55b7a91233bca0f62fadd16",
 	"res://data/armor/scale_mail.tres":  "7c724303a7db4ad78a7341bc9e7f46f1",
-	"res://data/characters/gram_marx.tres": "657b975c889744fac47f629af3813b71",
+	"res://data/characters/gram_marx.tres": "1c095348000906ab7af25fec77beb73a",
 }
 
 ## Results from the single 1000-battle run, shared across all tests via
