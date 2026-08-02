@@ -158,7 +158,7 @@ func test_headless_smoke_boot_reaches_interactive_state_with_zero_unhandled_erro
 	assert_not_null(instance.determine_outcome_use_case, "determine_outcome_use_case must be non-null after first frame")
 
 	assert_not_null(instance.hex_grid_view, "MainScene must expose a non-null hex_grid_view")
-	assert_eq(instance.hex_grid_view.get_token_count(), 3, "HexGridView must render one token per live combatant (Titus + Marigold + Skeleton)")
+	assert_eq(instance.hex_grid_view.get_token_count(), 4, "HexGridView must render one token per live combatant (Titus + Marigold + Gram Marx + Skeleton)")
 
 	assert_not_null(instance.event_log_view, "MainScene must expose a non-null event_log_view")
 	assert_eq(instance.event_log_view.get_entry_count(), 0, "fixture assumption: no events have been logged yet before any player input")

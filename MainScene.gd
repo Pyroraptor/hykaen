@@ -422,8 +422,8 @@ func _on_combat_triggered(encounter_id: String) -> void:
 	_game_mode = GameMode.COMBAT
 	_active_encounter_id = encounter_id
 	_exploration.notify_game_mode_changed(false)
-
 	if hex_grid_view != null:
+		hex_grid_view.add_combatants(_party.filter(func(c): return hex_grid_view.get_token(c.display_id()) == null))  # ADR-001: skip existing party tokens
 		hex_grid_view.add_combatants(_enemies)
 
 	if turn_controller != null:

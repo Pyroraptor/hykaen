@@ -110,10 +110,19 @@ func _resolve_one_real_enemy_strike(instance) -> void:
 		"the real EndTurnControl.press() must forward to RoundSession.end_current_turn() successfully"
 	)
 
-	# The roster now includes Marigold (player_1) and Gram Marx (player_2)
-	# ahead of the Skeleton in turn order. TurnController only auto-drives
-	# Enemy turns (US-011) -- pass ALL non-enemy actors before the Skeleton.
-	while not instance.round_session.current_actor().is_enemy:
+	# The roster now includes Marigold (player_1) and Gram Marx (player_2).
+	# With seed=42 the order is Titus→Skeleton→Marigold→Gram Marx so the
+	# first press() above already auto-drives the Skeleton's attack via
+	# _drive(). For other seeds the Skeleton may come later. Either way, stop
+	# as soon as a new log entry appears — that signals exactly ONE enemy
+	# attack resolved synchronously within the scripted-resolver context.
+	# Using "while not is_enemy: press" would loop through multiple Skeleton
+	# attacks within the same multi-cycle RoundSession (Skeleton has a 7-action
+	# budget), accumulating duplicate rows.
+	var log_count_initial: int = 0  # this helper is called before any player strike
+	while instance.event_log_view.get_entry_count() == log_count_initial:
+		if not instance.end_turn_control.is_enabled():
+			break
 		press_result = instance.end_turn_control.press()
 		assert_true(
 			press_result.get("ok", false),

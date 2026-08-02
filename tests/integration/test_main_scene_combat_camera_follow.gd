@@ -39,6 +39,17 @@ const HexCoordClass = preload("res://core/geometry/hex_coord.gd")
 
 const PINNED_SEED: int = 42
 
+## _ScriptedPassResolver — synchronous ReactionResolverPort double that
+## always returns {"choice": "none"} (Pass) so the Skeleton's AI-driven
+## Strike resolves without opening the real reaction prompt UI. Without this,
+## advance_ai_turn() suspends waiting for a never-delivered reaction_chosen
+## signal in headless tests, deferring _drive() beyond the synchronous
+## window the camera-pan assertion must check.
+class _ScriptedPassResolver:
+	extends RefCounted
+	func resolve(_trigger: Dictionary) -> Dictionary:
+		return {"choice": "none"}
+
 
 ## _boot_main_scene_with_seed(seed_value) -> Node — mirrors
 ## tests/integration/test_active_actor_selection.gd's identically-named
@@ -157,7 +168,23 @@ func test_pressing_end_turn_in_combat_mode_pans_camera_to_the_new_active_actor()
 
 	assert_true(instance.end_turn_control.is_enabled(), "fixture assumption: End Turn must be enabled at combat entry")
 
+	# Inject a synchronous pass resolver so the Skeleton's AI-driven Strike
+	# (which fires on the next turn) resolves without waiting on the real
+	# reaction prompt UI (which blocks on a signal that never fires in headless).
+	# With this resolver, the full advance_ai_turn() → _drive() chain settles
+	# within one process frame rather than suspending indefinitely.
+	var pass_resolver := _ScriptedPassResolver.new()
+	instance.round_session.set_prehit_avoidance_resolver_fn(Callable(pass_resolver, "resolve"))
+	instance.round_session.set_onhit_mitigation_resolver_fn(Callable(pass_resolver, "resolve"))
+
 	instance.end_turn_control.press()
+
+	# await one process frame: _on_end_turn_control_turn_ended is an async
+	# signal handler whose await _drive() chain (advance_ai_turn → Strike →
+	# advance cursor → active_actor_changed → camera pan) defers at least one
+	# frame even when its internal awaits are synchronous (Godot 4.3 coroutine
+	# scheduling). One frame is sufficient for the chain to settle.
+	await get_tree().process_frame
 
 	var new_actor = instance.round_session.current_actor_entity()
 	assert_not_null(new_actor, "pressing End Turn must settle on a live current actor (or the round ends)")

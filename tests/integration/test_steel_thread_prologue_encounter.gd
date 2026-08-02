@@ -427,6 +427,18 @@ func test_enemy_ai_turn_auto_drives_through_identical_pipeline_after_end_turn() 
 	var pass_result: Dictionary = instance.end_turn_control.press()
 	assert_true(pass_result.get("ok", false), "the real $EndTurnControl must forward to RoundSession.end_current_turn() successfully for Marigold's passed turn")
 
+	# At seed=42 the roster is Titus → Skeleton → Marigold → Gram Marx.
+	# After Marigold passes the cursor is on Gram Marx (player_2) at (-2,0).
+	# RoundSession only auto-drives Enemy turns, so we must also pass Gram Marx
+	# manually. After Gram Marx passes, round 1 ends and round 2 begins with
+	# Titus (the lowest-initiative player) as the first actor.
+	assert_false(
+		instance.round_session.current_actor().is_enemy,
+		"fixture assumption: Gram Marx (player_2) must hold the cursor after Marigold's passed turn"
+	)
+	var gram_marx_pass_result: Dictionary = instance.end_turn_control.press()
+	assert_true(gram_marx_pass_result.get("ok", false), "the real $EndTurnControl must forward to RoundSession.end_current_turn() successfully for Gram Marx's passed turn")
+
 	var attack_events: Array = instance.event_sink.log.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 	assert_eq(
 		attack_events.size(), 1,
@@ -442,7 +454,7 @@ func test_enemy_ai_turn_auto_drives_through_identical_pipeline_after_end_turn() 
 		"the real EventLogView must observe a new entry for the AI-resolved Strike's AttackEvent through MainScene's real event-sink pipeline"
 	)
 
-	# TurnController settles back on the player, ready for the next turn.
+	# TurnController settles back on the player (Titus in round 2), ready for the next turn.
 	assert_false(
 		instance.round_session.current_actor().is_enemy,
 		"the real $TurnController must auto-drive the Enemy's full turn so the session settles back on a living player combatant"

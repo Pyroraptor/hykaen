@@ -458,6 +458,12 @@ func test_lethal_opportunistic_strike_fires_during_cast_window_and_cancels_with_
 	# ── Drive the SAME real, composition-root-bound CAST_SPELL entry point
 	# a live player click resolves through -- the continuing-cast action
 	# (no selection argument at all, US-006). ───────────────────────────────
+	# Snapshot the attack event count before this cast executes: the Skeleton
+	# auto-drove and struck Titus in _advance_to_marigolds_turn() above,
+	# so there may already be 1 attack event in the log (the Skeleton→Titus
+	# strike from its AI turn). We must slice from here so the assertions
+	# below only see the Opportunistic Strike that fires DURING this cast.
+	var attack_events_before_cast: int = _attack_events(instance).size()
 	assert_false(instance.reaction_prompt_ui.is_open(), "fixture assumption: no pop-up is open before this cast is driven")
 	var continue_result: Dictionary = instance.verb_dispatch_controller._verb_bar_cast_spell_execute()
 
@@ -494,8 +500,11 @@ func test_lethal_opportunistic_strike_fires_during_cast_window_and_cancels_with_
 	assert_eq(pool.current, balance_after_reserve, "committed_energy must NOT be refunded to the round energy pool on cancellation")
 	assert_eq(pool.current, 0, "the pool must remain fully drained after cancellation -- no refund path exists (ADR-003)")
 
-	var attack_events: Array = _attack_events(instance)
-	assert_eq(attack_events.size(), 1, "exactly one Strike (the Skeleton's lethal Opportunistic Strike) must have resolved -- Fire Bolt's own attack roll must never occur")
+	# Slice to only the attack events that fired DURING this cast execution
+	# (the Skeleton may have already attacked Titus during _advance_to_marigolds_turn).
+	var all_attack_events: Array = _attack_events(instance)
+	var attack_events: Array = all_attack_events.slice(attack_events_before_cast)
+	assert_eq(attack_events.size(), 1, "exactly one Strike (the Skeleton's lethal Opportunistic Strike) must have resolved during this cast -- Fire Bolt's own attack roll must never occur")
 	var attack_event = attack_events[0]
 	assert_eq(attack_event.attacker_name, "Skeleton", "the resolved Strike must be attributed to the Skeleton (the reactor), not Marigold (the caster)")
 	assert_eq(attack_event.target_name, "Marigold", "the resolved Strike's target must be Marigold (the caster)")

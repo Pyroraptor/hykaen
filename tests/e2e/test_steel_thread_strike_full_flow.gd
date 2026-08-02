@@ -211,7 +211,7 @@ func test_main_scene_boots_headless_with_zero_errors() -> void:
 	assert_not_null(instance._verb_registry, "MainScene must build a non-null verb registry")
 
 	assert_false(instance.round_session.is_round_over(), "the freshly-begun RoundSession must not already be over with zero player input")
-	assert_eq(instance.hex_grid_view.get_token_count(), 3, "HexGridView must render one token per live combatant")
+	assert_eq(instance.hex_grid_view.get_token_count(), 4, "HexGridView must render one token per live combatant (Titus + Marigold + Gram Marx + Skeleton)")
 	assert_eq(instance.event_log_view.get_entry_count(), 0, "fixture assumption: no events have been logged yet before any player input")
 	assert_false(instance.result_screen_view.is_shown(), "the real ResultScreenView must not show a result before any input has been given")
 

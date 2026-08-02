@@ -162,14 +162,21 @@ func _resolve_one_real_enemy_strike_with_forced_dodge(instance) -> void:
 		"the real EndTurnControl.press() must forward to RoundSession.end_current_turn() successfully"
 	)
 
-	# Pass every OTHER living, player-controlled combatant's turn (Marigold)
-	# before the Skeleton's turn is reached -- TurnController auto-drives ONLY
-	# Enemy turns, never a second player-controlled combatant's.
-	while not instance.round_session.is_round_over() and not instance.round_session.current_actor().is_enemy:
+	# Pass every OTHER living, player-controlled combatant's turn (Marigold,
+	# Gram Marx) before the Skeleton's turn is reached -- TurnController
+	# auto-drives ONLY Enemy turns, never player-controlled combatants.
+	# Use a log-count sentinel instead of "while not is_enemy: press" to
+	# avoid looping through multiple Skeleton attacks in the same multi-cycle
+	# RoundSession (Skeleton has a 7-action budget; the cursor can cycle back
+	# through player turns after each enemy attack, accumulating duplicate rows).
+	var log_count_before_enemy_strike: int = instance.event_log_view.get_entry_count()
+	while instance.event_log_view.get_entry_count() == log_count_before_enemy_strike:
+		if not instance.end_turn_control.is_enabled():
+			break
 		var pass_result: Dictionary = instance.end_turn_control.press()
 		assert_true(
 			pass_result.get("ok", false),
-			"the real EndTurnControl.press() must forward to RoundSession.end_current_turn() successfully for every other living player-controlled combatant (Marigold) ahead of the Skeleton's turn"
+			"the real EndTurnControl.press() must forward to RoundSession.end_current_turn() successfully for every other living player-controlled combatant (Marigold, Gram Marx) ahead of the Skeleton's turn"
 		)
 
 

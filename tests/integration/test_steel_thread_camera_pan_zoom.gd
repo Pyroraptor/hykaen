@@ -94,6 +94,14 @@ const HexCoordClass = preload("res://core/geometry/hex_coord.gd")
 ## constants).
 const PROLOGUE_SEED: int = 42
 
+## _ScriptedPassResolver — synchronous ReactionResolverPort double that
+## always returns {"choice": "none"} so the Skeleton's AI-driven Strike
+## resolves without suspending on the real reaction prompt UI in headless tests.
+class _ScriptedPassResolver:
+	extends RefCounted
+	func resolve(_trigger: Dictionary) -> Dictionary:
+		return {"choice": "none"}
+
 const PROLOGUE_ENCOUNTER_ID: String = "prologue"
 
 ## Tolerance (world units) used both for float-clamp bound checks
@@ -283,7 +291,17 @@ func test_pressing_end_turn_in_combat_mode_pans_camera_to_new_active_actor_and_s
 
 	assert_true(instance.end_turn_control.is_enabled(), "fixture assumption: End Turn must be enabled at combat entry")
 
+	# Inject a synchronous pass resolver so the Skeleton's AI-driven Strike
+	# resolves without blocking on the real reaction prompt UI in headless tests.
+	var pass_resolver := _ScriptedPassResolver.new()
+	instance.round_session.set_prehit_avoidance_resolver_fn(Callable(pass_resolver, "resolve"))
+	instance.round_session.set_onhit_mitigation_resolver_fn(Callable(pass_resolver, "resolve"))
+
 	instance.end_turn_control.press()
+
+	# await one process frame: the async signal handler's _drive() chain
+	# defers at least one frame in Godot 4.3 even with synchronous reactions.
+	await get_tree().process_frame
 
 	var new_actor = instance.round_session.current_actor_entity()
 	assert_not_null(new_actor, "pressing End Turn must settle on a live current actor (or the round ends)")

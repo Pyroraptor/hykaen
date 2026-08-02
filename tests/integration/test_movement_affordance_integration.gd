@@ -148,7 +148,7 @@ func test_real_mainscene_boots_headlessly_with_the_real_movement_affordance_stac
 	# Sanity check: the hex battlefield rendered one token per prologue
 	# combatant (Titus + Marigold + Skeleton, Iteration M "Cast a Spell"
 	# roster) via the real HexGridView.
-	assert_eq(instance.hex_grid_view.get_token_count(), 3, "the real HexGridView must render one token per prologue combatant")
+	assert_eq(instance.hex_grid_view.get_token_count(), 4, "the real HexGridView must render one token per prologue combatant (Titus + Marigold + Gram Marx + Skeleton)")
 
 
 # ══════════════════════════════════════════════════════════════════════════

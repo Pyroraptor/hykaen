@@ -301,6 +301,18 @@ func boot(hex_combatants: Array) -> void:
 				party_count = scenario_resource.party.character_resource_paths.size()
 			for i in range(min(party_count, hex_combatants.size())):
 				var party_hex_combatant = hex_combatants[i]
+				# Guard: hex_combatants may contain fewer party entries than
+				# party_count when the boot encounter's party_resource_paths is
+				# shorter than the scenario party roster (e.g. exploration boots
+				# from prologue_encounter.tres with 2 paths while default_party.tres
+				# now has 3 members — the 3rd hex_combatant slot is an enemy token,
+				# not a party member). Use `team == "Enemy"` for duck-type
+				# safety: Combatant._init() sets `team` from its constructor arg
+				# but never sets `is_enemy` (only from_dict() does), so
+				# checking `is_enemy` always evaluates false for combatants
+				# created via ResourceEncounterRepository.load_combatants().
+				if "team" in party_hex_combatant and party_hex_combatant.team == "Enemy":
+					break
 				scenario_session.party_hex_positions[party_hex_combatant.combatant_id] = party_hex_combatant.hex_coord
 				# FEAT-007 (US-007 / FR-009): default `selected_party_member_id`
 				# to the FIRST seeded party member (mirrors MainScene.gd's own

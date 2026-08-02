@@ -125,11 +125,21 @@ func _resolve_one_real_enemy_strike(instance) -> void:
 
 	# The prologue roster now includes Marigold (player_1) and Gram Marx
 	# (player_2) between Titus and the Skeleton in turn order. At seed=1
-	# the order may seat multiple non-enemy actors before the Skeleton.
+	# the initiative order is Titus → Marigold → Gram Marx → Skeleton, so
+	# multiple player passes are needed before Skeleton auto-drives.
 	# RoundSession/TurnController only auto-drives AI (enemy) turns, never
-	# other living player combatants -- so pass ALL non-enemy actors before
-	# the Skeleton's AI turn (and therefore its Strike) is reached.
-	while not instance.round_session.current_actor().is_enemy:
+	# other living player combatants.
+	#
+	# IMPORTANT: do NOT use "while not is_enemy: press" — within a single
+	# RoundSession the Skeleton can attack many times (7-action budget) so that
+	# condition cycles back to Titus after each Skeleton attack. Instead, stop
+	# as soon as the enemy attack has actually resolved (one new log entry
+	# appears), which is the precise signal that the scripted-resolver Strike
+	# completed synchronously within the press() call.
+	var log_count_after_player_strike: int = instance.event_log_view.get_entry_count()
+	while instance.event_log_view.get_entry_count() == log_count_after_player_strike:
+		if not instance.end_turn_control.is_enabled():
+			break
 		var extra_press_result: Dictionary = instance.end_turn_control.press()
 		assert_true(
 			extra_press_result.get("ok", false),

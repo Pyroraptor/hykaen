@@ -260,12 +260,13 @@ func test_boot_real_strike_target_invalidated_after_stride_gracefully_skips_but_
 		"fixture assumption: the Skeleton must be a reachable Strike target from Titus's START hex"
 	)
 
-	# Stride AWAY from the Skeleton -- (-2,0) is within Titus's real Speed
-	# (distance 2 <= Movement.DEFAULT_SPEED = 4) and unoccupied, but leaves
-	# the Skeleton (1,0) at hex_distance 3 -- no longer reachable once
+	# Stride AWAY from the Skeleton -- (-3,0) is within Titus's real Speed
+	# (distance 3 <= Movement.DEFAULT_SPEED = 4) and unoccupied (Gram Marx
+	# now occupies (-2,0) after default_party.tres grew to 3 members), but
+	# leaves the Skeleton (1,0) at hex_distance 4 -- no longer reachable once
 	# Strike's own resolution step (which always reads the actor's LIVE,
 	# POST-Stride position) runs.
-	var stride_destination := HexCoordClass.new(-2, 0)
+	var stride_destination := HexCoordClass.new(-3, 0)
 
 	var economy = instance.round_session.current_action_economy()
 	assert_not_null(economy, "fixture assumption: Titus must have a live ActionEconomy at boot")
