@@ -267,12 +267,14 @@ func availability() -> bool:
 		return false
 	if actor.is_casting():
 		return true
-	if actor.known_spell_ids.is_empty():
-		return false
-
 	var pool_port = _round_energy_pool_port(actor)
 	if pool_port == null:
-		return true
+		if not actor.known_spell_ids.is_empty():
+			return true
+		for item in actor.get("equipped_items", []):
+			if item != null and item.prepared_spell_id != "" and item.is_charged:
+				return true
+		return false
 
 	return BeginCastUseCaseClass.new().availability(actor, _spell_catalog_port, pool_port)
 

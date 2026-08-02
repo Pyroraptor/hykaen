@@ -60,8 +60,6 @@ func availability(actor, spell_catalog_port, round_energy_pool_port) -> bool:
 		return false
 	if actor.is_casting():
 		return true
-	if actor.known_spell_ids.is_empty():
-		return false
 	if spell_catalog_port == null or round_energy_pool_port == null:
 		return false
 
@@ -69,6 +67,12 @@ func availability(actor, spell_catalog_port, round_energy_pool_port) -> bool:
 	var balance: int = round_energy_pool_port.balance(caster_id)
 	for spell_id in actor.known_spell_ids:
 		var spell = spell_catalog_port.get_spell(spell_id)
+		if spell != null and spell.energy_cost <= balance:
+			return true
+	for item in actor.get("equipped_items", []):
+		if item == null or item.prepared_spell_id == "" or not item.is_charged:
+			continue
+		var spell = spell_catalog_port.get_spell(item.prepared_spell_id)
 		if spell != null and spell.energy_cost <= balance:
 			return true
 	return false
