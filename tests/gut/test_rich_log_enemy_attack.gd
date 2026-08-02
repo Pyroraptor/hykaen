@@ -110,16 +110,14 @@ func _resolve_one_real_enemy_strike(instance) -> void:
 		"the real EndTurnControl.press() must forward to RoundSession.end_current_turn() successfully"
 	)
 
-	# The roster now includes Marigold (a second, player-controlled combatant,
-	# "player_1"), who acts second at seed=42 -- BEFORE the Skeleton's turn.
-	# TurnController only auto-drives Enemy turns (US-011), so ending Titus's
-	# turn alone now stops the cursor on Marigold, not the enemy; an extra
-	# manual End Turn is required to advance past her turn too.
-	if not instance.round_session.current_actor().is_enemy:
+	# The roster now includes Marigold (player_1) and Gram Marx (player_2)
+	# ahead of the Skeleton in turn order. TurnController only auto-drives
+	# Enemy turns (US-011) -- pass ALL non-enemy actors before the Skeleton.
+	while not instance.round_session.current_actor().is_enemy:
 		press_result = instance.end_turn_control.press()
 		assert_true(
 			press_result.get("ok", false),
-			"the real EndTurnControl.press() must forward to RoundSession.end_current_turn() successfully for Marigold's turn"
+			"the real EndTurnControl.press() must forward to RoundSession.end_current_turn() successfully for each player's turn"
 		)
 
 

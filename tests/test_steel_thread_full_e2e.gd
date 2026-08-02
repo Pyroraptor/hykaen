@@ -162,11 +162,11 @@ func _wire_event_log_seam(instance) -> Array:
 ## round cursor settles on the Skeleton (the prologue fixture's sole enemy) —
 ## the precondition every scenario below needs before calling
 ## advance_ai_turn() directly as the sole entry point for the Strike itself.
-## The prologue roster now seats a second living, player-controlled combatant
-## (Marigold, "player_1") between Titus and the enemy in turn order —
-## RoundSession/TurnController only auto-drives AI (enemy) turns, never other
-## living player combatants, so this helper must manually pass Marigold's
-## turn too before the cursor reaches the enemy.
+## The prologue roster seats Marigold (player_1) and Gram Marx (player_2)
+## between Titus and the enemy in turn order — RoundSession/TurnController
+## only auto-drives AI (enemy) turns, never other living player combatants,
+## so this helper must manually pass ALL non-enemy actors before reaching
+## the enemy.
 func _advance_to_enemy_turn(instance) -> void:
 	assert_false(
 		instance.round_session.current_actor().is_enemy,
@@ -174,9 +174,9 @@ func _advance_to_enemy_turn(instance) -> void:
 	)
 	var end_result: Dictionary = instance.round_session.end_current_turn()
 	assert_true(end_result.get("ok", false), "ending Titus's own turn (no action taken) must succeed")
-	if not instance.round_session.current_actor().is_enemy:
-		var marigold_end_result: Dictionary = instance.round_session.end_current_turn()
-		assert_true(marigold_end_result.get("ok", false), "ending Marigold's own turn (no action taken) must succeed")
+	while not instance.round_session.current_actor().is_enemy:
+		var pass_result: Dictionary = instance.round_session.end_current_turn()
+		assert_true(pass_result.get("ok", false), "ending each player's own turn (no action taken) must succeed")
 	assert_true(
 		instance.round_session.current_actor().is_enemy,
 		"the round cursor must now sit on the Skeleton enemy"

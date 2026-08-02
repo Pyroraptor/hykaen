@@ -543,15 +543,14 @@ func test_enemy_ai_leg_strides_toward_nearest_target_but_does_not_strike_same_tu
 	var end_turn_result: Dictionary = instance.end_turn_control.press()
 	assert_true(end_turn_result.get("ok", false), "ending the player's turn (no action taken) must succeed")
 
-	# The prologue roster now seats a SECOND living, player-controlled
-	# combatant (Marigold, player_1) between Titus and the enemy in turn
-	# order. $TurnController only auto-drives AI (enemy) turns, not other
-	# living player combatants, so this suite must also manually end
-	# Marigold's turn (WITHOUT acting, same as Titus above) before the
-	# enemy's own AI turn is reached.
-	if not instance.round_session.current_actor().is_enemy:
-		var marigold_end_turn_result: Dictionary = instance.end_turn_control.press()
-		assert_true(marigold_end_turn_result.get("ok", false), "ending Marigold's turn (no action taken) must succeed")
+	# The prologue roster now seats Marigold (player_1) and Gram Marx
+	# (player_2) between Titus and the enemy in turn order. $TurnController
+	# only auto-drives AI (enemy) turns, not other living player combatants,
+	# so this suite must manually end ALL non-enemy turns before the enemy's
+	# own AI turn is reached.
+	while not instance.round_session.current_actor().is_enemy:
+		var player_end_turn_result: Dictionary = instance.end_turn_control.press()
+		assert_true(player_end_turn_result.get("ok", false), "ending player's turn (no action taken) must succeed")
 
 	# ── Wait for the AI Stride to fully complete (domain commit + animation) ─
 	# The OS reaction window interleaves per-hop animation with OS evaluation
@@ -667,15 +666,14 @@ func test_enemy_ai_leg_strides_but_does_not_strike_when_no_action_remains_after_
 	var end_turn_result: Dictionary = instance.end_turn_control.press()
 	assert_true(end_turn_result.get("ok", false), "ending the player's turn (no action taken) must succeed")
 
-	# The prologue roster now seats a SECOND living, player-controlled
-	# combatant (Marigold, player_1) between Titus and the enemy in turn
-	# order. $TurnController only auto-drives AI (enemy) turns, not other
-	# living player combatants, so this suite must also manually end
-	# Marigold's turn (WITHOUT acting, same as Titus above) before the
-	# enemy's own AI turn is reached.
-	if not instance.round_session.current_actor().is_enemy:
-		var marigold_end_turn_result: Dictionary = instance.end_turn_control.press()
-		assert_true(marigold_end_turn_result.get("ok", false), "ending Marigold's turn (no action taken) must succeed")
+	# The prologue roster now seats Marigold (player_1) and Gram Marx
+	# (player_2) between Titus and the enemy in turn order. $TurnController
+	# only auto-drives AI (enemy) turns, not other living player combatants,
+	# so this suite must manually end ALL non-enemy turns before the enemy's
+	# own AI turn is reached.
+	while not instance.round_session.current_actor().is_enemy:
+		var player_end_turn_result: Dictionary = instance.end_turn_control.press()
+		assert_true(player_end_turn_result.get("ok", false), "ending player's turn (no action taken) must succeed")
 
 	# Wait for per-hop animation + OS evaluation + domain commit — see the
 	# sibling suite's identical comment for the full timing rationale.

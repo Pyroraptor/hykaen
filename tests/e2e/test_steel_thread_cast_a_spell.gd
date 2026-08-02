@@ -135,10 +135,25 @@ func _find_marigold(instance):
 ## available, regardless of whether an action was spent) until it is
 ## Marigold's live turn (mirrors every prior Cast-a-Spell boot-real
 ## suite's identically-named helper).
+## At seed=42 the initiative order is Titus → Skeleton → Marigold →
+## Gram Marx. After Titus's END_TURN the Skeleton auto-drives and opens
+## reaction prompt windows (PreHitAvoidance and OnHitMitigation) -- these
+## must be drained after each press so the turn-controller's coroutine can
+## fully settle before the while-condition is re-evaluated.
 func _advance_to_marigolds_turn(instance) -> void:
 	while not instance.round_session.is_round_over() and instance.round_session.current_actor_entity().name != "Marigold":
 		var press_result: Dictionary = instance.end_turn_control.press()
 		assert_true(press_result.get("ok", false), "EndTurnControl.press() must succeed while advancing to Marigold's turn")
+		# Drain any reaction pop-ups opened by the Skeleton's AI turn so the
+		# coroutine fully settles before the loop re-evaluates the condition.
+		var guard: int = 0
+		while instance.reaction_prompt_ui.is_open() and guard < 10:
+			var options: Array = instance.reaction_prompt_ui.get_displayed_options()
+			if "none" in options:
+				instance.reaction_prompt_ui.press_option("none")
+			elif options.size() > 0:
+				instance.reaction_prompt_ui.press_option(options[0])
+			guard += 1
 
 
 ## _force_all_spent(instance) -- drives every combatant's ActionEconomy to

@@ -14,8 +14,8 @@ party_hex_positions = [{
 "q": -1,
 "r": 0
 }, {
-"q": 0,
-"r": 1
+"q": -2,
+"r": 0
 }]
 enemy_hex_positions = [{
 "q": 1,

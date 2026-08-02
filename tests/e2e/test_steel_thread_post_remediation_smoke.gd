@@ -341,10 +341,10 @@ func test_hex_grid_view_resyncs_token_position_after_step_and_stride() -> void:
 	const PLAYER_ID: String = "player_0"
 
 	# Titus starts at (0,0) (prologue_encounter.tres); the Skeleton occupies
-	# (1,0) and Marigold (the prologue roster's second party member, added
-	# per Iteration M "Cast a Spell") occupies (-1,0). (0,1) is one of
-	# (0,0)'s 6 flat-top axial neighbors and remains unoccupied -- a legal
-	# Step destination.
+	# (1,0), Marigold (the prologue roster's second party member) occupies
+	# (-1,0), and Gram Marx (the third party member) occupies (-2,0). (0,1)
+	# is one of (0,0)'s 6 flat-top axial neighbors and remains unoccupied --
+	# a legal Step destination.
 	var step_destination := HexCoordClass.new(0, 1)
 	var step_result: Dictionary = instance.movement_input_controller.step_to(step_destination)
 	assert_true(step_result.get("ok", false), "fixture assumption: Step to (0,1) must succeed: %s" % step_result)

@@ -45,14 +45,16 @@ func test_create_prologue_state_sets_prologue_scenario_path() -> void:
 func test_create_prologue_state_seeds_party_hex_positions_from_first_encounter_entry() -> void:
 	var state := NewGameFactoryClass.create_prologue_state()
 
-	# prologue_scenario.tres's party is default_party.tres (titus, marigold)
-	# and its sole encounter_entries[0].encounter (prologue_encounter.tres)
-	# authors party_hex_positions == [{q:0,r:0}, {q:-1,r:0}].
+	# prologue_scenario.tres's party is default_party.tres (titus, marigold,
+	# gram_marx) and its sole encounter_entries[0].encounter
+	# (prologue_encounter.tres) authors party_hex_positions ==
+	# [{q:0,r:0}, {q:-1,r:0}, {q:-2,r:0}].
 	assert_eq(
 		state.party_hex_positions,
 		[
 			{"combatant_id": "player_0", "q": 0, "r": 0},
 			{"combatant_id": "player_1", "q": -1, "r": 0},
+			{"combatant_id": "player_2", "q": -2, "r": 0},
 		],
 		"party_hex_positions must be seeded from prologue_scenario.tres's first encounter entry"
 	)
@@ -75,16 +77,16 @@ func test_create_state_for_scenario_sets_cave_specific_scenario_path() -> void:
 func test_create_state_for_scenario_seeds_cave_specific_party_hex_positions() -> void:
 	var state := NewGameFactoryClass.create_state_for_scenario(DRIPPING_CAVE_SCENARIO_PATH)
 
-	# dripping_cave_scenario.tres's party is ALSO default_party.tres (2
-	# members) even though dripping_cave.tres's own (legacy, pre-ADR-002)
-	# party_resource_paths is []; the scenario-authoritative roster (ADR-002)
-	# still yields exactly 2 seeded entries, positioned from the encounter's
-	# party_hex_positions[0]/[1] == {q:-5,r:2} / {q:-4,r:1}.
+	# dripping_cave_scenario.tres's party is default_party.tres (titus,
+	# marigold, gram_marx — 3 members); the scenario-authoritative roster
+	# (ADR-002) yields 3 seeded entries, positioned from the encounter's
+	# party_hex_positions[0]/[1]/[2] == {q:-5,r:2}/{q:-4,r:1}/{q:-5,r:1}.
 	assert_eq(
 		state.party_hex_positions,
 		[
 			{"combatant_id": "player_0", "q": -5, "r": 2},
 			{"combatant_id": "player_1", "q": -4, "r": 1},
+			{"combatant_id": "player_2", "q": -5, "r": 1},
 		],
 		"party_hex_positions must be seeded from dripping_cave_scenario.tres's encounter entry"
 	)

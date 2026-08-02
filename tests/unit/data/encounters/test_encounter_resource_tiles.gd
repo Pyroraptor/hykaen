@@ -138,7 +138,7 @@ func test_prologue_encounter_tres_loads_with_empty_tiles_and_intact_fields() -> 
 	)
 	assert_eq(
 		enc.party_hex_positions,
-		[{"q": 0, "r": 0}, {"q": -1, "r": 0}],
+		[{"q": 0, "r": 0}, {"q": -1, "r": 0}, {"q": -2, "r": 0}],
 		"prologue_encounter.tres party_hex_positions must be unchanged by FEAT-004"
 	)
 	assert_eq(

@@ -1,5 +1,5 @@
 {
-  "_doc": "FEAT-255 (US-012, resolves PR-004) pinned-seed baseline fixture. Captured by driving the REAL res://MainScene.tscn composition root at seed=42 through exactly one END_TURN press (VerbBarView.press(\"END_TURN\")), with every opened reaction_prompt_ui pop-up resolved via its own \"none\" option when offered. tests/regression/test_baseline_diff_regression.gd re-drives this IDENTICAL interaction and asserts every field below stays byte-identical -- zero deltas. UPDATED (FEAT-002, Iteration M P0-0): the prologue roster now seats Marigold as a second living, player-controlled combatant (\"player_1\") between Titus and the Skeleton in turn order. Titus still acts first at this seed, but a single END_TURN press now only ends Titus's OWN turn and hands control to Marigold (a second living player) -- RoundSession/TurnController only auto-drives AI (enemy) turns, never a second living player combatant -- so this one press no longer reaches the Skeleton's automated reaction/attack/turn-advance sequence at all. Re-captured from a real, fresh MainScene boot at seed=42 after the roster change (two independent boots confirmed identical output before pinning here).",
+  "_doc": "FEAT-255 (US-012, resolves PR-004) pinned-seed baseline fixture. Updated for 4-combatant party (Titus/player_0, Skeleton/enemy_0, Marigold/player_1, Gram Marx/player_2 at seed=42). At seed=42 the initiative order is Titus → Skeleton → Marigold → Gram Marx. After Titus's single END_TURN press, the Skeleton auto-drives its full AI turn (opening PreHitAvoidance and OnHitMitigation reaction windows, each resolved to \"none\"), emitting AttackBroadcast (Skeleton attacks Titus), and then advancing to Marigold's turn. The reaction_prompt_ui pop-ups are drained via _press_end_turn_and_resolve_any_reaction_prompts(). Re-captured from a real, fresh MainScene boot at seed=42 after the 4-combatant roster change.",
   "seed": 42,
   "actor_before_name": "Titus",
   "actor_after_name": "Marigold",
@@ -8,9 +8,15 @@
     "round_over": false
   },
   "event_class_sequence": [
+    "TurnAdvancedEvent",
+    "ReactionWindowOpenedEvent",
+    "ReactionResolvedBroadcast",
+    "ReactionWindowOpenedEvent",
+    "ReactionResolvedBroadcast",
+    "AttackBroadcast",
     "TurnAdvancedEvent"
   ],
-  "event_count": 1,
+  "event_count": 7,
   "log_count_before": 0,
-  "log_count_after": 0
+  "log_count_after": 1
 }

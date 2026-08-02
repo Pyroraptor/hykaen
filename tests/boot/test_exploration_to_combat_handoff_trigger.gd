@@ -168,9 +168,15 @@ func test_valid_trigger_places_enemy_tokens_and_preserves_party_token_positions(
 	var enemy_token = instance.hex_grid_view.get_token("enemy_0")
 	assert_not_null(enemy_token, "the encounter's enemy token (enemy_0) must be present on hex_grid_view after the handoff")
 
+	# The combat trigger loads the full scenario party (3 members: titus,
+	# marigold, gram_marx via default_party.tres/ADR-002), adding gram_marx
+	# (player_2) as a new token to the SAME HexGridView instance that
+	# already held the exploration-booted 2-party-member + 1-enemy tokens.
+	# token_count_before (exploration: 2 party + 1 enemy = 3) grows by 1
+	# (player_2 added). The count must equal token_count_before + 1.
 	assert_eq(
-		instance.hex_grid_view.get_token_count(), token_count_before,
-		"add_combatants() must place enemy tokens on the SAME HexGridView instance, never resetting/duplicating existing tokens"
+		instance.hex_grid_view.get_token_count(), token_count_before + 1,
+		"add_combatants() must place party+enemy tokens on the SAME HexGridView instance (gram_marx/player_2 is new, never resetting/duplicating existing tokens)"
 	)
 
 	assert_eq(instance._enemies.size(), 1, "_enemies must contain exactly the 1 live combatant (Skeleton) assembled by this handoff")

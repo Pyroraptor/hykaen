@@ -294,20 +294,18 @@ func test_enemy_reaction_matches_pinned_seed42_baseline_byte_for_byte() -> void:
 		instance.round_session.current_actor().is_enemy,
 		"fixture assumption: Titus (the player) acts first at seed=%d" % PROLOGUE_SEED
 	)
-	# FEAT-002 (Iteration M P0-0): the prologue roster now seats Marigold as a
-	# second living, player-controlled combatant ("player_1") BETWEEN Titus and
-	# the Skeleton in turn order. RoundSession/TurnController only auto-drives
-	# AI (enemy) turns, never a second living player -- so Titus's OWN
-	# END_TURN press now only hands the turn to Marigold, not the Skeleton.
-	# A second END_TURN press (ending Marigold's turn too) is required before
-	# the Skeleton's AI turn -- and therefore its Strike/reaction -- is
-	# actually reached. Empirically verified this drives an IDENTICAL Skeleton
-	# attack outcome (roll=22, damage_final=7) to the pre-existing pinned
-	# baseline below, since neither End Turn itself consumes any RNG draw.
+	# At seed=42 the initiative order is Titus → Skeleton → Marigold →
+	# Gram Marx. Titus's own END_TURN press auto-drives the Skeleton's turn
+	# (PreHitAvoidance + OnHitMitigation pop-ups resolved via "none" by
+	# _press_end_turn_and_resolve_any_reaction_prompts), settling the cursor
+	# on Marigold (player_1). A second END_TURN pass (Marigold, no action)
+	# then advances the cursor to Gram Marx. The Skeleton's attack
+	# (roll=22, damage_final=7) matches the pre-existing pinned baseline
+	# since neither End Turn itself consumes any RNG draw.
 	_press_end_turn_and_resolve_any_reaction_prompts(instance)
 	assert_false(
 		instance.round_session.current_actor().is_enemy,
-		"fixture assumption: Marigold (the second party member) acts second at seed=%d, still not the enemy" % PROLOGUE_SEED
+		"fixture assumption: Marigold (player_1) holds the cursor after the Skeleton's auto-driven turn at seed=%d" % PROLOGUE_SEED
 	)
 	_press_end_turn_and_resolve_any_reaction_prompts(instance)
 

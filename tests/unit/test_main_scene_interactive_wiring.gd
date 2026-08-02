@@ -280,16 +280,14 @@ func test_pressing_end_turn_control_advances_cursor_and_auto_drives_enemy_turn()
 	var press_result: Dictionary = instance.end_turn_control.press()
 	assert_true(press_result.get("ok", false), "EndTurnControl.press() must forward to RoundSession.end_current_turn() successfully")
 
-	# The prologue roster now seats a second living, player-controlled
-	# combatant (Marigold, "player_1") between Titus and the enemy in turn
-	# order -- TurnController only auto-drives AI (enemy) turns, never other
-	# living player combatants, so this first press only advances the cursor
-	# onto Marigold's own turn (no auto-drive fires yet). A second manual
-	# End Turn press (Marigold's own, free pass) is required to hand the
-	# cursor to the Skeleton and trigger TurnController's auto-drive.
-	if not instance.round_session.is_round_over() and not instance.round_session.current_actor().is_enemy:
-		var marigold_press_result: Dictionary = instance.end_turn_control.press()
-		assert_true(marigold_press_result.get("ok", false), "ending Marigold's own turn via EndTurnControl must succeed")
+	# The prologue roster now seats Marigold ("player_1") and Gram Marx
+	# ("player_2") between Titus and the Skeleton in turn order --
+	# TurnController only auto-drives AI (enemy) turns, never other living
+	# player combatants, so pass ALL non-enemy actors before the Skeleton's
+	# turn is auto-driven.
+	while not instance.round_session.is_round_over() and not instance.round_session.current_actor().is_enemy:
+		var player_press_result: Dictionary = instance.end_turn_control.press()
+		assert_true(player_press_result.get("ok", false), "ending a player's turn via EndTurnControl must succeed")
 
 	# RoundSession.end_current_turn() must have run: with three combatants
 	# in the prologue encounter (Titus/Marigold/Skeleton), the cursor

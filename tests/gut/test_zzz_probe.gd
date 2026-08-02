@@ -55,8 +55,12 @@ func test_probe_real_depletion(seed_value = use_parameters([959, 13269])) -> voi
 	var instance = await _boot_main_scene_with_seed(seed_value)
 	await get_tree().process_frame
 
-	if not instance.round_session.current_actor().is_enemy and instance.round_session.current_actor().display_id() != "player_0":
+	# At these seeds the prologue turn order may seat Marigold or Gram Marx
+	# ahead of Titus. Skip ALL non-player_0, non-enemy actors via a while
+	# loop (not just the first one) before the probe's loop begins.
+	while not instance.round_session.current_actor().is_enemy and instance.round_session.current_actor().display_id() != "player_0":
 		instance.verb_bar_view.press("END_TURN")
+		await get_tree().process_frame
 
 	var actor_id: String = instance.round_session.current_actor().display_id()
 	assert_eq(actor_id, "player_0", "fixture assumption: Titus (player_0), the melee striker, must be the actor driving this probe")

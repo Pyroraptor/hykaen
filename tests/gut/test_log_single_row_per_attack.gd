@@ -123,18 +123,17 @@ func _resolve_one_real_enemy_strike(instance) -> void:
 		"the real EndTurnControl.press() must forward to RoundSession.end_current_turn() successfully"
 	)
 
-	# FEAT-002 (Iteration M P0-0): the prologue roster now seats Marigold as a
-	# second living, player-controlled combatant ("player_1") between Titus
-	# and the Skeleton in turn order. RoundSession/TurnController only
-	# auto-drives AI (enemy) turns, never a second living player -- so
-	# Titus's own End Turn press above only hands the turn to Marigold; a
-	# second press (Marigold's free pass) is required before the Skeleton's
-	# AI turn (and therefore its Strike) is actually reached.
-	if not instance.round_session.current_actor().is_enemy:
-		var second_press_result: Dictionary = instance.end_turn_control.press()
+	# The prologue roster now includes Marigold (player_1) and Gram Marx
+	# (player_2) between Titus and the Skeleton in turn order. At seed=1
+	# the order may seat multiple non-enemy actors before the Skeleton.
+	# RoundSession/TurnController only auto-drives AI (enemy) turns, never
+	# other living player combatants -- so pass ALL non-enemy actors before
+	# the Skeleton's AI turn (and therefore its Strike) is reached.
+	while not instance.round_session.current_actor().is_enemy:
+		var extra_press_result: Dictionary = instance.end_turn_control.press()
 		assert_true(
-			second_press_result.get("ok", false),
-			"the real EndTurnControl.press() must forward to RoundSession.end_current_turn() successfully for Marigold's turn too"
+			extra_press_result.get("ok", false),
+			"the real EndTurnControl.press() must forward to RoundSession.end_current_turn() successfully for each player combatant's turn"
 		)
 
 
