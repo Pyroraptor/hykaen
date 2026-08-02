@@ -61,7 +61,7 @@ func test_load_encounter_from_scenario_happy_path_populates_live_combatants() ->
 
 	assert_true(ok, "load_encounter_from_scenario() must return true for the real prologue_scenario.tres fixture")
 
-	assert_eq(instance._party.size(), 2, "_party must contain exactly 2 live combatants (Titus + Marigold)")
+	assert_eq(instance._party.size(), 3, "_party must contain exactly 3 live combatants (Titus + Marigold + Gram Marx)")
 	var party_names: Array = []
 	for combatant in instance._party:
 		assert_is(combatant, CombatantClass, "every _party entry must be a live Combatant instance")

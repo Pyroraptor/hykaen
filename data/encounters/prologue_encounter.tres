@@ -5,7 +5,7 @@
 
 [resource]
 script = ExtResource("1_encrsc")
-party_resource_paths = ["res://data/characters/titus.tres", "res://data/characters/marigold.tres"]
+party_resource_paths = ["res://data/characters/titus.tres", "res://data/characters/marigold.tres", "res://data/characters/gram_marx.tres"]
 enemy_resource_paths = ["res://data/enemies/skeleton.tres"]
 party_hex_positions = [{
 "q": 0,
@@ -13,6 +13,9 @@ party_hex_positions = [{
 }, {
 "q": -1,
 "r": 0
+}, {
+"q": 0,
+"r": 1
 }]
 enemy_hex_positions = [{
 "q": 1,

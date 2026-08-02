@@ -133,7 +133,7 @@ func test_load_encounter_from_scenario_boot_real_populates_live_combatants_and_i
 	assert_true(ok, "load_encounter_from_scenario() must return true for the real, unmocked prologue_scenario.tres fixture on a fully-booted MainScene")
 
 	# ── Criterion 2: _party == [live Marigold, live Titus], _enemies == [live Skeleton]. ──
-	assert_eq(instance._party.size(), 2, "_party must contain exactly 2 live combatants (Titus + Marigold)")
+	assert_eq(instance._party.size(), 3, "_party must contain exactly 3 live combatants (Titus + Marigold + Gram Marx)")
 	var party_by_name: Dictionary = {}
 	for combatant in instance._party:
 		assert_is(combatant, CombatantClass, "every _party entry must be a live Combatant instance, not a Dictionary")

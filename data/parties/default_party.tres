@@ -4,4 +4,4 @@
 
 [resource]
 script = ExtResource("1_prtyres")
-character_resource_paths = ["res://data/characters/titus.tres", "res://data/characters/marigold.tres"]
+character_resource_paths = ["res://data/characters/titus.tres", "res://data/characters/marigold.tres", "res://data/characters/gram_marx.tres"]

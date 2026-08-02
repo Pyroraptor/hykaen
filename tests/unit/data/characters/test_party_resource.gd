@@ -125,7 +125,7 @@ func test_party_resource_referencing_real_marigold_and_titus_loads_without_error
 	if reloaded == null:
 		return
 
-	assert_eq(reloaded.character_resource_paths.size(), 2, "Real-fixture party must retain both entries")
+	assert_eq(reloaded.character_resource_paths.size(), 3, "Real-fixture party must retain all three entries")
 
 	for path in reloaded.character_resource_paths:
 		var character = ResourceLoader.load(path)

@@ -235,7 +235,7 @@ func test_unknown_combatant_id_entry_is_skipped_with_push_warning_not_a_crash() 
 		instance._game_mode, MainSceneClass.GameMode.EXPLORATION,
 		"boot must reach GameMode.EXPLORATION even when a party_hex_positions entry references an unknown combatant_id"
 	)
-	assert_eq(instance._party.size(), 2, "the known-good party members must still be built despite the unknown-combatant_id entry")
+	assert_eq(instance._party.size(), 3, "the known-good party members must still be built despite the unknown-combatant_id entry")
 
 	# The well-formed entry must still have applied.
 	var titus = _find_party_member(instance, "player_0")

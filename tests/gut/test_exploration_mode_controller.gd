@@ -244,7 +244,7 @@ func test_load_encounter_from_scenario_valid_encounter_id_returns_true_and_emits
 
 	assert_true(ok, "load_encounter_from_scenario() must return true for the real prologue_scenario.tres fixture")
 
-	assert_eq(controller.party.size(), 2, "party must contain exactly 2 live combatants (Titus + Marigold)")
+	assert_eq(controller.party.size(), 3, "party must contain exactly 3 live combatants (Titus + Marigold + Gram Marx)")
 	for combatant in controller.party:
 		assert_is(combatant, CombatantClass, "every party entry must be a live Combatant instance")
 

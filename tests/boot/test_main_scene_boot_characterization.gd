@@ -132,7 +132,7 @@ func test_characterization_prologue_boot_resolves_expected_scenario_encounter_an
 
 	# Encounter resolved.
 	assert_not_null(instance.encounter, "MainScene.encounter must be resolved at boot")
-	assert_eq(instance._party.size(), 2, "the prologue encounter's party must have exactly 2 members (Titus, Marigold)")
+	assert_eq(instance._party.size(), 3, "the prologue encounter's party must have exactly 3 members (Titus, Marigold, Gram Marx)")
 	assert_eq(instance._enemies.size(), 1, "the prologue encounter's enemies must have exactly 1 member (the skeleton)")
 
 	# Party seeded at their authored start hexes (mirrors tests/boot/
