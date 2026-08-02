@@ -271,7 +271,8 @@ func availability() -> bool:
 	if pool_port == null:
 		if not actor.known_spell_ids.is_empty():
 			return true
-		for item in actor.get("equipped_items", []):
+		var _equipped = actor.get("equipped_items")
+		for item in (_equipped if _equipped != null else []):
 			if item != null and item.prepared_spell_id != "" and item.is_charged:
 				return true
 		return false
