@@ -119,6 +119,12 @@ var spellcasting_attribute_score: int = 0
 ## CombatantFactory). Empty for a non-caster combatant.
 var known_spell_ids: Array = []
 
+## Equipped items (ItemResource instances) for this combatant. Populated by
+## CombatantFactory from CharacterResource.equipped_items (shallow copy —
+## live Resource references so is_charged mutations are shared). Empty for
+## non-item-users (enemies, Channeler party members).
+var equipped_items: Array = []
+
 # ── Runtime state ───────────────────────────────────────────────────────────
 
 ## Active condition tags (e.g. "Off-Guard", "Immobilized"). Drives Off-Guard
@@ -349,6 +355,10 @@ static func from_dict(spec: Dictionary) -> Combatant:
 	c.conditions      = (spec.get("conditions", []) as Array).duplicate()
 	c.spellcasting_attribute_score = int(spec.get("spellcasting_attribute_score", 0))
 	c.known_spell_ids = (spec.get("known_spell_ids", []) as Array).duplicate()
+	# equipped_items: live ItemResource references (NOT duplicated — mutations to
+	# is_charged must stay visible to all holders of these Resources).
+	var equipped_raw = spec.get("equipped_items", [])
+	c.equipped_items = equipped_raw as Array if equipped_raw != null else []
 	c.initiative_roll = int(spec.get("_initiative_roll", 0))
 	c.is_enemy        = is_enemy_flag
 	c.casting_state   = (spec.get("casting_state", {}) as Dictionary).duplicate(true)

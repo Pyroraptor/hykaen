@@ -146,7 +146,6 @@ const GRAM_MARX_PATH: String          = "res://data/characters/gram_marx.tres"
 ## doc for why this is necessary and why it is test-only.
 class GramMarxCombatant:
 	extends CombatantClass
-	var equipped_items: Array = []
 
 
 ## _build_gram_marx_combatant() -> GramMarxCombatant — builds Gram Marx
