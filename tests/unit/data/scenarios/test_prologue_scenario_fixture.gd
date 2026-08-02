@@ -92,8 +92,8 @@ func test_default_party_loads_with_titus_and_marigold() -> void:
 
 	assert_eq(
 		party.character_resource_paths,
-		["res://data/characters/titus.tres", "res://data/characters/marigold.tres"],
-		"default_party.tres must reference Titus and Marigold"
+		["res://data/characters/titus.tres", "res://data/characters/marigold.tres", "res://data/characters/gram_marx.tres"],
+		"default_party.tres must reference Titus, Marigold, and Gram Marx"
 	)
 
 	for path in party.character_resource_paths:

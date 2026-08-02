@@ -11,8 +11,8 @@
             "byte_length": 9558
         },
         "tests/integration/test_steel_thread_scenario_boot_e2e.gd": {
-            "sha256": "ac5eb5c2d5dcc3c60a1ab7ea98e933287baadf820273b4a388ecafe9577375c0",
-            "byte_length": 16517
+            "sha256": "17c2d7f19b7aacc89d40b418b6a03e76d47b818ff3b3cc1e7349d446ca453cce",
+            "byte_length": 16529
         }
     }
 }

@@ -252,6 +252,14 @@ class FakeActionEconomy:
 		return {"success": true, "ok": true}
 
 
+func after_each() -> void:
+	# Recharge orb_gram after any discharge during this test so the
+	# resource cache doesn't pollute later suites that read is_charged.
+	var orb = ResourceLoader.load("res://data/items/orb_gram.tres")
+	if orb != null:
+		orb.is_charged = true
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # The steel thread
 # ══════════════════════════════════════════════════════════════════════════

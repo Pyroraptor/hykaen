@@ -73,7 +73,7 @@ const PRE_CHANGE_CASTABLE_SPELL_IDS_SNAPSHOT: Dictionary = {
 	"res://data/characters/titus.tres":           [],
 	"res://data/characters/marigold.tres":        ["fire_bolt", "channel"],
 	"res://data/characters/dwarf_channeler.tres": [],
-	"res://data/characters/gram_marx.tres":       [],
+	"res://data/characters/gram_marx.tres":       ["frost_breath"],
 }
 
 
@@ -245,12 +245,10 @@ func test_castable_spell_ids_snapshot_matches_pre_change_baseline_for_every_prol
 
 func test_gram_marx_known_spell_ids_is_empty_and_castable_list_has_no_item_prepared_spells() -> void:
 	# Named-scenario spot-check (the steel thread's own Wizard/Frost Breath
-	# actor, Gram Marx): through the REAL party-construction pipeline his
-	# live Combatant carries no equipped_items at all (Combatant.from_dict()
-	# does not round-trip that key), so his castable_spell_ids() output
-	# must be exactly his (empty) known_spell_ids -- confirming this
-	# regression suite's snapshot isn't vacuously true because Gram Marx
-	# was skipped or malformed.
+	# actor, Gram Marx): Combatant now carries equipped_items (from_dict()
+	# round-trips the field), so castable_spell_ids() surfaces frost_breath
+	# from the charged orb_gram implement. known_spell_ids remains empty
+	# (Wizard, item-only caster).
 	var gram_marx := _real_party_combatant(GRAM_MARX_PATH, "gram_marx_1")
 	assert_eq(gram_marx.known_spell_ids, [], "fixture assumption: Gram Marx (Wizard, item-only caster) knows no innate spells")
 
@@ -259,7 +257,7 @@ func test_gram_marx_known_spell_ids_is_empty_and_castable_list_has_no_item_prepa
 	var use_case := BeginCastUseCaseClass.new()
 
 	var castable: Array = use_case.castable_spell_ids(gram_marx, catalog, pool)
-	assert_eq(castable, [], "Gram Marx's real, in-party Combatant must offer no castable spells at all through this pipeline")
+	assert_eq(castable, ["frost_breath"], "Gram Marx's real, in-party Combatant must offer frost_breath via the charged orb_gram implement")
 
 
 # ══════════════════════════════════════════════════════════════════════════
