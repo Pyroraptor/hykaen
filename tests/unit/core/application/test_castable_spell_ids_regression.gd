@@ -73,10 +73,10 @@ const PRE_CHANGE_CASTABLE_SPELL_IDS_SNAPSHOT: Dictionary = {
 	"res://data/characters/titus.tres":           [],
 	"res://data/characters/marigold.tres":        ["fire_bolt", "channel"],
 	"res://data/characters/dwarf_channeler.tres": [],
-	# Gram Marx carries staff_gram (fire_bolt, charged), ring_channeling
-	# (channel, charged), and orb_gram (frost_breath, charged) — all three
-	# item-prepared spells are charged and affordable at energy_balance=99.
-	"res://data/characters/gram_marx.tres":       ["fire_bolt", "channel", "frost_breath"],
+	# Gram Marx carries staff_gram (fire_bolt, charged) and orb_gram
+	# (frost_breath, charged). ring_channeling is a Channeler item and is not
+	# in his loadout — Wizards do not Channel.
+	"res://data/characters/gram_marx.tres":       ["fire_bolt", "frost_breath"],
 }
 
 
@@ -261,7 +261,7 @@ func test_gram_marx_known_spell_ids_is_empty_and_castable_list_has_no_item_prepa
 	var use_case := BeginCastUseCaseClass.new()
 
 	var castable: Array = use_case.castable_spell_ids(gram_marx, catalog, pool)
-	assert_eq(castable, ["fire_bolt", "channel", "frost_breath"], "Gram Marx's real, in-party Combatant must offer all three charged item-prepared spells (fire_bolt via staff_gram, channel via ring_channeling, frost_breath via orb_gram)")
+	assert_eq(castable, ["fire_bolt", "frost_breath"], "Gram Marx's real, in-party Combatant must offer both charged item-prepared spells (fire_bolt via staff_gram, frost_breath via orb_gram)")
 
 
 # ══════════════════════════════════════════════════════════════════════════

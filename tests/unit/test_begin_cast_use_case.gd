@@ -335,7 +335,8 @@ func test_execute_charged_item_prepared_spell_succeeds() -> void:
 
 	assert_true(result.get("success"), "a charged item-prepared spell must be castable")
 	assert_eq(result.get("error"), ErrorCodeClass.NONE)
-	assert_eq(pool.balance("gram_marx_1"), 4, "the spell's energy_cost (1) must be reserved from the round pool")
+	# Mage paradigm: energy comes from the item's discharge, not the pool.
+	assert_eq(pool.balance("gram_marx_1"), 5, "item-prepared (Mage) spell energy comes from the item — the round pool must NOT be debited")
 	assert_eq(action_economy.spend_calls.size(), 1)
 
 

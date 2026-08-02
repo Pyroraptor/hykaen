@@ -15,10 +15,11 @@ extends GutTest
 ## game's own existing character-loading path (ADR-005) -- never via a
 ## direct ResourceLoader.load() call in this file.
 ##
-## gram_marx.tres/staff_gram.tres/ring_channeling.tres are authored, shipped
-## content fixtures (FEAT-007/FEAT-008) carrying Gram Marx's starter loadout
-## (Fire Bolt prepared in his two-handed staff, Channel prepared in his
-## ring), but Gram Marx is NOT a member of the live prologue roster
+## gram_marx.tres/staff_gram.tres/orb_gram.tres are authored, shipped content
+## fixtures (FEAT-007/FEAT-008) carrying Gram Marx's starter loadout (Fire
+## Bolt prepared in his two-handed staff, Frost Breath prepared in his orb —
+## Wizards do not Channel; ring_channeling is a Channeler item and is NOT in
+## his loadout). Gram Marx is NOT a member of the live prologue roster
 ## (data/parties/default_party.tres authors only Titus + Marigold, per
 ## ADR-002's scenario-authoritative party model) -- wiring a THIRD prologue
 ## party member into the live encounter is a content/roster decision entirely
@@ -52,14 +53,14 @@ extends GutTest
 ## slot; the actually-shipped core/model/equipment_slot.gd (FEAT-001) has no
 ## such constant -- its 15 slots are MAIN_HAND/OFF_HAND/HEAD/NECK/SHOULDERS/
 ## CHEST/BACK/HANDS/WAIST/LEGS/FEET/RING_1/RING_2/ACCESSORY_1/ACCESSORY_2.
-## ring_channeling.tres (FEAT-007) authors `slot = 11`, i.e. RING_1 -- the
-## slot this suite asserts Gram Marx's Channel-prepared ring occupies.
+## RING_1 (slot 11) is EMPTY for Gram Marx — his loadout is staff_gram
+## (MAIN_HAND) + orb_gram (ACCESSORY_1); Wizards do not Channel.
 ##
 ## test_criteria satisfied:
 ##   1. test_boot_and_combat_trigger_succeeds_without_error()
 ##   2. test_gram_marx_level_and_equipped_items_size_via_existing_loading_path()
 ##   3. test_gram_marx_main_hand_item_display_name_and_fire_bolt_charge()
-##   4. test_gram_marx_ring_1_item_prepared_spell_is_channel()
+##   4. test_gram_marx_ring_1_slot_is_empty()
 ##   5. test_titus_off_hand_blocked_by_two_handed_longsword()
 ##   6. test_gram_marx_off_hand_is_blocked_by_two_handed_staff()
 ##   7. test_selecting_gram_marx_and_pressing_e_opens_equipment_panel_with_matching_rows()
@@ -264,7 +265,7 @@ func test_gram_marx_level_and_equipped_items_size_via_existing_loading_path() ->
 	if gram_marx == null:
 		return
 	assert_eq(gram_marx.level, 1, "gram_marx.level must be 1")
-	assert_eq(gram_marx.equipped_items.size(), 3, "gram_marx.equipped_items must contain exactly 3 items (staff_gram, ring_channeling, orb_gram) — FEAT-004")
+	assert_eq(gram_marx.equipped_items.size(), 2, "gram_marx.equipped_items must contain exactly 2 items (staff_gram, orb_gram) — Wizards do not Channel")
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -289,11 +290,11 @@ func test_gram_marx_main_hand_item_display_name_and_fire_bolt_charge() -> void:
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Criterion 4 — gram_marx's RING_1 ("Right Ring") item has
-# prepared_spell_id=='channel'.
+# Criterion 4 — gram_marx's RING_1 slot is EMPTY. Wizards do not Channel;
+# ring_channeling is a Channeler item and is not part of his loadout.
 # ══════════════════════════════════════════════════════════════════════════
 
-func test_gram_marx_ring_1_item_prepared_spell_is_channel() -> void:
+func test_gram_marx_ring_1_slot_is_empty() -> void:
 	var instance = await _boot_main_scene_with_seed(42)
 	var gram_marx = _resolve_gram_marx_character(instance)
 	assert_not_null(gram_marx)
@@ -301,10 +302,7 @@ func test_gram_marx_ring_1_item_prepared_spell_is_channel() -> void:
 		return
 
 	var ring_item = gram_marx.get_item_in_slot(EquipmentSlotClass.RING_1)
-	assert_not_null(ring_item, "gram_marx must have an item equipped in RING_1 (Ring of Channeling)")
-	if ring_item == null:
-		return
-	assert_eq(ring_item.prepared_spell_id, "channel", "gram_marx's RING_1 item must have Channel prepared")
+	assert_null(ring_item, "gram_marx must have NO item in RING_1 — Wizards do not Channel; ring_channeling is not in his loadout")
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -402,15 +400,13 @@ func test_full_steel_thread_boot_to_equipment_panel_no_regression() -> void:
 	var gram_marx = _resolve_gram_marx_character(instance)
 	assert_not_null(gram_marx)
 	assert_eq(gram_marx.level, 1)
-	assert_eq(gram_marx.equipped_items.size(), 3)  # FEAT-004: staff_gram, ring_channeling, orb_gram
+	assert_eq(gram_marx.equipped_items.size(), 2)  # staff_gram + orb_gram (no ring_channeling — Wizards do not Channel)
 	var gram_main_hand = gram_marx.get_item_in_slot(EquipmentSlotClass.MAIN_HAND)
 	assert_not_null(gram_main_hand)
 	assert_true(gram_main_hand.display_name.length() > 0)
 	assert_eq(gram_main_hand.prepared_spell_id, "fire_bolt")
 	assert_true(gram_main_hand.is_charged)
-	var gram_ring = gram_marx.get_item_in_slot(EquipmentSlotClass.RING_1)
-	assert_not_null(gram_ring)
-	assert_eq(gram_ring.prepared_spell_id, "channel")
+	assert_null(gram_marx.get_item_in_slot(EquipmentSlotClass.RING_1), "gram_marx RING_1 must be empty — Wizards do not Channel")
 	assert_true(gram_marx.is_slot_blocked(EquipmentSlotClass.OFF_HAND))
 
 	# ── Titus's domain-level equipment state, via the SAME existing
@@ -440,8 +436,8 @@ func test_full_steel_thread_boot_to_equipment_panel_no_regression() -> void:
 	assert_true(instance.equipment_panel_ui.visible, "exit point: pressing 'E' must open the real EquipmentPanelUI")
 	assert_eq(instance.equipment_panel_ui.get_item_text(EquipmentSlotClass.MAIN_HAND), gram_main_hand.display_name)
 	assert_eq(instance.equipment_panel_ui.get_charge_indicator_text(EquipmentSlotClass.MAIN_HAND), "⚡ Charged")
-	assert_eq(instance.equipment_panel_ui.get_item_text(EquipmentSlotClass.RING_1), gram_ring.display_name)
-	assert_eq(instance.equipment_panel_ui.get_charge_indicator_text(EquipmentSlotClass.RING_1), "⚡ Charged")
+	assert_eq(instance.equipment_panel_ui.get_item_text(EquipmentSlotClass.RING_1), "—", "RING_1 must show '—' — Wizards do not Channel; Gram's RING_1 is empty")
+	assert_eq(instance.equipment_panel_ui.get_charge_indicator_text(EquipmentSlotClass.RING_1), "")
 
 	# ── FIX-001 FR-011 convergence: advancing the active actor to Titus
 	# while the panel is open must REFRESH it (via the real

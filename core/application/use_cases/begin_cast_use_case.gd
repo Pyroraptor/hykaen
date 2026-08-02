@@ -51,10 +51,16 @@ const ErrorCodeClass = preload("res://core/application/ports/errors.gd")
 
 ## availability(actor, spell_catalog_port, round_energy_pool_port) -> bool —
 ## api_contracts #1's full predicate: true when `actor` is already mid-cast
-## (the "continue casting" path, handled elsewhere), OR `actor` knows at
-## least one spell whose energy_cost is affordable against its round energy
-## pool's CURRENT balance (read-only — RoundEnergyPoolPort.balance(), never
-## reserve()). A null `actor` fails safe to false.
+## (the "continue casting" path, handled elsewhere), OR when at least one
+## spell is castable via either paradigm:
+##   - Channeler paradigm (known_spell_ids): at least one innate spell whose
+##     energy_cost is affordable against the round energy pool's CURRENT
+##     balance (read-only — RoundEnergyPoolPort.balance(), never reserve()).
+##   - Mage paradigm (equipped_items): at least one equipped item that is
+##     charged and prepares a resolvable spell — item discharge is the energy
+##     source, so the pool balance is irrelevant.
+##   - Sorcerer paradigm (stamina pool): not yet implemented.
+## A null `actor` fails safe to false.
 func availability(actor, spell_catalog_port, round_energy_pool_port) -> bool:
 	if actor == null:
 		return false
@@ -63,18 +69,21 @@ func availability(actor, spell_catalog_port, round_energy_pool_port) -> bool:
 	if spell_catalog_port == null or round_energy_pool_port == null:
 		return false
 
+	# Channeler paradigm: pool-gated known spells.
 	var caster_id: String = actor.display_id()
 	var balance: int = round_energy_pool_port.balance(caster_id)
 	for spell_id in actor.known_spell_ids:
 		var spell = spell_catalog_port.get_spell(spell_id)
 		if spell != null and spell.energy_cost <= balance:
 			return true
+
+	# Mage paradigm: item-discharge; pool balance is not a gate.
 	var _equipped = actor.get("equipped_items")
 	for item in (_equipped if _equipped != null else []):
 		if item == null or item.prepared_spell_id == "" or not item.is_charged:
 			continue
 		var spell = spell_catalog_port.get_spell(item.prepared_spell_id)
-		if spell != null and spell.energy_cost <= balance:
+		if spell != null:
 			return true
 	return false
 
@@ -113,9 +122,13 @@ func execute(actor, spell_id: String, spell_catalog_port, round_energy_pool_port
 		return _fail(ErrorCodeClass.ERR_NOT_CASTABLE)
 
 	var caster_id: String = actor.display_id()
-	var reserved: bool = round_energy_pool_port.reserve(caster_id, spell.energy_cost) if round_energy_pool_port != null else false
-	if not reserved:
-		return _fail(ErrorCodeClass.ERR_INSUFFICIENT_ENERGY)
+	# Channeler paradigm: energy comes from the pool. Mage paradigm: energy
+	# comes from the item's charge — no pool reservation needed (discharge
+	# happens in ResolveSpellController._maybe_discharge_item()).
+	if is_known:
+		var reserved: bool = round_energy_pool_port.reserve(caster_id, spell.energy_cost) if round_energy_pool_port != null else false
+		if not reserved:
+			return _fail(ErrorCodeClass.ERR_INSUFFICIENT_ENERGY)
 
 	# Energy is committed -- ONLY now do we mutate casting_state / spend the
 	# action (error_handling design note: reservation failure must leave
@@ -169,12 +182,11 @@ func _fail(error_code: int) -> Dictionary:
 ##   3. the spell_id is not already present in `result` (dedupe -- a spell
 ##      known innately AND item-prepared, e.g. a future overlap, is listed
 ##      exactly once, in known_spell_ids' position).
-##   4. `spell_catalog_port.get_spell(prepared_spell_id)` resolves
-##      non-null AND its `energy_cost` is affordable against the SAME pool
-##      `balance` read once above (the identical affordability rule the
-##      known_spell_ids pass already applies) -- an unresolvable
-##      prepared_spell_id is silently skipped (NFR-003 defensive
-##      duck-typing), never a crash.
+##   4. `spell_catalog_port.get_spell(prepared_spell_id)` resolves non-null.
+##      Mage paradigm: item discharge is the energy source so NO pool-balance
+##      check applies here — a charged, prepared item is sufficient. An
+##      unresolvable prepared_spell_id is silently skipped (NFR-003
+##      defensive duck-typing), never a crash.
 ## `_duck_get()` (below) tolerates `actor`/an item being either a plain
 ## Dictionary (`.get(key, default)`) or an Object exposing the field as a
 ## property (Object.get(property), which itself safely returns null --
@@ -205,8 +217,9 @@ func castable_spell_ids(actor, spell_catalog_port, round_energy_pool_port) -> Ar
 			continue
 		if result.has(prepared_spell_id):
 			continue
+		# Mage paradigm: item discharge is the energy source — no pool check.
 		var prepared_spell = spell_catalog_port.get_spell(prepared_spell_id)
-		if prepared_spell != null and prepared_spell.energy_cost <= balance:
+		if prepared_spell != null:
 			result.append(prepared_spell_id)
 
 	return result
