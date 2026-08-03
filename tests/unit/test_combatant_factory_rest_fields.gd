@@ -12,13 +12,22 @@ extends GutTest
 ##     established), else 0.
 ##   - build_enemy_combatant(): 0/0/0 for all three fields.
 ##
-## No currently-authored ItemResource fixture declares energy_cost (that
-## field is introduced by a LATER feature in this iteration) so the ">0"
-## branch of mage_recharge_budget_remaining is exercised directly against
-## CombatantFactory's extracted, duck-typed helper with synthetic
-## Dictionary-shaped items -- mirroring this codebase's established
-## convention (see BeginCastUseCase._duck_get()) of duck-typing equipped
-## items rather than depending on a concrete ItemResource shape.
+## Originally, no currently-authored ItemResource fixture declared
+## energy_cost, so the ">0" branch of mage_recharge_budget_remaining was
+## exercised only against CombatantFactory's extracted, duck-typed helper
+## with synthetic Dictionary-shaped items -- mirroring this codebase's
+## established convention (see BeginCastUseCase._duck_get()) of duck-typing
+## equipped items rather than depending on a concrete ItemResource shape.
+## Both the duck-typed helper coverage below AND the ">0" branch are now
+## ALSO covered against real production fixtures by FEAT-377 (DEF-001):
+## data/items/orb_gram.tres/staff_gram.tres now author energy_cost=1, so
+## Gram Marx's real equipped_items resolve mage_recharge_budget_remaining
+## to his intellect (5) without any FakeEquippedItem double -- see
+## tests/unit/test_combatant_factory_real_item_recharge.gd for the
+## dedicated real-fixture suite, and
+## test_build_party_combatant_mage_recharge_budget_remaining_for_gram_marx_real_fixture
+## below for the updated in-file assertion (previously asserted 0, back
+## when no real fixture authored energy_cost).
 
 const CombatantFactoryClass = preload("res://infrastructure/combatant_factory.gd")
 const AttributesClass = preload("res://core/rules/attributes.gd")
@@ -105,14 +114,20 @@ func test_build_party_combatant_mage_recharge_budget_remaining_zero_for_marigold
 	)
 
 
-func test_build_party_combatant_mage_recharge_budget_remaining_zero_for_gram_marx_current_fixture() -> void:
-	# NOTE: orb_gram.tres does not yet author energy_cost (introduced by a
-	# later feature in this iteration) -- so today, even Gram resolves 0.
-	# The ">0" branch itself is proven directly below against the extracted
-	# duck-typed helper, independent of what any .tres fixture authors.
+func test_build_party_combatant_mage_recharge_budget_remaining_for_gram_marx_real_fixture() -> void:
+	# FEAT-377 (DEF-001): data/items/orb_gram.tres and data/items/
+	# staff_gram.tres now author energy_cost=1, so Gram Marx's REAL
+	# equipped_items (no FakeEquippedItem double) make him a dischargeable
+	# Mage-paradigm combatant -- mage_recharge_budget_remaining must resolve
+	# to his intellect (5), not 0. See tests/unit/
+	# test_combatant_factory_real_item_recharge.gd for the dedicated
+	# real-fixture suite this criterion is drawn from.
 	var factory := CombatantFactoryClass.new()
 	var combatant: Dictionary = factory.build_party_combatant(GRAM_MARX_PATH, null, "gram_marx_1")
-	assert_eq(combatant.get("mage_recharge_budget_remaining", -1), 0)
+	assert_eq(
+		combatant.get("mage_recharge_budget_remaining", -1), 5,
+		"Gram Marx's real equipped items (orb_gram.tres/staff_gram.tres) now author energy_cost > 0 -- mage_recharge_budget_remaining must equal his intellect (5)"
+	)
 
 
 # ── mage_recharge_budget_remaining: duck-typed helper, synthetic items ──────

@@ -11,3 +11,4 @@ two_handed = true
 is_implement = true
 prepared_spell_id = "fire_bolt"
 is_charged = true
+energy_cost = 1
