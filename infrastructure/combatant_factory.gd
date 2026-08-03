@@ -58,6 +58,26 @@ func build_party_combatant(character_path: String, hex_coord, combatant_id: Stri
 	var ac: int = attrs.compute_ac(character.attributes, armor_res.ac_base, armor_res.category)
 	var stamina: int = attrs.compute_stamina(character.attributes, class_data)
 
+	# FEAT-001 (US-001; iteration AB-0, rest mechanics steel thread):
+	# stamina_max is the SAME derived value as `stamina` above (both come
+	# from Attributes.compute_stamina()) -- a freshly-built combatant starts
+	# at full stamina, and stamina_max is the ceiling LongRestUseCase (a
+	# later feature) restores `stamina` to.
+	var stamina_max: int = stamina
+
+	# intellect: a plain authored attribute, resolved the SAME way
+	# strength/dexterity/intuition already are below -- 0 for a character
+	# with no authored "intellect" key.
+	var intellect: int = character.attributes.get("intellect", 0)
+
+	# mage_recharge_budget_remaining: intellect-derived daily budget for a
+	# Mage-paradigm combatant (any equipped item with energy_cost > 0);
+	# else 0. Uses the SAME _duck_get()-style equipped-items walk
+	# BeginCastUseCase (core/application/use_cases/begin_cast_use_case.gd)
+	# already established, so no rigid ItemResource type dependency is
+	# introduced here.
+	var mage_recharge_budget_remaining: int = compute_mage_recharge_budget_remaining(intellect, character.equipped_items)
+
 	# FEAT-002 (Iteration M P0-0, US-001/FR-001/FR-002): resolve this
 	# character's spellcasting_attribute_score through the EXISTING
 	# construction path — no bespoke caster path. The governing attribute
@@ -78,10 +98,13 @@ func build_party_combatant(character_path: String, hex_coord, combatant_id: Stri
 		"hp_current": hp,
 		"hp_max":     hp,
 		"stamina":    stamina,
+		"stamina_max": stamina_max,
 		"ac":         ac,
 		"strength":   character.attributes.get("strength",  0),
 		"dexterity":  character.attributes.get("dexterity", 0),
 		"intuition":  character.attributes.get("intuition", 0),
+		"intellect":  intellect,
+		"mage_recharge_budget_remaining": mage_recharge_budget_remaining,
 		# FEAT-236 (US-001/US-002, resolves DEF-001): carry the REAL
 		# CharacterResource.skills Dictionary (mobility/determination) onto
 		# the combatant dict, mirroring build_enemy_combatant()'s identical
@@ -271,6 +294,9 @@ func build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String =
 		"hp_current": enemy.hp,
 		"hp_max":     enemy.hp,
 		"stamina":    0,
+		# FEAT-001 (US-001; iteration AB-0): enemies never Rest -- 0 for all
+		# three new fields, mirroring "stamina": 0 immediately above.
+		"stamina_max": 0,
 		"ac":         enemy.ac,
 		"fortitude":  enemy.fortitude,
 		"reflex":     enemy.reflex,
@@ -278,6 +304,8 @@ func build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String =
 		"strength":   enemy.str,
 		"dexterity":  enemy.dex,
 		"intuition":  enemy.intuition,
+		"intellect":  0,
+		"mage_recharge_budget_remaining": 0,
 		# FEAT-236 (US-001/US-002, resolves DEF-001): carry the REAL
 		# EnemyResource.skills Dictionary (mobility/determination) onto the
 		# combatant dict, mirroring build_party_combatant()'s identical fix
@@ -323,3 +351,45 @@ func build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String =
 	# fail-fast error path above is deliberately NOT routed through the entity —
 	# it keeps returning the {"error": ...} Dictionary the call-site guard checks.
 	return CombatantClass.from_dict(combatant).to_dict()
+
+
+## compute_mage_recharge_budget_remaining(intellect, equipped_items) -> int
+##
+## FEAT-001 (US-001; iteration AB-0, rest mechanics steel thread): a
+## Mage-paradigm combatant's starting daily recharge budget is `intellect`
+## when ANY equipped item is dischargeable (energy_cost > 0); otherwise 0
+## (Channeler/Sorcerer paradigms, or a non-caster, never carry a
+## dischargeable item so this always resolves 0 for them). Walks
+## `equipped_items` via `_duck_get()` (below) rather than depending on a
+## concrete ItemResource type -- mirrors the SAME defensive, duck-typed
+## equipped-items walk BeginCastUseCase (core/application/use_cases/
+## begin_cast_use_case.gd) already established for castable_spell_ids()/
+## _find_item_preparing(). A null entry in `equipped_items` is skipped, not
+## a crash (NFR-003).
+##
+## Exposed as a public method (not `_`-prefixed) so it is directly unit
+## testable against synthetic Dictionary-shaped items, independent of
+## whether any currently-authored ItemResource .tres fixture authors
+## energy_cost yet.
+func compute_mage_recharge_budget_remaining(intellect: int, equipped_items: Array) -> int:
+	for item in equipped_items:
+		if item == null:
+			continue
+		var energy_cost: int = int(_duck_get(item, "energy_cost", 0))
+		if energy_cost > 0:
+			return intellect
+	return 0
+
+
+## _duck_get(obj, key, default) -> Variant — the SAME defensive duck-typed
+## field read established by BeginCastUseCase._duck_get() (see that file's
+## own doc for the full three-shape contract: Dictionary, Object exposing
+## `key` as a real property, or null/absent -- falls back to `default` in
+## every case, never raises).
+func _duck_get(obj, key: String, default = null):
+	if obj == null:
+		return default
+	if obj is Dictionary:
+		return obj.get(key, default)
+	var value = obj.get(key)
+	return value if value != null else default

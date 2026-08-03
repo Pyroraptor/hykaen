@@ -1,0 +1,316 @@
+#+TITLE: Iteration AB — Rest Mechanics
+#+SPRINT: 39
+#+VERSION: 0.2.1
+
+* Goal
+
+Add short rest and long rest mechanics, accessible from Exploration Mode.
+Short rest lets any combatant spend Stamina to recover HP (1 Stamina →
+=ceil(hp_max / 4)= HP); Mages may also spend from a daily Intellect-based
+recharge budget to recharge discharged spell items.  Long rest restores
+everyone's HP and Stamina to max, recharges all Mage spell items, and
+restores the Mage's recharge budget.  Both rests are only available
+out-of-combat.
+
+* Background
+
+Iteration AA wired the Wizard item-discharge mechanic: casting a spell
+with =energy_cost > 0= sets the item's =is_charged= to false.  Currently
+there is no way to recharge a discharged item; Gram can fire Frost Breath
+once per session and then it is gone.  Multi-encounter play requires a
+rest-between-encounters cycle.
+
+Two rest types, drawn from the master brief and the Hollow World design
+doc (=Magic and Spellcasting.pdf=):
+
+- *Short rest* — out-of-combat downtime; repeatable with no hard cap
+  (Stamina is the natural limiter for HP recovery; the Mage's daily budget
+  is the limiter for recharge).
+- *Long rest* — a full night's sleep; restores everything; eventually
+  gated to safe-area tiles (deferred).
+
+Spellcasting paradigms (see =begin_cast_use_case.gd= comment block):
+
+- *Channeler*: pool-gated =known_spell_ids=.  Long rest: pool limit resets
+  (no pool persistence yet — pool already resets each round).  Short rest:
+  no special mechanic.
+- *Mage/Wizard*: item-discharge =equipped_items=.  Long rest: all
+  discharged items recharged.  Short rest: spend from daily Intellect
+  budget (budget = actor's =intellect= attribute score; each item recharged
+  costs its =energy_cost= from the budget; budget resets to =intellect= on
+  long rest).
+- *Sorcerer*: stamina-as-pool — not yet implemented; no rest changes
+  needed this iteration.
+
+=Combatant= currently has =hp_current=, =hp_max=, =stamina=.  There is no
+=stamina_max= field (stamina is initialised once and decremented; long rest
+has no reference point to restore to) and no =intellect= field (only
+=strength=, =dexterity=, =intuition= are stored).  Both gaps are closed in
+AB-0.
+
+* Non-goals
+
+- Safe-area gating for long rest — =HexTileDataResource= gets an
+  =is_safe_area: bool = true= stub; the =LongRestUseCase= does NOT enforce
+  it this iteration.  The field is authored now so the gate can be added
+  without a schema change.
+- Mage short-rest recharge UI with player choice across multiple items —
+  for the vignette Gram has one dischargeable item; the use case API
+  accepts a single item argument so multiple items are called once each,
+  but no multi-item picker UI is needed yet.
+- Channeler stamina regeneration beyond the existing per-round logic.
+- Rest during combat (the "second wind" style mid-combat action) — a
+  separate future feature.
+- Rest persistence across sessions (save/load not yet implemented).
+- Sorcerer stamina-to-energy conversion.
+
+* Features
+
+** AB-0  Domain model additions
+
+*** AB-0-0  =stamina_max= on =Combatant=
+
+Add =var stamina_max: int = 0= to =core/domain/combatant.gd= (alongside
+the existing =hp_current= / =hp_max= / =stamina= fields).
+
+Update =from_dict()= to read =spec.get("stamina_max", 0)=.
+Update =to_dict()= to include ="stamina_max": stamina_max=.
+
+Update =infrastructure/combatant_factory.gd= to emit ="stamina_max"= in
+the party combatant dict, set to the same value as ="stamina"= (both
+derived from =Attributes.compute_stamina()=).  Enemy factory path emits
+="stamina_max": 0= (unchanged; enemies do not use Stamina).
+
+*Test criteria:*
+- =Combatant.from_dict({"stamina_max": 7, ...}).stamina_max == 7=.
+- =CombatantFactory.build_party_combatant()= for any prologue character
+  emits =combatant["stamina_max"] > 0=.
+- =to_dict()= round-trips =stamina_max=.
+
+*** AB-0-1  =intellect= attribute on =Combatant=
+
+Add =var intellect: int = 0= to =core/domain/combatant.gd= (alongside
+=strength=, =dexterity=, =intuition=).
+
+Update =from_dict()= to read =spec.get("intellect", 0)=.
+Update =to_dict()= to include ="intellect": intellect=.
+Update =Combatant.attribute()= — it already uses =get(attr_name)= so
+=intellect= resolves automatically once the field is declared.
+
+Update =infrastructure/combatant_factory.gd= to emit ="intellect"= from
+=character.attributes.get("intellect", 0)= for party combatants and =0=
+for enemies.
+
+*Test criteria:*
+- =Combatant.from_dict({"intellect": 5, ...}).intellect == 5=.
+- =CombatantFactory.build_party_combatant()= for gram_marx emits
+  =combatant["intellect"] == 5= (Gram's authored attribute score).
+- =combatant.attribute("intellect")= returns the same value as
+  =combatant.intellect=.
+
+*** AB-0-2  =mage_recharge_budget_remaining= on =Combatant=
+
+Add =var mage_recharge_budget_remaining: int = 0= to
+=core/domain/combatant.gd=.
+
+Update =from_dict()= / =to_dict()= identically to the other new fields.
+
+=CombatantFactory= initialises it to =intellect= if ANY equipped item has
+=energy_cost > 0= (Mage paradigm); otherwise 0.  Uses the same
+=_duck_get()= / equipped-items walk already established in
+=BeginCastUseCase=.
+
+*Test criteria:*
+- Factory: Gram Marx's combatant dict has
+  =mage_recharge_budget_remaining == 5= (Intellect=5, orb_gram
+  energy_cost=1 > 0).
+- Factory: Titus and Marigold's combatant dicts have
+  =mage_recharge_budget_remaining == 0= (no dischargeable items).
+- Round-trip via =from_dict()= / =to_dict()=.
+
+** AB-1  =LongRestUseCase=
+
+New file: =core/application/use_cases/long_rest_use_case.gd=.
+
+#+BEGIN_SRC gdscript
+## execute(party: Array) -> Dictionary{success, restored_combatants}
+## party: Array of duck-typed Combatant instances (or compatible dicts).
+## For each combatant in party:
+##   - hp_current -> hp_max
+##   - stamina    -> stamina_max
+##   - mage_recharge_budget_remaining -> combatant.intellect
+##   - each item in equipped_items where is_charged==false AND
+##     energy_cost > 0: set is_charged = true
+## Returns {success: true, restored_combatants: party.size()}.
+#+END_SRC
+
+Uses duck-typed =_duck_get()= for =equipped_items= (same pattern as
+=BeginCastUseCase=).  Does NOT enforce =is_safe_area= this iteration.
+
+*Test criteria:*
+1. HP restored to hp_max for every combatant.
+2. Stamina restored to stamina_max for every combatant.
+3. Discharged Mage items recharged (=is_charged= true).
+4. =mage_recharge_budget_remaining= reset to =intellect= for Mages.
+5. Non-Mage combatants' =mage_recharge_budget_remaining= stays 0.
+6. A combatant already at full HP/stamina is unchanged (idempotent).
+
+** AB-2  =ShortRestHealUseCase=
+
+New file: =core/application/use_cases/short_rest_heal_use_case.gd=.
+
+#+BEGIN_SRC gdscript
+## execute(combatant, stamina_to_spend: int) -> Dictionary
+##   {success, hp_gained, stamina_spent, error}
+## Validates:
+##   - stamina_to_spend >= 1
+##   - combatant.stamina >= stamina_to_spend  → ERR_INSUFFICIENT_STAMINA
+##   - combatant.hp_current < combatant.hp_max → ERR_ALREADY_AT_FULL_HP
+##     (spending stamina when already full is rejected)
+## Each point of stamina spent heals ceil(combatant.hp_max / 4) HP,
+## capped at hp_max.  All stamina is spent atomically.
+#+END_SRC
+
+New error code: =ERR_INSUFFICIENT_STAMINA= and =ERR_ALREADY_AT_FULL_HP= in
+=core/application/ports/errors.gd=.
+
+*Test criteria:*
+1. 1 stamina spent → heals =ceil(hp_max/4)= HP, capped at hp_max.
+2. N stamina spent → heals =N * ceil(hp_max/4)= HP, capped at hp_max.
+3. =stamina_to_spend > combatant.stamina= → =ERR_INSUFFICIENT_STAMINA=,
+   no side effects.
+4. =combatant.hp_current == combatant.hp_max= → =ERR_ALREADY_AT_FULL_HP=,
+   no side effects.
+5. =stamina_to_spend == 0= → =ERR_INSUFFICIENT_STAMINA= (must spend ≥ 1).
+
+** AB-3  =ShortRestMageRechargeUseCase=
+
+New file: =core/application/use_cases/short_rest_mage_recharge_use_case.gd=.
+
+#+BEGIN_SRC gdscript
+## execute(combatant, item) -> Dictionary
+##   {success, budget_spent, budget_remaining, error}
+## Validates:
+##   - item is non-null and item.is_charged == false
+##     → ERR_ITEM_ALREADY_CHARGED
+##   - item.energy_cost > 0 (0-cost items never discharge; recharging them
+##     is a no-op at best, a caller error at worst) → ERR_NOT_DISCHARGEABLE
+##   - combatant.mage_recharge_budget_remaining >= item.energy_cost
+##     → ERR_INSUFFICIENT_BUDGET
+## On success: item.is_charged = true;
+##   combatant.mage_recharge_budget_remaining -= item.energy_cost.
+#+END_SRC
+
+New error codes: =ERR_ITEM_ALREADY_CHARGED=, =ERR_NOT_DISCHARGEABLE=,
+=ERR_INSUFFICIENT_BUDGET=.
+
+*Test criteria:*
+1. Discharged item + sufficient budget → recharged, budget decremented.
+2. Already-charged item → =ERR_ITEM_ALREADY_CHARGED=, no change.
+3. 0-cost item → =ERR_NOT_DISCHARGEABLE=, no change.
+4. Budget < =item.energy_cost= → =ERR_INSUFFICIENT_BUDGET=, no change.
+5. Multiple successive calls deplete budget correctly.
+6. Budget reaching 0 blocks further recharges.
+
+** AB-4  =is_safe_area= stub on =HexTileDataResource=
+
+Add =@export var is_safe_area: bool = true= to
+=data/scenarios/hex_tile_data_resource.gd=.
+
+No enforcement in =LongRestUseCase= yet.  Default =true= means all
+authored tiles permit long rest; a future iteration adds the guard.
+
+*Test criterion:* =HexTileDataResource.new().is_safe_area == true=.
+
+** AB-5  Exploration Mode REST button and panel
+
+*** AB-5-0  Rest button in the exploration HUD
+
+Add a "Rest" =Button= node to the exploration-mode UI (sibling of the
+existing action/verb bar area).  Visible only in =EXPLORATION= game mode;
+hidden during =COMBAT=.
+
+Pressing it opens the Rest Panel (AB-5-1).  The button is disabled (not
+hidden) while no party members need rest (all at full HP + stamina, no
+discharged Mage items) — this is a display nicety; the check is a simple
+any-needs-rest scan over =_party=.
+
+*** AB-5-1  =RestPanelController= and rest panel UI
+
+New scene and controller: =presentation/ui/rest_panel.tscn= +
+=presentation/rest_panel_controller.gd=.
+
+Layout (read-only summary + action buttons):
+
+#+BEGIN_EXAMPLE
+┌─ REST ──────────────────────────────────────┐
+│  [Short Rest]          [Long Rest]           │
+├─────────────────────────────────────────────┤
+│ Titus     HP 18/24  Stamina 2/4  [+1 Heal]  │
+│ Marigold  HP 24/24  Stamina 4/4              │
+│ Gram Marx HP 12/20  Stamina 1/3  [+1 Heal]  │
+│           Frost Breath ✗  Budget 4/5 [Rech] │
+└─────────────────────────────────────────────┘
+#+END_EXAMPLE
+
+- *Short Rest mode* (default on open): per-member "[+1 Heal]" button
+  spends 1 stamina and calls =ShortRestHealUseCase=; disabled when stamina
+  = 0 or HP already full.  Mage members show discharged items with a
+  "[Rech]" button that calls =ShortRestMageRechargeUseCase=; disabled when
+  budget = 0.  Panel stays open so the player can keep clicking.
+- *Long Rest mode*: a "Confirm Long Rest" button; calls =LongRestUseCase=
+  on the whole party then closes the panel.
+- Panel is closed by pressing Rest again or an explicit ✕ button.
+- Out-of-combat guard: the Rest button in the HUD is only shown in
+  =EXPLORATION= mode; the panel itself additionally checks
+  =MainScene._current_game_mode= before executing any use case and shows
+  an error label if somehow reached in combat.
+
+*Test criteria (boot-real, MainScene instantiated headlessly):*
+1. Rest button is visible in EXPLORATION mode and hidden in COMBAT mode.
+2. Pressing Rest opens the panel; pressing again closes it.
+3. "[+1 Heal]" for a combatant with stamina > 0 and HP < max: HP
+   increases by =ceil(hp_max/4)=, stamina decreases by 1.
+4. "[+1 Heal]" disabled when stamina = 0 or HP = hp_max.
+5. "[Rech]" for Gram's discharged orb_gram: item recharged, budget
+   decremented.
+6. "Confirm Long Rest" restores all HP, stamina, items, and budget.
+
+** AB-6  E2E steel-thread smoke test
+
+New file: =tests/integration/test_rest_mechanics_e2e.gd=.
+
+Boots a minimal party (Gram Marx + one other combatant) through the real
+=LongRestUseCase= / =ShortRestHealUseCase= / =ShortRestMageRechargeUseCase=
+use cases (no MainScene required; application-layer steel thread mirroring
+the established =test_frost_breath_cast_discharge_dazed_cold_log.gd=
+pattern).
+
+Entry points:
+- After a long rest, Gram's orb_gram is recharged and budget = intellect.
+- After Gram casts Frost Breath (discharging orb_gram), a short rest
+  recharges it (spending 1 from budget).
+- After budget is exhausted (5 successive short-rest recharges), a 6th
+  attempt returns =ERR_INSUFFICIENT_BUDGET=.
+- A long rest resets the budget back to intellect.
+
+* Architecture notes
+
+- All three use cases extend =RefCounted= — no Node/Control/SceneTree
+  dependency (domain purity, ADR-001).
+- =LongRestUseCase= and =ShortRestMageRechargeUseCase= mutate =is_charged=
+  on live =ItemResource= objects through the established shallow-copy
+  reference pattern (see =CombatantFactory= doc).  The same Resource
+  instance is shared between the combatant's =equipped_items= array and
+  the =CharacterResource=; a mutation is visible in both places — this is
+  intentional and consistent with how discharge works today.
+- =ShortRestHealUseCase= mutates =hp_current= and =stamina= directly on
+  the live =Combatant= entity, mirroring =ResolveCastUseCase='s
+  =Combatant.heal()= call.
+- The Rest button's "needs rest" check is read-only (no use case needed —
+  just iterate =_party= in the controller).
+
+* Gate
+
+≥ 3447 GUT passing, 0 failing, exit 0.
+pytest ≥ 424 passing, exit 0.

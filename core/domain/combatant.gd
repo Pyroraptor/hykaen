@@ -80,6 +80,17 @@ var hp_current: int = 0
 var hp_max: int = 0
 var stamina: int = 0
 
+## stamina_max — FEAT-001 (US-001; iteration AB-0, rest mechanics steel
+## thread): the ceiling `stamina` restores to on a Long Rest
+## (LongRestUseCase, a later feature in this iteration). Defaults 0 (like
+## hp_max historically did before CombatantFactory populated it) — a
+## combatant built via bare new()/from_dict() with no stamina_max supplied
+## has no long-rest restore target yet, matching this entity's "data
+## carrier, not the rule that computes it" discipline (see hp_max's own
+## convention: CombatantFactory is the one seam that derives a real value,
+## via Attributes.compute_stamina()).
+var stamina_max: int = 0
+
 ## Explicit consciousness flag — the Steel-trigger / reaction gate
 ## (resolution.gd reads it as target.get("conscious", true) pre-migration).
 ## Defaults true and is INDEPENDENT of hp: nothing in prod sets it false, but
@@ -98,6 +109,26 @@ var will: int = 0
 var strength: int = 0
 var dexterity: int = 0
 var intuition: int = 0
+
+## intellect — FEAT-001 (US-001; iteration AB-0): the fourth authored
+## attribute this steel thread threads through, alongside
+## strength/dexterity/intuition above. Governs a Mage-paradigm combatant's
+## daily recharge budget (see mage_recharge_budget_remaining below).
+## attribute("intellect") resolves it automatically (attribute() already
+## reads via get(attr_name) — no code change needed there). Defaults 0.
+var intellect: int = 0
+
+## mage_recharge_budget_remaining — FEAT-001 (US-001; iteration AB-0): a
+## Mage-paradigm combatant's remaining daily budget for recharging
+## discharged equipped items during a Short Rest (each recharge costs the
+## item's energy_cost from this budget — ShortRestMageRechargeUseCase, a
+## later feature in this iteration). INITIALIZED FROM intellect at
+## construction (CombatantFactory), but tracked as an independent, mutable
+## running total thereafter — mirrors hp_current vs hp_max: one is a
+## ceiling/reset-source, the other the live value that drains and gets
+## restored to that ceiling on Long Rest. 0 for a non-Mage combatant (no
+## equipped item with energy_cost > 0) and for every enemy. Defaults 0.
+var mage_recharge_budget_remaining: int = 0
 
 # ── Loadout / skills ────────────────────────────────────────────────────────
 var weapon: Dictionary = {}
@@ -342,6 +373,7 @@ static func from_dict(spec: Dictionary) -> Combatant:
 	c.hp_current      = int(spec.get("hp_current", 0))
 	c.hp_max          = int(spec.get("hp_max", 0))
 	c.stamina         = int(spec.get("stamina", 0))
+	c.stamina_max     = int(spec.get("stamina_max", 0))
 	c.conscious       = bool(spec.get("conscious", true))
 	c.ac              = int(spec.get("ac", 0))
 	c.fortitude       = int(spec.get("fortitude", 0))
@@ -350,6 +382,8 @@ static func from_dict(spec: Dictionary) -> Combatant:
 	c.strength        = int(spec.get("strength", 0))
 	c.dexterity       = int(spec.get("dexterity", 0))
 	c.intuition       = int(spec.get("intuition", 0))
+	c.intellect       = int(spec.get("intellect", 0))
+	c.mage_recharge_budget_remaining = int(spec.get("mage_recharge_budget_remaining", 0))
 	c.weapon          = (spec.get("weapon", {}) as Dictionary).duplicate(true)
 	c.skills          = (spec.get("skills", {}) as Dictionary).duplicate(true)
 	c.conditions      = (spec.get("conditions", []) as Array).duplicate()
@@ -376,6 +410,7 @@ func to_dict() -> Dictionary:
 		"hp_current":       hp_current,
 		"hp_max":           hp_max,
 		"stamina":          stamina,
+		"stamina_max":      stamina_max,
 		"conscious":        conscious,
 		"ac":               ac,
 		"fortitude":        fortitude,
@@ -384,6 +419,8 @@ func to_dict() -> Dictionary:
 		"strength":         strength,
 		"dexterity":        dexterity,
 		"intuition":        intuition,
+		"intellect":        intellect,
+		"mage_recharge_budget_remaining": mage_recharge_budget_remaining,
 		"weapon":           weapon.duplicate(true),
 		"skills":           skills.duplicate(true),
 		"conditions":       conditions.duplicate(),

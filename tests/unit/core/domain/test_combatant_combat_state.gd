@@ -21,6 +21,10 @@ func _enemy_spec() -> Dictionary:
 		"hp_current":       14,
 		"hp_max":           14,
 		"stamina":          0,
+		# FEAT-001 (US-001; iteration AB-0, rest mechanics steel thread): part
+		# of the canonical shape (like "spellcasting_attribute_score" below) —
+		# 0 for this non-Rest-relevant enemy fixture.
+		"stamina_max":      0,
 		"conscious":        true,
 		"ac":               14,
 		"fortitude":        13,
@@ -29,6 +33,8 @@ func _enemy_spec() -> Dictionary:
 		"strength":         2,
 		"dexterity":        1,
 		"intuition":        0,
+		"intellect":        0,
+		"mage_recharge_budget_remaining": 0,
 		"weapon":           {"damage_die": 6, "proficiency_bonus": 1, "parry_bonus": 0, "block_value": 0, "block_die": 0},
 		"skills":           {"mobility": 1, "determination": 0},
 		# FEAT-002 (Iteration M P0-0): part of the canonical shape (like
