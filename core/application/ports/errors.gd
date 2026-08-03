@@ -73,6 +73,15 @@
 ##                              item.energy_cost.
 ##                              No state mutation on this failure.
 ##
+## FEAT-006 (US-010; FR-012, ADR-005, iteration AB-0 rest mechanics steel
+## thread) adds one more member, consumed by
+## core/api/rest_action_guard.gd's RestActionGuard.invoke() (api_contracts
+## #1):
+##   ERR_OUT_OF_COMBAT_ONLY   — game_mode read via core/api/
+##                              game_mode_reader.gd equals GameModeReader
+##                              .COMBAT. The bound use-case Callable is NOT
+##                              invoked at all (no side effects attempted).
+##
 ## Usage:
 ##   var error_code: int = ErrorCode.ERR_INSUFFICIENT_ENERGY
 ##   if error_code == ErrorCode.NONE:
@@ -94,4 +103,5 @@ enum {
 	ERR_ITEM_ALREADY_CHARGED,
 	ERR_NOT_DISCHARGEABLE,
 	ERR_INSUFFICIENT_BUDGET,
+	ERR_OUT_OF_COMBAT_ONLY,
 }
