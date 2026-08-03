@@ -1,21 +1,25 @@
 ## presentation/rest_panel_controller.gd — RestPanelController (FEAT-008 /
-## US-007; FR-009; iteration AB-0, rest mechanics steel thread).
+## US-007 and FEAT-009 / US-008; FR-009/FR-010; iteration AB-0, rest
+## mechanics steel thread).
 ##
 ## Presentation layer (Clean Architecture, ADR-001): renders the Rest Panel
 ## opened from ExplorationHUD's Rest Button (presentation/exploration_hud.gd,
-## FEAT-007). This feature implements ONLY the Short Rest half of the panel
+## FEAT-007). FEAT-008 implemented the Short Rest half of the panel
 ## (US-007) — per-member HP/Stamina rows with a "[+1 Heal]" button, and
-## discharged-item rows (Mage-paradigm members) with a "[Rech]" button. The
-## Long Rest tab/Confirm flow is a later feature's scope and is not wired
-## here (see design notes' architecture section 4) — this controller
-## defaults to, and currently only renders, Short Rest mode.
+## discharged-item rows (Mage-paradigm members) with a "[Rech]" button.
+## FEAT-009 (US-008; this feature) adds the Long Rest half: a Short Rest /
+## Long Rest tab toggle (MODE_SHORT_REST / MODE_LONG_REST below) and, in
+## Long Rest mode, a "Confirm Long Rest" button that invokes LongRestUseCase
+## over the FULL `_party` — unlike a Short Rest action, a successful Long
+## Rest confirmation closes the panel (design notes' architecture section 4
+## / api_contracts #2).
 ##
 ## Every action button routes through core/api/rest_action_guard.gd's
 ## RestActionGuard rather than calling ShortRestHealUseCase /
-## ShortRestMageRechargeUseCase directly (design notes' architecture
-## section 3 / api_contracts #1) — the guard independently re-checks the
-## current game mode immediately before any use-case call, so this
-## controller never needs to duplicate that check itself.
+## ShortRestMageRechargeUseCase / LongRestUseCase directly (design notes'
+## architecture section 3 / api_contracts #1) — the guard independently
+## re-checks the current game mode immediately before any use-case call, so
+## this controller never needs to duplicate that check itself.
 ##
 ## Belt-and-braces error handling (design notes' error_handling section):
 ## a button's disabled state is a UI nicety computed from the currently
@@ -26,10 +30,15 @@
 ## (e.g. a test emitting `pressed` directly on a disabled Button, bypassing
 ## the engine's own click-suppression) is always safe.
 ##
-## Re-render contract (US-007 / FEAT-008 test_criteria): after EVERY
-## successful or failed action, the panel re-renders from the just-returned
-## Dictionary + live Combatant/item state, and stays open — closing the
-## panel is never a side effect of a Short Rest action.
+## Re-render contract: after EVERY successful or failed Short Rest action,
+## the panel re-renders from the just-returned Dictionary + live Combatant/
+## item state, and stays open — closing the panel is never a side effect of
+## a Short Rest action (US-007 / FEAT-008 test_criteria). A Long Rest
+## confirmation ALSO re-renders first (so the fully-restored state is
+## reflected in the panel's public getters immediately beforehand — FEAT-009
+## test_criteria #3), then closes ONLY on success (test_criteria #4); a
+## guard-blocked Long Rest confirmation re-renders (a no-op re-render, since
+## nothing mutated) and stays open, mirroring a rejected Short Rest action.
 ##
 ## Row identity: a party member's row is addressed by its position (index)
 ## in the `party` Array passed to open() — mirrors this codebase's existing
@@ -46,17 +55,20 @@ const RestActionGuardClass = preload("res://core/api/rest_action_guard.gd")
 const GameModeReaderClass = preload("res://core/api/game_mode_reader.gd")
 const ShortRestHealUseCaseClass = preload("res://core/application/use_cases/short_rest_heal_use_case.gd")
 const ShortRestMageRechargeUseCaseClass = preload("res://core/application/use_cases/short_rest_mage_recharge_use_case.gd")
+const LongRestUseCaseClass = preload("res://core/application/use_cases/long_rest_use_case.gd")
 
 ## Rest Panel modes (design notes' architecture section 4: "owns its own
-## open/closed toggle state ... defaults to Short Rest mode on open"). Only
-## MODE_SHORT_REST is rendered/actionable by THIS feature; MODE_LONG_REST is
-## reserved for a later feature (the Long Rest tab) so open()'s "always
-## resets to Short Rest" contract has a named counterpart to reset FROM.
+## open/closed toggle state ... defaults to Short Rest mode on open").
+## MODE_SHORT_REST renders per-member Heal/Recharge action rows (FEAT-008);
+## MODE_LONG_REST renders the SAME read-only per-member rows plus the
+## "Confirm Long Rest" button (FEAT-009) — switched between via the
+## Short Rest / Long Rest tab buttons wired in _ready().
 const MODE_SHORT_REST: int = 0
 const MODE_LONG_REST: int = 1
 
 const HEAL_BUTTON_TEXT: String = "[+1 Heal]"
 const RECHARGE_BUTTON_TEXT: String = "[Rech]"
+const CONFIRM_LONG_REST_BUTTON_TEXT: String = "Confirm Long Rest"
 
 ## The live party this panel renders — duck-typed entries (real
 ## core/domain/combatant.gd Combatant instances in production; plain
@@ -85,6 +97,7 @@ var _game_mode: int = GameModeReaderClass.EXPLORATION
 var _guard = RestActionGuardClass.new()
 var _heal_use_case = ShortRestHealUseCaseClass.new()
 var _recharge_use_case = ShortRestMageRechargeUseCaseClass.new()
+var _long_rest_use_case = LongRestUseCaseClass.new()
 
 ## The most recent action's returned Dictionary (guard-wrapped use-case
 ## result), for callers/tests that want to branch on it directly rather
@@ -97,10 +110,18 @@ var _last_action_result: Dictionary = {}
 var _rows: Array = []
 
 @onready var _members_container: VBoxContainer = $MembersContainer
+@onready var _short_rest_tab_button: Button = $TabsContainer/ShortRestTabButton
+@onready var _long_rest_tab_button: Button = $TabsContainer/LongRestTabButton
+@onready var _confirm_long_rest_button: Button = $ConfirmLongRestButton
 
 
 func _ready() -> void:
 	visible = _is_open
+	_short_rest_tab_button.pressed.connect(_on_short_rest_tab_pressed)
+	_long_rest_tab_button.pressed.connect(_on_long_rest_tab_pressed)
+	_confirm_long_rest_button.text = CONFIRM_LONG_REST_BUTTON_TEXT
+	_confirm_long_rest_button.pressed.connect(_on_confirm_long_rest_pressed)
+	_update_mode_visibility()
 
 
 ## open(party, game_mode = null) -> void — (re)opens the panel against
@@ -120,8 +141,10 @@ func open(party: Array, game_mode = null) -> void:
 
 
 ## close() -> void — closes the panel. Never called by a Short Rest action
-## (US-007's "panel stays open" contract) — reserved for a future explicit
-## close control / the Long Rest Confirm flow.
+## (US-007's "panel stays open" contract). Called automatically by
+## _on_confirm_long_rest_pressed() on a successful Long Rest confirmation
+## (FEAT-009 / US-008 test_criteria #4) — the panel's other reserved close
+## path (an explicit ✕ button) remains a future feature's scope.
 func close() -> void:
 	_is_open = false
 	visible = false
@@ -135,6 +158,27 @@ func is_open() -> bool:
 ## MODE_LONG_REST). Always MODE_SHORT_REST immediately after open().
 func get_mode() -> int:
 	return _mode
+
+
+## get_short_rest_tab_button() -> Button — the "Short Rest" tab/toggle
+## Button; pressing it switches the panel to MODE_SHORT_REST.
+func get_short_rest_tab_button() -> Button:
+	return _short_rest_tab_button
+
+
+## get_long_rest_tab_button() -> Button — the "Long Rest" tab/toggle Button;
+## pressing it switches the panel to MODE_LONG_REST.
+func get_long_rest_tab_button() -> Button:
+	return _long_rest_tab_button
+
+
+## get_confirm_long_rest_button() -> Button — the "Confirm Long Rest"
+## Button. Only `.visible` while the panel is in MODE_LONG_REST (see
+## _update_mode_visibility()); its `pressed` signal is connected regardless
+## of mode, mirroring every other action button's "handler never trusts
+## disabled/visible state" discipline (file header).
+func get_confirm_long_rest_button() -> Button:
+	return _confirm_long_rest_button
 
 
 ## set_game_mode(mode) -> void — resolves `mode` through the shared
@@ -223,6 +267,24 @@ func _render() -> void:
 	_clear_rows()
 	for index in range(_party.size()):
 		_build_row(index, _party[index])
+	_update_mode_visibility()
+
+
+## _update_mode_visibility() -> void — toggles which controls are visible
+## for the CURRENT `_mode` (FEAT-009): the "Confirm Long Rest" button is
+## visible ONLY in MODE_LONG_REST; each row's Short-Rest-only action buttons
+## ("[+1 Heal]" / "[Rech]") are visible ONLY in MODE_SHORT_REST. This is a
+## display-only toggle (mirrors the file header's "disabled state is a UI
+## nicety" discipline) — it never disconnects a signal or alters use-case
+## routing, so RestActionGuard remains the single place any precondition is
+## actually enforced.
+func _update_mode_visibility() -> void:
+	var long_rest_active: bool = _mode == MODE_LONG_REST
+	_confirm_long_rest_button.visible = long_rest_active
+	for row in _rows:
+		row["heal_button"].visible = not long_rest_active
+		for item_row in row["item_rows"]:
+			item_row["button"].visible = not long_rest_active
 
 
 ## _clear_rows() -> void — detaches (remove_child, NOT a synchronous free())
@@ -328,6 +390,40 @@ func _on_recharge_pressed(member_index: int, item) -> void:
 	_last_action_result = _guard.invoke(_game_mode, func(): return use_case.execute(combatant, item))
 	if _is_open:
 		_render()
+
+
+## _on_short_rest_tab_pressed() / _on_long_rest_tab_pressed() -> void — the
+## Short Rest / Long Rest tab toggle (FEAT-009 test_criteria #1). A pure UI
+## mode switch: no use case is invoked, no guard check happens — only
+## _render() (via _update_mode_visibility()) reacts to the new `_mode`.
+func _on_short_rest_tab_pressed() -> void:
+	_mode = MODE_SHORT_REST
+	_render()
+
+
+func _on_long_rest_tab_pressed() -> void:
+	_mode = MODE_LONG_REST
+	_render()
+
+
+## _on_confirm_long_rest_pressed() -> void — FEAT-009 (US-008; FR-010):
+## invokes LongRestUseCase, via RestActionGuard, against the FULL `_party`
+## (api_contracts #2 / test_criteria #2). Mirrors _on_heal_pressed()'s /
+## _on_recharge_pressed()'s "re-render from the just-returned Dictionary +
+## live Combatant/item state" contract FIRST (test_criteria #3: every
+## restored field must be reflected in the rendered UI immediately before
+## close) -- close() is called ONLY when the guard/use case reports success
+## (test_criteria #4); a guard-blocked confirmation (COMBAT mode) re-renders
+## a no-op (nothing mutated) and leaves the panel open, mirroring a rejected
+## Short Rest action.
+func _on_confirm_long_rest_pressed() -> void:
+	var use_case = _long_rest_use_case
+	var party = _party
+	_last_action_result = _guard.invoke(_game_mode, func(): return use_case.execute(party))
+	if _is_open:
+		_render()
+	if bool(_last_action_result.get("success", false)):
+		close()
 
 
 # ── Internal helpers ─────────────────────────────────────────────────────

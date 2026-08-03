@@ -12,7 +12,29 @@ offset_bottom = 460.0
 visible = false
 script = ExtResource("1_restpanel")
 
-[node name="MembersContainer" type="VBoxContainer" parent="."]
+[node name="TabsContainer" type="HBoxContainer" parent="."]
 layout_mode = 2
 offset_right = 420.0
+offset_bottom = 24.0
+
+[node name="ShortRestTabButton" type="Button" parent="TabsContainer"]
+layout_mode = 2
+text = "Short Rest"
+
+[node name="LongRestTabButton" type="Button" parent="TabsContainer"]
+layout_mode = 2
+text = "Long Rest"
+
+[node name="MembersContainer" type="VBoxContainer" parent="."]
+layout_mode = 2
+offset_top = 28.0
+offset_right = 420.0
+offset_bottom = 420.0
+
+[node name="ConfirmLongRestButton" type="Button" parent="."]
+layout_mode = 2
+offset_top = 424.0
+offset_right = 420.0
 offset_bottom = 452.0
+text = "Confirm Long Rest"
+visible = false
