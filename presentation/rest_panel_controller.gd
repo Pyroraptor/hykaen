@@ -56,6 +56,18 @@ const GameModeReaderClass = preload("res://core/api/game_mode_reader.gd")
 const ShortRestHealUseCaseClass = preload("res://core/application/use_cases/short_rest_heal_use_case.gd")
 const ShortRestMageRechargeUseCaseClass = preload("res://core/application/use_cases/short_rest_mage_recharge_use_case.gd")
 const LongRestUseCaseClass = preload("res://core/application/use_cases/long_rest_use_case.gd")
+const ErrorCodeClass = preload("res://core/application/ports/errors.gd")
+
+## FEAT-372 (US-010; FR-012, ADR-005): the on-panel error label shown ONLY
+## when RestActionGuard.invoke() short-circuits a use-case call with
+## {success:false, error: ErrorCode.ERR_OUT_OF_COMBAT_ONLY} -- i.e. a stale/
+## leaked panel reference invoked after MainScene's game mode flipped to
+## COMBAT while this panel was still open (RISK-007). Distinct from any
+## per-row disabled-button state (design notes' error_handling section):
+## this label surfaces ONLY the guard's own out-of-combat short-circuit,
+## never a use case's own validation error (ERR_INSUFFICIENT_STAMINA etc.),
+## which the per-row rendering already reflects via disabled buttons.
+const ERROR_LABEL_TEXT: String = "Blocked: ERR_OUT_OF_COMBAT_ONLY"
 
 ## Rest Panel modes (design notes' architecture section 4: "owns its own
 ## open/closed toggle state ... defaults to Short Rest mode on open").
@@ -114,6 +126,7 @@ var _rows: Array = []
 @onready var _long_rest_tab_button: Button = $TabsContainer/LongRestTabButton
 @onready var _confirm_long_rest_button: Button = $ConfirmLongRestButton
 @onready var _close_button: Button = $CloseButton
+@onready var _error_label: Label = $ErrorLabel
 
 
 func _ready() -> void:
@@ -123,6 +136,7 @@ func _ready() -> void:
 	_confirm_long_rest_button.text = CONFIRM_LONG_REST_BUTTON_TEXT
 	_confirm_long_rest_button.pressed.connect(_on_confirm_long_rest_pressed)
 	_close_button.pressed.connect(_on_close_button_pressed)
+	_hide_error_label()
 	_update_mode_visibility()
 
 
@@ -139,6 +153,7 @@ func open(party: Array, game_mode = null) -> void:
 	_mode = MODE_SHORT_REST
 	_is_open = true
 	visible = true
+	_hide_error_label()
 	_render()
 
 
@@ -278,6 +293,15 @@ func get_last_action_result() -> Dictionary:
 	return _last_action_result
 
 
+## get_error_label() -> Label — FEAT-372 (US-010; FR-012): the on-panel
+## error label, visible ONLY immediately after a RestActionGuard
+## short-circuit (ERR_OUT_OF_COMBAT_ONLY). Hidden on open() and again once
+## any subsequent action is not itself blocked by the guard (see
+## _apply_guard_result()).
+func get_error_label() -> Label:
+	return _error_label
+
+
 # ── Internal: rendering ─────────────────────────────────────────────────────
 
 func _row_field(member_index: int, field: String):
@@ -405,6 +429,7 @@ func _on_heal_pressed(member_index: int) -> void:
 	var combatant = _party[member_index]
 	var use_case = _heal_use_case
 	_last_action_result = _guard.invoke(_game_mode, func(): return use_case.execute(combatant, 1))
+	_apply_guard_result(_last_action_result)
 	if _is_open:
 		_render()
 
@@ -415,6 +440,7 @@ func _on_recharge_pressed(member_index: int, item) -> void:
 	var combatant = _party[member_index]
 	var use_case = _recharge_use_case
 	_last_action_result = _guard.invoke(_game_mode, func(): return use_case.execute(combatant, item))
+	_apply_guard_result(_last_action_result)
 	if _is_open:
 		_render()
 
@@ -455,10 +481,36 @@ func _on_confirm_long_rest_pressed() -> void:
 	var use_case = _long_rest_use_case
 	var party = _party
 	_last_action_result = _guard.invoke(_game_mode, func(): return use_case.execute(party))
+	_apply_guard_result(_last_action_result)
 	if _is_open:
 		_render()
 	if bool(_last_action_result.get("success", false)):
 		close()
+
+
+## _apply_guard_result(result) -> void — FEAT-372 (US-010; FR-012; ADR-005):
+## called with every action's already-guard-wrapped return Dictionary
+## immediately after invoking RestActionGuard. Shows the on-panel error
+## label ONLY for a guard short-circuit (error == ERR_OUT_OF_COMBAT_ONLY);
+## hides it for any other outcome, including a rejected use-case call for a
+## DIFFERENT reason (e.g. ERR_ALREADY_AT_FULL_HP) — those are already
+## surfaced via the per-row disabled/enabled button state (design notes'
+## error_handling section), not this label.
+func _apply_guard_result(result: Dictionary) -> void:
+	if not bool(result.get("success", false)) and int(result.get("error", ErrorCodeClass.NONE)) == ErrorCodeClass.ERR_OUT_OF_COMBAT_ONLY:
+		_show_error_label()
+	else:
+		_hide_error_label()
+
+
+func _show_error_label() -> void:
+	_error_label.text = ERROR_LABEL_TEXT
+	_error_label.visible = true
+
+
+func _hide_error_label() -> void:
+	_error_label.visible = false
+	_error_label.text = ""
 
 
 # ── Internal helpers ─────────────────────────────────────────────────────

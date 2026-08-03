@@ -32,9 +32,17 @@ text = "Short Rest"
 layout_mode = 2
 text = "Long Rest"
 
+[node name="ErrorLabel" type="Label" parent="."]
+layout_mode = 2
+offset_top = 26.0
+offset_right = 420.0
+offset_bottom = 44.0
+visible = false
+text = ""
+
 [node name="MembersContainer" type="VBoxContainer" parent="."]
 layout_mode = 2
-offset_top = 28.0
+offset_top = 46.0
 offset_right = 420.0
 offset_bottom = 420.0
 
