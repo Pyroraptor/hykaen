@@ -56,3 +56,10 @@ extends Resource
 
 ## Named feature on this tile (e.g. "door", "chest", "statue"). Empty = none.
 @export var feature: String = ""
+
+## Whether this tile is a safe area for long-rest purposes (FEAT-002, US-002,
+## FR-007/NFR-006; ADR-004). Authored now with a safe default so a future
+## rest-eligibility enforcement feature does not require a schema migration.
+## Intentionally UNENFORCED this iteration -- no use case, guard, or
+## controller reads this field yet.
+@export var is_safe_area: bool = true

@@ -32,8 +32,13 @@ const HEX_TILE_DATA_RESOURCE_PATH: String = "res://data/tiles/hex_tile_data_reso
 ## translating it through EncounterTileAdapter, this list (and therefore
 ## test_no_new_fields_exist_on_hex_tile_data_resource below) must be
 ## updated deliberately -- it must never silently grow.
+##
+## FEAT-002 (rest-mechanics steel thread, US-002 / FR-007, NFR-006; ADR-004)
+## deliberately added `is_safe_area` as an authored-but-unenforced stub
+## field (avoiding a future schema migration); this pin is updated here to
+## acknowledge that addition, per the guidance above.
 const _EXPECTED_HEX_TILE_DATA_RESOURCE_FIELDS: Array = [
-	"q", "r", "passable", "difficult", "terrain_type", "elevation", "cover", "feature"
+	"q", "r", "passable", "difficult", "terrain_type", "elevation", "cover", "feature", "is_safe_area"
 ]
 
 
