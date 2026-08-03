@@ -185,3 +185,97 @@ func test_rest_mechanics_full_smoke() -> void:
 	assert_eq(gram.mage_recharge_budget_remaining, gram.intellect, "a subsequent Long Rest must reset mage_recharge_budget_remaining back to intellect")
 	assert_eq(gram.mage_recharge_budget_remaining, 5)
 	assert_true(focus_item.is_charged, "a subsequent Long Rest must recharge the still-discharged focus item")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# FEAT-378 (US-011; FR-003/FR-006/FR-013, resolves DEF-001) — the REAL-DATA
+# steel thread. The suite above (FEAT-373) proves the use-case wiring with a
+# FakeEquippedItem double, documented at the time as standing in for
+# data/items/orb_gram.tres's real ItemResource not yet authoring an
+# `energy_cost` field. FEAT-002/FIX-002 have since authored energy_cost=1 on
+# BOTH data/items/orb_gram.tres and data/items/staff_gram.tres (Gram Marx's
+# two real equipped_items, per data/characters/gram_marx.tres). This test
+# closes the requirements-traceability gap by driving the SAME LongRestUseCase
+# / ShortRestMageRechargeUseCase steel thread against those real,
+# CombatantFactory-built ItemResource instances directly — NO
+# FakeEquippedItem double anywhere in this test. Still no res://MainScene.tscn
+# dependency (ADR-001): party construction goes through the same
+# CombatantFactoryClass._build_combatant() helper as the suite above.
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_rest_mechanics_real_item_fixtures_mage_recharge_budget_exhaustion() -> void:
+	# ── Boot Gram Marx alone through the real CombatantFactory + real
+	# gram_marx.tres CharacterResource -- her equipped_items are the REAL,
+	# live data/items/orb_gram.tres / data/items/staff_gram.tres
+	# ItemResource instances (energy_cost=1 each, authored FIX-002), not a
+	# duck-typed double. ───────────────────────────────────────────────────
+	var gram := _build_combatant(GRAM_MARX_PATH, "gram_marx_1")
+
+	assert_eq(gram.intellect, 5, "fixture assumption: gram_marx.tres's authored intellect must be 5")
+
+	# ── (1) Immediately after construction -- BEFORE any rest use case runs
+	# -- mage_recharge_budget_remaining must already equal intellect,
+	# sourced from CombatantFactory's compute_mage_recharge_budget_remaining()
+	# walk over the real orb_gram.tres/staff_gram.tres energy_cost data. ────
+	assert_eq(gram.mage_recharge_budget_remaining, gram.intellect, "immediately after construction, mage_recharge_budget_remaining must equal intellect, sourced from real orb_gram.tres/staff_gram.tres energy_cost data")
+	assert_eq(gram.mage_recharge_budget_remaining, 5)
+
+	# Locate the real orb_gram.tres ItemResource among gram's live
+	# equipped_items (built by CombatantFactory from
+	# data/characters/gram_marx.tres's equipped_items = [staff_gram, orb_gram]).
+	var real_item = null
+	for item in gram.equipped_items:
+		if item.item_id == "orb_gram":
+			real_item = item
+	assert_not_null(real_item, "fixture assumption: gram_marx.tres must equip the real orb_gram.tres ItemResource")
+	assert_true(real_item.energy_cost > 0, "fixture assumption: orb_gram.tres must author a positive energy_cost (FIX-002)")
+	assert_eq(real_item.energy_cost, 1, "fixture assumption: orb_gram.tres's authored energy_cost must be 1")
+
+	var long_rest := LongRestUseCaseClass.new()
+	var mage_recharge := ShortRestMageRechargeUseCaseClass.new()
+
+	# Simulate a prior encounter discharging the real orb (e.g. a Frost
+	# Breath cast) so LongRestUseCase's recharge step is an observable,
+	# non-trivial state change.
+	real_item.is_charged = false
+
+	# ── (2) LongRestUseCase recharges the real discharged item and resets
+	# mage_recharge_budget_remaining to intellect. ──────────────────────────
+	var first_long_rest_result: Dictionary = long_rest.execute([gram])
+	assert_eq(first_long_rest_result, {"success": true, "restored_combatants": 1})
+	assert_true(real_item.is_charged, "Long Rest must recharge the real, discharged orb_gram item (is_charged=true)")
+	assert_eq(gram.mage_recharge_budget_remaining, gram.intellect, "Long Rest must reset mage_recharge_budget_remaining to intellect")
+	assert_eq(gram.mage_recharge_budget_remaining, 5)
+
+	# ── (3) ShortRestMageRechargeUseCase against the real item spends
+	# exactly item.energy_cost budget per call; successive discharge+recharge
+	# cycles exhaust the budget to exactly 0. ────────────────────────────────
+	var energy_cost: int = real_item.energy_cost
+	var expected_remaining: int = gram.mage_recharge_budget_remaining
+	while expected_remaining >= energy_cost:
+		real_item.is_charged = false  # simulated re-discharge (another cast)
+		expected_remaining -= energy_cost
+		var result: Dictionary = mage_recharge.execute(gram, real_item)
+		assert_eq(result, {"success": true, "budget_spent": energy_cost, "budget_remaining": expected_remaining})
+		assert_true(real_item.is_charged, "each successful recharge must re-charge the real orb_gram item")
+		assert_eq(gram.mage_recharge_budget_remaining, expected_remaining)
+
+	assert_eq(gram.mage_recharge_budget_remaining, 0, "successive successful recharges must exhaust the real budget to exactly 0")
+
+	# ── (4) The call immediately following exhaustion returns
+	# {success:false, error:'ERR_INSUFFICIENT_BUDGET'} with NO mutation of
+	# the real item or combatant state. ──────────────────────────────────────
+	real_item.is_charged = false  # another simulated discharge
+	var exhausted_result: Dictionary = mage_recharge.execute(gram, real_item)
+	assert_eq(exhausted_result, {"success": false, "error": ErrorCodeClass.ERR_INSUFFICIENT_BUDGET})
+	assert_false(real_item.is_charged, "a failed recharge must leave the real item discharged (no mutation)")
+	assert_eq(gram.mage_recharge_budget_remaining, 0, "a failed recharge must leave the real budget unchanged at 0")
+
+	# ── (5) A subsequent LongRestUseCase call resets
+	# mage_recharge_budget_remaining back to intellect using the real
+	# fixture data (and recharges the still-discharged real item). ──────────
+	var second_long_rest_result: Dictionary = long_rest.execute([gram])
+	assert_eq(second_long_rest_result, {"success": true, "restored_combatants": 1})
+	assert_eq(gram.mage_recharge_budget_remaining, gram.intellect, "a subsequent Long Rest must reset mage_recharge_budget_remaining back to intellect using real fixture data")
+	assert_eq(gram.mage_recharge_budget_remaining, 5)
+	assert_true(real_item.is_charged, "a subsequent Long Rest must recharge the still-discharged real orb_gram item")
