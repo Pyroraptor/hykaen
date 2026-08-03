@@ -12,6 +12,13 @@ offset_bottom = 460.0
 visible = false
 script = ExtResource("1_restpanel")
 
+[node name="CloseButton" type="Button" parent="."]
+layout_mode = 2
+offset_left = 396.0
+offset_right = 420.0
+offset_bottom = 24.0
+text = "✕"
+
 [node name="TabsContainer" type="HBoxContainer" parent="."]
 layout_mode = 2
 offset_right = 420.0

@@ -34,12 +34,17 @@
 ##     (a discharged Mage-paradigm item)
 ##
 ## Wiring to the Rest Panel: pressing the Rest Button while enabled emits
-## `rest_panel_requested` — this file never constructs or reaches into a
-## RestPanelController itself (a later feature); the composition root
-## (MainScene.gd, out of this feature's scope) is expected to connect that
-## signal once the panel exists, mirroring presentation/verb_bar_view.gd's
-## own signal-forwarding convention (verb_selection_entered/verb_executed)
-## rather than an injected Callable.
+## `rest_panel_requested` (FEAT-007) AND, since FEAT-010 (US-009; FR-011;
+## ADR-006), toggles an injected RestPanelController open/closed via
+## set_rest_panel() below — this file still never CONSTRUCTS a
+## RestPanelController itself; the composition root (MainScene.gd, out of
+## this feature's scope) is expected to instantiate the panel and hand it in
+## via set_rest_panel(), mirroring presentation/verb_bar_view.gd's own
+## signal-forwarding convention (verb_selection_entered/verb_executed) as a
+## secondary, backward-compatible notification path for any other listener.
+## The actual open/closed decision on every press is made entirely by
+## RestPanelController.toggle_open() from ITS OWN `_is_open` field (ADR-006:
+## pure UI state) — this file never reads or stores that boolean itself.
 class_name ExplorationHUD
 extends Control
 
@@ -57,6 +62,12 @@ signal rest_panel_requested
 var _party: Array = []
 
 var _game_mode_reader = GameModeReaderClass.new()
+
+## The injected RestPanelController this HUD's Rest Button toggles open/
+## closed (FEAT-010; see set_rest_panel()). null until a composition root
+## injects one — press_rest() tolerates that (see below), so this file has
+## no hard dependency on the panel existing.
+var _rest_panel = null
 
 @onready var _rest_button: Button = $RestButton
 
@@ -127,14 +138,32 @@ func get_rest_button() -> Button:
 	return _rest_button
 
 
+## set_rest_panel(panel) -> void — FEAT-010 (US-009): injects the
+## RestPanelController that press_rest() below toggles open/closed on every
+## Rest Button press. `panel` is duck-typed (must expose toggle_open(party,
+## game_mode)) so a lightweight test double can stand in for the real
+## presentation/rest_panel_controller.gd, mirroring this file's / the rest
+## of this iteration's established duck-typing convention. Passing null
+## clears any previously-injected panel, restoring the FEAT-007
+## signal-only behavior.
+func set_rest_panel(panel) -> void:
+	_rest_panel = panel
+
+
 ## press_rest() -> bool — programmatic equivalent of a real Rest Button
 ## click (mirrors presentation/verb_bar_view.gd's press() convention).
 ## Returns whether the Rest Panel request was actually emitted (false when
-## the button is missing/disabled).
+## the button is missing/disabled). Always emits `rest_panel_requested`
+## first (FEAT-007's original contract, unchanged), then — if a panel was
+## injected via set_rest_panel() — toggles it open/closed (FEAT-010): the
+## panel itself decides open vs. close from its own `_is_open` state
+## (ADR-006), this file only forwards the current `_party` on every call.
 func press_rest() -> bool:
 	if _rest_button == null or _rest_button.disabled:
 		return false
 	rest_panel_requested.emit()
+	if _rest_panel != null:
+		_rest_panel.toggle_open(_party)
 	return true
 
 

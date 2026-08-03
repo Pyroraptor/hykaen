@@ -1,6 +1,6 @@
 ## presentation/rest_panel_controller.gd — RestPanelController (FEAT-008 /
-## US-007 and FEAT-009 / US-008; FR-009/FR-010; iteration AB-0, rest
-## mechanics steel thread).
+## US-007, FEAT-009 / US-008, and FEAT-010 / US-009; FR-009/FR-010/FR-011;
+## iteration AB-0, rest mechanics steel thread).
 ##
 ## Presentation layer (Clean Architecture, ADR-001): renders the Rest Panel
 ## opened from ExplorationHUD's Rest Button (presentation/exploration_hud.gd,
@@ -113,6 +113,7 @@ var _rows: Array = []
 @onready var _short_rest_tab_button: Button = $TabsContainer/ShortRestTabButton
 @onready var _long_rest_tab_button: Button = $TabsContainer/LongRestTabButton
 @onready var _confirm_long_rest_button: Button = $ConfirmLongRestButton
+@onready var _close_button: Button = $CloseButton
 
 
 func _ready() -> void:
@@ -121,6 +122,7 @@ func _ready() -> void:
 	_long_rest_tab_button.pressed.connect(_on_long_rest_tab_pressed)
 	_confirm_long_rest_button.text = CONFIRM_LONG_REST_BUTTON_TEXT
 	_confirm_long_rest_button.pressed.connect(_on_confirm_long_rest_pressed)
+	_close_button.pressed.connect(_on_close_button_pressed)
 	_update_mode_visibility()
 
 
@@ -143,8 +145,9 @@ func open(party: Array, game_mode = null) -> void:
 ## close() -> void — closes the panel. Never called by a Short Rest action
 ## (US-007's "panel stays open" contract). Called automatically by
 ## _on_confirm_long_rest_pressed() on a successful Long Rest confirmation
-## (FEAT-009 / US-008 test_criteria #4) — the panel's other reserved close
-## path (an explicit ✕ button) remains a future feature's scope.
+## (FEAT-009 / US-008 test_criteria #4). Also the target of the explicit ✕
+## Close Button (FEAT-010 / US-009 / ADR-006, wired in _ready()) and of
+## toggle_open() below — a safe no-op when already closed (idempotent).
 func close() -> void:
 	_is_open = false
 	visible = false
@@ -152,6 +155,22 @@ func close() -> void:
 
 func is_open() -> bool:
 	return _is_open
+
+
+## toggle_open(party, game_mode = null) -> void — FEAT-010 (US-009; FR-011;
+## ADR-006): the panel's own open/closed TOGGLE, driven by ExplorationHUD's
+## Rest Button (presentation/exploration_hud.gd's set_rest_panel() wiring).
+## Closed -> open() against `party` (re-render from current state, always
+## resetting to Short Rest mode per open()'s own contract); already open ->
+## close(). This is the ONLY place a "press the same button again to close"
+## decision is made, and it is made entirely from this controller's own
+## `_is_open` field (ADR-006: pure UI state, never read from or written to
+## any Combatant/domain/application object).
+func toggle_open(party: Array, game_mode = null) -> void:
+	if _is_open:
+		close()
+	else:
+		open(party, game_mode)
 
 
 ## get_mode() -> int — the currently active tab (MODE_SHORT_REST /
@@ -179,6 +198,14 @@ func get_long_rest_tab_button() -> Button:
 ## disabled/visible state" discipline (file header).
 func get_confirm_long_rest_button() -> Button:
 	return _confirm_long_rest_button
+
+
+## get_close_button() -> Button — the rendered explicit ✕ Close Button
+## (FEAT-010 / US-009). Pressing it always closes the panel (see
+## _on_close_button_pressed()), regardless of which tab/mode is currently
+## active — unlike open()/close(), it does not depend on `_mode` at all.
+func get_close_button() -> Button:
+	return _close_button
 
 
 ## set_game_mode(mode) -> void — resolves `mode` through the shared
@@ -404,6 +431,14 @@ func _on_short_rest_tab_pressed() -> void:
 func _on_long_rest_tab_pressed() -> void:
 	_mode = MODE_LONG_REST
 	_render()
+
+
+## _on_close_button_pressed() -> void — FEAT-010 (US-009; test_criteria #3):
+## the explicit ✕ Close Button always closes the panel, independent of
+## `_mode` or prior open state — no guard/use-case call, no re-render (a
+## closed panel has nothing to render).
+func _on_close_button_pressed() -> void:
+	close()
 
 
 ## _on_confirm_long_rest_pressed() -> void — FEAT-009 (US-008; FR-010):
