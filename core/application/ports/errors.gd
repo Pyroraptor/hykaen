@@ -58,6 +58,21 @@
 ##                               combatant.hp_current == combatant.hp_max.
 ##                               No state mutation on this failure.
 ##
+## FEAT-005 (US-005; FR-006/NFR-001, iteration AB-0 rest mechanics steel
+## thread) adds three more members, consumed by
+## core/application/use_cases/short_rest_mage_recharge_use_case.gd's
+## ShortRestMageRechargeUseCase.execute() (api_contracts #4):
+##   ERR_ITEM_ALREADY_CHARGED — validation order step (a):
+##                              item == null OR item.is_charged == true.
+##                              No state mutation on this failure.
+##   ERR_NOT_DISCHARGEABLE    — validation order step (b):
+##                              item.energy_cost <= 0.
+##                              No state mutation on this failure.
+##   ERR_INSUFFICIENT_BUDGET  — validation order step (c):
+##                              combatant.mage_recharge_budget_remaining <
+##                              item.energy_cost.
+##                              No state mutation on this failure.
+##
 ## Usage:
 ##   var error_code: int = ErrorCode.ERR_INSUFFICIENT_ENERGY
 ##   if error_code == ErrorCode.NONE:
@@ -76,4 +91,7 @@ enum {
 	ERR_INVALID_STATE,
 	ERR_INSUFFICIENT_STAMINA,
 	ERR_ALREADY_AT_FULL_HP,
+	ERR_ITEM_ALREADY_CHARGED,
+	ERR_NOT_DISCHARGEABLE,
+	ERR_INSUFFICIENT_BUDGET,
 }
