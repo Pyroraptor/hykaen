@@ -46,6 +46,18 @@
 ##                             (remaining_actions == 0) was violated; defensive,
 ##                             should be unreachable given US-008's own gate.
 ##
+## FEAT-004 (US-004; FR-005/NFR-001, iteration AB-0 rest mechanics steel
+## thread) adds two more members, consumed by
+## core/application/use_cases/short_rest_heal_use_case.gd's
+## ShortRestHealUseCase.execute() (api_contracts #3):
+##   ERR_INSUFFICIENT_STAMINA  — validation order steps (a)/(b):
+##                               stamina_to_spend < 1, OR
+##                               combatant.stamina < stamina_to_spend.
+##                               No state mutation on this failure.
+##   ERR_ALREADY_AT_FULL_HP    — validation order step (c):
+##                               combatant.hp_current == combatant.hp_max.
+##                               No state mutation on this failure.
+##
 ## Usage:
 ##   var error_code: int = ErrorCode.ERR_INSUFFICIENT_ENERGY
 ##   if error_code == ErrorCode.NONE:
@@ -62,4 +74,6 @@ enum {
 	ERR_CAST_CANCELLED,
 	ERR_NO_VALID_TARGET,
 	ERR_INVALID_STATE,
+	ERR_INSUFFICIENT_STAMINA,
+	ERR_ALREADY_AT_FULL_HP,
 }
