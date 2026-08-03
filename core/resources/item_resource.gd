@@ -26,6 +26,10 @@
 ##   prepared_spell_id  — spell catalog spell_id currently prepared on this
 ##                        item; "" == none prepared.
 ##   is_charged         — true when this item currently holds a charge.
+##   energy_cost        — (FEAT-376; DEF-001) cost to recharge this item
+##                        during a short rest's Mage-recharge step; 0 ==
+##                        never dischargeable/rechargeable (default, no
+##                        behavior change until authored, FIX-002).
 ##   damage_type        — (FEAT-004; US-003/FR-005/FR-006) the damage type
 ##                        this item deals when used as a weapon (e.g.
 ##                        "slashing", "bludgeoning", "piercing"); "" ==
@@ -63,6 +67,15 @@ extends Resource
 
 ## True when this item currently holds a charge.
 @export var is_charged: bool = false
+
+## Energy cost to recharge this item during a short rest's Mage-recharge
+## step (FEAT-376; DEF-001; FR-003/FR-006/FR-009/FR-013). 0 (the default)
+## means this item is never dischargeable/rechargeable -- no existing
+## item's behavior changes until non-zero energy_cost is authored on its
+## .tres fixture (FIX-002). Read via ShortRestMageRechargeUseCase and
+## CombatantFactory's equipped-items walk (previously only reachable via
+## FakeEquippedItem test doubles duck-typing this field).
+@export var energy_cost: int = 0
 
 ## Damage type this item deals when used as a weapon (e.g. "slashing",
 ## "bludgeoning", "piercing"); "" == not applicable. FEAT-004 (US-003;
