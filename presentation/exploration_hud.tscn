@@ -1,0 +1,20 @@
+[gd_scene load_steps=2 format=3 uid="uid://hykaen_explorationhud"]
+
+[ext_resource type="Script" path="res://presentation/exploration_hud.gd" id="1_explorationhud"]
+
+[node name="ExplorationHUD" type="Control"]
+layout_mode = 3
+anchors_preset = 0
+offset_left = 8.0
+offset_top = 316.0
+offset_right = 148.0
+offset_bottom = 356.0
+mouse_filter = 1
+script = ExtResource("1_explorationhud")
+
+[node name="RestButton" type="Button" parent="."]
+layout_mode = 2
+offset_right = 140.0
+offset_bottom = 40.0
+disabled = true
+text = "Rest"
