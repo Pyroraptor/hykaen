@@ -147,6 +147,7 @@ var outcome: String = ""
 @onready var turn_controller     = $TurnController
 @onready var end_turn_control    = $UILayer/EndTurnControl
 @onready var verb_bar_view       = $UILayer/VerbBarView
+@onready var exploration_hud     = $UILayer/ExplorationHUD  # FEAT-381 (US-006, resolves DEF-002): Rest Button HUD, sibling of VerbBarView
 @onready var reaction_prompt_ui  = $UILayer/ReactionPromptUI
 @onready var result_screen_view  = $UILayer/ResultScreenView
 @onready var equipment_panel_ui  = $UILayer/EquipmentPanelUI  # FEAT-010 (US-011): hidden by default, toggled by 'E'
@@ -261,6 +262,8 @@ func _ready() -> void:
 		status_panel_view.load_combatants(status_view_models)
 		status_panel_view.set_selected_combatant(_exploration.selected_party_member_id)  # FEAT-007
 		_refresh_off_guard_conditions()
+
+	_sync_exploration_hud()  # FEAT-381 (US-006): seed Rest Button visibility/enablement at boot
 
 	if initiative_view != null:
 		initiative_view.visible = false
@@ -830,6 +833,7 @@ func _on_combat_won() -> void:
 	_game_mode = GameMode.EXPLORATION
 	_active_encounter_id = ""
 	_exploration.notify_game_mode_changed(true)
+	_sync_exploration_hud()  # FEAT-381 (US-006): re-show/refresh Rest Button now that EXPLORATION has resumed
 
 	if hex_grid_view != null:
 		if hex_grid_view.hex_clicked.is_connected(_exploration_hex_clicked_callable()):
@@ -894,6 +898,24 @@ func _refresh_off_guard_conditions() -> void:
 		combatant.conditions = FlankingClass.off_guard_conditions(combatant, living_party)
 		if status_panel_view != null:
 			status_panel_view.set_off_guard(combatant_id, off_guard)
+
+	_sync_exploration_hud()  # FEAT-381 (US-006): party HP/stamina may have shifted -- refresh Rest Button state
+
+
+## FEAT-381 (US-006; FR-008; resolves DEF-002): pushes MainScene's real
+## _game_mode and _party into the composition-rooted ExplorationHUD, mirroring
+## verb_bar_view's refresh_availability() re-query convention -- the SAME
+## shared core/api/game_mode_reader.gd helper ExplorationHUD.set_game_mode()
+## and RestActionGuard both read (RISK-007: visibility/execution checks can
+## never structurally diverge). Called once at boot and again every time
+## _game_mode transitions or _refresh_off_guard_conditions() runs (the
+## codebase's existing "party state changed" hook), so the Rest Button's
+## visible/disabled state never drifts from MainScene's real, live state.
+func _sync_exploration_hud() -> void:
+	if exploration_hud == null:
+		return
+	exploration_hud.set_game_mode(_game_mode)
+	exploration_hud.set_party(_party)
 
 
 ## Test seam — called directly by test_intuition_*.gd and test_build_enemy_combatant_defenses.gd.
