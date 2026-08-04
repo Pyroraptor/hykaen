@@ -60,6 +60,7 @@ const MovementInputControllerClass = preload("res://presentation/movement_input_
 const VerbBarViewClass             = preload("res://presentation/verb_bar_view.gd")
 const ReactionPromptUIClass        = preload("res://scenes/ui/reaction_prompt_ui.gd")
 const EquipmentPanelUIClass        = preload("res://presentation/equipment_panel_ui.gd")
+const ExplorationHUDClass          = preload("res://presentation/exploration_hud.gd")
 
 ## Every path under presentation/* is a legitimate signal-handler home; the
 ## composition root itself (MainScene.gd, res:// root, NOT presentation/*) is
@@ -111,6 +112,12 @@ const _EXPECTED_CHILDREN: Dictionary = {
 ## 'E' key via presentation/equipment_panel_toggle_controller.gd — a
 ## legitimate, additional presentation/* component, not a re-introduction of
 ## the removed scenes/battlefield/* stack this suite guards against.
+##
+## FEAT-381 (US-006, resolves DEF-002) added ExplorationHUD here: the Rest
+## Button entry point (presentation/exploration_hud.gd/.tscn), a sibling of
+## VerbBarView — a legitimate, additional presentation/* component, not a
+## re-introduction of the removed scenes/battlefield/* stack this suite
+## guards against.
 const _UI_LAYER_NODE_NAME: String = "UILayer"
 const _EXPECTED_UI_LAYER_CHILDREN: Dictionary = {
 	"StatusPanelView": StatusPanelViewClass,
@@ -118,6 +125,7 @@ const _EXPECTED_UI_LAYER_CHILDREN: Dictionary = {
 	"EventLogView":    EventLogViewClass,
 	"EndTurnControl":  EndTurnControlClass,
 	"VerbBarView":     VerbBarViewClass,
+	"ExplorationHUD":  ExplorationHUDClass,
 	"ResultScreenView": ResultScreenViewClass,
 	"ReactionPromptUI": ReactionPromptUIClass,
 	"EquipmentPanelUI": EquipmentPanelUIClass,

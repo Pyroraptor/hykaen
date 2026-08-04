@@ -486,8 +486,7 @@ func resolve_hex_choice(legal_hexes: Array):
 	return await hex_choice_resolver.resolve(legal_hexes)
 
 
-## Obtain fresh RoundSession via begin_round(), wire all seams, hand to TurnController.
-## Pinned by test_multi_round_loop.gd source inspection — must remain in MainScene.
+## Obtain fresh RoundSession via begin_round(), wire all seams, hand to TurnController. Pinned by test_multi_round_loop.gd source inspection — must remain in MainScene.
 func rewire_session() -> void:
 	round_session = run_round_use_case.begin_round(ROUND_NUMBER, _party, _enemies)
 
@@ -517,8 +516,7 @@ func rewire_session() -> void:
 	outcome = round_session.outcome()
 
 
-## Builds pathfinder_fn from EncounterTileAdapter + HexPathfinder and injects
-## it into both the player Stride controller and the AI decision port (FEAT-007).
+## Builds pathfinder_fn from EncounterTileAdapter + HexPathfinder and injects it into both the player Stride controller and the AI decision port (FEAT-007).
 func _rewire_combat_pathfinder(ai_decision_port, encounter_id: String) -> void:
 	var encounter_resource = _active_encounter_resource(encounter_id)
 	if encounter_resource == null:
@@ -609,8 +607,7 @@ func _strike_reachable_target_ids() -> Array:
 	return _controller("STRIKE").reachable_target_ids()
 
 
-## Live ActionEconomy lookup: object-identity match first, display_id fallback.
-## Ensures reactor's own budget is charged, never the attacker's.
+## Live ActionEconomy lookup: object-identity match first, display_id fallback. Ensures reactor's own budget is charged, never the attacker's.
 func _action_economy_for(combatant):
 	if encounter == null:
 		return null
@@ -675,8 +672,7 @@ func _current_round_number() -> int:
 	return ROUND_NUMBER
 
 
-## Memoized deps dict for all ActionControllers (data-driven VERB_TABLE).
-## Callables read state fresh each call; extra keys are harmless.
+## Memoized deps dict for all ActionControllers (data-driven VERB_TABLE). Callables read state fresh each call; extra keys are harmless.
 func _verb_deps() -> Dictionary:
 	if _verb_deps_cache == null:
 		_verb_deps_cache = {
@@ -722,18 +718,7 @@ func _controller(verb_id: String):
 
 var _combine_sub_action_controllers: Dictionary = {}
 
-## Combine sub-action controller resolver (regression fix for FEAT-007):
-## core/controllers/combine_action_controller.gd's _dispatch_sub_actions()
-## invokes each sub-action's execute() via `Callable.call()`, never
-## `await`, by explicit documented design -- safe only when no sub-
-## controller's execute() ever genuinely suspends. FEAT-007's hex_grid_view
-## wiring gives STRIDE/STEP a real, time-based animate_token_to() Tween
-## await, which `Callable.call()` cannot correctly resume. Combine dispatch
-## therefore resolves STRIDE/STEP through a SEPARATE, un-animated instance
-## (same VERB_TABLE class, same deps minus "hex_grid_view") instead of the
-## shared, memoized `_controller(verb_id)` the real verb bar/`_verb_registry`
-## path uses (and which DOES want the real animation). Every other verb_id
-## is unaffected and still resolves through `_controller()`.
+## Combine sub-action controller resolver (regression fix for FEAT-007): `Callable.call()`-driven combine dispatch can't await a real Tween, so STRIDE/STEP resolve through a SEPARATE, un-animated instance (same class, deps minus "hex_grid_view") instead of the shared `_controller(verb_id)`. Every other verb_id still resolves through `_controller()`.
 func _combine_sub_action_controller(verb_id: String):
 	if verb_id != "STRIDE" and verb_id != "STEP":
 		return _controller(verb_id)
@@ -766,8 +751,7 @@ func _on_active_actor_changed(combatant) -> void:
 	_turn_presentation().on_active_actor_changed(combatant)
 	AutoSelectActiveActorUseCaseClass.new(hex_grid_view, status_panel_view, Callable(self, "_current_party")).execute(combatant); preload("res://presentation/combat_camera_follow_use_case.gd").new(hex_grid_view, Callable(_game_camera, "move_to"), scenario_session, Callable(self, "_current_party"), Callable(self, "_current_enemies")).execute(combatant); equipment_panel_toggle_controller.refresh_for_active_actor(combatant, equipment_panel_ui, scenario_session, _party)
 
-## Finish round: undecided→ROUND_NUMBER++ + rewire_session(); won→_on_combat_won().
-## Relays to round_flow_controller.notify_round_concluded() at end.
+## Finish round: undecided→ROUND_NUMBER++ + rewire_session(); won→_on_combat_won(). Relays to round_flow_controller.notify_round_concluded() at end.
 func _on_round_over() -> void:
 	if round_session == null:
 		return
@@ -873,14 +857,12 @@ func _order_candidate_reactors_by_initiative(candidates: Array) -> Array:
 	return _reaction_instance.order_candidate_reactors_by_initiative(candidates)
 
 
-## Defensive ordering guard (FIND-224): assert+push_error if candidates violate initiative order.
-## Returns true when consistent, false on violation.
+## Defensive ordering guard (FIND-224): assert+push_error if candidates violate initiative order. Returns true when consistent, false on violation.
 func _assert_candidate_reactors_ordering(ordered_candidates: Array, turn_order: Array) -> bool:
 	return _reaction_instance.assert_candidate_reactors_ordering(ordered_candidates, turn_order)
 
 
-## Recompute Off-Guard for all combatants via Flanking rules.
-## Writes into combatant.conditions (affects live Strike resolution) AND pushes to StatusPanelView.
+## Recompute Off-Guard for all combatants via Flanking rules. Writes into combatant.conditions (affects live Strike resolution) AND pushes to StatusPanelView.
 func _refresh_off_guard_conditions() -> void:
 	var living_party:   Array = _combat_query_service.living_combatants(_party)
 	var living_enemies: Array = _combat_query_service.living_combatants(_enemies)
@@ -902,15 +884,7 @@ func _refresh_off_guard_conditions() -> void:
 	_sync_exploration_hud()  # FEAT-381 (US-006): party HP/stamina may have shifted -- refresh Rest Button state
 
 
-## FEAT-381 (US-006; FR-008; resolves DEF-002): pushes MainScene's real
-## _game_mode and _party into the composition-rooted ExplorationHUD, mirroring
-## verb_bar_view's refresh_availability() re-query convention -- the SAME
-## shared core/api/game_mode_reader.gd helper ExplorationHUD.set_game_mode()
-## and RestActionGuard both read (RISK-007: visibility/execution checks can
-## never structurally diverge). Called once at boot and again every time
-## _game_mode transitions or _refresh_off_guard_conditions() runs (the
-## codebase's existing "party state changed" hook), so the Rest Button's
-## visible/disabled state never drifts from MainScene's real, live state.
+## FEAT-381 (US-006, resolves DEF-002): pushes real _game_mode/_party into ExplorationHUD (RISK-007) -- called at boot and on every state change.
 func _sync_exploration_hud() -> void:
 	if exploration_hud == null:
 		return
