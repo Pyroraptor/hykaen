@@ -147,7 +147,8 @@ var outcome: String = ""
 @onready var turn_controller     = $TurnController
 @onready var end_turn_control    = $UILayer/EndTurnControl
 @onready var verb_bar_view       = $UILayer/VerbBarView
-@onready var exploration_hud     = $UILayer/ExplorationHUD  # FEAT-381 (US-006, resolves DEF-002): Rest Button HUD, sibling of VerbBarView
+@onready var exploration_hud        = $UILayer/ExplorationHUD  # FEAT-381: Rest Button HUD
+@onready var rest_panel_controller  = $UILayer/RestPanelController  # FEAT-382: rest panel composition root
 @onready var reaction_prompt_ui  = $UILayer/ReactionPromptUI
 @onready var result_screen_view  = $UILayer/ResultScreenView
 @onready var equipment_panel_ui  = $UILayer/EquipmentPanelUI  # FEAT-010 (US-011): hidden by default, toggled by 'E'
@@ -884,12 +885,15 @@ func _refresh_off_guard_conditions() -> void:
 	_sync_exploration_hud()  # FEAT-381 (US-006): party HP/stamina may have shifted -- refresh Rest Button state
 
 
-## FEAT-381 (US-006, resolves DEF-002): pushes real _game_mode/_party into ExplorationHUD (RISK-007) -- called at boot and on every state change.
+## Pushes _game_mode/_party into ExplorationHUD + RestPanelController — called at boot and on every state change.
 func _sync_exploration_hud() -> void:
-	if exploration_hud == null:
-		return
-	exploration_hud.set_game_mode(_game_mode)
-	exploration_hud.set_party(_party)
+	if exploration_hud != null:
+		exploration_hud.set_game_mode(_game_mode)
+		exploration_hud.set_party(_party)
+		if rest_panel_controller != null:
+			exploration_hud.set_rest_panel(rest_panel_controller)
+	if rest_panel_controller != null:
+		rest_panel_controller.set_game_mode(_game_mode)
 
 
 ## Test seam — called directly by test_intuition_*.gd and test_build_enemy_combatant_defenses.gd.

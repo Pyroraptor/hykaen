@@ -1,4 +1,4 @@
-[gd_scene load_steps=13 format=3 uid="uid://dydrmopo707d7"]
+[gd_scene load_steps=14 format=3 uid="uid://dydrmopo707d7"]
 
 [ext_resource type="Script" path="res://MainScene.gd" id="1_mainscene"]
 [ext_resource type="PackedScene" path="res://presentation/hex_grid_view.tscn" id="2_hexgrid"]
@@ -13,6 +13,7 @@
 [ext_resource type="Script" path="res://presentation/game_camera.gd" id="13_gamecamera"]
 [ext_resource type="PackedScene" path="res://scenes/equipment_panel.tscn" id="14_equipmentpanel"]
 [ext_resource type="PackedScene" path="res://presentation/exploration_hud.tscn" id="15_explorationhud"]
+[ext_resource type="PackedScene" path="res://presentation/ui/rest_panel.tscn" id="16_restpanel"]
 
 [node name="MainScene" type="Node"]
 script = ExtResource("1_mainscene")
@@ -41,6 +42,8 @@ script = ExtResource("7_turncontroller")
 [node name="VerbBarView" parent="UILayer" instance=ExtResource("11_verbbarview")]
 
 [node name="ExplorationHUD" parent="UILayer" instance=ExtResource("15_explorationhud")]
+
+[node name="RestPanelController" parent="UILayer" instance=ExtResource("16_restpanel")]
 
 [node name="ResultScreenView" parent="UILayer" instance=ExtResource("9_resultscreenview")]
 

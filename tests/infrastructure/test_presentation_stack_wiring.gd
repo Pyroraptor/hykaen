@@ -61,6 +61,7 @@ const VerbBarViewClass             = preload("res://presentation/verb_bar_view.g
 const ReactionPromptUIClass        = preload("res://scenes/ui/reaction_prompt_ui.gd")
 const EquipmentPanelUIClass        = preload("res://presentation/equipment_panel_ui.gd")
 const ExplorationHUDClass          = preload("res://presentation/exploration_hud.gd")
+const RestPanelControllerClass     = preload("res://presentation/rest_panel_controller.gd")
 
 ## Every path under presentation/* is a legitimate signal-handler home; the
 ## composition root itself (MainScene.gd, res:// root, NOT presentation/*) is
@@ -125,8 +126,9 @@ const _EXPECTED_UI_LAYER_CHILDREN: Dictionary = {
 	"EventLogView":    EventLogViewClass,
 	"EndTurnControl":  EndTurnControlClass,
 	"VerbBarView":     VerbBarViewClass,
-	"ExplorationHUD":  ExplorationHUDClass,
-	"ResultScreenView": ResultScreenViewClass,
+	"ExplorationHUD":        ExplorationHUDClass,
+	"RestPanelController":   RestPanelControllerClass,
+	"ResultScreenView":      ResultScreenViewClass,
 	"ReactionPromptUI": ReactionPromptUIClass,
 	"EquipmentPanelUI": EquipmentPanelUIClass,
 }
