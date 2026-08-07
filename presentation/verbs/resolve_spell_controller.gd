@@ -175,6 +175,7 @@ const ResourceSpellCatalogAdapterClass = preload("res://core/adapters/resource_s
 const HexMathClass = preload("res://core/geometry/hex_math.gd")
 const SpellClass = preload("res://core/domain/spell.gd")
 const ResolveCastUseCaseClass = preload("res://core/application/use_cases/resolve_cast_use_case.gd")
+const SelectionResolutionUseCaseClass = preload("res://core/application/selection_resolution_use_case.gd")
 
 ## 1 hex == 5 ft — the project-wide convention (docs/hollow-world-v0-spec.org,
 ## core/model/weapon_resource.gd's range_hexes doc). Spell range is authored
@@ -192,7 +193,9 @@ var _candidates_fn: Callable
 var _resolution_port
 var _combat_log_port
 var _energy_pool_fn: Callable
+var _combatant_roster_fn: Callable
 var _resolve_cast_use_case := ResolveCastUseCaseClass.new()
+var _selection_resolution_use_case := SelectionResolutionUseCaseClass.new()
 
 
 func _init(deps: Dictionary = {}) -> void:
@@ -202,6 +205,16 @@ func _init(deps: Dictionary = {}) -> void:
 	_resolution_port = deps.get("resolution_port", null)
 	_combat_log_port = deps.get("combat_log_port", null)
 	_energy_pool_fn = deps.get("energy_pool_fn", Callable())
+	# FEAT-006 (US-005; FR-004, ADR-004): the FULL live combatant roster (every
+	# combatant in the encounter -- caster, allies, AND enemies; unlike
+	# "candidates_fn" above, which is scoped to the enemy-only pool the
+	# SCALAR/single-target flow range-filters), consulted ONLY by the AoE
+	# branch below (`_maybe_resolve_aoe_cast()`). Defaults to an invalid
+	# Callable, mirroring every other "unwired collaborator -> safe fallback"
+	# dep on this class -- no live composition-root wiring exists for this yet
+	# (a future feature threads MainScene.gd's real `_party + _enemies` roster
+	# through, the same way `candidates_fn` is threaded in today).
+	_combatant_roster_fn = deps.get("combatant_roster_fn", Callable())
 
 
 ## execute(actor) -> Dictionary{success, target_id, target, error,
@@ -220,7 +233,7 @@ func _init(deps: Dictionary = {}) -> void:
 ## not casting, remaining_actions != 0) returns `_skip_result()` WITHOUT
 ## ever invoking TargetingPort OR ResolutionPort — the gate test_criteria
 ## #1/#3 assert against.
-func execute(actor, round_number: int = 0, pre_chosen_target_id: String = "") -> Dictionary:
+func execute(actor, round_number: int = 0, pre_chosen_target_id: String = "", aoe_origin_hex = null) -> Dictionary:
 	if not _should_resolve(actor):
 		return _skip_result()
 
@@ -231,6 +244,17 @@ func execute(actor, round_number: int = 0, pre_chosen_target_id: String = "") ->
 		# longer resolves through the catalog) — mirrors
 		# ContinueCastUseCase's own ERR_INVALID_STATE fail-safe convention.
 		return _fail(ErrorCodeClass.ERR_INVALID_STATE)
+
+	if spell.is_area_effect() and aoe_origin_hex != null:
+		# FEAT-006 (US-005; FR-004, ADR-004): the AoE branch -- see
+		# `_maybe_resolve_aoe_cast()`'s own doc. Gated on BOTH
+		# is_area_effect() (never reached by a single-target spell like Fire
+		# Bolt, even if a caller mistakenly supplies `aoe_origin_hex` --
+		# test_criteria #5's regression guard) AND a non-null
+		# `aoe_origin_hex` (an area-effect spell invoked the pre-FEAT-006 way,
+		# with no origin yet resolved, falls through to the unchanged
+		# single-target flow below rather than crashing).
+		return _maybe_resolve_aoe_cast(actor, spell, aoe_origin_hex, round_number)
 
 	if spell.range_ft <= 0:
 		# Self/no-target spell (e.g. Channel) — never opens targeting at all
@@ -346,6 +370,68 @@ func _maybe_resolve_attack(actor, spell, target, round_number: int = 0):
 	if _resolution_port == null:
 		return null
 	return _resolve_cast_use_case.execute(actor, spell, [target], _resolution_port, _combat_log_port, Callable(), round_number)
+
+
+## _maybe_resolve_aoe_cast(actor, spell, origin_hex, round_number) ->
+## Dictionary — FEAT-006 (US-005; FR-004, ADR-004): the AoE-target-collection
+## + resolution wiring step connecting FEAT-005's AREA_SET origin pick to
+## FEAT-003's multi-target ResolveCastUseCase. Extracts the affected hex set
+## from `origin_hex` via
+## core/application/selection_resolution_use_case.gd's
+## SelectionResolutionUseCase.affected_set() (parametrized by
+## `spell.area_hex_radius()`, domain-owned — no radius math happens here),
+## filters `_combatant_roster_fn`'s live combatant list down to those whose
+## `hex_coord` falls inside that set (`_combatants_in_hexes()` below), and
+## hands the resulting Combatant[] straight to ResolveCastUseCase.execute()
+## — NO friendly-fire filter is applied (ADR-004): a combatant occupying the
+## origin hex, including the caster itself, is collected exactly like any
+## other in-area combatant. An empty targets Array (no combatant anywhere in
+## the affected set) is not an error — it is handed to ResolveCastUseCase
+## exactly as-is, which resolves it via its own documented empty-targets
+## success path (test_criteria #4).
+##
+## Mirrors `_maybe_resolve_attack()`'s "no ResolutionPort wired -> nothing to
+## resolve" convention: an unwired `_resolution_port` skips
+## ResolveCastUseCase entirely (`resolve_cast_result` stays null on the
+## returned Dictionary) rather than crashing or fabricating a result.
+## `_maybe_discharge_item()` is still invoked afterward, mirroring every
+## other resolve path in this file (its own null-`resolve_cast_result`
+## no-op guard makes this safe even when ResolutionPort was never reached).
+func _maybe_resolve_aoe_cast(actor, spell, origin_hex, round_number: int = 0) -> Dictionary:
+	var result := {"success": true, "target_id": null, "target": null, "error": ErrorCodeClass.NONE}
+
+	var affected_hexes: Array = _selection_resolution_use_case.affected_set(origin_hex, {"radius": spell.area_hex_radius()})
+	var targets: Array = _combatants_in_hexes(affected_hexes)
+
+	var resolve_cast_result = null
+	if _resolution_port != null:
+		resolve_cast_result = _resolve_cast_use_case.execute(actor, spell, targets, _resolution_port, _combat_log_port, Callable(), round_number)
+		result["resolve_cast_result"] = resolve_cast_result
+
+	_maybe_discharge_item(actor, spell, resolve_cast_result)
+	return result
+
+
+## _combatants_in_hexes(hexes) -> Array — every combatant from
+## `_combatant_roster_fn` (defaulting to an empty Array when unwired/invalid,
+## mirroring `_in_range_candidates()`'s identical degrade) whose `hex_coord`
+## equals (HexCoord.equals()) one of `hexes`. A null combatant/`hex_coord` is
+## skipped rather than crashing (mirrors `_in_range_candidates()`'s own
+## null-guard convention).
+func _combatants_in_hexes(hexes: Array) -> Array:
+	var roster: Array = _combatant_roster_fn.call() if _combatant_roster_fn.is_valid() else []
+	var in_area: Array = []
+	for combatant in roster:
+		if combatant == null:
+			continue
+		var combatant_hex = combatant.hex_coord
+		if combatant_hex == null:
+			continue
+		for hex_coord in hexes:
+			if combatant_hex.equals(hex_coord):
+				in_area.append(combatant)
+				break
+	return in_area
 
 
 ## _in_range_candidates(actor, range_ft) -> Array — every candidate from
