@@ -138,6 +138,17 @@ const ProvokeReactionOnCastUseCaseClass = preload("res://core/application/use_ca
 const CancelCastUseCaseClass = preload("res://core/application/use_cases/cancel_cast_use_case.gd")
 const CastingStateClass = preload("res://core/domain/casting_state.gd")
 const CombatLogEntryClass = preload("res://core/domain/combat_log_entry.gd")
+const SelectionDescriptorClass = preload("res://core/application/selection_descriptor.gd")
+const SelectionResolutionUseCaseClass = preload("res://core/application/selection_resolution_use_case.gd")
+
+## 1 hex == 5 ft — the project-wide convention (mirrors
+## presentation/verbs/resolve_spell_controller.gd's identically-named/valued
+## constant, docs/hollow-world-v0-spec.org). FEAT-005 (US-004; FR-003,
+## ADR-002/ADR-006, RISK-002/RISK-003) is the first place THIS file converts
+## a spell's range_ft into a hex-grid radius (`_in_range_hexes()` below) --
+## `area_hex_radius()` itself already lives, tested, on the domain Spell VO
+## (core/domain/spell.gd).
+const FEET_PER_HEX: int = 5
 
 ## _spell_catalog_port — FEAT-005: the SpellCatalogPort collaborator every
 ## availability()/execute() call resolves a spell_id through. Reads
@@ -297,21 +308,43 @@ func availability() -> bool:
 ## session cannot yet supply a RoundEnergyPoolPort (see file-level "fail-safe
 ## degrade" doc) -- every pre-existing test/caller that never wires a real
 ## session-backed pool keeps its FEAT-004 behavior unchanged.
+##
+## FEAT-005 (US-004; FR-003, ADR-002/ADR-006): the entry point of the AoE-
+## targeting steel thread -- "player selects Fireball, targeting begins".
+## Once mid-cast with exactly one action remaining (the SAME "last action
+## before resolution" gate the pre-existing SCALAR branch below already
+## used), this now first resolves the in-progress spell through
+## `_spell_catalog_port` and branches on Spell.is_area_effect() (core/domain/
+## spell.gd, FEAT-001): an area-effect spell (e.g. Fireball) short-circuits
+## straight to `build_area_set_selection()` -- an ORIGIN-HEX pick
+## (candidate_hexes, resolution_mode AREA_SET, geometry_rule={radius:
+## spell.area_hex_radius()}), never a combatant-target pick
+## (candidate_targets stays []) -- BEFORE `_targeting_candidates_fn` is even
+## consulted, since an AoE origin is chosen by hex, not by clicking a target
+## token. A non-area-effect spell (e.g. Fire Bolt) or an unresolvable
+## spell_id (defensive; should be unreachable once BeginCastUseCase has
+## already validated it) falls through to the UNCHANGED SCALAR branch below
+## byte-for-byte -- US-008's regression guard.
 func enter_selection() -> Dictionary:
 	var actor = current_actor_entity()
 	if actor != null and actor.is_casting():
 		var state = CastingStateClass.from_dict(actor.casting_state)
-		if state.remaining_actions == 1 and _targeting_candidates_fn.is_valid():
-			# Last action before resolution — show living enemies as targets so
-			# the player picks the target via the overlay (same flow as STRIKE),
-			# keeping targeting out of execute() and avoiding async suspension.
-			var candidates: Array = _targeting_candidates_fn.call()
-			if not candidates.is_empty():
-				return {
-					"verb_id": "CAST_SPELL",
-					"candidate_targets": candidates.map(func(c): return c.display_id()),
-					"candidate_hexes": [],
-				}
+		if state.remaining_actions == 1:
+			var in_progress_spell = _spell_catalog_port.get_spell(state.spell_id) if _spell_catalog_port != null else null
+			if in_progress_spell != null and in_progress_spell.is_area_effect():
+				return build_area_set_selection(in_progress_spell, actor)
+			if _targeting_candidates_fn.is_valid():
+				# Last action before resolution — show living enemies as targets so
+				# the player picks the target via the overlay (same flow as STRIKE),
+				# keeping targeting out of execute() and avoiding async suspension.
+				var candidates: Array = _targeting_candidates_fn.call()
+				if not candidates.is_empty():
+					return {
+						"verb_id": "CAST_SPELL",
+						"resolution_mode": SelectionDescriptorClass.ResolutionMode.SCALAR,
+						"candidate_targets": candidates.map(func(c): return c.display_id()),
+						"candidate_hexes": [],
+					}
 		return {}
 
 	var spell_options: Array = []
@@ -325,6 +358,100 @@ func enter_selection() -> Dictionary:
 				spell_options.append({"id": spell_id, "label": label})
 
 	return {"verb_id": "CAST_SPELL", "candidate_options": spell_options, "candidate_hexes": [], "candidate_targets": []}
+
+
+## build_area_set_selection(spell, caster, pool_port = null) -> Dictionary —
+## FEAT-005 (US-004; FR-003, ADR-002/ADR-006): the entry point of the
+## AoE-targeting steel thread, exposed as a public, directly-callable method
+## (design notes' api_contracts #1: "SpellActionController.enter_selection(
+## spell, caster) -> SelectionDescriptor") so it can be exercised with an
+## already-resolved spell/caster pair without needing a live, mid-cast
+## RoundSession -- `enter_selection()` above (the real, wired verb-table
+## entry point) delegates to this SAME method once it has resolved the
+## in-progress spell, so there is exactly one implementation of the
+## AREA_SET-vs-SCALAR branching rule.
+##
+## Branches on Spell.is_area_effect() (core/domain/spell.gd, FEAT-001):
+##   - area-effect spell -> resolution_mode=AREA_SET, geometry_rule=
+##     {"radius": spell.area_hex_radius()}, candidate_hexes = every hex
+##     within `spell.range_ft` of `caster`'s own hex (via `_in_range_hexes()`
+##     below -- RISK-002: caster's own hex is always included),
+##     candidate_targets = [] (an AoE origin is chosen by hex, never by
+##     clicking a target token).
+##   - non-area-effect spell (e.g. Fire Bolt) -> unchanged SCALAR shape:
+##     resolution_mode=SCALAR, candidate_targets from the injected
+##     `_targeting_candidates_fn` (mirrors enter_selection()'s pre-existing
+##     behavior), candidate_hexes = [].
+##
+## Fail-safe (api_contracts #1's error path, never a crash): `spell == null`,
+## `caster == null`, or (only when a `pool_port` is explicitly supplied --
+## enter_selection()'s own mid-cast call site never passes one, since energy
+## was already committed at BeginCastUseCase time) `caster` affording less
+## than `spell.energy_cost` against `pool_port.balance()` all short-circuit
+## to `_invalid_selection_descriptor()` -- is_valid=false, both candidate
+## arrays empty -- before any HexMath/affected_set() call is even attempted.
+func build_area_set_selection(spell, caster, pool_port = null) -> Dictionary:
+	if spell == null or caster == null:
+		return _invalid_selection_descriptor()
+	if pool_port != null and pool_port.balance(caster.display_id()) < spell.energy_cost:
+		return _invalid_selection_descriptor()
+
+	if spell.is_area_effect():
+		return {
+			"verb_id": "CAST_SPELL",
+			"is_valid": true,
+			"resolution_mode": SelectionDescriptorClass.ResolutionMode.AREA_SET,
+			"geometry_rule": {"radius": spell.area_hex_radius()},
+			"candidate_hexes": _in_range_hexes(caster, spell.range_ft),
+			"candidate_targets": [],
+		}
+
+	var candidates: Array = _targeting_candidates_fn.call() if _targeting_candidates_fn.is_valid() else []
+	return {
+		"verb_id": "CAST_SPELL",
+		"is_valid": true,
+		"resolution_mode": SelectionDescriptorClass.ResolutionMode.SCALAR,
+		"geometry_rule": null,
+		"candidate_hexes": [],
+		"candidate_targets": candidates.map(func(c): return c.display_id()),
+	}
+
+
+## _invalid_selection_descriptor() -> Dictionary — the fail-safe shape
+## build_area_set_selection() returns for a malformed/unaffordable request
+## (file-level doc): is_valid=false, both candidate arrays empty, never a
+## fabricated resolution_mode/geometry_rule.
+func _invalid_selection_descriptor() -> Dictionary:
+	return {
+		"verb_id": "CAST_SPELL",
+		"is_valid": false,
+		"resolution_mode": SelectionDescriptorClass.ResolutionMode.SCALAR,
+		"geometry_rule": null,
+		"candidate_hexes": [],
+		"candidate_targets": [],
+	}
+
+
+## _in_range_hexes(caster, range_ft) -> Array[HexCoord] — RISK-002/RISK-003:
+## every hex within `range_ft` (converted to hex-grid steps via FEET_PER_HEX,
+## rounded down) of `caster`'s own hex_coord, ALWAYS including caster's own
+## hex. Reuses core/application/selection_resolution_use_case.gd's
+## SelectionResolutionUseCase.affected_set() -- the SAME BFS ring-expansion
+## primitive that already computes "every hex within N steps of an origin"
+## for the AREA_SET blast-radius preview -- rather than re-deriving a
+## parallel range-circle helper (audited first per RISK-002: affected_set()
+## unconditionally seeds its BFS visited-set with `origin` itself before any
+## expansion happens, so the caster's own hex can never be excluded; no
+## LOS/movement exclusion is ever applied, since the underlying
+## HexMath.hex_neighbors() primitive knows nothing about terrain, occupancy,
+## or other combatants -- pure hex-grid adjacency only). A null `caster`/
+## `caster.hex_coord` fails safe to an empty Array, never a crash.
+func _in_range_hexes(caster, range_ft: int) -> Array:
+	var caster_hex = caster.hex_coord if caster != null else null
+	if caster_hex == null:
+		return []
+	var range_hexes: int = int(range_ft / FEET_PER_HEX)
+	return SelectionResolutionUseCaseClass.new().affected_set(caster_hex, {"radius": range_hexes})
 
 
 ## execute(selection) -> Dictionary — US-004 contract #3, completed by
