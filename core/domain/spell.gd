@@ -111,6 +111,19 @@ var effect_params: Dictionary = {}
 ## trailing constructor argument is unaffected).
 var condition_on_hit: String = ""
 
+## Area-of-effect radius in feet. 0 == not an area-effect spell (FEAT-001,
+## US-001; ADR-005 domain purity). Single source of truth for AoE radius —
+## mirrors core/resources/spell_resource.gd SpellResource's field of the
+## same name. Defaults to 0 (NFR-001 backward compatibility default —
+## every pre-existing caller/fixture omitting this trailing constructor
+## argument is unaffected and remains a non-area-effect spell).
+var area_effect_radius_ft: int = 0
+
+## Feet-per-hex conversion constant (project-wide fixed constant: 1 hex ==
+## 5 ft), used by area_hex_radius() to convert area_effect_radius_ft into a
+## hex count for the BFS-based area-expansion primitives.
+const FEET_PER_HEX: int = 5
+
 
 func _init(
 	p_spell_id: String = "",
@@ -124,7 +137,8 @@ func _init(
 	p_traits: Array = [],
 	p_effect_type: int = EffectKindClass.DAMAGE,
 	p_effect_params: Dictionary = {},
-	p_condition_on_hit: String = ""
+	p_condition_on_hit: String = "",
+	p_area_effect_radius_ft: int = 0
 ) -> void:
 	spell_id = p_spell_id
 	spell_name = p_spell_name
@@ -138,9 +152,25 @@ func _init(
 	effect_type = p_effect_type
 	effect_params = p_effect_params.duplicate()
 	condition_on_hit = p_condition_on_hit
+	area_effect_radius_ft = p_area_effect_radius_ft
 
 
 ## has_trait(trait_name) -> bool — true iff `trait_name` is present in this
 ## spell's traits Array (e.g. "Concentrate").
 func has_trait(trait_name: String) -> bool:
 	return traits.has(trait_name)
+
+
+## is_area_effect() -> bool — true iff this spell has a non-zero
+## area_effect_radius_ft (i.e. it is an area-effect spell rather than a
+## single-target/self-only spell).
+func is_area_effect() -> bool:
+	return area_effect_radius_ft > 0
+
+
+## area_hex_radius() -> int — area_effect_radius_ft converted to a hex-grid
+## radius (1 hex == 5 ft, FEET_PER_HEX), for consumption by the
+## BFS-based area-expansion primitives (SelectionResolutionUseCase.
+## affected_set()). Returns 0 for a non-area-effect spell.
+func area_hex_radius() -> int:
+	return area_effect_radius_ft / FEET_PER_HEX

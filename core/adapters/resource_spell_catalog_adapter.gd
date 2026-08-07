@@ -76,5 +76,6 @@ func get_spell(spell_id: String):
 		spell_resource.traits,
 		spell_resource.effect_type,
 		spell_resource.effect_params,
-		spell_resource.condition_on_hit
+		spell_resource.condition_on_hit,
+		spell_resource.area_effect_radius_ft
 	)
