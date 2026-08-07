@@ -203,14 +203,14 @@ class _FakeSession:
 # Fixture construction — REAL production CombatantFactory, REAL .tres data.
 # ══════════════════════════════════════════════════════════════════════════
 
-func _build_gram_marx(hex_coord):
+func _build_gram_marx(hex_coord) -> CombatantClass:
 	var factory := CombatantFactoryClass.new()
 	var spec: Dictionary = factory.build_party_combatant(GRAM_MARX_PATH, hex_coord, "gram_marx_1")
 	assert_false(spec.has("error"), "fixture assumption: gram_marx.tres must build a valid combatant with no error")
 	return CombatantClass.from_dict(spec)
 
 
-func _build_enemy(id: String, hex_coord):
+func _build_enemy(id: String, hex_coord) -> CombatantClass:
 	var factory := CombatantFactoryClass.new()
 	var spec: Dictionary = factory.build_enemy_combatant(SKELETON_PATH, hex_coord, id)
 	assert_false(spec.has("error"), "fixture assumption: the Skeleton enemy resource must build a valid combatant with no error")
@@ -238,7 +238,7 @@ func test_fireball_aoe_damages_in_radius_enemies_and_spares_out_of_radius_enemy_
 	assert_gt(enemy_a_hp_max, 0, "fixture assumption: the Skeleton must have positive hp_max")
 
 	var catalog := ResourceSpellCatalogAdapterClass.new()
-	var fireball := catalog.get_spell("fireball")
+	var fireball = catalog.get_spell("fireball")
 	assert_not_null(fireball, "fixture assumption: data/spells/fireball.tres must load as a valid Spell through the real catalog adapter")
 	assert_eq(fireball.area_hex_radius(), AREA_HEX_RADIUS, "fixture assumption: Fireball's area_effect_radius_ft (20ft) must resolve to a 4-hex blast radius")
 	assert_eq(HexMathClass.hex_distance(origin, enemy_a.hex_coord), 0)
