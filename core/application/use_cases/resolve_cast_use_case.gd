@@ -82,6 +82,43 @@
 ##      so `caster.is_casting()` is false and `caster.casting_state` is
 ##      empty the instant this call returns.
 ##
+## SCOPE (US-003, this feature — AoE Fireball steel thread's exit point):
+## makes the per-target loop above genuinely INDEPENDENT end-to-end for the
+## multi-target case an area-effect spell produces (ResolveSpellController
+## already filters a live combatant list down to Array[Combatant] and hands
+## the WHOLE array in — the loop over `targets` was already in place from
+## FEAT-009/FEAT-010; this feature's own change is the LOG step): instead of
+## folding every target's outcome into ONE aggregated CombatLogEntry (the
+## FEAT-276 shape below, which only ever recorded the FIRST target's hit/
+## damage), `_emit_combat_log_entries()` now emits EXACTLY ONE CombatLogEntry
+## PER target in `results` — each carrying that target's OWN
+## target_id/hit/damage_amount/roll_total, so three targets produce three
+## independent log rows (design notes' observability section: "emits exactly
+## one structured CombatLogEntry per target ... satisfying ... the US-003
+## acceptance criterion of one log line per combatant"). A single-target cast
+## (results.size() == 1) is therefore byte-for-byte unchanged — one entry in,
+## one entry out — which is exactly what tests/unit/application/
+## test_resolve_cast_use_case_single_target_baseline_pre_refactor.gd pins
+## down as a regression guard (RISK-001).
+##
+## Empty `targets` (design notes' architecture section: "Empty targets ->
+## {success: true} short-circuit ... no log entries") now emits ZERO
+## CombatLogEntries — a behavior change from FEAT-276's own "wasted-action"
+## entry (which had `target_ids: []`, `hit: null`). That FEAT-276 shape was
+## never reachable in production (ResolveSpellController only ever drives
+## this attack-defense branch with a single already-resolved, non-null
+## target — see that file's `_maybe_resolve_attack()`; the ADD_ENERGY branch
+## below, `_execute_add_energy()`, is a wholly separate code path this
+## feature does not touch and still always emits its own entry), so this
+## tightens an until-now-unobserved unit-test-only contract to match US-003's
+## explicit "no log entries" acceptance criterion, with no live-wiring
+## regression. `caster.cancel_cast()` (the unconditional CLEANUP step) is
+## UNCHANGED by this feature -- an empty-target resolve still consumes the
+## caster's in-progress cast exactly as FEAT-276 established; this feature's
+## "no domain mutation" scope is about the (nonexistent) TARGET combatants
+## for an empty `targets` Array, not the caster's own casting_state
+## bookkeeping.
+##
 ## Still explicitly OUT of this feature's scope (a later feature composes
 ## these remaining steps alongside this one): requesting target(s) via
 ## TargetingPort (already presentation/verbs/resolve_spell_controller.gd's
@@ -166,8 +203,10 @@ func get_effects_applier():
 ## failure. An empty (or null) `targets` Array is NOT an error — it simply
 ## yields an empty `results` Array (e.g. a wasted-action resolve with no
 ## valid target, per design notes' error_handling: "the cast still
-## resolves ... still completes") — CLEANUP/LOG still run in that case (see
-## file-level FEAT-276 doc). A null entry within `targets` is skipped
+## resolves ... still completes") — CLEANUP still runs in that case (see
+## file-level FEAT-276 doc); LOG does NOT (US-003, this feature: zero
+## CombatLogEntries for an empty `results` Array — see the file-level
+## US-003 scope note above). A null entry within `targets` is skipped
 ## rather than crashing (mirrors resolve_spell_controller.gd's own
 ## null-guard convention).
 ##
@@ -200,7 +239,7 @@ func execute(caster, spell, targets: Array, resolution_port, combat_log_port = n
 			"damage_applied": damage_applied,
 		})
 
-	_emit_combat_log_entry(caster, spell, results, combat_log_port, round_number)
+	_emit_combat_log_entries(caster, spell, results, combat_log_port, round_number)
 
 	# CLEANUP (FEAT-276; api_contracts #2): unconditional, regardless of
 	# hit/miss/no-valid-target -- the SOLE existing Combatant mutator that
@@ -279,53 +318,49 @@ func _apply_add_energy(caster, effect, energy_pool_fn) -> int:
 	return pool.current - before
 
 
-## _emit_combat_log_entry(caster, spell, results, combat_log_port) -> void
-## — FEAT-276 (US-011; FR-010, api_contracts #2's LOG step): builds ONE
+## _emit_combat_log_entries(caster, spell, results, combat_log_port) -> void
+## — US-003 (this feature, superseding FEAT-276's single-aggregated-entry
+## shape; api_contracts #2's LOG step + observability's "exactly one
+## structured CombatLogEntry per target"): builds and emits ONE
 ## core/domain/combat_log_entry.gd CombatLogEntry (EventType.CAST_RESOLVE)
-## from `caster.display_id()`/`spell.spell_id`/every `results` entry's
-## `target_id`, and the FIRST result's hit/damage_applied (Fire Bolt is
-## single-target this iteration — `hit`/`damage_amount` are left null when
-## `results` is empty, e.g. a wasted action with no valid target), then
-## hands it to `combat_log_port.emit()` -- skipped entirely (no
-## CombatLogEntry constructed at all) when `combat_log_port` is null (see
-## execute()'s own doc).
+## PER `results` entry -- each carrying ONLY that target's own
+## target_id/hit/damage_amount/roll_total (never another target's), so N
+## independently-resolved targets produce N independent log rows, in the
+## SAME order `results` (== `targets`) was processed. An empty `results`
+## Array (no valid target) now emits ZERO entries -- skipped entirely, same
+## as when `combat_log_port` itself is null (see execute()'s own doc and
+## this file's US-003 scope note above for why this differs from FEAT-276's
+## prior "one wasted-action entry with target_ids: []" behavior).
 ##
-## FEAT-001 (US-001; FR-001, FR-002): also passes `spell.damage_type`
-## through onto the built entry's `damage_type` field -- "" for spells with
+## FEAT-001 (US-001; FR-001, FR-002): still passes `spell.damage_type`
+## through onto every built entry's `damage_type` field -- "" for spells with
 ## no damage type (e.g. Channel), an unchanged value for every pre-existing
 ## spell fixture (NFR-001).
-func _emit_combat_log_entry(caster, spell, results: Array, combat_log_port, round_number: int = 0) -> void:
+func _emit_combat_log_entries(caster, spell, results: Array, combat_log_port, round_number: int = 0) -> void:
 	if combat_log_port == null:
 		return
 
-	var target_ids: Array = []
 	for result in results:
-		target_ids.append(result.get("target_id"))
-
-	var hit = null
-	var damage_amount = null
-	var roll_total = null
-	if not results.is_empty():
-		var first_result: Dictionary = results[0]
-		var attack_result: Dictionary = first_result.get("attack_result", {})
-		hit = attack_result.get("hit", false)
-		damage_amount = int(first_result.get("damage_applied", 0))
+		var attack_result: Dictionary = result.get("attack_result", {})
+		var hit = attack_result.get("hit", false)
+		var damage_amount: int = int(result.get("damage_applied", 0))
+		var roll_total = null
 		if attack_result.has("roll_total"):
 			roll_total = int(attack_result["roll_total"])
 
-	var entry := CombatLogEntryClass.new(
-		CombatLogEntryClass.EventType.CAST_RESOLVE,
-		caster.display_id(),
-		spell.spell_id,
-		target_ids,
-		hit,
-		damage_amount,
-		null,
-		round_number,
-		roll_total,
-		spell.damage_type
-	)
-	combat_log_port.emit(entry)
+		var entry := CombatLogEntryClass.new(
+			CombatLogEntryClass.EventType.CAST_RESOLVE,
+			caster.display_id(),
+			spell.spell_id,
+			[result.get("target_id")],
+			hit,
+			damage_amount,
+			null,
+			round_number,
+			roll_total,
+			spell.damage_type
+		)
+		combat_log_port.emit(entry)
 
 
 ## _apply_damage_on_hit(target, attack_result) -> int — FEAT-010 (US-010;

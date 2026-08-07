@@ -20,6 +20,13 @@ extends GutTest
 ##     after resolution regardless of hit/miss."
 ##   - CombatLogPort.emit() receives a CAST_RESOLVE entry with the correct
 ##     spell/target/hit-miss/damage fields.
+##
+## UPDATED by US-003 (multi-target processing, AoE Fireball steel thread):
+## an empty `targets` Array now emits ZERO CombatLogEntries (superseding this
+## file's original "one wasted-action entry" assertions — see
+## test_no_valid_target_emits_no_cast_resolve_entries below); CLEANUP
+## (casting_state clearing) is unchanged. See core/application/use_cases/
+## resolve_cast_use_case.gd's own US-003 doc for the full rationale.
 
 const ResolutionPortClass     = preload("res://core/application/ports/resolution_port.gd")
 const CombatLogPortClass      = preload("res://core/application/ports/combat_log_port.gd")
@@ -211,7 +218,14 @@ func test_miss_emits_a_cast_resolve_entry_with_hit_false_and_zero_damage() -> vo
 	assert_eq(entry.target_ids, ["skeleton"])
 
 
-func test_no_valid_target_emits_a_cast_resolve_entry_with_empty_targets_and_null_hit() -> void:
+## Updated by US-003 (multi-target processing, AoE Fireball steel thread):
+## an empty `targets` Array now emits ZERO CombatLogEntries (design notes'
+## architecture section: "Empty targets -> {success: true} short-circuit ...
+## no log entries"), superseding FEAT-276's original "one wasted-action
+## entry with target_ids: [] / hit: null" shape asserted here previously.
+## casting_state is still cleared (CLEANUP is unchanged by US-003 — see
+## test_casting_state_is_cleared_even_with_no_targets above).
+func test_no_valid_target_emits_no_cast_resolve_entries() -> void:
 	var caster := _caster_at(HexCoordClass.new(0, 0))
 	var spell := _fire_bolt()
 
@@ -219,13 +233,11 @@ func test_no_valid_target_emits_a_cast_resolve_entry_with_empty_targets_and_null
 	var log_spy := SpyCombatLogPort.new()
 
 	var use_case := ResolveCastUseCaseClass.new()
-	use_case.execute(caster, spell, [], resolution_spy, log_spy)
+	var result: Dictionary = use_case.execute(caster, spell, [], resolution_spy, log_spy)
 
-	assert_eq(log_spy.entries.size(), 1)
-	var entry = log_spy.entries[0]
-	assert_eq(entry.target_ids, [])
-	assert_null(entry.hit)
-	assert_null(entry.damage_amount)
+	assert_true(result.get("success"))
+	assert_eq(result.get("results"), [])
+	assert_true(log_spy.entries.is_empty(), "an empty targets Array must emit zero CombatLogEntries (US-003)")
 
 
 func test_no_combat_log_port_wired_never_crashes_and_still_clears_casting_state() -> void:
@@ -275,13 +287,21 @@ func test_emitted_combat_log_entry_carries_the_spells_damage_type_on_a_hit() -> 
 	assert_eq(entry.damage_type, "fire", "the emitted CombatLogEntry must carry the resolved spell's damage_type")
 
 
+## Updated by US-003 (multi-target processing): exercised against a real
+## (non-null) target rather than an empty `targets` Array — an empty Array
+## no longer emits any entry at all (see
+## test_no_valid_target_emits_no_cast_resolve_entries above), so this
+## damage_type-default regression check needs a genuine result to observe.
 func test_emitted_combat_log_entry_defaults_damage_type_to_empty_string_for_a_non_damage_spell() -> void:
 	var caster := _caster_at(HexCoordClass.new(0, 0))
+	var target := _enemy("skeleton", HexCoordClass.new(1, 0))
 	var spell := SpellClass.new("channel", "Channel", 1, 0, SpellClass.Defense.NONE, 0, "", "", ["Concentrate"])
+	var resolution_spy := SpyResolutionPort.new()
+	resolution_spy.scripted_result = _miss_result()
 	var log_spy := SpyCombatLogPort.new()
 
 	var use_case := ResolveCastUseCaseClass.new()
-	use_case.execute(caster, spell, [], SpyResolutionPort.new(), log_spy)
+	use_case.execute(caster, spell, [target], resolution_spy, log_spy)
 
 	assert_eq(log_spy.entries.size(), 1)
 	var entry = log_spy.entries[0]
