@@ -298,8 +298,10 @@ func on_turn_advanced_event(event) -> void:
 ## matching row (e.g. an event for a combatant this view was never loaded
 ## with) is a silent no-op.
 func on_combatant_defeated_event(event) -> void:
-	var name: String = _event_get(event, "name", "")
-	var combatant_id: String = _id_by_name.get(name, "")
+	var combatant_id: String = _event_get(event, "combatant_id", "")
+	if combatant_id == "" or not _rows.has(combatant_id):
+		var name: String = _event_get(event, "name", "")
+		combatant_id = _id_by_name.get(name, "")
 	if combatant_id == "" or not _rows.has(combatant_id):
 		return
 

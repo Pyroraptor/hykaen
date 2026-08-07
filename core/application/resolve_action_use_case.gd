@@ -638,7 +638,7 @@ func _finalize_strike_result(
 	var target_defeated: bool = target.hp_current <= 0
 	if target_defeated:
 		var defeated_event = RoundEventsClass.CombatantDefeatedEvent.new(
-			round_number, target.name, combatant.name
+			round_number, target.name, combatant.name, target.combatant_id
 		)
 		_emit_event(defeated_event)
 

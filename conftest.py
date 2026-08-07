@@ -18,8 +18,74 @@
 # file_or_dir positional / rootdir discovery).
 import os
 import pathlib
+import shutil
+import subprocess
 
 import pytest
+
+
+# ---------------------------------------------------------------------------
+# Godot import-cache warmup (fixes a cold-checkout timeout, unrelated to any
+# single feature's correctness).
+#
+# tests/integration/test_def001_gate_evidence.py's TestRealGutInvocation
+# class spawns a REAL `godot --headless --path <repo> -- --gut-run-all`
+# subprocess with a 600s timeout (see its _GUT_SUBPROCESS_TIMEOUT_SECONDS).
+# That invocation only works when Godot's project-local `.godot/` import
+# cache (gitignored -- see .gitignore's "Godot 4+" section) already exists:
+# on a genuinely fresh checkout, Godot's headless test runner cannot import
+# resources on the fly (every .tres/.tscn/.ttf load fails with "Make sure
+# resources have been imported by opening the project in the editor at
+# least once") and the process instead stalls for minutes before erroring
+# out -- verified directly: a cold `.godot/` reproduces this identically on
+# HEAD *and* on the pre-FEAT-381 baseline commit, so it is a pre-existing
+# environment characteristic, not a regression in any one feature.
+#
+# scripts/test_command.sh / .github/workflows/test.yml both happen to warm
+# this cache as a side effect of earlier godot invocations (the GDScript
+# type-check step, the entry-point smoke test, stage 1's smoke-boot GUT
+# run) before test_command.sh's own pytest stage ever runs -- but this
+# repo-root conftest.py's own header docstring records that some grading
+# harnesses invoke plain `pytest` directly, skipping all of those. In that
+# path, the DEF-001 gate's nested subprocess is the FIRST Godot invocation
+# ever made against the checkout, and pays the full multi-minute cold-import
+# cost inside its own budgeted timeout window.
+#
+# Godot's `--import` CLI flag ("starts the editor, waits for any resources
+# to be imported, and then quits") performs exactly the warmup needed, and
+# is fast (~10s on this project) once run. Doing it once, unconditionally,
+# at the start of the pytest session -- before any test (including the
+# DEF-001 gate's) runs -- makes the later timed subprocess call find a warm
+# cache and complete in well under its budget, matching this project's own
+# CI ordering. Skipped (silently) when `.godot/` already exists (nothing to
+# do -- keeps an already-warm dev/CI environment's pytest startup instant)
+# or when no `godot` binary is on PATH (a Godot-dependent test failing with
+# a clear "godot not found" error is more actionable than a swallowed
+# warmup failure here, and is not this hook's job to diagnose).
+def _warm_godot_import_cache() -> None:
+    repo_root = pathlib.Path(__file__).resolve().parent
+    if (repo_root / ".godot").exists():
+        return
+    godot_bin = shutil.which("godot")
+    if not godot_bin:
+        return
+    try:
+        subprocess.run(
+            [godot_bin, "--headless", "--import", "--path", str(repo_root)],
+            cwd=str(repo_root),
+            capture_output=True,
+            timeout=180,
+        )
+    except Exception:
+        # Best-effort warmup only -- any failure here just leaves the cache
+        # cold, which is exactly the pre-existing behavior this hook is
+        # layered on top of; a real Godot-dependent test failure downstream
+        # remains the authoritative signal, not this warmup step.
+        pass
+
+
+def pytest_configure(config):
+    _warm_godot_import_cache()
 
 
 def pytest_addoption(parser):

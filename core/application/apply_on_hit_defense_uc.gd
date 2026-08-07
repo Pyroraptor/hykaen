@@ -243,7 +243,7 @@ func apply(
 	var defender_defeated: bool = target.hp_current <= 0
 	if defender_defeated:
 		var defeated_event = RoundEventsClass.CombatantDefeatedEvent.new(
-			round_number, target.name, attacker.name
+			round_number, target.name, attacker.name, target.combatant_id
 		)
 		_event_sink_port.emit(defeated_event)
 

@@ -140,18 +140,21 @@ class CombatantDefeatedEvent:
 	var round: int
 	var name: String
 	var defeated_by: String
+	var combatant_id: String
 
-	func _init(p_round: int = 0, p_name: String = "", p_defeated_by: String = "") -> void:
-		round       = p_round
-		name        = p_name
-		defeated_by = p_defeated_by
+	func _init(p_round: int = 0, p_name: String = "", p_defeated_by: String = "", p_combatant_id: String = "") -> void:
+		round        = p_round
+		name         = p_name
+		defeated_by  = p_defeated_by
+		combatant_id = p_combatant_id
 
 	## to_dict() → Dictionary — snapshot of all fields, for assertions/logging.
 	func to_dict() -> Dictionary:
 		return {
-			"round":       round,
-			"name":        name,
-			"defeated_by": defeated_by,
+			"round":        round,
+			"name":         name,
+			"defeated_by":  defeated_by,
+			"combatant_id": combatant_id,
 		}
 
 
