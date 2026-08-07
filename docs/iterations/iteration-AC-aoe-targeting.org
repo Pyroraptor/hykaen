@@ -1,0 +1,285 @@
+#+TITLE: Iteration AC — AoE Spell Targeting
+#+SPRINT: 40
+#+VERSION: 0.2.2
+
+* Goal
+
+Wire area-of-effect spell targeting end-to-end: Fireball becomes the first
+AoE spell, letting the player pick an origin hex and damaging every
+combatant within the blast radius.  The targeting infrastructure
+(=SelectionDescriptor.ResolutionMode.AREA_SET=, =SelectionResolutionUseCase.affected_set()=,
+=HexMath=, =HexRingCalculator=, and =ResolveCastUseCase='s =targets: Array=
+signature) is already built and tested in isolation; this sprint wires it
+together through the spell data model, =SpellActionController=,
+=ResolveSpellController=, and =ResolveCastUseCase=.
+
+* Background
+
+Spell targeting today is strictly single-target:
+=ResolveSpellController.execute()= calls
+=_targeting_port.request_single_target(legal_targets)= and passes a
+one-element array to =ResolveCastUseCase=.  The resolution use case already
+accepts =targets: Array= (plural) but currently only ever receives one
+element.
+
+=SelectionDescriptor= already defines a =ResolutionMode.AREA_SET= path
+(alongside the current =SCALAR= single-target path) and
+=SelectionResolutionUseCase.affected_set(origin, geometry_rule)= already
+implements the BFS hex-set expansion.  The =SelectionOverlay= layer-2b flow
+for =AREA_SET= mode (origin pick → area preview → confirm) is already
+authored and tested in =tests/unit/test_selection_resolution_area_mode.gd=
+and =tests/integration/test_selection_overlay_area_targeting.gd=.
+
+=data/spells/fireball.tres= already exists with =range_ft: 100= and
+=effect_params: {"radius_ft": 20, ...}= seeded.  The =effect_params=
+approach was a temporary stub; this sprint promotes =radius_ft= to a
+first-class =@export= field on =SpellResource= and wires the data through
+to geometry.
+
+One hex = 5 ft throughout the project (matching the existing movement-to-ft
+conventions in =CombatantFactory= / attribute helpers).
+
+* Non-goals
+
+- Cone or line AoE shapes — only circular blast radius this iteration.
+- Friendly-fire toggle — Fireball always hits all combatants in the area
+  regardless of team; friendly-fire awareness is deferred.
+- AoE cantrips or reactions — only applies to cast-action spells.
+- Persistent area effects (damage-over-time zones) — deferred.
+- Visual blast animation — the hex area preview already highlights affected
+  hexes via =SelectionOverlay='s existing AREA_SET highlight; no additional
+  VFX required.
+
+* Read first
+
+Before implementing, read these files to understand what is already built:
+
+- =core/resources/spell_resource.gd= — SpellResource authoring schema
+- =core/domain/spell.gd= — Spell runtime VO
+- =data/spells/fireball.tres= — existing Fireball stub
+- =core/application/selection_resolution_use_case.gd= — =affected_set()= BFS
+- =presentation/selection_overlay.gd= lines 50–100 — AREA_SET layer-2b flow
+- =presentation/verbs/resolve_spell_controller.gd= — single-target path to extend
+- =core/application/use_cases/resolve_cast_use_case.gd= — targets loop to verify/extend
+- =core/geometry/hex_math.gd= — =hex_distance()= + =hex_neighbors()=
+- =tests/unit/test_selection_resolution_area_mode.gd= — existing AREA_SET tests
+- =tests/integration/test_selection_overlay_area_targeting.gd= — existing overlay tests
+- =tests/unit/test_resolve_spell_controller_targeting.gd= — existing single-target tests
+
+* Features
+
+** AC-0  Spell domain model — =area_effect_radius_ft= field
+
+*** AC-0-0  =area_effect_radius_ft= on =SpellResource=
+
+Add to =core/resources/spell_resource.gd=:
+
+#+BEGIN_SRC gdscript
+@export var area_effect_radius_ft: int = 0
+#+END_SRC
+
+A spell is AoE when =area_effect_radius_ft > 0=.
+
+*Test criteria:*
+- =SpellResource= with =area_effect_radius_ft = 20= serialises and
+  deserialises correctly (round-trip via =.tres= load).
+- Default value is =0= (non-AoE by default).
+
+*** AC-0-1  =area_effect_radius_ft= helpers on =Spell= VO
+
+Add to =core/domain/spell.gd=:
+
+#+BEGIN_SRC gdscript
+var area_effect_radius_ft: int = 0
+
+## True when this spell targets an area rather than a single combatant.
+func is_area_effect() -> bool:
+    return area_effect_radius_ft > 0
+
+## Blast radius in hex steps (1 hex = 5 ft).
+## Returns 0 for single-target spells.
+func area_hex_radius() -> int:
+    if area_effect_radius_ft <= 0:
+        return 0
+    return max(1, area_effect_radius_ft / 5)
+#+END_SRC
+
+Populate =area_effect_radius_ft= from =SpellResource= wherever =Spell= is
+constructed from a resource (same pattern as other fields).
+
+*Test criteria:*
+- =Spell= with =area_effect_radius_ft = 20= → =is_area_effect() == true=,
+  =area_hex_radius() == 4=.
+- =Spell= with =area_effect_radius_ft = 0= → =is_area_effect() == false=,
+  =area_hex_radius() == 0=.
+- =area_hex_radius()= rounds down (30 ft → 6, 15 ft → 3).
+
+*** AC-0-2  Update =fireball.tres= with =area_effect_radius_ft=
+
+Update =data/spells/fireball.tres=:
+- Set =area_effect_radius_ft = 20=.
+- Remove the now-redundant =radius_ft= key from =effect_params= (keep any
+  other keys).
+
+*Test criteria:*
+- Loading =fireball.tres= → =spell.is_area_effect() == true=.
+- =spell.area_hex_radius() == 4=.
+
+** AC-1  =SpellActionController= — AREA_SET selection mode for AoE spells
+
+In =presentation/verbs/spell_action_controller.gd=, update
+=enter_selection()= (currently builds a =SelectionDescriptor= with
+=ResolutionMode.SCALAR=).
+
+When the selected spell has =is_area_effect() == true=:
+- Set =resolution_mode = SelectionDescriptor.ResolutionMode.AREA_SET=.
+- Set =geometry_rule = {"radius": spell.area_hex_radius()}= on the
+  descriptor (used by =SelectionResolutionUseCase.affected_set()= and by
+  the =SelectionOverlay= preview).
+- =candidate_hexes= = all hexes within the spell's =range_ft= of the
+  caster's current hex (same range computation already used for the single-target
+  path — re-use the existing in-range hex helper or extract one).
+- =candidate_targets= = [] (AoE origin is chosen by hex, not by clicking a
+  target token).
+
+Non-AoE spells: unchanged (=SCALAR= mode, =candidate_targets= as today).
+
+*Test criteria:*
+- AoE spell (=is_area_effect() == true=) →
+  =enter_selection()["resolution_mode"] == SelectionDescriptor.ResolutionMode.AREA_SET=.
+- =enter_selection()["geometry_rule"]["radius"] == 4= for Fireball
+  (=area_effect_radius_ft = 20=).
+- =enter_selection()["candidate_hexes"]= is non-empty (at least the
+  caster's own hex is in range for a 100 ft spell).
+- Single-target spell (e.g. Fire Bolt) →
+  =enter_selection()["resolution_mode"] == SelectionDescriptor.ResolutionMode.SCALAR=
+  (regression).
+
+** AC-2  =ResolveSpellController= — collect AoE targets from affected area
+
+In =presentation/verbs/resolve_spell_controller.gd=, add an AoE branch
+after the origin hex is confirmed by the =SelectionOverlay= AREA_SET flow.
+
+Inspect the shape of the =SelectionOverlay='s AREA_SET resolved result (it
+is returned from =SelectionResolutionUseCase.resolve()= — check what keys
+it carries for the origin hex and/or the affected hex set).  Then:
+
+1. Retrieve the origin =HexCoord= from the resolved selection result.
+2. Instantiate =SelectionResolutionUseCase= (already available in
+   =ResolveSpellController='s context or via injection — use the same
+   pattern already used for single-target range computation).
+3. Call =affected_set(origin, {"radius": spell.area_hex_radius()})= to get
+   the =Array[HexCoord]= of affected hexes.
+4. Walk the current combatant list; collect every combatant whose
+   =hex_coord= falls in the affected set.
+5. Pass all collected combatants as the =targets= array to
+   =ResolveCastUseCase.execute()=.
+6. If no combatants are in the affected area, call =ResolveCastUseCase=
+   with an empty =targets= array (cast still resolves, just hits nothing).
+
+The single-target path (=is_area_effect() == false=) is unchanged.
+
+*Test criteria:*
+- 2 enemy combatants both within the fireball area → both included in
+  =targets= passed to =ResolveCastUseCase=.
+- 1 combatant outside the area, 1 inside → only the inside combatant
+  targeted.
+- Caster's own hex inside the area → caster is included in targets (AoE
+  can hit the caster; no friendly-fire filter this iteration).
+- AoE with empty area (no combatants) → =targets == []= passed to use
+  case; no crash.
+- Single-target spell → resolves through the unchanged single-target path
+  (regression test).
+
+** AC-3  =ResolveCastUseCase= — verify and complete multi-target loop
+
+Inspect =core/application/use_cases/resolve_cast_use_case.gd=.  The
+signature already accepts =targets: Array=.  Verify (or fix) that the use
+case actually iterates the full targets array:
+- Each target gets its own independent attack roll and damage application.
+- Condition-on-hit (e.g. =dazed=) is applied per-target independently.
+- One combat log entry is emitted per targeted combatant.
+- If =targets= is empty, the use case succeeds with no damage events and
+  no errors.
+
+If the current implementation only processes =targets[0]=, fix it to loop
+over all entries.
+
+*Test criteria:*
+- =execute(actor, fireball_spell, [target_a, target_b], ...)= →
+  both =target_a.hp_current= and =target_b.hp_current= decrease.
+- Each target's HP change is independent (separate roll per target).
+- =execute(actor, fireball_spell, [], ...)= → returns
+  ={success: true}= with no damage events emitted.
+- Single-target regression: =execute(actor, fire_bolt_spell, [target], ...)=
+  behaves identically to before (one target, one roll, one log entry).
+
+** AC-4  Add Fireball to Gram Marx's known spells and character data
+
+Gram Marx is the Wizard; Fireball is a Mage/Channeler area spell with
+=energy_cost: 2=.
+
+Update =data/characters/gram_marx.tres= (or whichever resource file stores
+Gram's =known_spell_ids=) to include ="fireball"= in the array.
+
+Ensure Gram's =energy_capacity= (Channeler pool) is at least 2 so he can
+afford to cast it (he currently has Channel + Frost Breath; raise capacity
+if needed, but prefer the minimum change — add 1 capacity if the existing
+value is < 2).
+
+*Test criteria:*
+- =gram_marx= loaded via =CharacterFactory= → combatant has
+  ="fireball"= in =known_spell_ids=.
+- =SpellActionController.availability()= returns true for Gram when he has
+  at least 2 energy in the pool.
+
+** AC-5  E2E test — Fireball hits multiple enemies in blast area
+
+New file: =tests/integration/test_aoe_fireball_e2e.gd=.
+
+Set up a minimal encounter:
+- Gram Marx as the acting combatant (with fireball known and energy_cost
+  affordable).
+- Two enemy combatants placed on adjacent hexes both within a 4-hex radius
+  of a chosen origin hex.
+- One enemy placed further away, clearly outside the blast radius.
+
+Execute:
+1. Begin + continue cast until =remaining_actions == 0=.
+2. Provide the origin hex as the targeting input.
+3. Call =ResolveCastUseCase.execute()= with the collected targets.
+
+Assert:
+- Both in-area enemies have =hp_current < hp_max= (took damage).
+- The out-of-area enemy is unchanged (=hp_current == hp_max=).
+- No GDScript errors thrown during the cast sequence.
+
+*Test criteria* (must be expressed as GUT =assert_*= calls):
+- =enemy_a.hp_current < enemy_a.hp_max= after cast.
+- =enemy_b.hp_current < enemy_b.hp_max= after cast.
+- =enemy_c.hp_current == enemy_c.hp_max= after cast.
+- No panics / errors logged.
+
+* Architecture constraints
+
+- =MainScene.gd= is at exactly 1000 lines (ADR-001 cap).  Do NOT add
+  any code to =MainScene.gd=.  All new logic belongs in
+  =SpellActionController=, =ResolveSpellController=,
+  =ResolveCastUseCase=, or the domain layer.
+- All new use-case logic goes in =core/= (domain or application layer).
+  No domain logic in =presentation/=.
+- Hex geometry helpers (if any are missing) belong in
+  =core/geometry/hex_math.gd=, not in controllers.
+- Commit all =.tres= data file changes before finishing (=CLAUDE.md=
+  hygiene rule).
+
+* Gate
+
+#+BEGIN_SRC bash
+/workspace/aef/aef-platform/.venv/bin/python -m pytest -q --tb=short \
+  && PATH=$HOME/.local/bin:$PATH godot --headless --path /workspace/hykaen \
+     -- --gut-run-all
+#+END_SRC
+
+Both commands must exit 0.  The GUT suite baseline entering this sprint is
+3400+ passing, 0 failing.

@@ -31,6 +31,10 @@
 ##                     Channel's ADD_ENERGY).
 ##   range_ft       — maximum range in feet. 0 == self/no target (e.g.
 ##                     Channel). Must be >= 0.
+##   area_effect_radius_ft — area-of-effect radius in feet. 0 == not an
+##                     area-effect spell. Single source of truth for AoE
+##                     radius (FEAT-001, ADR-001 part 1); replaces the
+##                     legacy effect_params['radius_ft'] convention.
 ##   damage_formula — dice/formula expression (e.g. "2d8+ATTR"); "" when
 ##                     effect_type is not DAMAGE.
 ##   damage_type    — elemental/damage type (e.g. "fire"); "" when unused.
@@ -76,6 +80,15 @@ const EffectKindClass = preload("res://core/domain/effects/effect_kind.gd")
 
 ## Maximum range in feet. 0 == self/no target (e.g. Channel). Must be >= 0.
 @export var range_ft: int = 0
+
+## Area-of-effect radius in feet. 0 == not an area-effect spell (single-
+## target/self only). Non-zero establishes this as the SINGLE source of
+## truth for AoE radius in the persistence layer (FEAT-001, ADR-001 part 1),
+## replacing the previous untyped effect_params['radius_ft'] convention.
+## Defaults to 0 so a pre-existing .tres authored before this field existed
+## (or a corrupt/missing value) fails safe to non-AoE rather than an
+## unbounded radius.
+@export var area_effect_radius_ft: int = 0
 
 ## Dice/formula expression string for damage effects (e.g. "2d8+ATTR"). ""
 ## when unused.
