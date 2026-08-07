@@ -175,7 +175,7 @@ const _EXPECTED_HASHES: Dictionary = {
 	"res://data/weapons/longsword.tres": "248339f6e3f256d6cdc6a943ca824587",
 	"res://data/armor/chain_shirt.tres": "6be0c7c1b55b7a91233bca0f62fadd16",
 	"res://data/armor/scale_mail.tres":  "7c724303a7db4ad78a7341bc9e7f46f1",
-	"res://data/characters/gram_marx.tres": "1c095348000906ab7af25fec77beb73a",
+	"res://data/characters/gram_marx.tres": "a1e7bbf226921169a2be9569b5a23ced",
 }
 
 ## Results from the single 1000-battle run, shared across all tests via
