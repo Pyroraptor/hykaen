@@ -289,6 +289,18 @@ func is_off_guard(combatant_id: String) -> bool:
 	return FlankingClass.OFF_GUARD_CONDITION in row.get("conditions", [])
 
 
+## update_conditions(combatant_id, conditions) — replace the displayed
+## conditions list for the given combatant and refresh its row label. Use
+## this after any domain event (e.g. spell resolution) that may have added
+## or removed conditions other than Off-Guard (which has its own
+## set_off_guard() method). Unknown combatant_id is a silent no-op.
+func update_conditions(combatant_id: String, conditions: Array) -> void:
+	if not _rows.has(combatant_id):
+		return
+	_rows[combatant_id]["conditions"] = conditions.duplicate()
+	_create_or_update_label(combatant_id)
+
+
 ## get_row_text(combatant_id) → String — the exact text rendered on this
 ## combatant's Label, for display-level assertions.
 func get_row_text(combatant_id: String) -> String:

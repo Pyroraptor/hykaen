@@ -274,3 +274,4 @@ func _on_selection_overlay_resolved(_verb_id: String, _result) -> void:
 		if _status_panel_view != null:
 			for combatant in _party_fn.call() + _enemies_fn.call():
 				_status_panel_view.update_combatant_hp(combatant.display_id(), combatant.hp_current)
+				_status_panel_view.update_conditions(combatant.display_id(), combatant.conditions)

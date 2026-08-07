@@ -331,7 +331,7 @@ func enter_selection() -> Dictionary:
 		var state = CastingStateClass.from_dict(actor.casting_state)
 		if state.remaining_actions == 1:
 			var in_progress_spell = _spell_catalog_port.get_spell(state.spell_id) if _spell_catalog_port != null else null
-			if in_progress_spell != null and in_progress_spell.is_area_effect():
+			if in_progress_spell != null and (in_progress_spell.is_area_effect() or in_progress_spell.is_cone()):
 				return build_area_set_selection(in_progress_spell, actor)
 			if _targeting_candidates_fn.is_valid():
 				# Last action before resolution — show living enemies as targets so
@@ -403,6 +403,16 @@ func build_area_set_selection(spell, caster, pool_port = null) -> Dictionary:
 			"resolution_mode": SelectionDescriptorClass.ResolutionMode.AREA_SET,
 			"geometry_rule": {"radius": spell.area_hex_radius()},
 			"candidate_hexes": _in_range_hexes(caster, spell.range_ft),
+			"candidate_targets": [],
+		}
+
+	if spell.is_cone():
+		return {
+			"verb_id": "CAST_SPELL",
+			"is_valid": true,
+			"resolution_mode": SelectionDescriptorClass.ResolutionMode.AREA_SET,
+			"geometry_rule": {"shape": "cone", "length": spell.cone_hex_length()},
+			"candidate_hexes": _in_range_hexes(caster, spell.cone_length_ft),
 			"candidate_targets": [],
 		}
 

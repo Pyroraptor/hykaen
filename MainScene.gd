@@ -869,18 +869,18 @@ func _refresh_off_guard_conditions() -> void:
 	var living_enemies: Array = _combat_query_service.living_combatants(_enemies)
 
 	for combatant in _party:
-		var combatant_id: String = combatant.display_id()
 		var off_guard: bool = FlankingClass.is_off_guard(combatant, living_enemies)
-		combatant.conditions = FlankingClass.off_guard_conditions(combatant, living_enemies)
+		if off_guard: combatant.add_condition(FlankingClass.OFF_GUARD_CONDITION)
+		else: combatant.remove_condition(FlankingClass.OFF_GUARD_CONDITION)
 		if status_panel_view != null:
-			status_panel_view.set_off_guard(combatant_id, off_guard)
+			status_panel_view.set_off_guard(combatant.display_id(), off_guard)
 
 	for combatant in _enemies:
-		var combatant_id: String = combatant.display_id()
 		var off_guard: bool = FlankingClass.is_off_guard(combatant, living_party)
-		combatant.conditions = FlankingClass.off_guard_conditions(combatant, living_party)
+		if off_guard: combatant.add_condition(FlankingClass.OFF_GUARD_CONDITION)
+		else: combatant.remove_condition(FlankingClass.OFF_GUARD_CONDITION)
 		if status_panel_view != null:
-			status_panel_view.set_off_guard(combatant_id, off_guard)
+			status_panel_view.set_off_guard(combatant.display_id(), off_guard)
 
 	_sync_exploration_hud()  # FEAT-381 (US-006): party HP/stamina may have shifted -- refresh Rest Button state
 

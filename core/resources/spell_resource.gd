@@ -113,6 +113,10 @@ const EffectKindClass = preload("res://core/domain/effects/effect_kind.gd")
 ## core/domain/spell.gd Spell's `condition_on_hit` field.
 @export var condition_on_hit: String = ""
 
+## Cone depth in feet for cone-shaped AoE spells (e.g. Frost Breath). 0 ==
+## not a cone. Converted to hex steps by Spell.cone_hex_length() (/ 5 ft).
+@export var cone_length_ft: int = 0
+
 
 ## is_valid() -> bool — true when every load-time invariant holds (see
 ## validation_error()). Callers (adapters) MUST check this before trusting

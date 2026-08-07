@@ -245,7 +245,7 @@ func execute(actor, round_number: int = 0, pre_chosen_target_id: String = "", ao
 		# ContinueCastUseCase's own ERR_INVALID_STATE fail-safe convention.
 		return _fail(ErrorCodeClass.ERR_INVALID_STATE)
 
-	if spell.is_area_effect() and aoe_origin_hex != null:
+	if (spell.is_area_effect() or spell.is_cone()) and aoe_origin_hex != null:
 		# FEAT-006 (US-005; FR-004, ADR-004): the AoE branch -- see
 		# `_maybe_resolve_aoe_cast()`'s own doc. Gated on BOTH
 		# is_area_effect() (never reached by a single-target spell like Fire
@@ -400,7 +400,12 @@ func _maybe_resolve_attack(actor, spell, target, round_number: int = 0):
 func _maybe_resolve_aoe_cast(actor, spell, origin_hex, round_number: int = 0) -> Dictionary:
 	var result := {"success": true, "target_id": null, "target": null, "error": ErrorCodeClass.NONE}
 
-	var affected_hexes: Array = _selection_resolution_use_case.affected_set(origin_hex, {"radius": spell.area_hex_radius()})
+	var geometry_rule: Dictionary
+	if spell.is_cone():
+		geometry_rule = {"shape": "cone", "length": spell.cone_hex_length(), "caster_hex": actor.hex_coord}
+	else:
+		geometry_rule = {"radius": spell.area_hex_radius()}
+	var affected_hexes: Array = _selection_resolution_use_case.affected_set(origin_hex, geometry_rule)
 	var targets: Array = _combatants_in_hexes(affected_hexes)
 
 	var resolve_cast_result = null

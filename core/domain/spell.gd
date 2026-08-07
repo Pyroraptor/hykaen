@@ -118,6 +118,7 @@ var condition_on_hit: String = ""
 ## every pre-existing caller/fixture omitting this trailing constructor
 ## argument is unaffected and remains a non-area-effect spell).
 var area_effect_radius_ft: int = 0
+var cone_length_ft: int = 0
 
 ## Feet-per-hex conversion constant (project-wide fixed constant: 1 hex ==
 ## 5 ft), used by area_hex_radius() to convert area_effect_radius_ft into a
@@ -138,7 +139,8 @@ func _init(
 	p_effect_type: int = EffectKindClass.DAMAGE,
 	p_effect_params: Dictionary = {},
 	p_condition_on_hit: String = "",
-	p_area_effect_radius_ft: int = 0
+	p_area_effect_radius_ft: int = 0,
+	p_cone_length_ft: int = 0
 ) -> void:
 	spell_id = p_spell_id
 	spell_name = p_spell_name
@@ -153,6 +155,7 @@ func _init(
 	effect_params = p_effect_params.duplicate()
 	condition_on_hit = p_condition_on_hit
 	area_effect_radius_ft = p_area_effect_radius_ft
+	cone_length_ft = p_cone_length_ft
 
 
 ## has_trait(trait_name) -> bool — true iff `trait_name` is present in this
@@ -174,3 +177,11 @@ func is_area_effect() -> bool:
 ## affected_set()). Returns 0 for a non-area-effect spell.
 func area_hex_radius() -> int:
 	return area_effect_radius_ft / FEET_PER_HEX
+
+
+func is_cone() -> bool:
+	return cone_length_ft > 0
+
+
+func cone_hex_length() -> int:
+	return cone_length_ft / FEET_PER_HEX

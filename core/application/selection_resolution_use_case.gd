@@ -64,6 +64,7 @@ extends RefCounted
 const SelectionDescriptorClass = preload("res://core/application/selection_descriptor.gd")
 const ResolvedSelectionClass = preload("res://core/application/resolved_selection.gd")
 const HexMathClass = preload("res://core/geometry/hex_math.gd")
+const HexCoordClass = preload("res://core/geometry/hex_coord.gd")
 
 
 ## resolve(descriptor, picks) -> ResolvedSelection — see file-level doc for
@@ -105,6 +106,8 @@ func resolve(descriptor, picks: Dictionary = {}) -> ResolvedSelectionClass:
 ## highlight, US-011) can call it directly against a candidate origin
 ## without going through a full resolve() + picks Dictionary.
 func affected_set(origin, geometry_rule: Dictionary) -> Array:
+	if geometry_rule.get("shape") == "cone":
+		return _affected_set_cone(origin, geometry_rule)
 	var radius: int = int(geometry_rule.get("radius", 0))
 	var visited: Dictionary = {}
 	visited[_hex_key(origin)] = origin
@@ -121,6 +124,57 @@ func affected_set(origin, geometry_rule: Dictionary) -> Array:
 		frontier = next_frontier
 
 	return visited.values()
+
+
+## _hex_ring(center, radius) -> Array[HexCoord] — all hexes at exactly
+## `radius` steps from `center` in a clockwise ring, using the standard
+## six-direction walk. Returns [center] for radius 0.
+func _hex_ring(center, radius: int) -> Array:
+	if radius == 0:
+		return [HexCoordClass.new(center.q, center.r)]
+	# Walk the ring: start at center + radius * dir[4], then traverse 6 sides.
+	const DIRS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]]
+	var results: Array = []
+	var cur_q: int = center.q + DIRS[4][0] * radius
+	var cur_r: int = center.r + DIRS[4][1] * radius
+	for i in range(6):
+		for _j in range(radius):
+			results.append(HexCoordClass.new(cur_q, cur_r))
+			cur_q += DIRS[i][0]
+			cur_r += DIRS[i][1]
+	return results
+
+
+## _affected_set_cone(aim_hex, geometry_rule) -> Array[HexCoord] —
+## triangular cone from caster toward aim_hex. geometry_rule must include
+## "caster_hex" (HexCoord) and "length" (int, default 3). The cone grows
+## one hex wider per depth step: 1 hex at depth 1, 2 at depth 2, …,
+## giving exactly length*(length+1)/2 total hexes. Selection at each depth
+## is by dot-product ranking (the most aligned hexes are included first),
+## so the cone tracks the aim direction precisely regardless of angle.
+func _affected_set_cone(aim_hex, geometry_rule: Dictionary) -> Array:
+	var caster_hex = geometry_rule.get("caster_hex")
+	var length: int = int(geometry_rule.get("length", 3))
+	if caster_hex == null or aim_hex == null:
+		return []
+	if HexMathClass.hex_distance(caster_hex, aim_hex) == 0:
+		return []
+
+	var dq: int = aim_hex.q - caster_hex.q
+	var dr: int = aim_hex.r - caster_hex.r
+	var ds: int = -(dq + dr)
+
+	var affected: Array = []
+	for d in range(1, length + 1):
+		var ring: Array = _hex_ring(caster_hex, d)
+		ring.sort_custom(func(a, b):
+			var aq = a.q - caster_hex.q; var ar = a.r - caster_hex.r; var as_ = -(aq + ar)
+			var bq = b.q - caster_hex.q; var br = b.r - caster_hex.r; var bs = -(bq + br)
+			return (aq * dq + ar * dr + as_ * ds) > (bq * dq + br * dr + bs * ds)
+		)
+		for i in range(min(d, ring.size())):
+			affected.append(ring[i])
+	return affected
 
 
 # ── Internal helpers ─────────────────────────────────────────────────────

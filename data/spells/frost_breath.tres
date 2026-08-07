@@ -19,3 +19,4 @@ effect_params = {
 "type": "cold"
 }
 condition_on_hit = "dazed"
+cone_length_ft = 15
