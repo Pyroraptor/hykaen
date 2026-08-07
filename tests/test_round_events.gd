@@ -74,7 +74,7 @@ func test_combatant_defeated_event_is_refcounted_value_object() -> void:
 func test_combatant_defeated_event_to_dict_matches_fields() -> void:
 	var ev = RoundEventsClass.CombatantDefeatedEvent.new(4, "Orc", "Lyra")
 	var d: Dictionary = ev.to_dict()
-	assert_eq(d, {"round": 4, "name": "Orc", "defeated_by": "Lyra"}, "to_dict must match fields")
+	assert_eq(d, {"round": 4, "name": "Orc", "defeated_by": "Lyra", "combatant_id": ""}, "to_dict must match fields")
 
 
 # ── EncounterResultEvent ────────────────────────────────────────────────────────
