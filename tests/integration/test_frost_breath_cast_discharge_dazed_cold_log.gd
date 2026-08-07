@@ -282,8 +282,15 @@ func test_frost_breath_cast_discharge_dazed_and_cold_combat_log_steel_thread() -
 	var action_economy := FakeActionEconomy.new()
 
 	# ── ENTRY POINT (AA-3-1): frost_breath is offered ONLY through the
-	# charged, equipped orb_gram -- Gram Marx knows no spells innately. ────
-	assert_eq(gram_marx.known_spell_ids, [], "fixture assumption: Gram Marx (Wizard, item-only caster) knows no innate spells")
+	# charged, equipped orb_gram -- Gram Marx knows no INNATE frost_breath.
+	# (A later, unrelated feature (FEAT-004 / US-006) granted Gram Marx
+	# "fireball" as an innate known spell via data/characters/gram_marx.tres
+	# -- see tests/unit/test_prologue_character_equipment_fixtures.gd's own
+	# "gram_marx.known_spell_ids must reflect the FEAT-004 fireball grant"
+	# assertion -- so known_spell_ids is no longer empty; the invariant this
+	# entry point actually cares about is that "frost_breath" itself is
+	# offered ONLY through the item, never innately.) ───────────────────────
+	assert_false(gram_marx.known_spell_ids.has("frost_breath"), "fixture assumption: Gram Marx must not know frost_breath innately -- it is offered ONLY via the charged, equipped orb_gram")
 
 	var castable_before: Array = BeginCastUseCaseClass.new().castable_spell_ids(gram_marx, catalog, pool)
 	assert_true(castable_before.has("frost_breath"), "entry point: castable_spell_ids(gram_marx_combatant) must contain 'frost_breath' before casting -- orb_gram is charged and equipped")
