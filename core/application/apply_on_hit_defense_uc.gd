@@ -242,8 +242,9 @@ func apply(
 	# this is the "lethal-but-parried" invariant test_criteria pins. ────────
 	var defender_defeated: bool = target.hp_current <= 0
 	if defender_defeated:
+		var target_cid: String = target.get("combatant_id", "") if target is Dictionary else target.combatant_id
 		var defeated_event = RoundEventsClass.CombatantDefeatedEvent.new(
-			round_number, target.name, attacker.name, target.combatant_id
+			round_number, target.name, attacker.name, target_cid
 		)
 		_event_sink_port.emit(defeated_event)
 

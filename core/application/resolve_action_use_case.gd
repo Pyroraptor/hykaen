@@ -637,8 +637,9 @@ func _finalize_strike_result(
 
 	var target_defeated: bool = target.hp_current <= 0
 	if target_defeated:
+		var target_cid: String = target.get("combatant_id", "") if target is Dictionary else target.combatant_id
 		var defeated_event = RoundEventsClass.CombatantDefeatedEvent.new(
-			round_number, target.name, combatant.name, target.combatant_id
+			round_number, target.name, combatant.name, target_cid
 		)
 		_emit_event(defeated_event)
 
