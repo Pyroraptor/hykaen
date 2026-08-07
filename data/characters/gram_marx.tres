@@ -13,5 +13,6 @@ class_ref = ExtResource("2_wz1d1")
 attributes = {"constitution": 2, "dexterity": 2, "intellect": 5, "intuition": 3, "social": 2, "strength": 1, "willpower": 2}
 starting_equipment = ["res://data/weapons/quarterstaff.tres", "res://data/armor/robes.tres"]
 talent_selections = []
+known_spell_ids = ["fireball"]
 level = 1
 equipped_items = [ExtResource("3_stfgrm"), ExtResource("5_orbgrm")]

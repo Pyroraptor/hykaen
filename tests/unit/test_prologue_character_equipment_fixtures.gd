@@ -237,7 +237,12 @@ func test_gram_marx_field_diff_unchanged() -> void:
 		character, ["weapons/quarterstaff.tres", "armor/robes.tres"], "gram_marx.tres"
 	)
 	assert_eq(character.talent_selections, [], "gram_marx.talent_selections must be unchanged")
-	assert_eq(character.known_spell_ids, [], "gram_marx.known_spell_ids must be unchanged (default [])")
+	# FEAT-004 (US-006; FR-006) grants Gram Marx "fireball" via
+	# known_spell_ids -- this field-diff baseline (originally pinned by
+	# FEAT-008's equipped_items change) is updated in lockstep with that
+	# intentional data change; every OTHER field on this fixture stays
+	# byte-for-byte unchanged, which is what this test still guards.
+	assert_eq(character.known_spell_ids, ["fireball"], "gram_marx.known_spell_ids must reflect the FEAT-004 fireball grant")
 	assert_eq(
 		character.primary_offensive_attribute, "",
 		"gram_marx.primary_offensive_attribute must be unchanged (default '')"

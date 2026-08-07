@@ -74,11 +74,16 @@ func test_mutating_item_is_charged_via_combatant_dict_is_visible_on_character_di
 
 
 func test_gram_marx_known_spell_ids_unchanged_by_equipped_items_addition() -> void:
+	# FEAT-004 (US-006; FR-006) authored known_spell_ids = ["fireball"] onto
+	# gram_marx.tres (unrelated to this equipped_items-addition regression
+	# guard) -- the expected value here tracks that data change; this test
+	# still protects its original concern: equipped_items wiring must not
+	# itself perturb known_spell_ids.
 	var factory := CombatantFactoryClass.new()
 	var combatant: Dictionary = factory.build_party_combatant(GRAM_MARX_PATH, null, "gram_marx_1")
 
 	assert_eq(
-		combatant.get("known_spell_ids", ["SENTINEL"]), [],
+		combatant.get("known_spell_ids", ["SENTINEL"]), ["fireball"],
 		"regression: gram_marx's known_spell_ids output must be unchanged by the equipped_items addition"
 	)
 

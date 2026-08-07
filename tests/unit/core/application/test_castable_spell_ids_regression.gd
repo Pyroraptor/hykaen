@@ -69,14 +69,22 @@ const GRAM_MARX_PATH: String       = "res://data/characters/gram_marx.tres"
 ## equipped_items onto the live Combatant (see design notes' extension
 ## points) would legitimately need to update this snapshot; until then, any
 ## diff here is an unintended regression.
+##
+## FEAT-004 (US-006; FR-006) update: gram_marx.tres now authors
+## known_spell_ids = ["fireball"] (Gram Marx grants himself Fireball,
+## RISK-008 minimal-diff), so his snapshot legitimately gains "fireball" --
+## known_spell_ids are walked BEFORE equipped_items in castable_spell_ids()
+## (see that method's own doc), so "fireball" is prepended ahead of the
+## pre-existing item-prepared "fire_bolt"/"frost_breath" entries.
 const PRE_CHANGE_CASTABLE_SPELL_IDS_SNAPSHOT: Dictionary = {
 	"res://data/characters/titus.tres":           [],
 	"res://data/characters/marigold.tres":        ["fire_bolt", "channel"],
 	"res://data/characters/dwarf_channeler.tres": [],
 	# Gram Marx carries staff_gram (fire_bolt, charged) and orb_gram
-	# (frost_breath, charged). ring_channeling is a Channeler item and is not
-	# in his loadout — Wizards do not Channel.
-	"res://data/characters/gram_marx.tres":       ["fire_bolt", "frost_breath"],
+	# (frost_breath, charged), plus his own innate "fireball" (FEAT-004).
+	# ring_channeling is a Channeler item and is not in his loadout —
+	# Wizards do not Channel.
+	"res://data/characters/gram_marx.tres":       ["fireball", "fire_bolt", "frost_breath"],
 }
 
 
@@ -249,19 +257,21 @@ func test_castable_spell_ids_snapshot_matches_pre_change_baseline_for_every_prol
 func test_gram_marx_known_spell_ids_is_empty_and_castable_list_has_no_item_prepared_spells() -> void:
 	# Named-scenario spot-check (the steel thread's own Wizard actor, Gram
 	# Marx): Combatant carries equipped_items (from_dict() round-trips the
-	# field), so castable_spell_ids() surfaces all three item-prepared spells
-	# from his charged implements: fire_bolt (staff_gram), channel
-	# (ring_channeling), frost_breath (orb_gram). known_spell_ids remains []
-	# (Wizard, item-only caster).
+	# field), so castable_spell_ids() surfaces both item-prepared spells
+	# from his charged implements: fire_bolt (staff_gram), frost_breath
+	# (orb_gram). FEAT-004 (US-006; FR-006) grants Gram Marx his own innate
+	# "fireball" via known_spell_ids, so that assumption no longer holds --
+	# updated in lockstep with data/characters/gram_marx.tres's known_spell_ids
+	# grant.
 	var gram_marx := _real_party_combatant(GRAM_MARX_PATH, "gram_marx_1")
-	assert_eq(gram_marx.known_spell_ids, [], "fixture assumption: Gram Marx (Wizard, item-only caster) knows no innate spells")
+	assert_eq(gram_marx.known_spell_ids, ["fireball"], "fixture assumption: Gram Marx (Wizard) now innately knows fireball (FEAT-004)")
 
 	var catalog := ResourceSpellCatalogAdapterClass.new()
 	var pool := FakeRoundEnergyPoolPort.new(99)
 	var use_case := BeginCastUseCaseClass.new()
 
 	var castable: Array = use_case.castable_spell_ids(gram_marx, catalog, pool)
-	assert_eq(castable, ["fire_bolt", "frost_breath"], "Gram Marx's real, in-party Combatant must offer both charged item-prepared spells (fire_bolt via staff_gram, frost_breath via orb_gram)")
+	assert_eq(castable, ["fireball", "fire_bolt", "frost_breath"], "Gram Marx's real, in-party Combatant must offer his innate fireball plus both charged item-prepared spells (fire_bolt via staff_gram, frost_breath via orb_gram)")
 
 
 # ══════════════════════════════════════════════════════════════════════════
