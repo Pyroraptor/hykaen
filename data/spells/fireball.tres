@@ -10,12 +10,12 @@ actions_cost = 2
 energy_cost = 2
 defense = 2
 range_ft = 100
+area_effect_radius_ft = 20
 damage_formula = "3d6+ATTR"
 damage_type = "fire"
 traits = ["Concentrate"]
 effect_type = 0
 effect_params = {
 "formula": "3d6+ATTR",
-"type": "fire",
-"radius_ft": 20
+"type": "fire"
 }
