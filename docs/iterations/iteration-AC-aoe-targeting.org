@@ -68,22 +68,15 @@ Before implementing, read these files to understand what is already built:
 
 * Features
 
-** AC-0  Spell domain model — =area_effect_radius_ft= field
+** ALREADY COMPLETE — do not re-implement
 
-*** AC-0-0  =area_effect_radius_ft= on =SpellResource=
+Feature AC-0-0 (=area_effect_radius_ft= on =SpellResource=) is already
+committed at HEAD (commit =1d4ffdb=).  =core/resources/spell_resource.gd=
+already has =@export var area_effect_radius_ft: int = 0= and the test file
+=tests/unit/test_spell_resource_area_effect_radius.gd= already covers it.
+Do NOT modify either file.  Begin implementation from AC-0-1.
 
-Add to =core/resources/spell_resource.gd=:
-
-#+BEGIN_SRC gdscript
-@export var area_effect_radius_ft: int = 0
-#+END_SRC
-
-A spell is AoE when =area_effect_radius_ft > 0=.
-
-*Test criteria:*
-- =SpellResource= with =area_effect_radius_ft = 20= serialises and
-  deserialises correctly (round-trip via =.tres= load).
-- Default value is =0= (non-AoE by default).
+** AC-0  Spell domain model — =area_effect_radius_ft= helpers on =Spell= VO
 
 *** AC-0-1  =area_effect_radius_ft= helpers on =Spell= VO
 
@@ -276,10 +269,13 @@ Assert:
 * Gate
 
 #+BEGIN_SRC bash
-/workspace/aef/aef-platform/.venv/bin/python -m pytest -q --tb=short \
+python -m pytest -q --tb=short \
   && PATH=$HOME/.local/bin:$PATH godot --headless --path /workspace/hykaen \
      -- --gut-run-all
 #+END_SRC
 
 Both commands must exit 0.  The GUT suite baseline entering this sprint is
-3400+ passing, 0 failing.
+3400+ passing, 0 failing.  =python= is available at =$HOME/.local/bin/python=
+(symlinked to the venv Python).  Do NOT create or restore the file
+=tests/integration/test_def001_gate_evidence.py= — it was intentionally
+deleted in commit =4f371fc= and must remain absent.
