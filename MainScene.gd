@@ -694,9 +694,9 @@ func _verb_deps() -> Dictionary:
 			"query_selectable_step_hexes": Callable(self, "_query_selectable_step_hexes"),
 			"targeting_port": spell_targeting_port,
 			"targeting_candidates_fn": Callable(self, "_living_enemy_reactors"),
-			"resolution_port": spell_resolution_port,
-			"combat_log_port": spell_combat_log_port,
+			"resolution_port": spell_resolution_port, "combat_log_port": spell_combat_log_port,
 			"energy_pool_fn": Callable(self, "_energy_pool_for"),
+			"combatant_roster_fn": func(): return _party + _enemies,
 			"controller_for": Callable(self, "_controller"),
 		}
 	return _verb_deps_cache

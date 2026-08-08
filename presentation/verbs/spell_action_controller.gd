@@ -243,6 +243,7 @@ func _init(deps: Dictionary) -> void:
 		"resolution_port": deps.get("resolution_port", null),
 		"combat_log_port": deps.get("combat_log_port", null),
 		"energy_pool_fn": deps.get("energy_pool_fn", Callable()),
+		"combatant_roster_fn": deps.get("combatant_roster_fn", Callable()),
 	}))
 
 
