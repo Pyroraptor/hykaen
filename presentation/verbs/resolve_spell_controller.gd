@@ -400,12 +400,17 @@ func _maybe_resolve_attack(actor, spell, target, round_number: int = 0):
 func _maybe_resolve_aoe_cast(actor, spell, origin_hex, round_number: int = 0) -> Dictionary:
 	var result := {"success": true, "target_id": null, "target": null, "error": ErrorCodeClass.NONE}
 
-	var geometry_rule: Dictionary
-	if spell.is_cone():
-		geometry_rule = {"shape": "cone", "length": spell.cone_hex_length(), "caster_hex": actor.hex_coord}
+	var affected_hexes: Array
+	if origin_hex is Array:
+		# SelectionOverlay pre-computed the affected set; use it directly.
+		affected_hexes = origin_hex
 	else:
-		geometry_rule = {"radius": spell.area_hex_radius()}
-	var affected_hexes: Array = _selection_resolution_use_case.affected_set(origin_hex, geometry_rule)
+		var geometry_rule: Dictionary
+		if spell.is_cone():
+			geometry_rule = {"shape": "cone", "length": spell.cone_hex_length(), "caster_hex": actor.hex_coord}
+		else:
+			geometry_rule = {"radius": spell.area_hex_radius()}
+		affected_hexes = _selection_resolution_use_case.affected_set(origin_hex, geometry_rule)
 	var targets: Array = _combatants_in_hexes(affected_hexes)
 
 	var resolve_cast_result = null

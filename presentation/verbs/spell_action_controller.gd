@@ -411,7 +411,7 @@ func build_area_set_selection(spell, caster, pool_port = null) -> Dictionary:
 			"verb_id": "CAST_SPELL",
 			"is_valid": true,
 			"resolution_mode": SelectionDescriptorClass.ResolutionMode.AREA_SET,
-			"geometry_rule": {"shape": "cone", "length": spell.cone_hex_length()},
+			"geometry_rule": {"shape": "cone", "length": spell.cone_hex_length(), "caster_hex": caster.hex_coord},
 			"candidate_hexes": _in_range_hexes(caster, spell.cone_length_ft),
 			"candidate_targets": [],
 		}
@@ -502,7 +502,10 @@ func execute(selection = null, no_self_spend_execution: bool = false) -> Diction
 	if actor.is_casting():
 		# When the overlay provides a pre-chosen target (remaining_actions==1
 		# path in enter_selection()), selection is the target's display_id.
+		# For AoE/cone spells the overlay passes the pre-computed affected-hex
+		# Array instead; extract it and forward to _maybe_resolve_cast().
 		var pre_chosen_target_id: String = selection if selection is String and selection != "" else ""
+		var aoe_origin = null if (selection is String or selection == null) else selection
 		if no_self_spend_execution and action_economy != null:
 			action_economy.begin_self_spend_suppression()
 		var continue_result: Dictionary = ContinueCastUseCaseClass.new().execute(actor, action_economy)
@@ -523,7 +526,7 @@ func execute(selection = null, no_self_spend_execution: bool = false) -> Diction
 				continue_reaction_result = await _provoke_reaction_on_cast(actor)
 			continue_result["reaction_result"] = continue_reaction_result
 			continue_result = _maybe_cancel_cast(actor, continue_result, continue_reaction_result)
-		var result_c: Dictionary = await _maybe_resolve_cast(actor, continue_result, pre_chosen_target_id)
+		var result_c: Dictionary = await _maybe_resolve_cast(actor, continue_result, pre_chosen_target_id, aoe_origin)
 		# _dispatch_sub_actions() checks "ok", but BeginCast/ContinueCast return
 		# "success".  Normalise so combine dispatch can read the outcome correctly.
 		if not result_c.has("ok"):
@@ -728,12 +731,12 @@ func _maybe_cancel_cast(actor, result: Dictionary, reaction_result: Dictionary) 
 ## still-in-progress cast (remaining_actions > 0) both fail this gate
 ## identically, so ResolveSpellController.execute() -- and therefore
 ## TargetingPort -- is never reached for either case.
-func _maybe_resolve_cast(actor, result: Dictionary, pre_chosen_target_id: String = "") -> Dictionary:
+func _maybe_resolve_cast(actor, result: Dictionary, pre_chosen_target_id: String = "", aoe_origin_hex = null) -> Dictionary:
 	if actor != null and actor.is_casting():
 		var state = CastingStateClass.from_dict(actor.casting_state)
 		if state.remaining_actions == 0:
 			var round_num: int = _round_number_fn.call() if _round_number_fn.is_valid() else 0
-			result["resolve_spell_result"] = await _resolve_spell_controller.execute(actor, round_num, pre_chosen_target_id)
+			result["resolve_spell_result"] = await _resolve_spell_controller.execute(actor, round_num, pre_chosen_target_id, aoe_origin_hex)
 	return result
 
 

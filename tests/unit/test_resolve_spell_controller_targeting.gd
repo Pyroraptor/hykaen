@@ -383,7 +383,7 @@ class SpyResolveSpellController:
 	extends RefCounted
 	var calls: Array = []
 
-	func execute(actor, _round_num: int = 0, _pre_chosen_target_id: String = ""):
+	func execute(actor, _round_num: int = 0, _pre_chosen_target_id: String = "", _aoe_origin_hex = null):
 		calls.append(actor)
 		return {"success": true, "target_id": null, "error": ErrorCodeClass.NONE}
 
