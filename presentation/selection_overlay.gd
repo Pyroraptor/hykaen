@@ -242,6 +242,14 @@ func is_locked() -> bool:
 	return _locked
 
 
+## unlock() -> void — resets the post-resolution lock for a new encounter.
+## Called by the composition root before a new encounter begins so activate()
+## is re-enabled. NOT idempotent with lock() — do not call on an encounter
+## still in progress.
+func unlock() -> void:
+	_locked = false
+
+
 ## lock() -> void — FEAT-177 (US-013 / FR-013): the post-resolution guard
 ## extending the EXISTING presentation/result_screen_view.gd lock mechanism
 ## to any open Layer 2 SelectionOverlay. Immediately discards any

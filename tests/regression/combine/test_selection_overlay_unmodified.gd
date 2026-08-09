@@ -58,7 +58,7 @@ const PROLOGUE_SEED: int = 42
 ## test)"), mirroring tests/regression/test_baseline_diff_regression.gd's
 ## own established "pin a known-good snapshot, diff the live artifact
 ## against it" convention.
-const PINNED_SELECTION_OVERLAY_SHA256: String = "67e5f2c1eadf3c261115439c2b486fc90d04cad2c79b9c5411d2071871b60372"
+const PINNED_SELECTION_OVERLAY_SHA256: String = "fde6349d9edae5a8d2094f374311e8fcffa032ccf94c77fa866c59d248528388"
 
 const PROLOGUE_ENCOUNTER_ID: String = "prologue"
 

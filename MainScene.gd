@@ -461,10 +461,10 @@ func _on_combat_triggered(encounter_id: String) -> void:
 	if status_panel_view != null:
 		status_panel_view.load_combatants(_view_model_builder.build_status_view_models(all_combatants, _party, _enemies, encounter))
 		_refresh_off_guard_conditions()
-
 	if verb_bar_view != null:
 		verb_bar_view.unlock()
 		verb_bar_view.configure(_verb_registry)
+	selection_overlay.unlock()
 	selection_overlay.configure(_verb_registry, hex_grid_view)
 
 func _exploration_hex_clicked_callable() -> Callable:
