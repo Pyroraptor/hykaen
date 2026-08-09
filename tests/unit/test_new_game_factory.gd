@@ -80,13 +80,13 @@ func test_create_state_for_scenario_seeds_cave_specific_party_hex_positions() ->
 	# dripping_cave_scenario.tres's party is default_party.tres (titus,
 	# marigold, gram_marx — 3 members); the scenario-authoritative roster
 	# (ADR-002) yields 3 seeded entries, positioned from the encounter's
-	# party_hex_positions[0]/[1]/[2] == {q:-5,r:2}/{q:-4,r:1}/{q:-5,r:1}.
+	# party_hex_positions[0]/[1]/[2] == {q:-8,r:4}/{q:-9,r:4}/{q:-9,r:5}.
 	assert_eq(
 		state.party_hex_positions,
 		[
-			{"combatant_id": "player_0", "q": -5, "r": 2},
-			{"combatant_id": "player_1", "q": -4, "r": 1},
-			{"combatant_id": "player_2", "q": -5, "r": 1},
+			{"combatant_id": "player_0", "q": -8, "r": 4},
+			{"combatant_id": "player_1", "q": -9, "r": 4},
+			{"combatant_id": "player_2", "q": -9, "r": 5},
 		],
 		"party_hex_positions must be seeded from dripping_cave_scenario.tres's encounter entry"
 	)

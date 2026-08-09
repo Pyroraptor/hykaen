@@ -62,8 +62,8 @@ func execute(selection = null) -> Dictionary:
 		# (FEAT-002). A no-op when `_hex_grid_view` is unwired (legacy-
 		# behavior contract).
 		if _hex_grid_view != null:
-			var actor = current_actor()
-			var actor_id: String = actor.get("combatant_id", "") if actor != null else ""
+			var actor = current_actor_entity()
+			var actor_id: String = actor.combatant_id if actor != null else ""
 			await _hex_grid_view.animate_token_to(actor_id, selection)
 		_after_successful_move_fn.call()
 	return result

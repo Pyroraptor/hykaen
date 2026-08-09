@@ -45,7 +45,7 @@ class FakeSession:
 		return {} if _actor == null else {"combatant_id": _actor}
 
 	func current_actor_entity():
-		return null
+		return null if _actor == null else {"combatant_id": _actor}
 
 	func current_action_economy():
 		return null
