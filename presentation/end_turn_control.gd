@@ -66,7 +66,8 @@ func _ready() -> void:
 ## ERR_ENCOUNTER_ALREADY_RESOLVED and is_enabled() always reports false,
 ## regardless of any later configure() call. Intended to be called exactly
 ## once, by presentation/result_screen_view.gd, the moment an
-## EncounterResultEvent is observed. There is no unlock().
+## EncounterResultEvent is observed. unlock() is provided for the composition
+## root to reset the lock before starting a new encounter.
 func lock() -> void:
 	_locked = true
 	_refresh_enabled_state()
@@ -75,6 +76,14 @@ func lock() -> void:
 ## is_locked() -> bool — true once lock() has been called.
 func is_locked() -> bool:
 	return _locked
+
+
+## unlock() -> void — resets the post-resolution lock for a new encounter.
+## Called by the composition root before configure() on a new encounter.
+## NOT idempotent with lock() — do not call on an encounter still in progress.
+func unlock() -> void:
+	_locked = false
+	_refresh_enabled_state()
 
 
 ## configure(round_session) -> void — injects the CURRENT RoundSession and
