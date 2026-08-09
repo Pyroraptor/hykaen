@@ -1,0 +1,20 @@
+[gd_resource type="Resource" script_class="ProximityTriggerResource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://data/triggers/proximity_trigger_resource.gd" id="1_eemuq"]
+
+[resource]
+script = ExtResource("1_eemuq")
+trigger_hexes = [{
+"q": 7,
+"r": -7
+}, {
+"q": 8,
+"r": -8
+}, {
+"q": 7,
+"r": -8
+}, {
+"q": 8,
+"r": -9
+}]
+trigger_type = "PROXIMITY"

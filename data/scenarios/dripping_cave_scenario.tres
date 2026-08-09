@@ -1,4 +1,4 @@
-[gd_resource type="Resource" script_class="ScenarioResource" load_steps=7 format=3]
+[gd_resource type="Resource" script_class="ScenarioResource" load_steps=10 format=3]
 
 [ext_resource type="Script" path="res://data/scenarios/scenario_resource.gd" id="1_scnres"]
 [ext_resource type="Script" path="res://data/scenarios/scenario_encounter_entry_resource.gd" id="2_entry"]
@@ -6,6 +6,8 @@
 [ext_resource type="Resource" uid="uid://dfltprty001a" path="res://data/parties/default_party.tres" id="4_party"]
 [ext_resource type="Resource" path="res://data/encounters/dripping_cave.tres" id="5_enc"]
 [ext_resource type="Resource" path="res://data/triggers/dripping_cave_trigger.tres" id="6_trg"]
+[ext_resource type="Resource" path="res://data/encounters/long_hall.tres" id="7_enc"]
+[ext_resource type="Resource" path="res://data/triggers/long_hall_trigger.tres" id="8_trg"]
 
 [sub_resource type="Resource" id="Resource_dcentry"]
 script = ExtResource("2_entry")
@@ -13,9 +15,15 @@ encounter_id = "dripping_cave"
 encounter = ExtResource("5_enc")
 trigger = ExtResource("6_trg")
 
+[sub_resource type="Resource" id="Resource_lhentry"]
+script = ExtResource("2_entry")
+encounter_id = "long_hall"
+encounter = ExtResource("7_enc")
+trigger = ExtResource("8_trg")
+
 [resource]
 script = ExtResource("1_scnres")
 scenario_id = "dripping_cave"
 display_name = "The Dripping Cave"
 party = ExtResource("4_party")
-encounter_entries = Array[ExtResource("2_entry")]([SubResource("Resource_dcentry")])
+encounter_entries = Array[ExtResource("2_entry")]([SubResource("Resource_dcentry"), SubResource("Resource_lhentry")])
