@@ -479,7 +479,13 @@ func load_encounter_from_scenario(scenario, encounter_id: String, seed: int = -1
 
 	var new_party: Array = []
 	for party_combatant_dict in result.get("party_combatants", []):
-		new_party.append(CombatantClass.from_dict(party_combatant_dict))
+		var combatant := CombatantClass.from_dict(party_combatant_dict)
+		# Use the position the party member walked to during exploration rather
+		# than the encounter's authored starting position.
+		var exploration_hex = scenario_session.party_hex_positions.get(combatant.combatant_id) if scenario_session != null else null
+		if exploration_hex != null:
+			combatant.hex_coord = exploration_hex
+		new_party.append(combatant)
 
 	var new_enemies: Array = []
 	for enemy_combatant_dict in result.get("enemy_combatants", []):
