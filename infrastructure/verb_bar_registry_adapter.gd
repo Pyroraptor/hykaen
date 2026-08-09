@@ -46,4 +46,7 @@ func enter_selection(verb_id: String):
 
 
 func execute(verb_id: String, selection = null):
-	return _execute_fns[verb_id].call(selection)
+	var result = _execute_fns[verb_id].call(selection)
+	if typeof(result) == TYPE_OBJECT and result.get_class() == "GDScriptFunctionState":
+		return await result
+	return result

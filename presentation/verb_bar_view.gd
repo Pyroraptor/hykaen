@@ -221,7 +221,12 @@ func press(verb_id: String):
 		return {"ok": false, "error": "ERR_VERB_UNAVAILABLE"}
 
 	if verb_id == END_TURN:
-		var result = _registry.execute(verb_id)
+		var raw = _registry.execute(verb_id)
+		var result
+		if typeof(raw) == TYPE_OBJECT and raw.get_class() == "GDScriptFunctionState":
+			result = await raw
+		else:
+			result = raw
 		verb_executed.emit(verb_id, result)
 		return result
 

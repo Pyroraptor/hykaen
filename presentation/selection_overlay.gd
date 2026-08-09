@@ -617,8 +617,16 @@ func _resolve(selection_value) -> void:
 		# action_controller.gd already dispatches on (FEAT-009) — execute()
 		# is invoked with the chosen option AND the Layer-2b target, never
 		# just the bare scalar.
-		result = _registry.execute(verb_id, {"option": chosen_option, "target": selection_value})
+		var raw = _registry.execute(verb_id, {"option": chosen_option, "target": selection_value})
+		if typeof(raw) == TYPE_OBJECT and raw.get_class() == "GDScriptFunctionState":
+			result = await raw
+		else:
+			result = raw
 	else:
-		result = _registry.execute(verb_id, selection_value)
+		var raw = _registry.execute(verb_id, selection_value)
+		if typeof(raw) == TYPE_OBJECT and raw.get_class() == "GDScriptFunctionState":
+			result = await raw
+		else:
+			result = raw
 	clear()
 	selection_resolved.emit(verb_id, result)
