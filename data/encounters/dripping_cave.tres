@@ -1,4 +1,4 @@
-[gd_resource type="Resource" script_class="EncounterResource" load_steps=103 format=3]
+[gd_resource type="Resource" script_class="EncounterResource" load_steps=257 format=3]
 
 [ext_resource type="Script" path="res://data/encounters/encounter_resource.gd" id="1_dmoyi"]
 [ext_resource type="Script" path="res://data/tiles/hex_tile_data_resource.gd" id="2_qdouv"]
@@ -9,10 +9,11 @@ q = 7
 r = -3
 passable = true
 difficult = false
-terrain_type = "floor"
+terrain_type = "stone"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_ph5ls"]
 script = ExtResource("2_qdouv")
@@ -20,10 +21,11 @@ q = 8
 r = -3
 passable = true
 difficult = false
-terrain_type = "floor"
+terrain_type = "stone"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_26ank"]
 script = ExtResource("2_qdouv")
@@ -31,10 +33,11 @@ q = 0
 r = 2
 passable = true
 difficult = false
-terrain_type = "floor"
+terrain_type = "mud"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_p56uh"]
 script = ExtResource("2_qdouv")
@@ -46,6 +49,7 @@ terrain_type = "rubble"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_skfpd"]
 script = ExtResource("2_qdouv")
@@ -53,10 +57,11 @@ q = 1
 r = 2
 passable = true
 difficult = false
-terrain_type = "floor"
+terrain_type = "sand"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_p4t2c"]
 script = ExtResource("2_qdouv")
@@ -64,10 +69,11 @@ q = 0
 r = 3
 passable = true
 difficult = false
-terrain_type = "floor"
+terrain_type = "sand"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_pmpnj"]
 script = ExtResource("2_qdouv")
@@ -79,6 +85,7 @@ terrain_type = "water"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_orgfr"]
 script = ExtResource("2_qdouv")
@@ -90,6 +97,7 @@ terrain_type = "water"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_4pbkg"]
 script = ExtResource("2_qdouv")
@@ -101,6 +109,7 @@ terrain_type = "wall"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_fqdpv"]
 script = ExtResource("2_qdouv")
@@ -112,6 +121,7 @@ terrain_type = "wall"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_u880i"]
 script = ExtResource("2_qdouv")
@@ -123,6 +133,7 @@ terrain_type = "wall"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_acqsy"]
 script = ExtResource("2_qdouv")
@@ -134,6 +145,7 @@ terrain_type = "wall"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_u1eya"]
 script = ExtResource("2_qdouv")
@@ -145,6 +157,7 @@ terrain_type = "wall"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_q6m2h"]
 script = ExtResource("2_qdouv")
@@ -156,6 +169,7 @@ terrain_type = "wall"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_tb5m0"]
 script = ExtResource("2_qdouv")
@@ -167,6 +181,7 @@ terrain_type = "pit"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_huep1"]
 script = ExtResource("2_qdouv")
@@ -178,6 +193,7 @@ terrain_type = "pit"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_allvc"]
 script = ExtResource("2_qdouv")
@@ -189,6 +205,7 @@ terrain_type = "pit"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_yr150"]
 script = ExtResource("2_qdouv")
@@ -196,10 +213,11 @@ q = -1
 r = 3
 passable = true
 difficult = false
-terrain_type = "floor"
+terrain_type = "sand"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_b7w3k"]
 script = ExtResource("2_qdouv")
@@ -211,6 +229,7 @@ terrain_type = "rubble"
 elevation = 0
 cover = 0
 feature = "Chest"
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_gudmn"]
 script = ExtResource("2_qdouv")
@@ -222,6 +241,7 @@ terrain_type = "wall"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_nq87g"]
 script = ExtResource("2_qdouv")
@@ -233,6 +253,7 @@ terrain_type = "wall"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_vxqwu"]
 script = ExtResource("2_qdouv")
@@ -240,10 +261,11 @@ q = 7
 r = -4
 passable = true
 difficult = false
-terrain_type = "floor"
+terrain_type = "stone"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_ipvax"]
 script = ExtResource("2_qdouv")
@@ -251,10 +273,11 @@ q = 6
 r = -3
 passable = true
 difficult = false
-terrain_type = "floor"
+terrain_type = "stone"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_laj72"]
 script = ExtResource("2_qdouv")
@@ -262,10 +285,11 @@ q = 6
 r = -2
 passable = true
 difficult = false
-terrain_type = "floor"
+terrain_type = "stone"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_t5iho"]
 script = ExtResource("2_qdouv")
@@ -277,6 +301,7 @@ terrain_type = "wall"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_fgom8"]
 script = ExtResource("2_qdouv")
@@ -288,6 +313,7 @@ terrain_type = "water"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_n0tfq"]
 script = ExtResource("2_qdouv")
@@ -295,10 +321,11 @@ q = -1
 r = 2
 passable = true
 difficult = false
-terrain_type = "floor"
+terrain_type = "mud"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_vkdpq"]
 script = ExtResource("2_qdouv")
@@ -306,10 +333,11 @@ q = -1
 r = 1
 passable = true
 difficult = false
-terrain_type = "floor"
+terrain_type = "mud"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_qng7f"]
 script = ExtResource("2_qdouv")
@@ -317,10 +345,11 @@ q = -1
 r = 0
 passable = true
 difficult = false
-terrain_type = "floor"
+terrain_type = "stone"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_sqbmp"]
 script = ExtResource("2_qdouv")
@@ -328,10 +357,11 @@ q = 0
 r = -1
 passable = true
 difficult = false
-terrain_type = "floor"
+terrain_type = "stone"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_twqsh"]
 script = ExtResource("2_qdouv")
@@ -339,10 +369,11 @@ q = 1
 r = -1
 passable = true
 difficult = false
-terrain_type = "floor"
+terrain_type = "stone"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_kmj8q"]
 script = ExtResource("2_qdouv")
@@ -354,6 +385,7 @@ terrain_type = "wall"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_qqgy7"]
 script = ExtResource("2_qdouv")
@@ -365,6 +397,7 @@ terrain_type = "wall"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_y4bln"]
 script = ExtResource("2_qdouv")
@@ -376,6 +409,7 @@ terrain_type = "wall"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_y0lq1"]
 script = ExtResource("2_qdouv")
@@ -387,6 +421,7 @@ terrain_type = "wall"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_befnl"]
 script = ExtResource("2_qdouv")
@@ -394,10 +429,11 @@ q = 2
 r = -1
 passable = true
 difficult = false
-terrain_type = "floor"
+terrain_type = "sand"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_b5s2d"]
 script = ExtResource("2_qdouv")
@@ -405,10 +441,11 @@ q = 2
 r = 0
 passable = true
 difficult = false
-terrain_type = "floor"
+terrain_type = "sand"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_ko268"]
 script = ExtResource("2_qdouv")
@@ -416,10 +453,11 @@ q = 2
 r = 1
 passable = true
 difficult = false
-terrain_type = "floor"
+terrain_type = "sand"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_isiwq"]
 script = ExtResource("2_qdouv")
@@ -431,6 +469,7 @@ terrain_type = "rubble"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_4in5o"]
 script = ExtResource("2_qdouv")
@@ -442,6 +481,7 @@ terrain_type = "rubble"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_clhg6"]
 script = ExtResource("2_qdouv")
@@ -453,6 +493,7 @@ terrain_type = "rubble"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_lcqo2"]
 script = ExtResource("2_qdouv")
@@ -460,10 +501,11 @@ q = 4
 r = 0
 passable = true
 difficult = false
-terrain_type = "floor"
+terrain_type = "stone"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_hu000"]
 script = ExtResource("2_qdouv")
@@ -471,10 +513,11 @@ q = 4
 r = -1
 passable = true
 difficult = false
-terrain_type = "floor"
+terrain_type = "stone"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_1qvxe"]
 script = ExtResource("2_qdouv")
@@ -482,10 +525,11 @@ q = 4
 r = -2
 passable = true
 difficult = false
-terrain_type = "floor"
+terrain_type = "stone"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_uq88r"]
 script = ExtResource("2_qdouv")
@@ -493,10 +537,11 @@ q = -1
 r = -1
 passable = true
 difficult = false
-terrain_type = "floor"
+terrain_type = "sand"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_knlfl"]
 script = ExtResource("2_qdouv")
@@ -504,10 +549,11 @@ q = -2
 r = 0
 passable = true
 difficult = false
-terrain_type = "floor"
+terrain_type = "stone"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_1mv4x"]
 script = ExtResource("2_qdouv")
@@ -515,10 +561,11 @@ q = -2
 r = 1
 passable = true
 difficult = false
-terrain_type = "floor"
+terrain_type = "stone"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_pdtfi"]
 script = ExtResource("2_qdouv")
@@ -526,10 +573,11 @@ q = -2
 r = 2
 passable = true
 difficult = false
-terrain_type = "floor"
+terrain_type = "stone"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_jjf6g"]
 script = ExtResource("2_qdouv")
@@ -537,10 +585,11 @@ q = -2
 r = 3
 passable = true
 difficult = false
-terrain_type = "floor"
+terrain_type = "stone"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_52knm"]
 script = ExtResource("2_qdouv")
@@ -548,10 +597,11 @@ q = -2
 r = 4
 passable = true
 difficult = false
-terrain_type = "floor"
+terrain_type = "sand"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_u3her"]
 script = ExtResource("2_qdouv")
@@ -559,10 +609,11 @@ q = -1
 r = 4
 passable = true
 difficult = false
-terrain_type = "floor"
+terrain_type = "sand"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_rhegp"]
 script = ExtResource("2_qdouv")
@@ -574,6 +625,7 @@ terrain_type = "rubble"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_ceily"]
 script = ExtResource("2_qdouv")
@@ -585,6 +637,7 @@ terrain_type = "rubble"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_tfqqf"]
 script = ExtResource("2_qdouv")
@@ -596,6 +649,7 @@ terrain_type = "rubble"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_wsnwj"]
 script = ExtResource("2_qdouv")
@@ -607,6 +661,7 @@ terrain_type = "rubble"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_ot785"]
 script = ExtResource("2_qdouv")
@@ -618,6 +673,7 @@ terrain_type = "wall"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_m6t42"]
 script = ExtResource("2_qdouv")
@@ -629,6 +685,7 @@ terrain_type = "wall"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_caqsf"]
 script = ExtResource("2_qdouv")
@@ -640,72 +697,79 @@ terrain_type = "wall"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_424la"]
 script = ExtResource("2_qdouv")
 q = -2
 r = -1
-passable = true
+passable = false
 difficult = false
 terrain_type = "pit"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_kye6p"]
 script = ExtResource("2_qdouv")
 q = -3
 r = -1
-passable = true
+passable = false
 difficult = false
 terrain_type = "pit"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_tbxmm"]
 script = ExtResource("2_qdouv")
 q = -3
 r = 0
-passable = true
+passable = false
 difficult = false
 terrain_type = "pit"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_m1l1e"]
 script = ExtResource("2_qdouv")
 q = -4
 r = -1
-passable = true
+passable = false
 difficult = false
 terrain_type = "pit"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_3hq5j"]
 script = ExtResource("2_qdouv")
 q = -4
 r = 0
-passable = true
+passable = false
 difficult = false
 terrain_type = "pit"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_t1uhm"]
 script = ExtResource("2_qdouv")
 q = -5
 r = 0
-passable = true
+passable = false
 difficult = false
 terrain_type = "pit"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_12iuf"]
 script = ExtResource("2_qdouv")
@@ -717,6 +781,7 @@ terrain_type = "rubble"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_xhelo"]
 script = ExtResource("2_qdouv")
@@ -728,6 +793,7 @@ terrain_type = "rubble"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_ursg2"]
 script = ExtResource("2_qdouv")
@@ -735,10 +801,11 @@ q = -3
 r = 2
 passable = true
 difficult = false
-terrain_type = "water"
+terrain_type = "mud"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_o6dhb"]
 script = ExtResource("2_qdouv")
@@ -746,10 +813,11 @@ q = -5
 r = 1
 passable = true
 difficult = false
-terrain_type = "floor"
+terrain_type = "stone"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_g7fx0"]
 script = ExtResource("2_qdouv")
@@ -757,10 +825,11 @@ q = -4
 r = 1
 passable = true
 difficult = false
-terrain_type = "floor"
+terrain_type = "stone"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_lr7cc"]
 script = ExtResource("2_qdouv")
@@ -768,10 +837,11 @@ q = -3
 r = 1
 passable = true
 difficult = false
-terrain_type = "floor"
+terrain_type = "stone"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_ecyby"]
 script = ExtResource("2_qdouv")
@@ -783,6 +853,7 @@ terrain_type = "wall"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_arcfq"]
 script = ExtResource("2_qdouv")
@@ -794,6 +865,7 @@ terrain_type = "wall"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_48sxr"]
 script = ExtResource("2_qdouv")
@@ -805,6 +877,7 @@ terrain_type = "wall"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_x84lf"]
 script = ExtResource("2_qdouv")
@@ -816,6 +889,7 @@ terrain_type = "wall"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_b6ak4"]
 script = ExtResource("2_qdouv")
@@ -827,6 +901,7 @@ terrain_type = "wall"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_f207w"]
 script = ExtResource("2_qdouv")
@@ -838,6 +913,7 @@ terrain_type = "wall"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_tkdgb"]
 script = ExtResource("2_qdouv")
@@ -849,6 +925,7 @@ terrain_type = "wall"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_60evx"]
 script = ExtResource("2_qdouv")
@@ -860,6 +937,7 @@ terrain_type = "rubble"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_kqftr"]
 script = ExtResource("2_qdouv")
@@ -871,6 +949,7 @@ terrain_type = "rubble"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_ya7kc"]
 script = ExtResource("2_qdouv")
@@ -878,10 +957,11 @@ q = -5
 r = 2
 passable = true
 difficult = false
-terrain_type = "floor"
+terrain_type = "stone"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_ccl76"]
 script = ExtResource("2_qdouv")
@@ -889,10 +969,11 @@ q = -5
 r = 3
 passable = true
 difficult = false
-terrain_type = "floor"
+terrain_type = "stone"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_16s31"]
 script = ExtResource("2_qdouv")
@@ -904,6 +985,7 @@ terrain_type = "wall"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_o7u2d"]
 script = ExtResource("2_qdouv")
@@ -915,6 +997,7 @@ terrain_type = "wall"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_y23hj"]
 script = ExtResource("2_qdouv")
@@ -926,6 +1009,7 @@ terrain_type = "wall"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_xr17x"]
 script = ExtResource("2_qdouv")
@@ -937,6 +1021,7 @@ terrain_type = "wall"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_l0yf3"]
 script = ExtResource("2_qdouv")
@@ -948,6 +1033,7 @@ terrain_type = "wall"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_nrqyl"]
 script = ExtResource("2_qdouv")
@@ -959,6 +1045,7 @@ terrain_type = "wall"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_kffib"]
 script = ExtResource("2_qdouv")
@@ -970,6 +1057,7 @@ terrain_type = "water"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_dfkbi"]
 script = ExtResource("2_qdouv")
@@ -981,6 +1069,7 @@ terrain_type = "wall"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_1xtaw"]
 script = ExtResource("2_qdouv")
@@ -992,6 +1081,7 @@ terrain_type = "rubble"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_svfja"]
 script = ExtResource("2_qdouv")
@@ -999,10 +1089,11 @@ q = 5
 r = -2
 passable = true
 difficult = false
-terrain_type = "floor"
+terrain_type = "stone"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_wldcc"]
 script = ExtResource("2_qdouv")
@@ -1014,6 +1105,7 @@ terrain_type = "rubble"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_bbydq"]
 script = ExtResource("2_qdouv")
@@ -1025,6 +1117,7 @@ terrain_type = "rubble"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_1k2rv"]
 script = ExtResource("2_qdouv")
@@ -1036,6 +1129,7 @@ terrain_type = "rubble"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_xr0r2"]
 script = ExtResource("2_qdouv")
@@ -1047,6 +1141,7 @@ terrain_type = "rubble"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_nkjby"]
 script = ExtResource("2_qdouv")
@@ -1058,6 +1153,7 @@ terrain_type = "rubble"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_vsnqx"]
 script = ExtResource("2_qdouv")
@@ -1069,6 +1165,7 @@ terrain_type = "rubble"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_4loqt"]
 script = ExtResource("2_qdouv")
@@ -1080,6 +1177,7 @@ terrain_type = "rubble"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_lxq8f"]
 script = ExtResource("2_qdouv")
@@ -1091,6 +1189,7 @@ terrain_type = "rubble"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
 
 [sub_resource type="Resource" id="Resource_stsbl"]
 script = ExtResource("2_qdouv")
@@ -1102,22 +1201,1871 @@ terrain_type = "wall"
 elevation = 0
 cover = 0
 feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_olnev"]
+script = ExtResource("2_qdouv")
+q = 6
+r = -6
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_scaca"]
+script = ExtResource("2_qdouv")
+q = 5
+r = -6
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_r8uxf"]
+script = ExtResource("2_qdouv")
+q = 4
+r = -6
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_bnabs"]
+script = ExtResource("2_qdouv")
+q = 3
+r = -6
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_aq20g"]
+script = ExtResource("2_qdouv")
+q = 2
+r = -6
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_wb3x3"]
+script = ExtResource("2_qdouv")
+q = 1
+r = -6
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_3woy7"]
+script = ExtResource("2_qdouv")
+q = 0
+r = -6
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_0vjal"]
+script = ExtResource("2_qdouv")
+q = -1
+r = -5
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_8yp6e"]
+script = ExtResource("2_qdouv")
+q = -2
+r = -4
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_6ifek"]
+script = ExtResource("2_qdouv")
+q = -3
+r = -3
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_dpjg4"]
+script = ExtResource("2_qdouv")
+q = -10
+r = 4
+passable = true
+difficult = false
+terrain_type = "grass"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_on5xw"]
+script = ExtResource("2_qdouv")
+q = -10
+r = 3
+passable = true
+difficult = false
+terrain_type = "grass"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_m47ny"]
+script = ExtResource("2_qdouv")
+q = -9
+r = 3
+passable = true
+difficult = false
+terrain_type = "grass"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_i5wqm"]
+script = ExtResource("2_qdouv")
+q = -9
+r = 4
+passable = true
+difficult = false
+terrain_type = "grass"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_ui0j6"]
+script = ExtResource("2_qdouv")
+q = -9
+r = 5
+passable = true
+difficult = false
+terrain_type = "grass"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_p24cl"]
+script = ExtResource("2_qdouv")
+q = -10
+r = 5
+passable = true
+difficult = false
+terrain_type = "grass"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_8g7hl"]
+script = ExtResource("2_qdouv")
+q = -10
+r = 6
+passable = true
+difficult = false
+terrain_type = "grass"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_8xjb3"]
+script = ExtResource("2_qdouv")
+q = -10
+r = 7
+passable = true
+difficult = false
+terrain_type = "grass"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_twpnl"]
+script = ExtResource("2_qdouv")
+q = -9
+r = 6
+passable = true
+difficult = false
+terrain_type = "grass"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_n80t3"]
+script = ExtResource("2_qdouv")
+q = -8
+r = 2
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_ul85v"]
+script = ExtResource("2_qdouv")
+q = -7
+r = 1
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_gl7im"]
+script = ExtResource("2_qdouv")
+q = -6
+r = 0
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_1ovys"]
+script = ExtResource("2_qdouv")
+q = -8
+r = 6
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_nnnqi"]
+script = ExtResource("2_qdouv")
+q = -7
+r = 6
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_tyw0m"]
+script = ExtResource("2_qdouv")
+q = -6
+r = 6
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_tcg12"]
+script = ExtResource("2_qdouv")
+q = -8
+r = 7
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_ktkfr"]
+script = ExtResource("2_qdouv")
+q = -7
+r = 7
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_ibu7b"]
+script = ExtResource("2_qdouv")
+q = -8
+r = 8
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_324nx"]
+script = ExtResource("2_qdouv")
+q = -7
+r = 8
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_pe6lj"]
+script = ExtResource("2_qdouv")
+q = -8
+r = 1
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_fx5d6"]
+script = ExtResource("2_qdouv")
+q = -7
+r = 0
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_ad3i8"]
+script = ExtResource("2_qdouv")
+q = -8
+r = 0
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_2lrid"]
+script = ExtResource("2_qdouv")
+q = -8
+r = -1
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_1a7fx"]
+script = ExtResource("2_qdouv")
+q = -8
+r = 3
+passable = true
+difficult = false
+terrain_type = "rubble"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_a3jt2"]
+script = ExtResource("2_qdouv")
+q = -8
+r = 4
+passable = true
+difficult = false
+terrain_type = "rubble"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_7frfc"]
+script = ExtResource("2_qdouv")
+q = -8
+r = 5
+passable = true
+difficult = false
+terrain_type = "rubble"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_kp4vw"]
+script = ExtResource("2_qdouv")
+q = -7
+r = 2
+passable = true
+difficult = false
+terrain_type = "stone"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_iisoq"]
+script = ExtResource("2_qdouv")
+q = -6
+r = 1
+passable = true
+difficult = false
+terrain_type = "stone"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_wff2j"]
+script = ExtResource("2_qdouv")
+q = -6
+r = 2
+passable = true
+difficult = false
+terrain_type = "stone"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_qxbm0"]
+script = ExtResource("2_qdouv")
+q = -6
+r = 3
+passable = true
+difficult = false
+terrain_type = "stone"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_387gm"]
+script = ExtResource("2_qdouv")
+q = -6
+r = 4
+passable = true
+difficult = false
+terrain_type = "stone"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_6s13d"]
+script = ExtResource("2_qdouv")
+q = -6
+r = 5
+passable = true
+difficult = false
+terrain_type = "stone"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_gq408"]
+script = ExtResource("2_qdouv")
+q = -7
+r = 5
+passable = true
+difficult = false
+terrain_type = "stone"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_xyjil"]
+script = ExtResource("2_qdouv")
+q = -7
+r = 4
+passable = true
+difficult = false
+terrain_type = "stone"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_dglso"]
+script = ExtResource("2_qdouv")
+q = -7
+r = 3
+passable = true
+difficult = false
+terrain_type = "stone"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_vwf5f"]
+script = ExtResource("2_qdouv")
+q = -5
+r = -1
+passable = false
+difficult = false
+terrain_type = "pit"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_qt2q0"]
+script = ExtResource("2_qdouv")
+q = -4
+r = -2
+passable = false
+difficult = false
+terrain_type = "pit"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_7lblo"]
+script = ExtResource("2_qdouv")
+q = -5
+r = -2
+passable = false
+difficult = false
+terrain_type = "pit"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_8avtd"]
+script = ExtResource("2_qdouv")
+q = -6
+r = -1
+passable = false
+difficult = false
+terrain_type = "pit"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_3uvsm"]
+script = ExtResource("2_qdouv")
+q = 6
+r = -1
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_ogetd"]
+script = ExtResource("2_qdouv")
+q = 7
+r = -1
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_a228d"]
+script = ExtResource("2_qdouv")
+q = 8
+r = -1
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_4fagp"]
+script = ExtResource("2_qdouv")
+q = 9
+r = -2
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_4jt7m"]
+script = ExtResource("2_qdouv")
+q = 10
+r = -3
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_b1om5"]
+script = ExtResource("2_qdouv")
+q = 10
+r = -4
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_maltg"]
+script = ExtResource("2_qdouv")
+q = 10
+r = -5
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_7jqeg"]
+script = ExtResource("2_qdouv")
+q = 10
+r = -6
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_u2shm"]
+script = ExtResource("2_qdouv")
+q = 10
+r = -7
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_llgic"]
+script = ExtResource("2_qdouv")
+q = 10
+r = -8
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_v6qh7"]
+script = ExtResource("2_qdouv")
+q = 10
+r = -9
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_eynrv"]
+script = ExtResource("2_qdouv")
+q = 10
+r = -10
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_d7s0m"]
+script = ExtResource("2_qdouv")
+q = 9
+r = -10
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_cyvg4"]
+script = ExtResource("2_qdouv")
+q = 8
+r = -10
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_vfbf0"]
+script = ExtResource("2_qdouv")
+q = 7
+r = -10
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_yx7xs"]
+script = ExtResource("2_qdouv")
+q = 6
+r = -10
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_hxuyw"]
+script = ExtResource("2_qdouv")
+q = 5
+r = -10
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_pyqoc"]
+script = ExtResource("2_qdouv")
+q = 4
+r = -10
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_3iqlb"]
+script = ExtResource("2_qdouv")
+q = 3
+r = -10
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_sb3us"]
+script = ExtResource("2_qdouv")
+q = 2
+r = -10
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_a2h54"]
+script = ExtResource("2_qdouv")
+q = 1
+r = -9
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_quj37"]
+script = ExtResource("2_qdouv")
+q = 1
+r = -10
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_r68jb"]
+script = ExtResource("2_qdouv")
+q = 7
+r = -2
+passable = true
+difficult = false
+terrain_type = "stone"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_0syes"]
+script = ExtResource("2_qdouv")
+q = 8
+r = -2
+passable = true
+difficult = false
+terrain_type = "stone"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_1u5ss"]
+script = ExtResource("2_qdouv")
+q = 9
+r = -3
+passable = true
+difficult = false
+terrain_type = "stone"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_jgrso"]
+script = ExtResource("2_qdouv")
+q = 9
+r = -4
+passable = true
+difficult = false
+terrain_type = "stone"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_v187a"]
+script = ExtResource("2_qdouv")
+q = 8
+r = -4
+passable = true
+difficult = false
+terrain_type = "stone"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_p7jhr"]
+script = ExtResource("2_qdouv")
+q = 8
+r = -5
+passable = true
+difficult = false
+terrain_type = "stone"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_wid0j"]
+script = ExtResource("2_qdouv")
+q = 9
+r = -5
+passable = true
+difficult = false
+terrain_type = "stone"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_veo7i"]
+script = ExtResource("2_qdouv")
+q = 9
+r = -6
+passable = true
+difficult = false
+terrain_type = "stone"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_pao8g"]
+script = ExtResource("2_qdouv")
+q = 8
+r = -6
+passable = true
+difficult = false
+terrain_type = "stone"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_hx5kg"]
+script = ExtResource("2_qdouv")
+q = 8
+r = -7
+passable = true
+difficult = false
+terrain_type = "stone"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_bq81i"]
+script = ExtResource("2_qdouv")
+q = 9
+r = -7
+passable = true
+difficult = false
+terrain_type = "stone"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_7rg8k"]
+script = ExtResource("2_qdouv")
+q = 9
+r = -8
+passable = true
+difficult = false
+terrain_type = "stone"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_7p5a2"]
+script = ExtResource("2_qdouv")
+q = 9
+r = -9
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_xfdwq"]
+script = ExtResource("2_qdouv")
+q = 8
+r = -8
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_fv3hl"]
+script = ExtResource("2_qdouv")
+q = 7
+r = -7
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_a8psv"]
+script = ExtResource("2_qdouv")
+q = 7
+r = -8
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_01xap"]
+script = ExtResource("2_qdouv")
+q = 8
+r = -9
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_wfdlo"]
+script = ExtResource("2_qdouv")
+q = 7
+r = -9
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_l084b"]
+script = ExtResource("2_qdouv")
+q = 6
+r = -8
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_qy00j"]
+script = ExtResource("2_qdouv")
+q = 6
+r = -7
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_ua0ed"]
+script = ExtResource("2_qdouv")
+q = 5
+r = -7
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_rdm0n"]
+script = ExtResource("2_qdouv")
+q = 5
+r = -8
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_pjbht"]
+script = ExtResource("2_qdouv")
+q = 6
+r = -9
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_cyyf6"]
+script = ExtResource("2_qdouv")
+q = 5
+r = -9
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_e8663"]
+script = ExtResource("2_qdouv")
+q = 4
+r = -8
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_nu66o"]
+script = ExtResource("2_qdouv")
+q = 4
+r = -7
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_5w53b"]
+script = ExtResource("2_qdouv")
+q = 3
+r = -7
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_joll3"]
+script = ExtResource("2_qdouv")
+q = 3
+r = -8
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_tf4ef"]
+script = ExtResource("2_qdouv")
+q = 4
+r = -9
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_sstfq"]
+script = ExtResource("2_qdouv")
+q = 3
+r = -9
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_561qt"]
+script = ExtResource("2_qdouv")
+q = 2
+r = -8
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_8bgrh"]
+script = ExtResource("2_qdouv")
+q = 2
+r = -7
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_b1xin"]
+script = ExtResource("2_qdouv")
+q = 2
+r = -9
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_gq0kf"]
+script = ExtResource("2_qdouv")
+q = 1
+r = -8
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_lk78s"]
+script = ExtResource("2_qdouv")
+q = 1
+r = -7
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_1frq1"]
+script = ExtResource("2_qdouv")
+q = 0
+r = -7
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_x3wx7"]
+script = ExtResource("2_qdouv")
+q = 0
+r = -8
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_yo11f"]
+script = ExtResource("2_qdouv")
+q = 0
+r = -9
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_4c18f"]
+script = ExtResource("2_qdouv")
+q = 0
+r = -10
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_s82v7"]
+script = ExtResource("2_qdouv")
+q = -1
+r = -9
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_ytj1f"]
+script = ExtResource("2_qdouv")
+q = -2
+r = -8
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_8rvj7"]
+script = ExtResource("2_qdouv")
+q = -3
+r = -7
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_7v50u"]
+script = ExtResource("2_qdouv")
+q = -4
+r = -6
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_msisv"]
+script = ExtResource("2_qdouv")
+q = -8
+r = -2
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_3ra4k"]
+script = ExtResource("2_qdouv")
+q = -7
+r = -3
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_faw3i"]
+script = ExtResource("2_qdouv")
+q = -6
+r = -4
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_x2o8p"]
+script = ExtResource("2_qdouv")
+q = -5
+r = -5
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_gw0tx"]
+script = ExtResource("2_qdouv")
+q = -7
+r = -2
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_rk7l5"]
+script = ExtResource("2_qdouv")
+q = -7
+r = -1
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_i2gr6"]
+script = ExtResource("2_qdouv")
+q = -6
+r = -2
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_ueqq3"]
+script = ExtResource("2_qdouv")
+q = -6
+r = -3
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_dp47g"]
+script = ExtResource("2_qdouv")
+q = -5
+r = -4
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_ii72e"]
+script = ExtResource("2_qdouv")
+q = -5
+r = -3
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_frhj3"]
+script = ExtResource("2_qdouv")
+q = -2
+r = -5
+passable = true
+difficult = true
+terrain_type = "rubble"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_7is6k"]
+script = ExtResource("2_qdouv")
+q = -2
+r = -7
+passable = true
+difficult = true
+terrain_type = "rubble"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_k7k3h"]
+script = ExtResource("2_qdouv")
+q = -1
+r = -8
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_6mi5m"]
+script = ExtResource("2_qdouv")
+q = -1
+r = -7
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_pjcbv"]
+script = ExtResource("2_qdouv")
+q = -1
+r = -6
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_h5hwb"]
+script = ExtResource("2_qdouv")
+q = -2
+r = -6
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_8qv0i"]
+script = ExtResource("2_qdouv")
+q = -3
+r = -6
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_cvc4s"]
+script = ExtResource("2_qdouv")
+q = -3
+r = -5
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_8ejcg"]
+script = ExtResource("2_qdouv")
+q = -3
+r = -4
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_63lfh"]
+script = ExtResource("2_qdouv")
+q = -4
+r = -5
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_0k5sm"]
+script = ExtResource("2_qdouv")
+q = -4
+r = -4
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_531kd"]
+script = ExtResource("2_qdouv")
+q = -4
+r = -3
+passable = true
+difficult = false
+terrain_type = "floor"
+elevation = 0
+cover = 0
+feature = "Stairs"
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_ysysh"]
+script = ExtResource("2_qdouv")
+q = -10
+r = 2
+passable = true
+difficult = false
+terrain_type = "grass"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_56670"]
+script = ExtResource("2_qdouv")
+q = -9
+r = 2
+passable = true
+difficult = false
+terrain_type = "grass"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_5g3so"]
+script = ExtResource("2_qdouv")
+q = -9
+r = 7
+passable = true
+difficult = false
+terrain_type = "grass"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_7wd6l"]
+script = ExtResource("2_qdouv")
+q = -10
+r = 8
+passable = true
+difficult = false
+terrain_type = "grass"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_jh7gi"]
+script = ExtResource("2_qdouv")
+q = -9
+r = 1
+passable = true
+difficult = false
+terrain_type = "undergrowth"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_fxvlf"]
+script = ExtResource("2_qdouv")
+q = -10
+r = 1
+passable = true
+difficult = false
+terrain_type = "undergrowth"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_hilw5"]
+script = ExtResource("2_qdouv")
+q = -9
+r = 8
+passable = true
+difficult = false
+terrain_type = "undergrowth"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_0w4x4"]
+script = ExtResource("2_qdouv")
+q = -10
+r = 9
+passable = true
+difficult = false
+terrain_type = "undergrowth"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_4n8vn"]
+script = ExtResource("2_qdouv")
+q = -9
+r = 9
+passable = true
+difficult = false
+terrain_type = "forest"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_qdwpn"]
+script = ExtResource("2_qdouv")
+q = -10
+r = 10
+passable = true
+difficult = false
+terrain_type = "forest"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_d63tg"]
+script = ExtResource("2_qdouv")
+q = -9
+r = 0
+passable = true
+difficult = false
+terrain_type = "forest"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_c65kv"]
+script = ExtResource("2_qdouv")
+q = -10
+r = 0
+passable = true
+difficult = false
+terrain_type = "forest"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_eipwk"]
+script = ExtResource("2_qdouv")
+q = -9
+r = -1
+passable = true
+difficult = false
+terrain_type = "forest"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_rjjva"]
+script = ExtResource("2_qdouv")
+q = -9
+r = 10
+passable = true
+difficult = false
+terrain_type = "forest"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_7w4y5"]
+script = ExtResource("2_qdouv")
+q = -7
+r = 9
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_pqv82"]
+script = ExtResource("2_qdouv")
+q = -7
+r = 10
+passable = false
+difficult = false
+terrain_type = "wall"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_jjn4b"]
+script = ExtResource("2_qdouv")
+q = -8
+r = 9
+passable = true
+difficult = false
+terrain_type = "forest"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
+
+[sub_resource type="Resource" id="Resource_mg8w3"]
+script = ExtResource("2_qdouv")
+q = -8
+r = 10
+passable = true
+difficult = false
+terrain_type = "forest"
+elevation = 0
+cover = 0
+feature = ""
+is_safe_area = true
 
 [resource]
 script = ExtResource("1_dmoyi")
-party_resource_paths = ["res://data/characters/titus.tres", "res://data/characters/marigold.tres", "res://data/characters/gram_marx.tres"]
-enemy_resource_paths = ["res://data/enemies/skeleton.tres", "res://data/enemies/skeleton.tres"]
+party_resource_paths = []
+enemy_resource_paths = []
 party_hex_positions = [{
-"q": -5,
-"r": 2
+"q": -8,
+"r": 4
 }, {
-"q": -4,
-"r": 1
+"q": -9,
+"r": 4
 }, {
-"q": -5,
-"r": 1
+"q": -9,
+"r": 5
 }, {
-"q": -5,
+"q": -9,
 "r": 3
 }]
 enemy_hex_positions = [{
@@ -1137,4 +3085,4 @@ enemy_hex_positions = [{
 "r": -5
 }]
 seed = 0
-tiles = Array[ExtResource("2_qdouv")]([SubResource("Resource_ono4t"), SubResource("Resource_ph5ls"), SubResource("Resource_26ank"), SubResource("Resource_p56uh"), SubResource("Resource_skfpd"), SubResource("Resource_p4t2c"), SubResource("Resource_pmpnj"), SubResource("Resource_orgfr"), SubResource("Resource_4pbkg"), SubResource("Resource_fqdpv"), SubResource("Resource_u880i"), SubResource("Resource_acqsy"), SubResource("Resource_u1eya"), SubResource("Resource_q6m2h"), SubResource("Resource_tb5m0"), SubResource("Resource_huep1"), SubResource("Resource_allvc"), SubResource("Resource_yr150"), SubResource("Resource_b7w3k"), SubResource("Resource_gudmn"), SubResource("Resource_nq87g"), SubResource("Resource_vxqwu"), SubResource("Resource_ipvax"), SubResource("Resource_laj72"), SubResource("Resource_t5iho"), SubResource("Resource_fgom8"), SubResource("Resource_n0tfq"), SubResource("Resource_vkdpq"), SubResource("Resource_qng7f"), SubResource("Resource_sqbmp"), SubResource("Resource_twqsh"), SubResource("Resource_kmj8q"), SubResource("Resource_qqgy7"), SubResource("Resource_y4bln"), SubResource("Resource_y0lq1"), SubResource("Resource_befnl"), SubResource("Resource_b5s2d"), SubResource("Resource_ko268"), SubResource("Resource_isiwq"), SubResource("Resource_4in5o"), SubResource("Resource_clhg6"), SubResource("Resource_lcqo2"), SubResource("Resource_hu000"), SubResource("Resource_1qvxe"), SubResource("Resource_uq88r"), SubResource("Resource_knlfl"), SubResource("Resource_1mv4x"), SubResource("Resource_pdtfi"), SubResource("Resource_jjf6g"), SubResource("Resource_52knm"), SubResource("Resource_u3her"), SubResource("Resource_rhegp"), SubResource("Resource_ceily"), SubResource("Resource_tfqqf"), SubResource("Resource_wsnwj"), SubResource("Resource_ot785"), SubResource("Resource_m6t42"), SubResource("Resource_caqsf"), SubResource("Resource_424la"), SubResource("Resource_kye6p"), SubResource("Resource_tbxmm"), SubResource("Resource_m1l1e"), SubResource("Resource_3hq5j"), SubResource("Resource_t1uhm"), SubResource("Resource_12iuf"), SubResource("Resource_xhelo"), SubResource("Resource_ursg2"), SubResource("Resource_o6dhb"), SubResource("Resource_g7fx0"), SubResource("Resource_lr7cc"), SubResource("Resource_ecyby"), SubResource("Resource_arcfq"), SubResource("Resource_48sxr"), SubResource("Resource_x84lf"), SubResource("Resource_b6ak4"), SubResource("Resource_f207w"), SubResource("Resource_tkdgb"), SubResource("Resource_60evx"), SubResource("Resource_kqftr"), SubResource("Resource_ya7kc"), SubResource("Resource_ccl76"), SubResource("Resource_16s31"), SubResource("Resource_o7u2d"), SubResource("Resource_y23hj"), SubResource("Resource_xr17x"), SubResource("Resource_l0yf3"), SubResource("Resource_nrqyl"), SubResource("Resource_kffib"), SubResource("Resource_dfkbi"), SubResource("Resource_1xtaw"), SubResource("Resource_svfja"), SubResource("Resource_wldcc"), SubResource("Resource_bbydq"), SubResource("Resource_1k2rv"), SubResource("Resource_xr0r2"), SubResource("Resource_nkjby"), SubResource("Resource_vsnqx"), SubResource("Resource_4loqt"), SubResource("Resource_lxq8f"), SubResource("Resource_stsbl")])
+tiles = Array[ExtResource("2_qdouv")]([SubResource("Resource_ono4t"), SubResource("Resource_ph5ls"), SubResource("Resource_26ank"), SubResource("Resource_p56uh"), SubResource("Resource_skfpd"), SubResource("Resource_p4t2c"), SubResource("Resource_pmpnj"), SubResource("Resource_orgfr"), SubResource("Resource_4pbkg"), SubResource("Resource_fqdpv"), SubResource("Resource_u880i"), SubResource("Resource_acqsy"), SubResource("Resource_u1eya"), SubResource("Resource_q6m2h"), SubResource("Resource_tb5m0"), SubResource("Resource_huep1"), SubResource("Resource_allvc"), SubResource("Resource_yr150"), SubResource("Resource_b7w3k"), SubResource("Resource_gudmn"), SubResource("Resource_nq87g"), SubResource("Resource_vxqwu"), SubResource("Resource_ipvax"), SubResource("Resource_laj72"), SubResource("Resource_t5iho"), SubResource("Resource_fgom8"), SubResource("Resource_n0tfq"), SubResource("Resource_vkdpq"), SubResource("Resource_qng7f"), SubResource("Resource_sqbmp"), SubResource("Resource_twqsh"), SubResource("Resource_kmj8q"), SubResource("Resource_qqgy7"), SubResource("Resource_y4bln"), SubResource("Resource_y0lq1"), SubResource("Resource_befnl"), SubResource("Resource_b5s2d"), SubResource("Resource_ko268"), SubResource("Resource_isiwq"), SubResource("Resource_4in5o"), SubResource("Resource_clhg6"), SubResource("Resource_lcqo2"), SubResource("Resource_hu000"), SubResource("Resource_1qvxe"), SubResource("Resource_uq88r"), SubResource("Resource_knlfl"), SubResource("Resource_1mv4x"), SubResource("Resource_pdtfi"), SubResource("Resource_jjf6g"), SubResource("Resource_52knm"), SubResource("Resource_u3her"), SubResource("Resource_rhegp"), SubResource("Resource_ceily"), SubResource("Resource_tfqqf"), SubResource("Resource_wsnwj"), SubResource("Resource_ot785"), SubResource("Resource_m6t42"), SubResource("Resource_caqsf"), SubResource("Resource_424la"), SubResource("Resource_kye6p"), SubResource("Resource_tbxmm"), SubResource("Resource_m1l1e"), SubResource("Resource_3hq5j"), SubResource("Resource_t1uhm"), SubResource("Resource_12iuf"), SubResource("Resource_xhelo"), SubResource("Resource_ursg2"), SubResource("Resource_o6dhb"), SubResource("Resource_g7fx0"), SubResource("Resource_lr7cc"), SubResource("Resource_ecyby"), SubResource("Resource_arcfq"), SubResource("Resource_48sxr"), SubResource("Resource_x84lf"), SubResource("Resource_b6ak4"), SubResource("Resource_f207w"), SubResource("Resource_tkdgb"), SubResource("Resource_60evx"), SubResource("Resource_kqftr"), SubResource("Resource_ya7kc"), SubResource("Resource_ccl76"), SubResource("Resource_16s31"), SubResource("Resource_o7u2d"), SubResource("Resource_y23hj"), SubResource("Resource_xr17x"), SubResource("Resource_l0yf3"), SubResource("Resource_nrqyl"), SubResource("Resource_kffib"), SubResource("Resource_dfkbi"), SubResource("Resource_1xtaw"), SubResource("Resource_svfja"), SubResource("Resource_wldcc"), SubResource("Resource_bbydq"), SubResource("Resource_1k2rv"), SubResource("Resource_xr0r2"), SubResource("Resource_nkjby"), SubResource("Resource_vsnqx"), SubResource("Resource_4loqt"), SubResource("Resource_lxq8f"), SubResource("Resource_stsbl"), SubResource("Resource_olnev"), SubResource("Resource_scaca"), SubResource("Resource_r8uxf"), SubResource("Resource_bnabs"), SubResource("Resource_aq20g"), SubResource("Resource_wb3x3"), SubResource("Resource_3woy7"), SubResource("Resource_0vjal"), SubResource("Resource_8yp6e"), SubResource("Resource_6ifek"), SubResource("Resource_dpjg4"), SubResource("Resource_on5xw"), SubResource("Resource_m47ny"), SubResource("Resource_i5wqm"), SubResource("Resource_ui0j6"), SubResource("Resource_p24cl"), SubResource("Resource_8g7hl"), SubResource("Resource_8xjb3"), SubResource("Resource_twpnl"), SubResource("Resource_n80t3"), SubResource("Resource_ul85v"), SubResource("Resource_gl7im"), SubResource("Resource_1ovys"), SubResource("Resource_nnnqi"), SubResource("Resource_tyw0m"), SubResource("Resource_tcg12"), SubResource("Resource_ktkfr"), SubResource("Resource_ibu7b"), SubResource("Resource_324nx"), SubResource("Resource_pe6lj"), SubResource("Resource_fx5d6"), SubResource("Resource_ad3i8"), SubResource("Resource_2lrid"), SubResource("Resource_1a7fx"), SubResource("Resource_a3jt2"), SubResource("Resource_7frfc"), SubResource("Resource_kp4vw"), SubResource("Resource_iisoq"), SubResource("Resource_wff2j"), SubResource("Resource_qxbm0"), SubResource("Resource_387gm"), SubResource("Resource_6s13d"), SubResource("Resource_gq408"), SubResource("Resource_xyjil"), SubResource("Resource_dglso"), SubResource("Resource_vwf5f"), SubResource("Resource_qt2q0"), SubResource("Resource_7lblo"), SubResource("Resource_8avtd"), SubResource("Resource_3uvsm"), SubResource("Resource_ogetd"), SubResource("Resource_a228d"), SubResource("Resource_4fagp"), SubResource("Resource_4jt7m"), SubResource("Resource_b1om5"), SubResource("Resource_maltg"), SubResource("Resource_7jqeg"), SubResource("Resource_u2shm"), SubResource("Resource_llgic"), SubResource("Resource_v6qh7"), SubResource("Resource_eynrv"), SubResource("Resource_d7s0m"), SubResource("Resource_cyvg4"), SubResource("Resource_vfbf0"), SubResource("Resource_yx7xs"), SubResource("Resource_hxuyw"), SubResource("Resource_pyqoc"), SubResource("Resource_3iqlb"), SubResource("Resource_sb3us"), SubResource("Resource_a2h54"), SubResource("Resource_quj37"), SubResource("Resource_r68jb"), SubResource("Resource_0syes"), SubResource("Resource_1u5ss"), SubResource("Resource_jgrso"), SubResource("Resource_v187a"), SubResource("Resource_p7jhr"), SubResource("Resource_wid0j"), SubResource("Resource_veo7i"), SubResource("Resource_pao8g"), SubResource("Resource_hx5kg"), SubResource("Resource_bq81i"), SubResource("Resource_7rg8k"), SubResource("Resource_7p5a2"), SubResource("Resource_xfdwq"), SubResource("Resource_fv3hl"), SubResource("Resource_a8psv"), SubResource("Resource_01xap"), SubResource("Resource_wfdlo"), SubResource("Resource_l084b"), SubResource("Resource_qy00j"), SubResource("Resource_ua0ed"), SubResource("Resource_rdm0n"), SubResource("Resource_pjbht"), SubResource("Resource_cyyf6"), SubResource("Resource_e8663"), SubResource("Resource_nu66o"), SubResource("Resource_5w53b"), SubResource("Resource_joll3"), SubResource("Resource_tf4ef"), SubResource("Resource_sstfq"), SubResource("Resource_561qt"), SubResource("Resource_8bgrh"), SubResource("Resource_b1xin"), SubResource("Resource_gq0kf"), SubResource("Resource_lk78s"), SubResource("Resource_1frq1"), SubResource("Resource_x3wx7"), SubResource("Resource_yo11f"), SubResource("Resource_4c18f"), SubResource("Resource_s82v7"), SubResource("Resource_ytj1f"), SubResource("Resource_8rvj7"), SubResource("Resource_7v50u"), SubResource("Resource_msisv"), SubResource("Resource_3ra4k"), SubResource("Resource_faw3i"), SubResource("Resource_x2o8p"), SubResource("Resource_gw0tx"), SubResource("Resource_rk7l5"), SubResource("Resource_i2gr6"), SubResource("Resource_ueqq3"), SubResource("Resource_dp47g"), SubResource("Resource_ii72e"), SubResource("Resource_frhj3"), SubResource("Resource_7is6k"), SubResource("Resource_k7k3h"), SubResource("Resource_6mi5m"), SubResource("Resource_pjcbv"), SubResource("Resource_h5hwb"), SubResource("Resource_8qv0i"), SubResource("Resource_cvc4s"), SubResource("Resource_8ejcg"), SubResource("Resource_63lfh"), SubResource("Resource_0k5sm"), SubResource("Resource_531kd"), SubResource("Resource_ysysh"), SubResource("Resource_56670"), SubResource("Resource_5g3so"), SubResource("Resource_7wd6l"), SubResource("Resource_jh7gi"), SubResource("Resource_fxvlf"), SubResource("Resource_hilw5"), SubResource("Resource_0w4x4"), SubResource("Resource_4n8vn"), SubResource("Resource_qdwpn"), SubResource("Resource_d63tg"), SubResource("Resource_c65kv"), SubResource("Resource_eipwk"), SubResource("Resource_rjjva"), SubResource("Resource_7w4y5"), SubResource("Resource_pqv82"), SubResource("Resource_jjn4b"), SubResource("Resource_mg8w3")])
