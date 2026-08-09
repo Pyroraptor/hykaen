@@ -61,8 +61,8 @@
 ## TurnController signal) after the encounter has already concluded (defense
 ## in depth, mirroring the error_handling design note's
 ## "ENCOUNTER_ALREADY_RESOLVED is a defensive domain-level guard behind [the
-## UI guard], in case the UI guard is bypassed"). There is no unlock() --
-## this steel thread never continues a round past resolution.
+## UI guard], in case the UI guard is bypassed"). unlock() is provided for
+## the composition root to reset the lock before starting a new encounter.
 ##
 ## When a `hex_grid_view` (presentation/hex_grid_view.gd) collaborator is
 ## supplied, a successful Step also repositions that combatant's already-
@@ -190,8 +190,8 @@ var _locked: bool = false
 ## root's EventSinkPort subscriber (scenes/battlefield/ResultScreen.gd /
 ## presentation/result_screen_view.gd), the moment an EncounterResultEvent
 ## is observed -- mirrors scenes/battlefield/StrikeInputController.gd's and
-## presentation/end_turn_control.gd's lock() contract exactly. There is no
-## unlock() -- this steel thread never continues a round past resolution.
+## presentation/end_turn_control.gd's lock() contract exactly. unlock() is
+## available for the composition root to reset the lock before a NEW encounter.
 ##
 ## Also immediately clears any selectable-destination highlighting on the
 ## injected HexGridView (via _recompute_selectable_destinations(), which is
@@ -206,6 +206,14 @@ func lock() -> void:
 ## is_locked() -> bool -- true once lock() has been called.
 func is_locked() -> bool:
 	return _locked
+
+
+## unlock() -> void -- resets the post-resolution lock for a new encounter.
+## Called by the composition root before configure() on a new encounter so
+## movement is re-enabled. NOT idempotent with lock() -- do not call on an
+## encounter still in progress.
+func unlock() -> void:
+	_locked = false
 
 
 ## configure(actor, other_combatants, hex_grid_view, actor_id, action_economy) -> void
