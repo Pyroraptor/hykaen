@@ -275,4 +275,4 @@ func _rebuild_buttons() -> void:
 
 
 func _on_verb_button_pressed(verb_id: String) -> void:
-	press(verb_id)
+	await press(verb_id)
