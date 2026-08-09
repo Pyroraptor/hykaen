@@ -43,11 +43,11 @@ func _session():
 	return _session_holder.get_current()
 
 
-## current_actor() — the session's current actor (Combatant), or null when there
+## current_actor() -> Dictionary — the session's current actor, or {} when there
 ## is no live session.
-func current_actor():
+func current_actor() -> Dictionary:
 	var session = _session()
-	return session.current_actor() if session != null else null
+	return session.current_actor() if session != null else {}
 
 
 ## current_actor_entity() -> Combatant or null — the LIVE current-actor instance

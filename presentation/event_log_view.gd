@@ -144,6 +144,20 @@ func _ready() -> void:
 	_expanded_size = size
 
 
+## clear() → void — resets all entries, structured records, and rendered
+## label nodes, making this view ready for a fresh encounter without needing
+## to be re-instantiated.
+func clear() -> void:
+	_entries.clear()
+	_attack_records.clear()
+	_rejected_duplicate_reactions.clear()
+	_next_sequence_number = 1
+	for label in _labels:
+		if is_instance_valid(label):
+			label.queue_free()
+	_labels.clear()
+
+
 ## toggle_collapsed() → void — FEAT-009 (US-008 / FR-008, ADR-004,
 ## Contract 4). Flips `_collapsed` and applies the resulting visual state
 ## (Content visibility, CollapseButton text, parent re-sort). Wired to

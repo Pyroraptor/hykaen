@@ -610,6 +610,9 @@ func _enter_area_preview(origin) -> void:
 func _resolve(selection_value) -> void:
 	var verb_id: String = _active_verb_id
 	var chosen_option = _chosen_option
+	# Deactivate overlay immediately so is_active() returns false at the call
+	# site's next line, even while the execute() coroutine runs its animation.
+	clear()
 	var result
 	if chosen_option != null:
 		# FEAT-010 (US-010): the Layer-2a pick is carried forward into the
@@ -617,16 +620,7 @@ func _resolve(selection_value) -> void:
 		# action_controller.gd already dispatches on (FEAT-009) — execute()
 		# is invoked with the chosen option AND the Layer-2b target, never
 		# just the bare scalar.
-		var raw = _registry.execute(verb_id, {"option": chosen_option, "target": selection_value})
-		if typeof(raw) == TYPE_OBJECT and raw.get_class() == "GDScriptFunctionState":
-			result = await raw
-		else:
-			result = raw
+		result = await _registry.execute(verb_id, {"option": chosen_option, "target": selection_value})
 	else:
-		var raw = _registry.execute(verb_id, selection_value)
-		if typeof(raw) == TYPE_OBJECT and raw.get_class() == "GDScriptFunctionState":
-			result = await raw
-		else:
-			result = raw
-	clear()
+		result = await _registry.execute(verb_id, selection_value)
 	selection_resolved.emit(verb_id, result)
