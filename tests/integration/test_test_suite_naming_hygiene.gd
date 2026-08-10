@@ -157,6 +157,16 @@ extends GutTest
 ## `_boot_main_scene_into_combat()` convention every other allow-listed suite
 ## uses).
 ##
+## FEAT-009 (US-009, DEF-005 continuation): tests/integration/
+## test_steel_thread_skeleton_weapon_e2e.gd was added to this allow-list for
+## the same reason — it is this steel thread's own capstone end-to-end test
+## (skeleton.tres weapon_paths -> arming_sword.tres spawn resolution, WITH
+## and WITHOUT an EncounterResource weapon_path_override, through
+## CombatantFactory.build_enemy_combatant to parry/block reaction
+## eligibility), and it, too, genuinely instantiates/boots
+## res://MainScene.tscn (via the SAME `_boot_main_scene()` convention every
+## other allow-listed suite uses).
+##
 ## Satisfies: DEF-005, US-011, FEAT-141, FEAT-159, FEAT-001, FEAT-180, FEAT-010, FEAT-220, FEAT-246, FEAT-282, FEAT-287, FEAT-310, FEAT-354, FEAT-009.
 ##
 ## ══════════════════════════════════════════════════════════════════════════
@@ -198,6 +208,7 @@ const ALLOWED_STEEL_THREAD_PATHS: Array = [
 	"res://tests/integration/test_steel_thread_camera_panel_e2e.gd",
 	"res://tests/integration/test_steel_thread_selection_e2e.gd",
 	"res://tests/integration/test_steel_thread_camera_pan_zoom.gd",
+	"res://tests/integration/test_steel_thread_skeleton_weapon_e2e.gd",
 ]
 
 ## Path-fragment/identifier substrings from the removed duplicate
