@@ -15,11 +15,11 @@ extends GutTest
 ## CombatantFactory.build_enemy_combatant() itself.
 ##
 ## Malformed-resource fixtures are constructed at runtime via
-## ResourceSaver.save() to a user:// path (mirrors
+## ResourceSaver.save() to a user:// path (mirrors the now-deleted
 ## tests/integration/test_build_enemy_combatant_validation.gd's established
-## fixture convention) since EnemyResource/WeaponResource are only ever
-## loaded from a Resource path, never handed to build_enemy_combatant() as
-## an in-memory instance.
+## fixture convention, merged into this file by FEAT-389) since
+## EnemyResource/WeaponResource are only ever loaded from a Resource path,
+## never handed to build_enemy_combatant() as an in-memory instance.
 ##
 ## Test criteria covered:
 ##   1. override == "" AND enemy.weapon_paths == [] -> {success: false,
@@ -30,12 +30,28 @@ extends GutTest
 ##      block_die is negative on the loaded WeaponResource ->
 ##      {success: false, error_code: ERR_ENEMY_RESOURCE_INVALID_WEAPON_FIELD,
 ##      ...}
+##   4. (FEAT-389 merge, FEAT-227 origin) a missing/unresolvable ENEMY
+##      resource path itself (as opposed to an unresolvable WEAPON path,
+##      already covered by criterion 2 above) also fails fast with
+##      ERR_ENEMY_RESOURCE_LOAD_FAILED. Merged from the now-deleted
+##      tests/integration/test_build_enemy_combatant_validation.gd (which
+##      exercised the same underlying CombatantFactory logic indirectly
+##      through the MainScene test seam -- MainScene._build_enemy_combatant()
+##      is a trivial delegate to CombatantFactory.build_enemy_combatant(), so
+##      exercising the factory directly here is equivalent, no
+##      MainScene-specific behavior lost).
+##   5. (FEAT-389 merge) the regression fixture (skeleton.tres) also
+##      round-trips fortitude/reflex/will/strength/dexterity/combatant_id and
+##      the FULL weapon dict shape unchanged -- widened from the narrower
+##      name/hp_current/ac check this suite previously carried, so no
+##      assertion coverage is lost relative to the deleted duplicate above.
 
 const CombatantFactoryClass = preload("res://infrastructure/combatant_factory.gd")
 const EnemyResourceClass = preload("res://data/enemies/enemy_resource.gd")
 const WeaponResourceClass = preload("res://core/model/weapon_resource.gd")
 
 const SKELETON_TRES_PATH: String = "res://data/enemies/skeleton.tres"
+const MISSING_ENEMY_PATH: String = "res://data/enemies/does_not_exist_feat_227.tres"
 const MISSING_WEAPON_PATH: String = "res://data/weapons/does_not_exist_feat_006.tres"
 const ENEMY_FIXTURE_PATH: String = "user://test_build_enemy_combatant_validation_enemy_fixture.tres"
 const WEAPON_FIXTURE_PATH: String = "user://test_build_enemy_combatant_validation_weapon_fixture.tres"
@@ -144,6 +160,21 @@ func test_unresolvable_enemy_weapon_paths_entry_yields_load_failed_error() -> vo
 	)
 
 
+func test_missing_enemy_resource_path_yields_load_failed_error() -> void:
+	var factory := CombatantFactoryClass.new()
+	var result: Dictionary = factory.build_enemy_combatant(MISSING_ENEMY_PATH, null, "ghost_1")
+
+	assert_true(
+		result.has("error"),
+		"a missing/unresolvable EnemyResource path must yield a typed error Dictionary, not a crash or a bogus combatant; got: %s" % str(result)
+	)
+	assert_eq(
+		result.get("error", ""), CombatantFactoryClass.ERR_ENEMY_RESOURCE_LOAD_FAILED,
+		"error_code must be ERR_ENEMY_RESOURCE_LOAD_FAILED when the EnemyResource itself fails to load"
+	)
+	assert_false(result.has("weapon"), "a fail-fast error result must never also carry a playable combatant's 'weapon' shape")
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # Criterion 3: negative numeric fields on the loaded WeaponResource each
 # yield ERR_ENEMY_RESOURCE_INVALID_WEAPON_FIELD.
@@ -208,4 +239,19 @@ func test_valid_skeleton_tres_still_builds_combatant_with_no_error() -> void:
 	assert_false(combatant.has("error"), "a well-formed EnemyResource must never yield an error Dictionary; got: %s" % str(combatant))
 	assert_eq(combatant.get("name", ""), "Skeleton")
 	assert_eq(combatant.get("hp_current", -1), 8)
+	assert_eq(combatant.get("hp_max", -1), 8)
 	assert_eq(combatant.get("ac", -1), 14)
+	assert_eq(combatant.get("fortitude", -1), 13)
+	assert_eq(combatant.get("reflex", -1), 12)
+	assert_eq(combatant.get("will", -1), 12)
+	assert_eq(combatant.get("strength", -1), 2)
+	assert_eq(combatant.get("dexterity", -1), 1)
+	assert_eq(combatant.get("combatant_id", ""), "skeleton_1")
+
+	var weapon: Dictionary = combatant.get("weapon", {})
+	assert_eq(weapon.get("damage_modifier_attribute", ""), "strength")
+	assert_eq(weapon.get("proficiency_bonus", -1), 2)
+	assert_eq(weapon.get("damage_die", -1), 6)
+	assert_eq(weapon.get("parry_bonus", -1), 4)
+	assert_eq(weapon.get("block_value", -1), 2)
+	assert_eq(weapon.get("block_die", -1), 0)

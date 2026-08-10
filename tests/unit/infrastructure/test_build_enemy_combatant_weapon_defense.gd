@@ -24,8 +24,20 @@ extends GutTest
 ##      combatant['weapons'] == [weapon.duplicate(true)].
 ##   4. No attribute_map translation code remains in
 ##      infrastructure/combatant_factory.gd.
+##   5. (FEAT-389 merge, FEAT-001 iteration K origin) the built weapon dict
+##      is genuinely Parry/Block-eligible per core/rules/resolution.gd's own
+##      predicates, AND a block_die<=0 (skeleton's authored 0) falls back to
+##      damage_die (6) as resolution.gd's actual Block reduction die --
+##      proven end to end via a RecordingRNG capturing the die size rolled.
+##      Merged from the now-deleted tests/unit/test_build_enemy_combatant_
+##      weapon_defense.gd (which exercised the same underlying
+##      CombatantFactory logic indirectly through the MainScene test seam --
+##      MainScene._build_enemy_combatant() is a trivial delegate to
+##      CombatantFactory.build_enemy_combatant(), so exercising the factory
+##      directly here is equivalent, no MainScene-specific behavior lost).
 
 const CombatantFactoryClass = preload("res://infrastructure/combatant_factory.gd")
+const ResolutionClass = preload("res://core/rules/resolution.gd")
 
 const SKELETON_TRES_PATH: String = "res://data/enemies/skeleton.tres"
 const ARMING_SWORD_PATH: String = "res://data/weapons/arming_sword.tres"
@@ -138,3 +150,71 @@ func test_no_attribute_map_translation_code_remains() -> void:
 		content.contains("weapon_res.damage_modifier_attribute"),
 		"infrastructure/combatant_factory.gd must read damage_modifier_attribute VERBATIM off the loaded WeaponResource"
 	)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Criterion 5 (FEAT-389 merge): the built weapon dict is genuinely
+# Parry/Block-eligible, and block_die<=0 falls back to damage_die as the
+# ACTUAL Block reduction die resolution.gd rolls.
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_skeleton_weapon_dict_is_parry_and_block_eligible() -> void:
+	var factory := CombatantFactoryClass.new()
+	var combatant: Dictionary = factory.build_enemy_combatant(SKELETON_TRES_PATH, null, "skeleton_1")
+	var weapon: Dictionary = combatant.get("weapon", {})
+
+	assert_true(
+		ResolutionClass.is_parry_eligible(weapon),
+		"Skeleton's built weapon dict must be Parry-eligible (parry_bonus=4 > 0)"
+	)
+	assert_true(
+		ResolutionClass.is_block_eligible(weapon),
+		"Skeleton's built weapon dict must be Block-eligible (block_value=2 > 0)"
+	)
+
+
+class RecordingRNG:
+	var _d20_seq: Array
+	var _d20_idx: int = 0
+	var last_roll_die_size: int = -1
+
+	func _init(d20_seq: Array) -> void:
+		_d20_seq = d20_seq
+
+	func d20() -> int:
+		var val: int = _d20_seq[_d20_idx % _d20_seq.size()]
+		_d20_idx += 1
+		return val
+
+	func roll(die_size: int, count: int) -> int:
+		last_roll_die_size = die_size
+		return 2  # fixed low roll so damage arithmetic stays simple/deterministic
+
+
+func test_block_falls_back_block_die_to_damage_die_for_skeleton_weapon() -> void:
+	var factory := CombatantFactoryClass.new()
+	var combatant: Dictionary = factory.build_enemy_combatant(SKELETON_TRES_PATH, null, "skeleton_1")
+	var weapon: Dictionary = combatant.get("weapon", {})
+
+	assert_eq(weapon.get("block_die", -1), 0, "setup: skeleton weapon dict block_die must be 0 (unset)")
+
+	var attacker: Dictionary = {"strength": combatant.get("strength", 0)}
+	var target: Dictionary = {"ac": 1}  # guarantees a hit regardless of roll
+
+	# d20_seq: [attack_d20=11] -> definitely hits target ac=1
+	var rng = RecordingRNG.new([11])
+	var resolution = ResolutionClass.new(rng)
+
+	var ctx: Dictionary = {"blocking_weapon": weapon}
+	var result: Dictionary = resolution.resolve_weapon_attack(
+		attacker, target, weapon, "ac", "block", ctx
+	)
+
+	assert_true(result["hit"], "Setup must land a hit so the Block reaction triggers")
+	assert_eq(
+		rng.last_roll_die_size, weapon.get("damage_die", -1),
+		"Block reduction roll must fall back the Skeleton's block_die to its damage_die (%d) when block_die<=0; got %d" % [
+			weapon.get("damage_die", -1), rng.last_roll_die_size
+		]
+	)
+	assert_eq(result["active_defense_applied"], "block", "Block must be recorded as the applied active defense")
