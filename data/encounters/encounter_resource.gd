@@ -10,7 +10,8 @@
 ##   Domain purity: no SQLAlchemy, FastAPI, or Godot Node/Control imports.
 ##
 ## Fields (FEAT-089 / FR-012; hex position fields added FEAT-001 / US-001;
-## tiles field added FEAT-004 / US-002, FR-002 — additive-only, no prior
+## tiles field added FEAT-004 / US-002, FR-002; weapon_path_overrides field
+## added FEAT-004 / US-004, FR-004, NFR-005 — additive-only, no prior
 ## field renamed/removed/altered):
 ##   party_resource_paths  — Array of res:// paths to CharacterResource .tres files
 ##                           for party members (e.g. ["res://data/characters/titus.tres"])
@@ -32,15 +33,28 @@
 ##                           unchanged. Each entry is keyed by its own (q, r);
 ##                           duplicate (q, r) pairs are not yet validated (future
 ##                           extension point).
+##   weapon_path_overrides — Array of res:// paths to WeaponResource .tres files,
+##                           positionally parallel (by index) to
+##                           enemy_resource_paths — slot i's override lives at
+##                           weapon_path_overrides[i] (FEAT-004 / US-004, FR-004,
+##                           NFR-005). An empty string, or an index beyond the
+##                           array's bounds, both mean "no override — use the
+##                           enemy's own weapon_paths[0]"; resolution happens at
+##                           combatant-build time, not at authoring time.
+##                           Defaults to [] so pre-existing .tres fixtures that
+##                           omit this field continue to load unchanged, with no
+##                           migration required (purely additive, backward
+##                           compatible).
 ##
 ## Usage:
 ##   var enc = ResourceLoader.load("res://data/encounters/prologue_encounter.tres")
-##   print(enc.party_resource_paths)   # ["res://data/characters/titus.tres"]
-##   print(enc.enemy_resource_paths)   # ["res://data/enemies/skeleton.tres"]
-##   print(enc.party_hex_positions)    # [{"q": 0, "r": 0}]
-##   print(enc.enemy_hex_positions)    # [{"q": 1, "r": 0}]
-##   print(enc.seed)                   # 42
-##   print(enc.tiles)                  # [] (unless a tiles layout was authored)
+##   print(enc.party_resource_paths)      # ["res://data/characters/titus.tres"]
+##   print(enc.enemy_resource_paths)      # ["res://data/enemies/skeleton.tres"]
+##   print(enc.party_hex_positions)       # [{"q": 0, "r": 0}]
+##   print(enc.enemy_hex_positions)       # [{"q": 1, "r": 0}]
+##   print(enc.seed)                      # 42
+##   print(enc.tiles)                     # [] (unless a tiles layout was authored)
+##   print(enc.weapon_path_overrides)     # [] (unless per-slot weapon overrides were authored)
 
 class_name EncounterResource
 extends Resource
@@ -71,3 +85,12 @@ extends Resource
 ## that predate this field (e.g. prologue_encounter.tres) continue to load
 ## with an empty tiles array and every other field unchanged (RISK-003).
 @export var tiles: Array[HexTileDataResource] = []
+
+## Optional per-encounter-slot weapon overrides (FEAT-004 / US-004, FR-004,
+## NFR-005), positionally parallel to enemy_resource_paths: slot i's override
+## lives at weapon_path_overrides[i]. An empty string, or an index beyond the
+## array's bounds, both mean "no override — use the enemy's own
+## weapon_paths[0]". Additive field: defaults to [] so pre-existing .tres
+## fixtures that predate this field continue to load unmodified with every
+## other field unchanged (RISK-003 pattern, matching `tiles` above).
+@export var weapon_path_overrides: Array[String] = []

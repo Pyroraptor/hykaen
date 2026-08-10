@@ -5,6 +5,12 @@ extends GutTest
 ## data/encounters/encounter_resource.gd — additive `tiles:
 ## Array[HexTileDataResource] = []` field on the existing EncounterResource.
 ##
+## Also covers FEAT-004 (US-004 / FR-004, NFR-005) — the steel thread's
+## additive `weapon_path_overrides: Array = []` field, positionally
+## parallel to enemy_resource_paths, enabling an optional per-encounter-slot
+## weapon override. Backward-compatible: defaults to [] so every
+## pre-existing encounter .tres continues to load unmodified.
+##
 ## Architecture note (Clean Architecture / ADR-001):
 ##   EncounterResource lives in the DOMAIN layer (data/encounters/). It
 ##   extends Resource (never Node/Control/SceneTree), carries ZERO business
@@ -16,13 +22,17 @@ extends GutTest
 ##   1. Static diff-review guard: EncounterResource still exposes every
 ##      pre-existing field (party_resource_paths, enemy_resource_paths,
 ##      party_hex_positions, enemy_hex_positions, seed) with unchanged
-##      default values and types, PLUS the new `tiles` field defaulting to [].
+##      default values and types, PLUS the new `tiles` field defaulting to [],
+##      PLUS the new `weapon_path_overrides` field defaulting to [].
 ##   2. GUT regression: load data/encounters/prologue_encounter.tres and
-##      assert tiles == [] while every prior field is intact (matches the
-##      committed .tres content verbatim).
+##      assert tiles == [] and weapon_path_overrides == [] while every prior
+##      field is intact (matches the committed .tres content verbatim).
 ##   3. GUT: a populated tiles array of HexTileDataResource entries
 ##      round-trips via ResourceSaver.save()/ResourceLoader.load() with no
 ##      field loss (encounter-level fields AND per-tile fields).
+##   4. GUT: a weapon_path_overrides array with mixed empty-string and
+##      non-empty-string entries round-trips via ResourceSaver.save()/
+##      ResourceLoader.load() with no entry loss or mutation.
 
 const EncounterResource  = preload("res://data/encounters/encounter_resource.gd")
 const HexTileDataResource = preload("res://data/tiles/hex_tile_data_resource.gd")
@@ -93,6 +103,18 @@ func test_new_tiles_field_defaults_to_empty_array() -> void:
 	)
 
 
+func test_new_weapon_path_overrides_field_defaults_to_empty_array() -> void:
+	var res := EncounterResource.new()
+	assert_true(
+		res.weapon_path_overrides is Array,
+		"EncounterResource.weapon_path_overrides must be an Array (FEAT-004 / US-004 additive field)"
+	)
+	assert_eq(
+		res.weapon_path_overrides, [],
+		"EncounterResource.weapon_path_overrides must default to [] (FEAT-004 / US-004 additive field)"
+	)
+
+
 func test_encounter_resource_gd_extends_resource_not_scene_tree_types() -> void:
 	var file := FileAccess.open("res://data/encounters/encounter_resource.gd", FileAccess.READ)
 	assert_not_null(file, "data/encounters/encounter_resource.gd must be readable")
@@ -149,6 +171,10 @@ func test_prologue_encounter_tres_loads_with_empty_tiles_and_intact_fields() -> 
 	assert_eq(
 		enc.seed, 42,
 		"prologue_encounter.tres seed must be unchanged by FEAT-004"
+	)
+	assert_eq(
+		enc.weapon_path_overrides, [],
+		"prologue_encounter.tres must load with weapon_path_overrides == [] — no .tres edit was made in FEAT-004 / US-004"
 	)
 
 
@@ -219,3 +245,61 @@ func test_populated_tiles_array_round_trips_with_no_field_loss() -> void:
 	var cleanup_dir := DirAccess.open("user://")
 	if cleanup_dir != null:
 		cleanup_dir.remove(ROUND_TRIP_TRES_PATH)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-004 / US-004 / FR-004, NFR-005: weapon_path_overrides — additive,
+# positionally-parallel-to-enemy_resource_paths field on EncounterResource
+# ══════════════════════════════════════════════════════════════════════════════
+
+func test_weapon_path_overrides_round_trips_mixed_empty_and_non_empty_entries() -> void:
+	var res := EncounterResource.new()
+	res.enemy_resource_paths = [
+		"res://data/enemies/skeleton.tres",
+		"res://data/enemies/skeleton.tres",
+		"res://data/enemies/skeleton.tres",
+	]
+	res.weapon_path_overrides = [
+		"res://data/weapons/arming_sword.tres",
+		"",
+		"res://data/weapons/dagger.tres",
+	]
+
+	var save_err := ResourceSaver.save(res, ROUND_TRIP_TRES_PATH)
+	assert_eq(save_err, OK, "ResourceSaver.save() must succeed for weapon_path_overrides fixture")
+
+	var reloaded = ResourceLoader.load(ROUND_TRIP_TRES_PATH, "", ResourceLoader.CACHE_MODE_IGNORE)
+	assert_not_null(reloaded, "weapon_path_overrides round-trip fixture must reload from disk")
+	if reloaded == null:
+		return
+
+	assert_eq(
+		reloaded.weapon_path_overrides,
+		[
+			"res://data/weapons/arming_sword.tres",
+			"",
+			"res://data/weapons/dagger.tres",
+		],
+		"weapon_path_overrides must round-trip with mixed empty-string and non-empty-string entries preserved exactly"
+	)
+
+	var cleanup_dir := DirAccess.open("user://")
+	if cleanup_dir != null:
+		cleanup_dir.remove(ROUND_TRIP_TRES_PATH)
+
+
+func test_all_preexisting_encounter_tres_files_load_without_error() -> void:
+	var encounter_paths := [
+		"res://data/encounters/prologue_encounter.tres",
+		"res://data/encounters/batty_guard.tres",
+		"res://data/encounters/dripping_cave.tres",
+		"res://data/encounters/long_hall.tres",
+	]
+	for path in encounter_paths:
+		var enc = ResourceLoader.load(path, "", ResourceLoader.CACHE_MODE_IGNORE)
+		assert_not_null(enc, "%s must load without error after the weapon_path_overrides schema change (FEAT-004 / US-004)" % path)
+		if enc != null:
+			assert_true(
+				enc.weapon_path_overrides is Array,
+				"%s must expose weapon_path_overrides as an Array after the schema change" % path
+			)
