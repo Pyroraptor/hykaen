@@ -1,5 +1,5 @@
 extends GutTest
-## tests/unit/test_enemy_resources.gd
+## tests/unit/data/enemies/test_enemy_resources.gd
 ##
 ## GUT unit tests for data/enemies/enemy_resource.gd and data/enemies/skeleton.tres
 ## (FEAT-088 / US-009 / NFR-005).
@@ -20,6 +20,13 @@ extends GutTest
 ## in tests/unit/data/weapons/test_weapon_resource_data.gd (loaded weapon
 ## fixtures) and tests/unit/data/enemies/test_enemy_resource_weapon_defense_fields.gd
 ## (EnemyResource.weapon_paths schema + resolution).
+##
+## FEAT-003 (US-003): skeleton.tres itself is now wired to reference
+## data/weapons/arming_sword.tres via weapon_paths (rather than merely the
+## EnemyResource schema supporting weapon_paths in the abstract, as proven
+## by test_enemy_resource_weapon_defense_fields.gd's synthetic fixture).
+## Criteria 7-8 below assert that wiring directly on the loaded skeleton.tres
+## instance, and that the legacy weapon dict/defense keys are gone from it.
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -122,6 +129,39 @@ func test_enemy_resource_gd_does_not_extend_control() -> void:
 		content.contains("extends Control"),
 		"enemy_resource.gd must not contain 'extends Control' — domain purity (NFR-005)"
 	)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Criterion 7 (FEAT-003 / US-003): skeleton.tres.weapon_paths ==
+# ['res://data/weapons/arming_sword.tres']
+# ══════════════════════════════════════════════════════════════════════════════
+
+func test_skeleton_weapon_paths_points_at_arming_sword() -> void:
+	var res = ResourceLoader.load("res://data/enemies/skeleton.tres", "", ResourceLoader.CACHE_MODE_IGNORE)
+	assert_not_null(res, "skeleton.tres must load")
+	if res == null:
+		return
+	assert_eq(
+		res.weapon_paths, ["res://data/weapons/arming_sword.tres"],
+		"skeleton.weapon_paths must be ['res://data/weapons/arming_sword.tres']; got: %s" % str(res.weapon_paths)
+	)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Criterion 8 (FEAT-003 / US-003): skeleton.tres no longer carries a legacy
+# weapon dict or top-level parry_bonus/block_value/block_die keys.
+# ══════════════════════════════════════════════════════════════════════════════
+
+func test_skeleton_has_no_legacy_weapon_or_defense_keys() -> void:
+	var res = ResourceLoader.load("res://data/enemies/skeleton.tres", "", ResourceLoader.CACHE_MODE_IGNORE)
+	assert_not_null(res, "skeleton.tres must load")
+	if res == null:
+		return
+	for field_name in ["weapon", "parry_bonus", "block_value", "block_die"]:
+		assert_false(
+			field_name in res,
+			"skeleton.tres-loaded EnemyResource must NOT expose legacy field '%s' (FEAT-003)" % field_name
+		)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

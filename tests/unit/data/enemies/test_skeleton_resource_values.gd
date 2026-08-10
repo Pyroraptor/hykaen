@@ -1,5 +1,5 @@
 extends GutTest
-## tests/unit/test_skeleton_resource_values.gd
+## tests/unit/data/enemies/test_skeleton_resource_values.gd
 ##
 ## GUT unit tests for FEAT-002 (FR-007 / iteration-G P1): pinned attribute
 ## and defense values authored onto data/enemies/skeleton.tres.
@@ -21,6 +21,14 @@ extends GutTest
 ##   2. intellect=0 and other attribute fields load with pinned values.
 ##   3. str/dex values are unchanged from the prior iteration's authored
 ##      values (str=2, dex=1).
+##
+## FEAT-003 (US-003): skeleton.tres was subsequently rewired to reference
+## data/weapons/arming_sword.tres via weapon_paths, removing the legacy
+## inline weapon dict and top-level parry_bonus/block_value/block_die
+## fields. None of the fields asserted below are weapon-related, so this
+## file's assertions are unaffected by that change; test_skeleton_str_dex_
+## unchanged_from_prior_iteration() below additionally guards that the
+## non-weapon fields it checks remain stable across the FEAT-003 rewrite.
 
 const SKELETON_TRES_PATH := "res://data/enemies/skeleton.tres"
 
