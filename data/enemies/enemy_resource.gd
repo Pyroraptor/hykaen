@@ -14,7 +14,18 @@
 ##   hp      — base hit points (template stat, e.g. 8)
 ##   str     — strength attribute score
 ##   dex     — dexterity attribute score
-##   weapon  — Dictionary with keys: die (int), proficiency_bonus (int), attribute (String)
+##
+## Weapon reference (FEAT-002 / US-002, ADR-001/ADR-002):
+##   weapon_paths — ordered Array of res:// path Strings, each a
+##       foreign-key-by-URI reference to a normalized WeaponResource
+##       (data/weapons/*.tres, core/model/weapon_resource.gd). Index 0 is
+##       the primary weapon. Defaults to [] (no weapon configured is a
+##       valid, explicitly-erroring state — resolved/validated by
+##       infrastructure, never here). This REPLACES the legacy inline
+##       `weapon: Dictionary` field and the top-level parry_bonus/
+##       block_value/block_die fields that used to duplicate a weapon's
+##       stats onto every enemy that carried it; that data now lives
+##       exclusively on the referenced WeaponResource.
 ##
 ## Defense and attribute fields (FEAT-001 / US-001 / FR-006 / ADR-104):
 ##   ac, fortitude, reflex, will               — AUTHORED defense scores.
@@ -30,7 +41,8 @@
 ##   var enemy = ResourceLoader.load("res://data/enemies/skeleton.tres")
 ##   print(enemy.name)                    # "Skeleton"
 ##   print(enemy.hp)                      # 8
-##   print(enemy.weapon.get("die"))       # 6
+##   var weapon = ResourceLoader.load(enemy.weapon_paths[0])
+##   print(weapon.damage_die)             # 6
 
 class_name EnemyResource
 extends Resource
@@ -47,11 +59,13 @@ extends Resource
 ## Dexterity attribute score (drives ranged/finesse modifier and initiative).
 @export var dex: int = 0
 
-## Weapon definition Dictionary with keys:
-##   die              (int)    — damage die size (e.g. 6 for d6)
-##   proficiency_bonus (int)   — flat bonus added to attack rolls when proficient
-##   attribute        (String) — attribute driving damage modifier: 'str' or 'dex'
-@export var weapon: Dictionary = {}
+## Ordered Array of res:// path Strings, each referencing a normalized
+## WeaponResource (data/weapons/*.tres). Index 0 is the primary weapon.
+## Defaults to [] — an enemy with no weapon configured is a valid,
+## explicitly-erroring state (resolved/validated by infrastructure, e.g.
+## infrastructure/combatant_factory.gd, never here — ADR-104). See
+## FEAT-002 / US-002 / ADR-001 / ADR-002.
+@export var weapon_paths: Array = []
 
 ## Armor Class — authored defense score (ADR-104). Static read, never
 ## recomputed from attributes at load time.
@@ -96,26 +110,3 @@ extends Resource
 ## Data-layer prerequisite for skill-based reaction/defense checks
 ## (Dodge/Steel).
 @export var skills: Dictionary = {}
-
-## Defensive weapon fields (FEAT-001 / US-001, iteration K) — mirror
-## core/model/weapon_resource.gd's own parry_bonus/block_value/block_die
-## fields exactly, so an enemy's equipped weapon can be Parried/Blocked
-## against the SAME way a player weapon can (core/rules/resolution.gd's
-## is_parry_eligible()/is_block_eligible() predicates read these from the
-## combatant's "weapon" Dictionary, built at composition-root time by
-## MainScene.gd's _build_enemy_combatant() from these fields). Authored,
-## static data — never derived/recomputed at load time (ADR-104).
-##
-## parry_bonus  — flat bonus added to the defender's attack roll when using
-##                the Parry reaction. Zero means no parry capability.
-## block_value  — flat bonus applied when using the Block reaction. Zero
-##                means this weapon cannot Block effectively.
-## block_die    — die size used for the Block reaction's damage-reduction
-##                roll. Zero/unset means "no dedicated block die" — the
-##                consuming resolution.gd Block branch falls back to the
-##                weapon's own damage_die (enemy.weapon.get("die")) when
-##                block_die <= 0, mirroring WeaponResource.block_die's
-##                documented contract exactly.
-@export var parry_bonus: int = 0
-@export var block_value: int = 0
-@export var block_die: int = 0
