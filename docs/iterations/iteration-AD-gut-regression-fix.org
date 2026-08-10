@@ -1,0 +1,200 @@
+#+TITLE: Iteration AD — GUT Gate Green: Fix 11 Exposed Test Failures
+#+SPRINT: 43
+#+VERSION: 0.2.4
+
+* Goal
+
+Restore the GUT gate to green.  Eleven tests that were previously hidden
+by a GUT test-discovery collision (fixed in FEAT-388) are now running
+and failing.  This iteration fixes the underlying production bugs and
+one stale test expectation so the gate exits 0 with an empty
+=accepted_known_failures.json=.
+
+* Background
+
+Sprint 42 (enemy weapon architecture Phase 1) introduced
+=tests/unit/data/weapons/test_weapon_resource_data.gd=.  A GUT basename
+collision then developed between that file and the pre-existing
+=tests/unit/test_weapon_resource_data.gd=.  FEAT-388 resolved the
+collision by renaming the latter file to
+=tests/unit/test_weapon_resource_field_defaults.gd=.  Once the collision
+was gone, GUT began loading and running several top-level =tests/*.gd=
+files that had previously been silently skipped.  Those files contain
+real tests that exercise production code paths; the production code has
+two bugs that the tests correctly expose.
+
+#+BEGIN_QUOTE
+Gate output (2026-08-10 manual run after sprint 42):
+
+  unexpected_failures=[
+    "res://tests/integration/test_encounter_resource_pipeline_e2e.gd::test_feat103_round_history_budget_remaining_correct_across_full_encounter",
+    "res://tests/sim/test_determinism.gd::test_determinism_seed_99999_2v2_encounter_terminates_with_multiple_rounds",
+    "res://tests/sim/test_determinism.gd::test_determinism_seed_99999_titus_encounter_terminates",
+    "res://tests/sim/test_determinism.gd::test_determinism_seed_99999_titus_round_events_typed_value_objects_byte_identical",
+    "res://tests/test_encounter_multiround_balance_smoke.gd::test_full_2v2_encounter_terminates_with_valid_outcome",
+    "res://tests/test_encounter_multiround_balance_smoke.gd::test_full_encounter_round_history_budget_remaining_consistent_with_round_reset",
+    "res://tests/test_encounter_no_hang_typed_events_smoke.gd::test_round_history_entry_typed_objects_consistent_across_full_encounter",
+    "res://tests/test_encounter_round_loop.gd::test_dead_combatant_skipped_without_consuming_cycle_slot",
+    "res://tests/test_encounter_round_loop.gd::test_round_events_exactly_one_combatant_defeated_entry_per_dead_combatant",
+    "res://tests/test_encounter_round_loop.gd::test_round_events_exactly_one_terminal_encounter_result_entry",
+    "res://tests/test_round_events.gd::test_combatant_defeated_event_to_dict_matches_fields"
+  ]
+#+END_QUOTE
+
+** Root cause 1 — typed-ternary crash in =resolve_action_use_case.gd:640=
+
+When a plain-Dictionary combatant (used by the old encounter.gd test path
+and by simulator.gd) is killed in combat, =_finalize_strike_result()=
+crashes with:
+
+#+BEGIN_QUOTE
+SCRIPT ERROR: Invalid access to property or key 'combatant_id' on a base
+object of type 'Dictionary'.
+  at: ResolveActionUseCase._finalize_strike_result
+      (res://core/application/resolve_action_use_case.gd:640)
+#+END_QUOTE
+
+The guilty line (line 640) is:
+
+#+BEGIN_SRC gdscript
+var target_cid: String = target.get("combatant_id", "") if target is Dictionary else target.combatant_id
+#+END_SRC
+
+GDScript 4.3 evaluates *both* branches of a ternary when the left-hand
+variable is typed (=: String=), so =target.combatant_id= (the =else=
+branch) runs on a plain Dictionary before the runtime condition check can
+suppress it.  The fix is a plain if/elif block:
+
+#+BEGIN_SRC gdscript
+var target_cid: String
+if target is CombatantClass:
+    target_cid = target.combatant_id
+else:
+    target_cid = target.get("combatant_id", "")
+#+END_SRC
+
+=CombatantClass= is already preloaded earlier in the same file (search
+for =const CombatantClass= — it is used at line 602 for the EffectsApplier
+branch).
+
+This crash cascades into most of the other 10 failures: the script error
+causes Godot to abort the action resolution mid-function, leaving the
+encounter in an inconsistent state that triggers the safe-DRAW backstop,
+produces zero =combatant_defeated= events, and corrupts the per-round
+budget tracking for subsequent rounds.
+
+** Root cause 2 — stale test expectation in =tests/test_round_events.gd=
+
+Commit =6f902e1= (before sprint AC) added =combatant_id= to
+=RoundEvents.CombatantDefeatedEvent.to_dict()=.  The test
+=test_combatant_defeated_event_to_dict_matches_fields= in
+=tests/test_round_events.gd= was written before that commit and does not
+include =combatant_id= in its expected dictionary.  The fix is to add the
+=combatant_id= key to the expected dict in the test.
+
+Current failing assertion:
+
+#+BEGIN_QUOTE
+DICTIONARY({"round":4,"name":"Orc","defeated_by":"Lyra","combatant_id":""})
+!= DICTIONARY({"round":4,"name":"Orc","defeated_by":"Lyra"}).
+#+END_QUOTE
+
+The test must expect ={"round": 4, "name": "Orc", "defeated_by": "Lyra",
+"combatant_id": ""}=.
+
+* Non-goals
+
+- Changing any combat rules, damage calculations, or game mechanics.
+- Migrating the old plain-Dictionary combatant tests to use real =Combatant=
+  instances — the fix must be backward-compatible so encounter.gd and
+  simulator.gd continue to accept plain Dictionaries.
+- Fixing any other pre-existing tech debt beyond the 11 failures listed.
+
+* Read first
+
+Before implementing, read:
+
+- =core/application/resolve_action_use_case.gd= lines 595–670 — the
+  =_finalize_strike_result()= function containing the crash at line 640.
+- =core/rules/round_events.gd= lines 135–160 — =CombatantDefeatedEvent=
+  and its =to_dict()= method.
+- =tests/test_round_events.gd= — the =test_combatant_defeated_event_to_dict_matches_fields= test.
+- =tests/test_encounter_round_loop.gd= — plain-Dictionary combatant factories
+  (=_durable_combatant=, =_fragile_combatant=) and failing tests.
+- =tests/test_encounter_multiround_balance_smoke.gd= — budget_remaining tests.
+- =ci/accepted_known_failures.json= — must remain empty (=[]= ) after this
+  sprint; no failures are to be accepted.
+
+* Features
+
+** AD-1  Fix typed-ternary crash in =_finalize_strike_result()=
+
+*File:* =core/application/resolve_action_use_case.gd=
+
+Replace lines 638–644 (the =target_defeated= / =target_cid= block) with the
+safe if/elif form:
+
+#+BEGIN_SRC gdscript
+var target_defeated: bool = target.hp_current <= 0 if target is Dictionary else (target.hp_current <= 0)
+if target_defeated:
+    var target_cid: String
+    if target is CombatantClass:
+        target_cid = target.combatant_id
+    else:
+        target_cid = target.get("combatant_id", "")
+    var defeated_event = RoundEventsClass.CombatantDefeatedEvent.new(
+        round_number, target.name, combatant.name, target_cid
+    )
+    _emit_event(defeated_event)
+#+END_SRC
+
+Note: =target.hp_current= at line 638 already works correctly (Dictionary
+dot-notation read of an existing key); only the ternary on line 640 is the
+problem.  You may simplify the =target_defeated= line back to:
+=var target_defeated: bool = target.hp_current <= 0=
+if the existing line is not typed.
+
+*Test criteria:*
+- A plain-Dictionary combatant with =hp_current ≤ 0= no longer causes a
+  SCRIPT ERROR in =_finalize_strike_result()=.
+- A =CombatantClass= combatant with =hp_current ≤ 0= still emits a
+  =CombatantDefeatedEvent= with the correct =combatant_id= field.
+- A plain-Dictionary combatant with =hp_current ≤ 0= emits a
+  =CombatantDefeatedEvent= with =combatant_id = ""=.
+- No regression in any existing tests that exercise the kill path.
+
+** AD-2  Update stale =to_dict= test in =tests/test_round_events.gd=
+
+*File:* =tests/test_round_events.gd=
+
+Find =test_combatant_defeated_event_to_dict_matches_fields= and update its
+expected dictionary to include =combatant_id: "".
+
+The test constructs a =CombatantDefeatedEvent= with no explicit
+=combatant_id= argument (so the default =""= applies), then calls
+=to_dict()= and asserts against an expected Dictionary.  Add
+="combatant_id": ""= to the expected dict.
+
+*Test criteria:*
+- =test_combatant_defeated_event_to_dict_matches_fields= passes.
+- No other tests in =tests/test_round_events.gd= are changed.
+
+** AD-3  Verify the full 11-failure set is resolved
+
+Run the full GUT suite and confirm:
+
+- =Failing Tests: 0= (or the GateExitPolicy prints no =unexpected_failures=).
+- Gate exits 0.
+- =ci/accepted_known_failures.json= still contains an empty array (no
+  failures are accepted).
+- pytest still exits 0.
+
+If any of the 11 tests still fail after AD-1 and AD-2 (e.g. the
+budget_remaining off-by-1 or encounter outcome issues are a separate bug
+from the crash cascade), investigate and fix those as additional items
+within this sprint.  Do not close the sprint until all 11 are green.
+
+*Test criteria:*
+- All 11 previously failing tests pass.
+- GUT =Failing Tests: 0=, gate exit 0.
+- =ci/accepted_known_failures.json= is unchanged (still =[]=).
