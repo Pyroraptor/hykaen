@@ -740,3 +740,151 @@ func test_round_history_cycle_index_matches_actual_interleave_cycle() -> void:
 			bravo_entries[i].get("cycle_index", -1), i,
 			"Bravo's action %d must record cycle_index == %d (its Nth action occurs in interleave cycle N)" % [i, i]
 		)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-003 (US-003/FR-004, RISK-004): backward-compatibility regression test
+# for the FEAT-001/FEAT-002 _finalize_strike_result() fix, exercised through
+# THIS suite's full round-loop rather than in isolation (RISK-004's
+# mitigation: "exercise the round-loop and determinism suites, not just
+# isolated unit tests, against the fixed use case" — see
+# tests/test_finalize_strike_result.gd for the isolated-unit-test coverage
+# this complements, not duplicates).
+#
+# Drives a full run_round() with plain-Dictionary combatants — the exact
+# legacy shape _durable_combatant()/_fragile_combatant() above produce, with
+# NO "combatant_id" key — through to a kill, and asserts the resulting
+# CombatantDefeatedEvent carries combatant_id == "" with no engine error.
+# Reaching the assertions below is itself part of the proof: the pre-fix
+# eager ternary (`target.get("combatant_id", "") if target is Dictionary
+# else target.combatant_id`) raised "Invalid access to property or key
+# 'combatant_id' on a base object of type 'Dictionary'" and aborted
+# _finalize_strike_result() mid-execution the instant a Dictionary target
+# with no "combatant_id" key was defeated — leaving the round in a
+# partially-updated state and emitting zero events.
+# ══════════════════════════════════════════════════════════════════════════════
+
+func test_dictionary_combatant_kill_emits_defeated_event_with_empty_combatant_id() -> void:
+	var durable_attacker: Dictionary = _durable_combatant("DurableAttacker")
+	var fragile_target: Dictionary = _fragile_combatant("FragileTarget")
+
+	# Sanity: the legacy Dictionary shape these factories produce carries no
+	# "combatant_id" key at all — the exact shape that crashed the pre-fix
+	# eager ternary's else-branch (a `target.combatant_id` property access on
+	# a plain Dictionary).
+	assert_false(
+		fragile_target.has("combatant_id"),
+		"sanity: _fragile_combatant() must produce a Dictionary with no 'combatant_id' key"
+	)
+
+	var enc = EncounterClass.new(
+		[durable_attacker], [fragile_target], RNGClass.new(99)
+	)
+	enc.initialize()
+
+	# Must not throw/abort mid-round — reaching the assertions below already
+	# proves _finalize_strike_result() completed cleanly for the Dictionary
+	# target (no engine error aborting the call).
+	var result: Dictionary = enc.run_round()
+
+	var events: Array = enc.get_round_events()
+	var defeated_events: Array = events.filter(func(e): return e is RoundEventsClass.CombatantDefeatedEvent)
+
+	# DurableAttacker (str=3, prof=2) attacking an ac=1, hp=1 target always
+	# hits and always deals lethal (>=1) damage — deterministic kill,
+	# independent of RNG seed/roll value (see resolve_weapon_attack: roll_total
+	# = raw(>=1) + 3 + 2 >= 6 > ac=1), mirroring the existing durable-vs-
+	# fragile fixtures used elsewhere in this suite.
+	assert_eq(
+		defeated_events.size(), 1,
+		"DurableAttacker must land a lethal hit against FragileTarget and emit exactly one combatant_defeated event, with no engine error"
+	)
+	if defeated_events.size() != 1:
+		return
+
+	assert_eq(
+		defeated_events[0].name, "FragileTarget",
+		"the combatant_defeated event must name the actually-defeated Dictionary-shaped target"
+	)
+	assert_eq(
+		defeated_events[0].combatant_id, "",
+		"a Dictionary target with no 'combatant_id' key must default combatant_id to '' on the emitted CombatantDefeatedEvent (FEAT-001/FEAT-002 fix), never raise an engine error"
+	)
+
+	# The round loop itself must have completed and decided the encounter —
+	# further proof no mid-round abort occurred.
+	assert_eq(result.get("outcome", ""), "won", "DurableAttacker defeating the sole enemy must decide the encounter 'won'")
+	assert_eq(enc.get_outcome(), "won", "get_outcome() must also report 'won' once decided")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-003 (US-003/FR-004, RISK-004): byte-for-byte "protected files"
+# regression guard — mirrors tests/tools/test_protected_files_unchanged.gd's
+# established SHA-256-pinning convention. FEAT-001/FEAT-002 fixed the
+# _finalize_strike_result() crash entirely inside the application-layer
+# boundary-normalization logic, WITHOUT touching core/combat/encounter.gd or
+# this suite's own _durable_combatant()/_fragile_combatant() legacy-
+# Dictionary test factories declared earlier in this file (ADR-003). This
+# guard pins both against a captured pre-change baseline so a future edit
+# that silently reaches into either is caught as a hash mismatch rather than
+# passing unnoticed. (core/sim/simulator.gd's equivalent guard lives in
+# tests/test_simulator_determinism.gd, this feature's other file.)
+# ══════════════════════════════════════════════════════════════════════════════
+
+const ENCOUNTER_GD_PATH: String = "res://core/combat/encounter.gd"
+const _THIS_FILE_PATH: String = "res://tests/test_encounter_round_loop.gd"
+
+## _FACTORY_BLOCK_START/_END bound the _durable_combatant()/
+## _fragile_combatant() factories (including their doc comments) declared
+## earlier in THIS file — from the doc comment immediately preceding
+## _durable_combatant() through (not including) the doc comment immediately
+## preceding the next, unrelated helper (_distinct_cycle_indices()).
+const _FACTORY_BLOCK_START: String = "## A durable combatant (hp=2000) that cannot die mid-round"
+const _FACTORY_BLOCK_END: String = "## Returns the set of distinct cycle_index values present in `entries`"
+
+## PINNED_*_SHA256 — SHA-256 digests captured as this feature's (FEAT-003)
+## own pre-change baseline. A future, deliberate change to encounter.gd or
+## these factories must also regenerate the corresponding constant below —
+## never a silent drift.
+const PINNED_ENCOUNTER_GD_SHA256: String = "3684b1c49935c6af958548f65cbfceac49235350be4d596ef2c8ad8d0f4f4595"
+const PINNED_FACTORY_BLOCK_SHA256: String = "d715c6fe6834eb07faaa4463b97caebd8d5e853559e8e7174c6c404e75b45247"
+
+
+func _read_res_file(res_path: String) -> String:
+	var f := FileAccess.open(res_path, FileAccess.READ)
+	assert_not_null(f, "%s must be readable" % res_path)
+	if f == null:
+		return ""
+	var contents: String = f.get_as_text()
+	f.close()
+	return contents
+
+
+func test_encounter_gd_has_zero_diff_from_pinned_baseline() -> void:
+	var content: String = _read_res_file(ENCOUNTER_GD_PATH)
+	assert_eq(
+		content.sha256_text(), PINNED_ENCOUNTER_GD_SHA256,
+		"REGRESSION: core/combat/encounter.gd must have ZERO diff relative to the FEAT-003 pre-change baseline — the FEAT-001/FEAT-002 fix must never require touching this legacy driving adapter (ADR-003)"
+	)
+
+
+func test_durable_and_fragile_combatant_factories_have_zero_diff_from_pinned_baseline() -> void:
+	var content: String = _read_res_file(_THIS_FILE_PATH)
+	var start_idx: int = content.find(_FACTORY_BLOCK_START)
+	var end_idx: int = content.find(_FACTORY_BLOCK_END)
+
+	assert_true(start_idx >= 0, "this file must still contain the _durable_combatant() doc-comment marker this guard anchors on")
+	assert_true(end_idx > start_idx, "this file must still contain the _distinct_cycle_indices() doc-comment marker this guard anchors on, AFTER the factory block")
+	if start_idx < 0 or end_idx <= start_idx:
+		return
+
+	var block: String = content.substr(start_idx, end_idx - start_idx)
+	assert_eq(
+		block.sha256_text(), PINNED_FACTORY_BLOCK_SHA256,
+		"REGRESSION: _durable_combatant()/_fragile_combatant() (this suite's own legacy-Dictionary test factories) must have ZERO diff relative to the FEAT-003 pre-change baseline (ADR-003)"
+	)
+	# Sanity: the extracted block genuinely contains both factories, so a
+	# future edit that widens/narrows the marker span still trips this guard
+	# rather than silently hashing an empty or partial block.
+	assert_true(block.contains("func _durable_combatant("), "extracted block must contain _durable_combatant()")
+	assert_true(block.contains("func _fragile_combatant("), "extracted block must contain _fragile_combatant()")
