@@ -167,6 +167,13 @@ func test_typed_combatant_target_at_zero_hp_is_defeated_with_no_engine_error() -
 	assert_eq(defeated_events.size(), 1, "Exactly one combatant_defeated event must be emitted for a defeated typed target")
 	assert_eq(defeated_events[0].combatant_id, "target_1", "the typed branch must read combatant_id via property access")
 
+	# FEAT-002 (US-002/FR-002/FR-003): the combatant_id fix must not disturb
+	# the event's other fields — round_number, the defeated target's name, and
+	# the attacking combatant's name are unchanged from pre-fix expectations.
+	assert_eq(defeated_events[0].round, 1, "round_number must be threaded through unchanged for a typed target")
+	assert_eq(defeated_events[0].name, "Target", "the defeated target's name must be threaded through unchanged for a typed target")
+	assert_eq(defeated_events[0].defeated_by, "Attacker", "the attacking combatant's name must be threaded through unchanged for a typed target")
+
 
 func test_typed_combatant_target_at_negative_hp_is_defeated_with_no_engine_error() -> void:
 	var rig: Dictionary = _make_use_case()
@@ -215,6 +222,14 @@ func test_dictionary_target_at_zero_hp_is_defeated_with_no_script_error() -> voi
 	assert_eq(defeated_events.size(), 1, "Exactly one combatant_defeated event must be emitted for a defeated Dictionary target")
 	assert_eq(defeated_events[0].combatant_id, "", "a Dictionary target with no 'combatant_id' key must default to '' (never raise)")
 
+	# FEAT-002 (US-002/FR-002/FR-003): the '' default for combatant_id must
+	# not disturb the event's other fields — round_number, the defeated
+	# target's name, and the attacking combatant's name are unchanged from
+	# pre-fix expectations.
+	assert_eq(defeated_events[0].round, 1, "round_number must be threaded through unchanged for a Dictionary target")
+	assert_eq(defeated_events[0].name, "Fragile", "the defeated target's name must be threaded through unchanged for a Dictionary target")
+	assert_eq(defeated_events[0].defeated_by, "Attacker", "the attacking combatant's name must be threaded through unchanged for a Dictionary target")
+
 
 func test_dictionary_target_at_negative_hp_is_defeated_with_no_script_error() -> void:
 	var rig: Dictionary = _make_use_case()
@@ -256,3 +271,9 @@ func test_dictionary_target_with_explicit_combatant_id_is_read_without_error() -
 	assert_true(result.get("target_defeated", false))
 	var defeated_events: Array = rig["event_sink"].events.filter(func(e): return e is RoundEventsClass.CombatantDefeatedEvent)
 	assert_eq(defeated_events[0].combatant_id, "fragile_1", "a Dictionary target WITH a 'combatant_id' key must surface it on the emitted event")
+
+	# FEAT-002 (US-002/FR-002/FR-003): round_number/name/defeated_by remain
+	# unchanged when combatant_id is sourced from an explicit Dictionary key.
+	assert_eq(defeated_events[0].round, 1, "round_number must be threaded through unchanged when combatant_id is explicit")
+	assert_eq(defeated_events[0].name, "Fragile", "the defeated target's name must be threaded through unchanged when combatant_id is explicit")
+	assert_eq(defeated_events[0].defeated_by, "Attacker", "the attacking combatant's name must be threaded through unchanged when combatant_id is explicit")

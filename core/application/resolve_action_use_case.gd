@@ -650,6 +650,13 @@ func _finalize_strike_result(
 		# in GDScript (unlike the ternary form), so only the branch matching
 		# target's actual runtime type is ever evaluated — see
 		# docs/iterations/iteration-AD-gut-regression-fix.org's AD-1.
+		# FEAT-002 (US-002/FR-002/FR-003): pinned by
+		# tests/test_finalize_strike_result.gd — the CombatantClass branch
+		# reads combatant_id via typed property access; the Dictionary branch
+		# reads it via the safe .get(key, "") idiom, which NEVER raises and
+		# defaults to "" when the key is absent (RISK-003 regression guard).
+		# round_number/target.name/combatant.name below are untouched by
+		# either branch.
 		var target_cid: String
 		if target is CombatantClass:
 			target_cid = target.combatant_id
