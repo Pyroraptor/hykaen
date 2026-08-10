@@ -120,9 +120,10 @@ func _build_combatants() -> Array:
 	var weapon_res = ResourceLoader.load(titus_char.starting_equipment[0])
 	var skeleton_res = ResourceLoader.load("res://data/enemies/skeleton.tres")
 
-	var skel_attr_map := {"str": "strength", "dex": "dexterity"}
-	var raw_skel_attr: String = skeleton_res.weapon.get("attribute", "strength")
-	var skel_weapon_attr: String = skel_attr_map.get(raw_skel_attr, raw_skel_attr)
+	# FEAT-002 (US-002, ADR-001/ADR-002): resolve the Skeleton's weapon via
+	# weapon_paths[0] -> WeaponResource, matching core/sim/simulator.gd.
+	var skel_weapon_res = ResourceLoader.load(skeleton_res.weapon_paths[0]) if not skeleton_res.weapon_paths.is_empty() else null
+	var skel_weapon_attr: String = skel_weapon_res.damage_modifier_attribute if skel_weapon_res != null else "strength"
 
 	var attrs = AttributesClass.new(RNGClass.new(0))
 	var scores = titus_char.attributes
@@ -151,8 +152,8 @@ func _build_combatants() -> Array:
 		"intuition":  1,
 		"weapon": {
 			"damage_modifier_attribute": skel_weapon_attr,
-			"proficiency_bonus":         skeleton_res.weapon.get("proficiency_bonus", 1),
-			"damage_die":                skeleton_res.weapon.get("die", 8),
+			"proficiency_bonus":         skel_weapon_res.proficiency_bonus if skel_weapon_res != null else 1,
+			"damage_die":                skel_weapon_res.damage_die if skel_weapon_res != null else 8,
 		},
 	}
 

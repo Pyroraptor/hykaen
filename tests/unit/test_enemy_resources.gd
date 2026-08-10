@@ -10,12 +10,16 @@ extends GutTest
 ##   3. skeleton.hp == 8
 ##   4. skeleton.str == 2
 ##   5. skeleton.dex == 1
-##   6. skeleton.weapon.die == 6
-##   7. skeleton.weapon.proficiency_bonus == 2 (FEAT-001/iteration K: Arming
-##      Sword table — reconciled 2026-07-10, updated from the prior
-##      iteration's proficiency_bonus=1 placeholder)
-##   8. skeleton.weapon.attribute == 'str'
-##   9. enemy_resource.gd contains no 'extends Node' or 'extends Control' (domain purity)
+##   6. enemy_resource.gd contains no 'extends Node' or 'extends Control' (domain purity)
+##
+## FEAT-002 (US-002, ADR-001/ADR-002): the former criteria 6-8 asserted
+## skeleton.weapon.die / .proficiency_bonus / .attribute — the legacy
+## inline `weapon: Dictionary` field on EnemyResource. That field has been
+## removed and replaced by `weapon_paths: Array`, a list of res:// paths to
+## normalized WeaponResource files; the equivalent stat coverage now lives
+## in tests/unit/data/weapons/test_weapon_resource_data.gd (loaded weapon
+## fixtures) and tests/unit/data/enemies/test_enemy_resource_weapon_defense_fields.gd
+## (EnemyResource.weapon_paths schema + resolution).
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -91,50 +95,7 @@ func test_skeleton_dex_is_1() -> void:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Criterion 6–8: skeleton.weapon sub-resource fields
-# ══════════════════════════════════════════════════════════════════════════════
-
-func test_skeleton_weapon_die_is_6() -> void:
-	var res = ResourceLoader.load("res://data/enemies/skeleton.tres")
-	assert_not_null(res, "skeleton.tres must load")
-	if res == null:
-		return
-	assert_true(
-		res.weapon is Dictionary,
-		"skeleton.weapon must be a Dictionary; got type: %s" % typeof(res.weapon)
-	)
-	assert_eq(
-		res.weapon.get("die", -1), 6,
-		"skeleton.weapon.die must be 6; got: %d" % res.weapon.get("die", -1)
-	)
-
-
-func test_skeleton_weapon_proficiency_bonus_is_2() -> void:
-	## FEAT-001 (iteration K): the Arming Sword table pins proficiency_bonus=2
-	## (reconciled 2026-07-10, ground truth) — was 1 in the prior iteration.
-	var res = ResourceLoader.load("res://data/enemies/skeleton.tres")
-	assert_not_null(res, "skeleton.tres must load")
-	if res == null:
-		return
-	assert_eq(
-		res.weapon.get("proficiency_bonus", -1), 2,
-		"skeleton.weapon.proficiency_bonus must be 2 (Arming Sword table, FEAT-001); got: %d" % res.weapon.get("proficiency_bonus", -1)
-	)
-
-
-func test_skeleton_weapon_attribute_is_str() -> void:
-	var res = ResourceLoader.load("res://data/enemies/skeleton.tres")
-	assert_not_null(res, "skeleton.tres must load")
-	if res == null:
-		return
-	assert_eq(
-		res.weapon.get("attribute", ""), "str",
-		"skeleton.weapon.attribute must be 'str'; got: '%s'" % res.weapon.get("attribute", "")
-	)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# Criterion 9: Domain purity — enemy_resource.gd must not extend Node or Control
+# Criterion 6: Domain purity — enemy_resource.gd must not extend Node or Control
 # ══════════════════════════════════════════════════════════════════════════════
 
 func test_enemy_resource_gd_does_not_extend_node() -> void:

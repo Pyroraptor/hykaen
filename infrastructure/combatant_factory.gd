@@ -231,6 +231,19 @@ func _fail_enemy_resource_load(error_code: String, message: String, enemy_path: 
 ## combatant shape whenever the resource fails to load or its weapon data
 ## is malformed. A caller MUST check result.has("error") before treating
 ## the return value as a playable combatant.
+##
+## FEAT-002 (US-002, ADR-001/ADR-002): the weapon source of truth moved
+## from EnemyResource's own inline `weapon: Dictionary` +
+## parry_bonus/block_value/block_die fields to `weapon_paths: Array` — an
+## ordered list of res:// paths to normalized WeaponResource files
+## (data/weapons/*.tres). Index 0 is resolved via ResourceLoader and its
+## OWN fields (damage_die/proficiency_bonus/damage_modifier_attribute/
+## parry_bonus/block_value/block_die) now feed the combatant weapon dict
+## below -- same validation checks, same error codes, same resulting
+## Dictionary shape, only the read source changed. damage_modifier_attribute
+## is already the canonical long-form name on WeaponResource (e.g.
+## "strength"), so the old str/dex -> strength/dexterity attribute_map
+## translation is no longer needed.
 func build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String = "") -> Dictionary:
 	var enemy = ResourceLoader.load(enemy_path)
 	if enemy == null:
@@ -240,54 +253,60 @@ func build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String =
 			enemy_path
 		)
 
-	var weapon: Dictionary = enemy.weapon
-	if not weapon.has("die"):
+	if enemy.weapon_paths.is_empty():
 		return _fail_enemy_resource_load(
 			ERR_ENEMY_RESOURCE_WEAPON_UNRESOLVABLE,
-			"EnemyResource.weapon has no resolvable weapon data (missing 'die') -- refusing to default to a phantom weapon",
+			"weapon_paths is empty -- no weapon configured for this enemy, refusing to default to a phantom weapon",
 			enemy_path
 		)
 
-	var damage_die: int = weapon.get("die", 6)
+	var weapon_path: String = enemy.weapon_paths[0]
+	var weapon_res = ResourceLoader.load(weapon_path)
+	if weapon_res == null:
+		return _fail_enemy_resource_load(
+			ERR_ENEMY_RESOURCE_LOAD_FAILED,
+			"weapon WeaponResource failed to load from '%s'" % weapon_path,
+			enemy_path
+		)
+
+	var damage_die: int = weapon_res.damage_die
 	if damage_die < 0:
 		return _fail_enemy_resource_load(
 			ERR_ENEMY_RESOURCE_INVALID_WEAPON_FIELD,
-			"weapon.die (damage_die) must be non-negative; got %d" % damage_die,
+			"damage_die must be non-negative; got %d" % damage_die,
 			enemy_path
 		)
 
-	var proficiency_bonus: int = weapon.get("proficiency_bonus", 1)
+	var proficiency_bonus: int = weapon_res.proficiency_bonus
 	if proficiency_bonus < 0:
 		return _fail_enemy_resource_load(
 			ERR_ENEMY_RESOURCE_INVALID_WEAPON_FIELD,
-			"weapon.proficiency_bonus must be non-negative; got %d" % proficiency_bonus,
+			"proficiency_bonus must be non-negative; got %d" % proficiency_bonus,
 			enemy_path
 		)
 
-	if enemy.parry_bonus < 0:
+	if weapon_res.parry_bonus < 0:
 		return _fail_enemy_resource_load(
 			ERR_ENEMY_RESOURCE_INVALID_WEAPON_FIELD,
-			"parry_bonus must be non-negative; got %d" % enemy.parry_bonus,
+			"parry_bonus must be non-negative; got %d" % weapon_res.parry_bonus,
 			enemy_path
 		)
 
-	if enemy.block_value < 0:
+	if weapon_res.block_value < 0:
 		return _fail_enemy_resource_load(
 			ERR_ENEMY_RESOURCE_INVALID_WEAPON_FIELD,
-			"block_value must be non-negative; got %d" % enemy.block_value,
+			"block_value must be non-negative; got %d" % weapon_res.block_value,
 			enemy_path
 		)
 
-	if enemy.block_die < 0:
+	if weapon_res.block_die < 0:
 		return _fail_enemy_resource_load(
 			ERR_ENEMY_RESOURCE_INVALID_WEAPON_FIELD,
-			"block_die must be non-negative; got %d" % enemy.block_die,
+			"block_die must be non-negative; got %d" % weapon_res.block_die,
 			enemy_path
 		)
 
-	var attribute_map: Dictionary = {"str": "strength", "dex": "dexterity"}
-	var raw_attribute: String = weapon.get("attribute", "strength")
-	var weapon_attribute: String = attribute_map.get(raw_attribute, raw_attribute)
+	var weapon_attribute: String = weapon_res.damage_modifier_attribute
 
 	var combatant: Dictionary = {
 		"name":       enemy.name,
@@ -334,9 +353,9 @@ func build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String =
 			# for enemy defenders too — without these, an enemy's weapon dict
 			# always read 0 and the reaction window could never offer the
 			# enemy a Parry/Block choice.
-			"parry_bonus":               enemy.parry_bonus,
-			"block_value":               enemy.block_value,
-			"block_die":                 enemy.block_die
+			"parry_bonus":               weapon_res.parry_bonus,
+			"block_value":               weapon_res.block_value,
+			"block_die":                 weapon_res.block_die
 		}
 	}
 	if hex_coord != null:

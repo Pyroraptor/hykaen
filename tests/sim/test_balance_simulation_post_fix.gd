@@ -168,10 +168,24 @@ const MAX_ROUNDS_GUARD: int = 50
 ## location/rationale: this comment + the dictionary entry immediately
 ## below (see also tests/unit/test_prologue_character_equipment_fixtures.gd
 ## for the FEAT-004 data suite asserting the new orb_gram entry directly).
+## FEAT-002 (US-002, ADR-001/ADR-002) intentionally re-pins BOTH the
+## simulator.gd and skeleton.tres hashes below: EnemyResource's inline
+## `weapon: Dictionary` + top-level parry_bonus/block_value/block_die
+## fields are replaced by `weapon_paths: Array`, an ordered list of res://
+## paths to a normalized WeaponResource (data/weapons/arming_sword.tres).
+## skeleton.tres now authors weapon_paths = ["res://data/weapons/
+## arming_sword.tres"] instead of the inline weapon Dictionary/parry_bonus/
+## block_value/block_die fields; simulator.gd's _build_skeleton_combatant()
+## (and the run() call site above it) now resolve the SAME
+## damage_die=6/proficiency_bonus=2/damage_modifier_attribute="strength"
+## values via ResourceLoader.load(weapon_paths[0]) instead of reading them
+## off the removed inline Dictionary. The resolved numeric values are
+## UNCHANGED (arming_sword.tres already carried these exact stats), so
+## win_rate/avg_rounds are NOT expected to shift.
 const _EXPECTED_HASHES: Dictionary = {
-	"res://core/sim/simulator.gd":      "6120b8e4b096193d2f5c587f683ae4a9",
+	"res://core/sim/simulator.gd":      "59c97bffa4c3c35c2dab6b095c6b5fbb",
 	"res://data/characters/titus.tres": "acf236d8858a0cf0a714415a6f3d69c9",
-	"res://data/enemies/skeleton.tres": "a197dd1bc0c15c016b1ee33dc202951c",
+	"res://data/enemies/skeleton.tres": "512fc0972708c6b4c71d811288cbbc6e",
 	"res://data/weapons/longsword.tres": "248339f6e3f256d6cdc6a943ca824587",
 	"res://data/armor/chain_shirt.tres": "6be0c7c1b55b7a91233bca0f62fadd16",
 	"res://data/armor/scale_mail.tres":  "7c724303a7db4ad78a7341bc9e7f46f1",
@@ -339,6 +353,10 @@ func test_run_round_entry_exit_contract_no_mocking() -> void:
 			"damage_die":                weapon_res.damage_die,
 		}
 	})
+	# FEAT-002 (US-002, ADR-001/ADR-002): weapon stats now resolve via
+	# skeleton_res.weapon_paths[0] -> WeaponResource, not an inline weapon
+	# Dictionary on EnemyResource.
+	var skeleton_weapon_res = ResourceLoader.load(skeleton_res.weapon_paths[0]) if not skeleton_res.weapon_paths.is_empty() else null
 	var skeleton = CombatantClass.from_dict({
 		"name":       skeleton_res.name,
 		"hp_current": 50,
@@ -348,8 +366,8 @@ func test_run_round_entry_exit_contract_no_mocking() -> void:
 		"intuition":  1,
 		"weapon": {
 			"damage_modifier_attribute": "strength",
-			"proficiency_bonus": skeleton_res.weapon.get("proficiency_bonus", 1),
-			"damage_die":        skeleton_res.weapon.get("die", 8),
+			"proficiency_bonus": skeleton_weapon_res.proficiency_bonus if skeleton_weapon_res != null else 1,
+			"damage_die":        skeleton_weapon_res.damage_die if skeleton_weapon_res != null else 8,
 		}
 	})
 

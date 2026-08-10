@@ -143,6 +143,10 @@ func _build_titus_dict() -> Dictionary:
 ## skeleton.tres EnemyResource fields. ac and intuition are not in
 ## EnemyResource schema; defaults: ac=12, intuition=0.
 func _build_skeleton_dict() -> Dictionary:
+	# FEAT-002 (US-002, ADR-001/ADR-002): weapon stats now resolve via
+	# _skeleton_res.weapon_paths[0] -> WeaponResource, not an inline weapon
+	# Dictionary on EnemyResource.
+	var weapon_res = ResourceLoader.load(_skeleton_res.weapon_paths[0]) if not _skeleton_res.weapon_paths.is_empty() else null
 	return {
 		"name":       _skeleton_res.name,
 		"hp_current": _skeleton_res.hp,
@@ -152,8 +156,8 @@ func _build_skeleton_dict() -> Dictionary:
 		"intuition":  0,
 		"weapon": {
 			"damage_modifier_attribute": "strength",
-			"proficiency_bonus":         _skeleton_res.weapon.get("proficiency_bonus", 1),
-			"damage_die":                _skeleton_res.weapon.get("die", 6)
+			"proficiency_bonus":         weapon_res.proficiency_bonus if weapon_res != null else 1,
+			"damage_die":                weapon_res.damage_die if weapon_res != null else 6
 		}
 	}
 

@@ -31,6 +31,15 @@ extends GutTest
 ## Resource path, never handed to _build_enemy_combatant() as an in-memory
 ## instance.
 ##
+## FEAT-002 (US-002, ADR-001/ADR-002): weapon data moved off EnemyResource
+## (the removed inline `weapon: Dictionary` + parry_bonus/block_value/
+## block_die fields) onto weapon_paths: Array, a list of res:// paths to a
+## normalized WeaponResource. Malformed-weapon-data fixtures below now
+## build a WeaponResource fixture (saved to its OWN user:// path via
+## _save_weapon_fixture()) carrying the malformed field, and point the
+## EnemyResource fixture's weapon_paths at it — rather than setting the
+## (now-removed) fields directly on the EnemyResource.
+##
 ## Test criteria covered:
 ##   1. test_missing_enemy_resource_path_raises_fail_fast_error
 ##   2. test_malformed_enemy_resource_missing_weapon_id_raises_error
@@ -40,10 +49,12 @@ extends GutTest
 
 const MainSceneClass = preload("res://MainScene.gd")
 const EnemyResourceClass = preload("res://data/enemies/enemy_resource.gd")
+const WeaponResourceClass = preload("res://core/model/weapon_resource.gd")
 
 const SKELETON_TRES_PATH := "res://data/enemies/skeleton.tres"
 const MISSING_TRES_PATH := "res://data/enemies/does_not_exist_feat_227.tres"
 const FIXTURE_TRES_PATH := "user://test_build_enemy_combatant_validation_fixture.tres"
+const WEAPON_FIXTURE_TRES_PATH := "user://test_build_enemy_combatant_validation_weapon_fixture.tres"
 
 var _instance = null
 
@@ -60,6 +71,7 @@ func after_each() -> void:
 	var cleanup_dir := DirAccess.open("user://")
 	if cleanup_dir != null:
 		cleanup_dir.remove(FIXTURE_TRES_PATH)
+		cleanup_dir.remove(WEAPON_FIXTURE_TRES_PATH)
 
 
 ## Saves `res` to FIXTURE_TRES_PATH and returns that path, forcing a
@@ -70,6 +82,16 @@ func _save_fixture(res: EnemyResourceClass) -> String:
 	var save_err := ResourceSaver.save(res, FIXTURE_TRES_PATH)
 	assert_eq(save_err, OK, "ResourceSaver.save() must succeed for this test's fixture EnemyResource")
 	return FIXTURE_TRES_PATH
+
+
+## Saves `res` (a WeaponResource) to WEAPON_FIXTURE_TRES_PATH and returns
+## that path, so a malformed-weapon-field fixture is genuinely resolved
+## through ResourceLoader.load() from disk, exactly like a real weapon_paths
+## entry (mirrors _save_fixture() above).
+func _save_weapon_fixture(res: WeaponResourceClass) -> String:
+	var save_err := ResourceSaver.save(res, WEAPON_FIXTURE_TRES_PATH)
+	assert_eq(save_err, OK, "ResourceSaver.save() must succeed for this test's fixture WeaponResource")
+	return WEAPON_FIXTURE_TRES_PATH
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -92,7 +114,7 @@ func test_missing_enemy_resource_path_raises_fail_fast_error() -> void:
 
 # ══════════════════════════════════════════════════════════════════════════
 # Criterion 2: a malformed EnemyResource with no resolvable weapon data
-# (an empty weapon Dictionary -- no weapon ever authored/resolved) must
+# (an empty weapon_paths Array -- no weapon ever authored/resolved) must
 # fail fast rather than silently defaulting to a phantom weapon.
 # ══════════════════════════════════════════════════════════════════════════
 
@@ -102,7 +124,7 @@ func test_malformed_enemy_resource_missing_weapon_id_raises_error() -> void:
 	res.hp = 5
 	res.str = 1
 	res.dex = 1
-	res.weapon = {}
+	res.weapon_paths = []
 	var path: String = _save_fixture(res)
 
 	var result: Dictionary = _instance._build_enemy_combatant(path, null, "malformed_1")
@@ -123,15 +145,22 @@ func test_malformed_enemy_resource_missing_weapon_id_raises_error() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_negative_damage_die_raises_error() -> void:
+	var weapon_res := WeaponResourceClass.new()
+	weapon_res.weapon_id = "negative_die_fixture"
+	weapon_res.damage_modifier_attribute = "strength"
+	weapon_res.damage_die = -6
+	weapon_res.proficiency_bonus = 2
+	weapon_res.parry_bonus = 1
+	weapon_res.block_value = 1
+	weapon_res.block_die = 0
+	var weapon_path: String = _save_weapon_fixture(weapon_res)
+
 	var res := EnemyResourceClass.new()
 	res.name = "NegativeDie"
 	res.hp = 5
 	res.str = 1
 	res.dex = 1
-	res.weapon = {"attribute": "str", "die": -6, "proficiency_bonus": 2}
-	res.parry_bonus = 1
-	res.block_value = 1
-	res.block_die = 0
+	res.weapon_paths = [weapon_path]
 	var path: String = _save_fixture(res)
 
 	var result: Dictionary = _instance._build_enemy_combatant(path, null, "negative_die_1")
@@ -143,12 +172,19 @@ func test_negative_damage_die_raises_error() -> void:
 
 
 func test_negative_proficiency_bonus_raises_error() -> void:
+	var weapon_res := WeaponResourceClass.new()
+	weapon_res.weapon_id = "negative_proficiency_fixture"
+	weapon_res.damage_modifier_attribute = "strength"
+	weapon_res.damage_die = 6
+	weapon_res.proficiency_bonus = -2
+	var weapon_path: String = _save_weapon_fixture(weapon_res)
+
 	var res := EnemyResourceClass.new()
 	res.name = "NegativeProficiency"
 	res.hp = 5
 	res.str = 1
 	res.dex = 1
-	res.weapon = {"attribute": "str", "die": 6, "proficiency_bonus": -2}
+	res.weapon_paths = [weapon_path]
 	var path: String = _save_fixture(res)
 
 	var result: Dictionary = _instance._build_enemy_combatant(path, null, "negative_prof_1")
@@ -160,13 +196,20 @@ func test_negative_proficiency_bonus_raises_error() -> void:
 
 
 func test_negative_block_value_raises_error() -> void:
+	var weapon_res := WeaponResourceClass.new()
+	weapon_res.weapon_id = "negative_block_fixture"
+	weapon_res.damage_modifier_attribute = "strength"
+	weapon_res.damage_die = 6
+	weapon_res.proficiency_bonus = 1
+	weapon_res.block_value = -3
+	var weapon_path: String = _save_weapon_fixture(weapon_res)
+
 	var res := EnemyResourceClass.new()
 	res.name = "NegativeBlock"
 	res.hp = 5
 	res.str = 1
 	res.dex = 1
-	res.weapon = {"attribute": "str", "die": 6, "proficiency_bonus": 1}
-	res.block_value = -3
+	res.weapon_paths = [weapon_path]
 	var path: String = _save_fixture(res)
 
 	var result: Dictionary = _instance._build_enemy_combatant(path, null, "negative_block_1")

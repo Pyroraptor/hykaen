@@ -88,11 +88,13 @@ func run(battle_count: int = 1000, base_seed: int = 0) -> Dictionary:
 	# simulation parameter not stored on the base resource (FEAT-087).
 	var skeleton_res  = ResourceLoader.load("res://data/enemies/skeleton.tres")
 
-	# Attribute name mapping: EnemyResource uses compact keys ('str', 'dex') while
-	# the combat system uses full attribute names matching combatant dict keys.
-	const SKELETON_ATTR_MAP: Dictionary = {"str": "strength", "dex": "dexterity"}
-	var raw_skel_attr: String = skeleton_res.weapon.get("attribute", "strength")
-	var skel_weapon_attr: String = SKELETON_ATTR_MAP.get(raw_skel_attr, raw_skel_attr)
+	# FEAT-002 (US-002, ADR-001/ADR-002): the Skeleton's weapon is now resolved
+	# via weapon_paths[0] -> a normalized WeaponResource (data/weapons/*.tres),
+	# not an inline weapon Dictionary on EnemyResource. WeaponResource's own
+	# damage_modifier_attribute is already the canonical long-form name (e.g.
+	# "strength"), so no str/dex -> strength/dexterity translation is needed.
+	var skel_weapon_res = ResourceLoader.load(skeleton_res.weapon_paths[0]) if not skeleton_res.weapon_paths.is_empty() else null
+	var skel_weapon_attr: String = skel_weapon_res.damage_modifier_attribute if skel_weapon_res != null else "strength"
 
 	# Compute Titus's derived stats via attributes.gd (ADR-012 formulas).
 	# RNGClass.new(0) is passed to satisfy the Attributes constructor;
@@ -187,6 +189,10 @@ func run(battle_count: int = 1000, base_seed: int = 0) -> Dictionary:
 ## hp_current=50 remains a balance-tuned simulation parameter, not stored on
 ## the base EnemyResource (FEAT-087) — unaffected by this feature.
 func _build_skeleton_combatant(skeleton_res, skel_weapon_attr: String) -> Dictionary:
+	# FEAT-002 (US-002, ADR-001/ADR-002): proficiency_bonus/damage_die are now
+	# read off the WeaponResource resolved via skeleton_res.weapon_paths[0]
+	# (data/weapons/*.tres), not an inline weapon Dictionary on EnemyResource.
+	var weapon_res = ResourceLoader.load(skeleton_res.weapon_paths[0]) if not skeleton_res.weapon_paths.is_empty() else null
 	return {
 		"name":       skeleton_res.name,
 		"hp_current": 50,
@@ -199,7 +205,7 @@ func _build_skeleton_combatant(skeleton_res, skel_weapon_attr: String) -> Dictio
 		"intuition":  skeleton_res.intuition,
 		"weapon": {
 			"damage_modifier_attribute": skel_weapon_attr,
-			"proficiency_bonus":         skeleton_res.weapon.get("proficiency_bonus", 1),
-			"damage_die":               skeleton_res.weapon.get("die", 8)
+			"proficiency_bonus":         weapon_res.proficiency_bonus if weapon_res != null else 1,
+			"damage_die":                weapon_res.damage_die if weapon_res != null else 8
 		}
 	}

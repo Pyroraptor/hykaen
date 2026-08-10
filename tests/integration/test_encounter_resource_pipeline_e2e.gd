@@ -1087,6 +1087,10 @@ func _build_titus_combatant_chain_shirt() -> Dictionary:
 ## ac: not in EnemyResource schema — defaults to 12 (canonical skeleton baseline).
 ## intuition: not in EnemyResource schema — defaults to 0.
 func _build_skeleton_combatant_from_resource() -> Dictionary:
+	# FEAT-002 (US-002, ADR-001/ADR-002): weapon stats now resolve via
+	# _skeleton_resource.weapon_paths[0] -> WeaponResource, not an inline
+	# weapon Dictionary on EnemyResource.
+	var weapon_res = ResourceLoader.load(_skeleton_resource.weapon_paths[0]) if not _skeleton_resource.weapon_paths.is_empty() else null
 	return {
 		"name":       _skeleton_resource.name,
 		"hp_current": _skeleton_resource.hp,
@@ -1096,8 +1100,8 @@ func _build_skeleton_combatant_from_resource() -> Dictionary:
 		"intuition":  0,
 		"weapon": {
 			"damage_modifier_attribute": "strength",
-			"proficiency_bonus":         _skeleton_resource.weapon.get("proficiency_bonus", 1),
-			"damage_die":                _skeleton_resource.weapon.get("die", 6)
+			"proficiency_bonus":         weapon_res.proficiency_bonus if weapon_res != null else 1,
+			"damage_die":                weapon_res.damage_die if weapon_res != null else 6
 		}
 	}
 

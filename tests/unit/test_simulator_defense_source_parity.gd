@@ -88,8 +88,15 @@ func after_each() -> void:
 
 
 func _skeleton_weapon_attribute(skeleton_res) -> String:
-	var raw_attribute: String = skeleton_res.weapon.get("attribute", "strength")
-	return _SKELETON_ATTR_MAP.get(raw_attribute, raw_attribute)
+	## FEAT-002 (US-002, ADR-001/ADR-002): resolve via weapon_paths[0] ->
+	## WeaponResource; damage_modifier_attribute is already canonical
+	## long-form (e.g. "strength"), so no attribute-map translation remains.
+	if skeleton_res.weapon_paths.is_empty():
+		return "strength"
+	var weapon_res = ResourceLoader.load(skeleton_res.weapon_paths[0])
+	if weapon_res == null:
+		return "strength"
+	return weapon_res.damage_modifier_attribute
 
 
 # ══════════════════════════════════════════════════════════════════════════
