@@ -11,6 +11,7 @@ const CombatantClass                   = preload("res://core/domain/combatant.gd
 const CombatSessionFactoryClass        = preload("res://core/application/combat_session_factory.gd")
 const GdResourceLoaderAdapterClass     = preload("res://presentation/adapters/gd_resource_loader_adapter.gd")
 const NewGameFactoryClass              = preload("res://core/application/new_game_factory.gd")
+const CombatantSnapshotSeederClass     = preload("res://core/application/combatant_snapshot_seeder.gd")
 
 const ExplorationModeControllerClass   = preload("res://presentation/exploration_mode_controller.gd")
 const ViewModelBuilderClass            = preload("res://presentation/view_model_builder.gd")
@@ -222,10 +223,14 @@ func _ready() -> void:
 	_party   = session.get("party", [])
 	_enemies = session.get("enemies", [])
 
-	_seed_party_hex_positions_from_current_game_state(hex_combatants)
-	_seed_combatant_snapshots_from_current_game_state(hex_combatants)
-
-	centering_offset = _compute_boot_centering_offset(hex_combatants)
+	var _gs := _current_game_state()
+	CombatantSnapshotSeederClass.seed_hex_positions(hex_combatants, _party, _gs.data.party_hex_positions)
+	CombatantSnapshotSeederClass.seed_snapshots(hex_combatants, _party, _enemies, _gs.data.combatant_snapshots)
+	centering_offset = CoordinateTransformClass.compute_centering_from_combatants(
+		hex_combatants,
+		Vector2(ProjectSettings.get_setting("display/window/size/viewport_width", DEFAULT_VIEWPORT_WIDTH),
+		        ProjectSettings.get_setting("display/window/size/viewport_height", DEFAULT_VIEWPORT_HEIGHT)),
+		HexGridViewClass.GRID_RADIUS, HexGridViewClass.HEX_SIZE)
 	if hex_grid_view != null:
 		hex_grid_view.set_origin_offset(centering_offset)
 		hex_grid_view.load_combatants(hex_combatants)
@@ -277,7 +282,7 @@ func _ready() -> void:
 	determine_outcome_use_case = DetermineOutcomeUseCaseClass.new()
 	enemy_reaction_chooser    = AIReactionPolicyClass.new()
 	_reaction_instance = ReactionControllerClass.new(
-		Callable(self, "_action_economy_for"),
+		func(c): return _combat_query_service.action_economy_for(c, encounter),
 		Callable(self, "_current_round_number"),
 		resolve_action_use_case,
 		turn_controller,
@@ -381,20 +386,7 @@ func _ready() -> void:
 		verb_bar_view.verb_selection_entered.connect(verb_dispatch_controller._on_verb_bar_selection_entered)
 	selection_overlay.selection_resolved.connect(verb_dispatch_controller._on_selection_overlay_resolved)
 
-	var spell_picker_panel := Panel.new()
-	spell_picker_panel.name = "SpellPickerPanel"
-	spell_picker_panel.visible = false
-	spell_picker_panel.custom_minimum_size = Vector2(180, 40)
-	spell_picker_panel.anchor_left   = 0.0
-	spell_picker_panel.anchor_right  = 0.0
-	spell_picker_panel.anchor_top    = 0.0
-	spell_picker_panel.anchor_bottom = 0.0
-	spell_picker_panel.offset_left   = 156
-	spell_picker_panel.offset_right  = 336
-	spell_picker_panel.offset_top    = 8
-	spell_picker_panel.offset_bottom = 208
-	$UILayer.add_child(spell_picker_panel)
-	_spell_picker.setup(spell_picker_panel)
+	_spell_picker.create_and_add_to($UILayer)
 	selection_overlay.selection_cancelled.connect(func(_v): _spell_picker.hide())
 
 	cancel_controller.configure(selection_overlay)
@@ -449,8 +441,8 @@ func _on_combat_triggered(encounter_id: String) -> void:
 	)
 
 	ROUND_NUMBER = 1
-	if event_log_view != null:
-		event_log_view.clear()
+	if event_log_view != null: event_log_view.clear()
+	if rest_panel_controller != null: rest_panel_controller.close()
 	movement_input_controller.unlock()
 	end_turn_control.unlock()
 	await rewire_session()
@@ -562,33 +554,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 
-## Derive viewport centering offset from grid extent + combatant hex positions.
-func _compute_boot_centering_offset(hex_combatants: Array) -> Vector2:
-	var extent_hexes: Array = _grid_extent_corner_hexes()
-	for combatant in hex_combatants:
-		if combatant.hex_coord != null:
-			extent_hexes.append(combatant.hex_coord)
-
-	var viewport_size := Vector2(
-		ProjectSettings.get_setting("display/window/size/viewport_width", DEFAULT_VIEWPORT_WIDTH),
-		ProjectSettings.get_setting("display/window/size/viewport_height", DEFAULT_VIEWPORT_HEIGHT)
-	)
-	return CoordinateTransformClass.compute_centering_offset(extent_hexes, viewport_size, HexGridViewClass.HEX_SIZE)
-
-
-## Six corner hexes at GRID_RADIUS used for centering computation.
-func _grid_extent_corner_hexes() -> Array:
-	var radius: int = HexGridViewClass.GRID_RADIUS
-	return [
-		HexCoordClass.new(radius, 0),
-		HexCoordClass.new(radius, -radius),
-		HexCoordClass.new(0, -radius),
-		HexCoordClass.new(-radius, 0),
-		HexCoordClass.new(-radius, radius),
-		HexCoordClass.new(0, radius),
-	]
-
-
 ## Non-null view nodes that subscribe to event_sink broadcasts.
 func _presentation_event_subscribers() -> Array:
 	var subscribers: Array = []
@@ -606,26 +571,6 @@ func _resolve_enemy_dodge_step(target, resolve_result: Dictionary, attacker_hex,
 ## Thin shim to StrikeActionController.reachable_target_ids().
 func _strike_reachable_target_ids() -> Array:
 	return _controller("STRIKE").reachable_target_ids()
-
-
-## Live ActionEconomy lookup: object-identity match first, display_id fallback. Ensures reactor's own budget is charged, never the attacker's.
-func _action_economy_for(combatant):
-	if encounter == null:
-		return null
-
-	var order: Array = encounter.get_turn_order()
-	for i in range(order.size()):
-		if is_same(order[i], combatant):
-			return encounter.get_action_economy(i)
-
-	var combatant_id: String = combatant.display_id()
-	if combatant_id != "":
-		for i in range(order.size()):
-			var candidate = order[i]
-			if candidate.display_id() == combatant_id:
-				return encounter.get_action_economy(i)
-
-	return null
 
 
 ## Route confirmed combine queue → combine_targeting_session.start().
@@ -686,7 +631,7 @@ func _verb_deps() -> Dictionary:
 			"enemy_reaction_chooser": enemy_reaction_chooser,
 			"reaction": _reaction_instance,
 			"hex_grid_view": hex_grid_view,
-			"action_economy_for": Callable(self, "_action_economy_for"),
+			"action_economy_for": func(c): return _combat_query_service.action_economy_for(c, encounter),
 			"current_round_number": Callable(self, "_current_round_number"),
 			"after_successful_move": Callable(self, "_after_successful_move"),
 			"living_enemy_reactors": Callable(self, "_living_enemy_reactors"),
@@ -911,71 +856,6 @@ func _build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String 
 func _current_game_state() -> Node:
 	var tree: SceneTree = Engine.get_main_loop()
 	return tree.root.get_node("CurrentGameState")
-
-
-func _seed_party_hex_positions_from_current_game_state(hex_combatants: Array) -> void:
-	var positions: Array = _current_game_state().data.party_hex_positions
-	if positions.is_empty():
-		return
-	for entry in positions:
-		var id: String  = String(entry.get("combatant_id", ""))
-		var hex        := HexCoordClass.new(int(entry.get("q", 0)), int(entry.get("r", 0)))
-		var found      := false
-		for c in hex_combatants:
-			if c.combatant_id == id:
-				c.move_to(hex)
-				found = true
-				break
-		if not found:
-			push_warning("MainScene: party_hex_positions entry references combatant_id '%s' not present in the live encounter -- skipped" % id)
-			continue
-		for c in _party:
-			if c.display_id() == id:
-				c.move_to(hex)
-				break
-
-
-func _seed_combatant_snapshots_from_current_game_state(hex_combatants: Array) -> void:
-	var snapshots: Array = _current_game_state().data.combatant_snapshots
-	if snapshots.is_empty():
-		return
-
-	var all_combatants: Array = hex_combatants + _party + _enemies
-	for entry in snapshots:
-		var id: String     = String(entry.get("combatant_id", ""))
-		var matches: Array = []
-		for c in all_combatants:
-			if c.display_id() == id:
-				matches.append(c)
-
-		if matches.is_empty():
-			push_warning("MainScene: combatant_snapshots entry references combatant_id '%s' not present in the live encounter -- skipped" % id)
-			continue
-
-		if not _combatant_snapshot_entry_is_well_formed(entry, id):
-			continue
-
-		for c in matches:
-			if entry.has("hp_current"):
-				c.hp_current = int(entry["hp_current"])
-			if entry.has("stamina"):
-				c.stamina = int(entry["stamina"])
-			if entry.has("conditions"):
-				c.conditions = (entry["conditions"] as Array).duplicate()
-
-
-# JSON round-trip decodes all numbers as float; accept both int and float for numeric fields.
-func _combatant_snapshot_entry_is_well_formed(entry: Dictionary, combatant_id: String) -> bool:
-	if entry.has("hp_current") and not (entry["hp_current"] is int or entry["hp_current"] is float):
-		push_warning("MainScene: combatant_snapshots entry for combatant_id '%s' has malformed hp_current (expected a number) -- entry rejected, encounter-authored defaults used" % combatant_id)
-		return false
-	if entry.has("stamina") and not (entry["stamina"] is int or entry["stamina"] is float):
-		push_warning("MainScene: combatant_snapshots entry for combatant_id '%s' has malformed stamina (expected a number) -- entry rejected, encounter-authored defaults used" % combatant_id)
-		return false
-	if entry.has("conditions") and not (entry["conditions"] is Array):
-		push_warning("MainScene: combatant_snapshots entry for combatant_id '%s' has malformed conditions (expected an Array) -- entry rejected, encounter-authored defaults used" % combatant_id)
-		return false
-	return true
 
 
 func _resolve_boot_scenario_path() -> String:

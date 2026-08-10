@@ -184,10 +184,15 @@ func test_unknown_combatant_id_entry_is_skipped_with_push_warning_not_a_crash() 
 
 
 func test_main_scene_source_contains_unknown_combatant_id_push_warning_for_snapshots() -> void:
-	var content: String = _read_main_scene_source()
+	var file := FileAccess.open("res://core/application/combatant_snapshot_seeder.gd", FileAccess.READ)
+	assert_not_null(file, "combatant_snapshot_seeder.gd must be readable")
+	if file == null:
+		return
+	var content: String = file.get_as_text()
+	file.close()
 	assert_true(
 		content.contains("combatant_snapshots entry references combatant_id") and content.contains("push_warning("),
-		"MainScene.gd must push_warning() when a combatant_snapshots entry references a combatant_id absent from the live encounter (FEAT-006, fail-closed)"
+		"CombatantSnapshotSeeder must push_warning() when a combatant_snapshots entry references a combatant_id absent from the live encounter (FEAT-006, fail-closed)"
 	)
 
 
@@ -221,10 +226,15 @@ func test_malformed_hp_current_type_rejects_entry_and_boot_continues_with_defaul
 
 
 func test_main_scene_source_contains_malformed_field_push_warning_for_snapshots() -> void:
-	var content: String = _read_main_scene_source()
+	var file := FileAccess.open("res://core/application/combatant_snapshot_seeder.gd", FileAccess.READ)
+	assert_not_null(file, "combatant_snapshot_seeder.gd must be readable")
+	if file == null:
+		return
+	var content: String = file.get_as_text()
+	file.close()
 	assert_true(
 		content.contains("malformed hp_current") and content.contains("push_warning("),
-		"MainScene.gd must push_warning() when a combatant_snapshots entry carries a malformed hp_current type (FEAT-006, RISK-004 mitigation)"
+		"CombatantSnapshotSeeder must push_warning() when a combatant_snapshots entry carries a malformed hp_current type (FEAT-006, RISK-004 mitigation)"
 	)
 
 

@@ -56,6 +56,23 @@ const _SPELL_LIST_NODE_NAME: String = "SpellList"
 var _panel: Panel = null
 
 
+## create_and_add_to(parent) -> void — creates the Panel node, add_child()s
+## it into `parent`, and calls setup().  Lets the composition root delegate
+## both the node construction and the controller wiring to a single call
+## rather than 15 individual property-assignment lines.
+func create_and_add_to(parent: Node) -> void:
+	var panel := Panel.new()
+	panel.name = "SpellPickerPanel"
+	panel.visible = false
+	panel.custom_minimum_size = Vector2(180, 40)
+	panel.anchor_left = 0.0; panel.anchor_right = 0.0
+	panel.anchor_top  = 0.0; panel.anchor_bottom = 0.0
+	panel.offset_left = 156; panel.offset_right  = 336
+	panel.offset_top  = 8;   panel.offset_bottom = 208
+	parent.add_child(panel)
+	setup(panel)
+
+
 ## setup(panel_node) -> void — injects the already-created, already-
 ## add_child()ed Panel this controller populates/shows/hides. Idempotent-safe
 ## to call again (e.g. a future encounter reload) — re-uses the existing

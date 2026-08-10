@@ -250,10 +250,15 @@ func test_unknown_combatant_id_entry_is_skipped_with_push_warning_not_a_crash() 
 
 
 func test_main_scene_source_contains_unknown_combatant_id_push_warning() -> void:
-	var content: String = _read_main_scene_source()
+	var file := FileAccess.open("res://core/application/combatant_snapshot_seeder.gd", FileAccess.READ)
+	assert_not_null(file, "combatant_snapshot_seeder.gd must be readable")
+	if file == null:
+		return
+	var content: String = file.get_as_text()
+	file.close()
 	assert_true(
 		content.contains("push_warning(") and content.contains("not present in the live encounter"),
-		"MainScene.gd must push_warning() when a party_hex_positions entry references a combatant_id absent from the live encounter (FEAT-005, fail-closed)"
+		"CombatantSnapshotSeeder must push_warning() when a party_hex_positions entry references a combatant_id absent from the live encounter (FEAT-005, fail-closed)"
 	)
 
 

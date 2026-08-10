@@ -216,7 +216,7 @@ origin of the First Duke and his wizard. The party:
 - *Marigold* — Elven *Divine Warrior* on the *Divine Champion* talent
   path, built for *stealth and Dexterity* (filling the skirmisher role a
   Rogue otherwise would). She stays at Titus' side thereafter.
-- A *Dwarf Divine Channeler* — name TBD by the author.
+- *Patience Stoneshield* — Dwarf *Divine Channeler*.
 
 The party is *hand-authored*, so Human / Tiefling / Elf / Dwarf are
 purely cosmetic here — no racial mechanics are required (consistent with
@@ -550,7 +550,7 @@ needs an author decision before or during Phase 0.
 3. *Class roster + naming*: RESOLVED — the v1 roster is the
    hand-authored vignette party: *Fighter* (Titus), *Wizard* (Gram
    Marx), *Divine Warrior* (Marigold, Divine Champion / Dex-stealth
-   build), and *Divine Channeler* (the Dwarf). Naming: the source's
+   build), and *Divine Channeler* (Patience Stoneshield, Dwarf). Naming: the source's
    "Cleric" = Divine Channeler, "Holy Warrior" = Divine Warrior. Still
    open: the *contents* of talent trees and full spell lists are absent
    from the source and must be authored for v0 (incl. a stealth-capable
@@ -564,10 +564,10 @@ needs an author decision before or during Phase 0.
    Demonstorms / Duke's northern march*, ~400 yrs before the full
    game's present.
 6. *Vignette plot*: RESOLVED — see /Vignette narrative/ above. The
-   proto-Duke's band (Titus, Gram Marx, Marigold, and a Dwarf Divine
-   Channeler) discovers the coming Demonstorms in an Old-Continent
-   dungeon and swears the founding oath. Remaining detail: the Dwarf's
-   name and the dungeon's specifics/encounters.
+   proto-Duke's band (Titus, Gram Marx, Marigold, and Patience
+   Stoneshield) discovers the coming Demonstorms in an Old-Continent
+   dungeon and swears the founding oath. Remaining detail: the dungeon's
+   specifics/encounters.
 7. *"Combining Actions" and the Stamina economy*: RESOLVED by
    =Combat.pdf=. Combining two actions into one costs *1 Stamina*;
    Repeat-trait actions may self-combine; reactions may combine with

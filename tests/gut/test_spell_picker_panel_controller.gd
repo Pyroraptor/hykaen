@@ -236,6 +236,6 @@ func test_main_scene_no_longer_defines_the_four_extracted_spell_picker_functions
 		"MainScene.gd must still reference a _spell_picker field/controller"
 	)
 	assert_true(
-		source.contains("_spell_picker.setup("),
-		"MainScene.gd must still call _spell_picker.setup(...) to wire the injected panel node"
+		source.contains("_spell_picker.create_and_add_to(") or source.contains("_spell_picker.setup("),
+		"MainScene.gd must still wire _spell_picker (via create_and_add_to or setup)"
 	)

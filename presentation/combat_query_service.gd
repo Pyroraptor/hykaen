@@ -31,6 +31,25 @@ func find_combatant_by_id(combatant_id: String):
 	return null
 
 
+## Live ActionEconomy for a combatant from the encounter turn order.
+## Object-identity match first, display_id fallback (mirrors the former
+## MainScene._action_economy_for() idiom — extracted here so the composition
+## root carries only a thin lambda delegate rather than 17 lines of search).
+func action_economy_for(combatant, encounter):
+	if encounter == null:
+		return null
+	var order: Array = encounter.get_turn_order()
+	for i in range(order.size()):
+		if is_same(order[i], combatant):
+			return encounter.get_action_economy(i)
+	var combatant_id: String = combatant.display_id()
+	if combatant_id != "":
+		for i in range(order.size()):
+			if order[i].display_id() == combatant_id:
+				return encounter.get_action_economy(i)
+	return null
+
+
 ## Living combatants excluding the given one.
 func other_living_combatants(combatant) -> Array:
 	var self_id: String = combatant.display_id()

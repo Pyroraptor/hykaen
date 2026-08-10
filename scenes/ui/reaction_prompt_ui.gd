@@ -102,6 +102,11 @@ var _legal_reactions: Array = []
 ## presentation/verb_bar_view.gd's `_buttons` Dictionary convention.
 var _buttons: Dictionary = {}
 
+## Dynamically created Label showing attacker/reactor names and roll data.
+## Inserted as the first child of _buttons_container in _rebuild_buttons().
+## Null when no context is available.
+var _context_label: Label = null
+
 @onready var _backdrop: Control = $Backdrop
 @onready var _buttons_container: VBoxContainer = $PromptPanel/ButtonsContainer
 
@@ -126,9 +131,9 @@ func _ready() -> void:
 ## exactly) but not rendered anywhere on this minimal pop-up yet — reserved
 ## for a future richer prompt (e.g. "Goblin attacks Titus for up to 7
 ## damage") without needing to change this method's signature.
-func open_prompt(legal_reactions: Array, _context: Dictionary = {}) -> void:
+func open_prompt(legal_reactions: Array, context: Dictionary = {}) -> void:
 	_legal_reactions = legal_reactions.duplicate()
-	_rebuild_buttons()
+	_rebuild_buttons(context)
 	visible = true
 	_is_open = true
 
@@ -174,23 +179,53 @@ func press_option(reaction_id: String) -> void:
 
 # ── Internal helpers ─────────────────────────────────────────────────────
 
-## _rebuild_buttons() -> void — recomputes `_buttons` from `_legal_reactions`
+## _rebuild_buttons(context) -> void — recomputes `_buttons` from `_legal_reactions`
 ## + the Pass option. Clears any previously-rendered buttons first, so a
 ## repeated open_prompt() call (e.g. a second reaction window opening later
 ## in the same encounter) never leaks duplicate buttons (mirrors
-## presentation/verb_bar_view.gd's _rebuild_buttons()).
-func _rebuild_buttons() -> void:
+## presentation/verb_bar_view.gd's _rebuild_buttons()). Renders a context
+## label (attacker/reactor names + roll data) above the buttons when the
+## context dict contains attacker_name/reactor_name.
+func _rebuild_buttons(context: Dictionary = {}) -> void:
 	for button in _buttons.values():
 		button.queue_free()
 	_buttons.clear()
 
+	if _context_label != null:
+		_context_label.queue_free()
+		_context_label = null
+
 	if _buttons_container == null:
 		return
+
+	var context_text: String = _build_context_text(context)
+	if context_text != "":
+		_context_label = Label.new()
+		_context_label.text = context_text
+		_context_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_context_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		_buttons_container.add_child(_context_label)
 
 	for reaction_id in _legal_reactions:
 		_add_option_button(String(reaction_id), String(reaction_id).capitalize())
 
 	_add_option_button(PASS_CHOICE, PASS_LABEL)
+
+
+func _build_context_text(context: Dictionary) -> String:
+	var attacker_name: String = context.get("attacker_name", "")
+	var reactor_name: String = context.get("reactor_name", "")
+	var lines: PackedStringArray = PackedStringArray()
+	if attacker_name != "" and reactor_name != "":
+		lines.append("%s attacks %s" % [attacker_name, reactor_name])
+	if context.has("attack_modifier"):
+		var mod: int = context["attack_modifier"]
+		lines.append("Attack modifier: %s%d" % ["+" if mod >= 0 else "", mod])
+	if context.has("roll_total"):
+		lines.append("Attack roll: %d" % context["roll_total"])
+	if context.has("damage_raw"):
+		lines.append("Damage: %d" % context["damage_raw"])
+	return "\n".join(lines)
 
 
 func _add_option_button(reaction_id: String, label: String) -> void:

@@ -1,0 +1,454 @@
+#+TITLE: Refactor — Enemy Weapon Architecture Phase 1: Data Layer
+#+STATUS: READY FOR AEF
+
+* Why
+
+=EnemyResource= encodes its weapon as a raw inline Dictionary
+(={"attribute": "str", "die": 6, "proficiency_bonus": 2}=) with
+=parry_bonus=, =block_value=, and =block_die= bolted on as three
+separate top-level fields.  Party weapons, by contrast, live in
+typed =WeaponResource= =.tres= files (=data/weapons/=) loaded by path.
+The result is two completely different weapon models for enemies and
+party members, which means:
+
+1. The same weapon stats (arming sword, spear, shortbow) cannot be
+   shared between an enemy and a party member — each enemy type
+   hard-codes its own untyped dict.
+2. Giving two skeletons different weapons (one arming-sword, one
+   spear) requires copying the entire =skeleton.tres= file; there is
+   no per-spawn override mechanism.
+3. The three top-level parry/block fields on =EnemyResource= are
+   architecturally wrong — in the source material those properties
+   belong to the *weapon*, not the creature.
+
+Goal: give enemies the same weapon model as party members.  Each
+=EnemyResource= stores an Array of =res://= paths to =WeaponResource=
+=.tres= files.  =EncounterResource= gains a parallel
+=weapon_path_overrides= Array so individual spawn slots can carry a
+different weapon than the =.tres= default, without any new enemy file.
+
+Phase 1 is the *data layer only*.  The reaction system
+(=trigger["weapon"]=, =_compute_legal_reactions=, =legal_reactions=
+format, the reaction prompt UI) is explicitly *unchanged* — the
+backward-compatible =weapon= field on the =Combatant= entity insulates
+all reaction tests from this refactor.  Phase 2 (per-weapon reaction
+options, multi-weapon chooser) is a separate run.
+
+* Current state (verified 2026-08-10)
+
+- =data/enemies/enemy_resource.gd= — =@export var weapon: Dictionary
+  = {}= (keys: =die=, =proficiency_bonus=, =attribute=) plus three
+  separate top-level fields: =@export var parry_bonus: int = 0=,
+  =@export var block_value: int = 0=, =@export var block_die: int = 0=.
+- =data/enemies/skeleton.tres= — =weapon = {"attribute": "str", "die":
+  6, "proficiency_bonus": 2}=; =parry_bonus = 4=; =block_value = 2=;
+  =block_die = 0=.
+- =data/weapons/arming_sword.tres= — does NOT exist yet.
+- =data/encounters/encounter_resource.gd= — no weapon override field.
+- =infrastructure/combatant_factory.gd= — reads =enemy.weapon= dict
+  and =enemy.parry_bonus/block_value/block_die= separately to assemble
+  the combatant =weapon= dict.
+- =core/domain/combatant.gd= — single =var weapon: Dictionary = {}=
+  field; no =weapons= array.
+- GUT baseline: 3556 passing, 0 failing, exit 0.
+
+* Non-goals (Phase 1)
+
+- Phase 2 reaction expansion: =trigger["weapons"]= array, per-weapon
+  =legal_reactions= option objects, =_compute_legal_reactions=
+  per-weapon enumeration, reaction prompt weapon labels — ALL deferred.
+- Shield =.tres= files (=small_shield=, =large_shield=, =buckler=) —
+  needed for Phase 2 multi-weapon enemies; deferred.
+- =off_hand_path_overrides= on =EncounterResource= — deferred; Phase 1
+  adds only the primary weapon override.
+- PC shield block stats (=Patience='s shield =ItemResource= carries no
+  block/parry values) — a related but separate gap.
+- Strike-verb weapon selection (choosing which equipped weapon to attack
+  with) — Phase 2 or later.
+- Any change to =core/application/reaction_window.gd=,
+  =round_session.gd= trigger builders, or the =legal_reactions= string
+  format.
+
+* Scope guardrails
+
+The following files and contracts are *frozen* for this run.  Do not
+modify them even if a modification seems to improve consistency:
+
+- =core/application/reaction_window.gd= — reads =trigger["weapon"]=
+  (singular dict); format unchanged.
+- =core/application/round_session.gd= trigger builder methods
+  (=_build_prehit_avoidance_trigger=, =_build_onhit_mitigation_trigger=,
+  =_build_defense_context=) — still write =trigger["weapon"] =
+  target.weapon= and =target_weapon: Dictionary = target.weapon=;
+  the =Combatant.weapon= alias introduced in EWA-5 makes this correct.
+- All test files that hand-build combatant dicts or weapon dicts for
+  reaction/resolution testing (the ~80-file body identified in scope
+  analysis) — protected by the backward-compat alias; leave untouched.
+- The =legal_reactions= Array[String] contract and all chooser port
+  implementations.
+
+* Features
+
+** EWA-0 — =arming_sword.tres= weapon data file
+
+*** EWA-0-0  =data/weapons/arming_sword.tres=
+
+Create a new =WeaponResource= =.tres= using the existing
+=core/model/weapon_resource.gd= script.  Stats from
+=docs/design-source/Weapons.pdf= (Heavy Blade row):
+
+| Field                      | Value        |
+|----------------------------+--------------|
+| =weapon_id=                | arming_sword |
+| =name=                     | Arming Sword |
+| =damage_die=               | 6            |
+| =damage_type=              | S            |
+| =damage_count=             | 1            |
+| =damage_modifier_attribute= | strength    |
+| =proficiency_bonus=        | 2            |
+| =block_value=              | 2            |
+| =parry_bonus=              | 4            |
+| =block_die=                | 0            |
+| =range_hexes=              | 1            |
+
+Assign a new stable UID (follow the project's existing uid scheme,
+e.g. =uid://barm1a2b3c4d5=).
+
+Per =CLAUDE.md=: commit this file before proceeding to the next step.
+
+Test: =test_weapon_resource_data.gd= already verifies the general
+=WeaponResource= field contract.  Add one test to that file asserting:
+the loaded =arming_sword.tres= has =weapon_id == "arming_sword"=,
+=damage_die == 6=, =parry_bonus == 4=, =block_value == 2=,
+=damage_type == "S"=.
+
+** EWA-1 — =EnemyResource= restructure
+
+*** EWA-1-0  =data/enemies/enemy_resource.gd= — field replacement
+
+Remove the following three =@export= fields entirely:
+- =parry_bonus: int=
+- =block_value: int=
+- =block_die: int=
+
+Remove the existing =@export var weapon: Dictionary= field.
+
+Add one new =@export= field in their place:
+
+#+BEGIN_SRC gdscript
+## Array of res:// paths to WeaponResource .tres files for this
+## enemy's equipped weapons.  Index 0 is the primary (striking)
+## weapon.  Populated by data/enemies/{enemy_id}.tres.
+@export var weapon_paths: Array = []
+#+END_SRC
+
+ADR-104 constraint: =enemy_resource.gd= must still contain zero
+functions.  No =get_weapon()= helper, no validation logic.
+
+*** EWA-1-1  Test rewrites for EnemyResource field changes
+
+Rewrite the following test files to match the new API.  The behavior
+under test is the same; only the field names and lookup path change.
+
+*=tests/unit/test_enemy_resource_weapon_defense_fields.gd=* (91 lines
+currently) — was: asserts =parry_bonus=, =block_value=, =block_die= exist
+as top-level fields.  Rewrite to:
+1. Assert =weapon_paths= is an Array field on a fresh =EnemyResource=
+   that defaults to =[]=.
+2. Assert that loading =skeleton.tres= and then loading
+   =ResourceLoader.load(res.weapon_paths[0])= gives a =WeaponResource=
+   with =parry_bonus == 4= and =block_value == 2= (confirming the
+   arming_sword.tres stats flow through the path correctly).
+3. Assert =enemy_resource.gd= source text contains no function
+   definitions (ADR-104; this criterion is unchanged).
+
+*=tests/unit/test_enemy_resources.gd=* and
+*=tests/unit/test_skeleton_resource_values.gd=* — both test
+=skeleton.tres= direct field reads including the old =weapon= dict.
+Rewrite weapon-related criteria to:
+1. =res.weapon_paths= is a non-empty Array.
+2. =res.weapon_paths[0]= equals ="res://data/weapons/arming_sword.tres"=.
+3. Loading =res.weapon_paths[0]= succeeds and returns a non-null
+   =WeaponResource=.
+Retain all non-weapon criteria (name, hp, str, dex, ac, fortitude,
+reflex, will, skills).
+
+** EWA-2 — =skeleton.tres= update
+
+*** EWA-2-0  Update =data/enemies/skeleton.tres=
+
+Remove: =weapon = {...}=, =parry_bonus = 4=, =block_value = 2=,
+=block_die = 0=.
+
+Add: =weapon_paths = ["res://data/weapons/arming_sword.tres"]=.
+
+All other fields (=name=, =hp=, =str=, =dex=, =ac=, =fortitude=,
+=reflex=, =will=, =constitution=, =intuition=, =willpower=, =social=,
+=intellect=, =skills=) are unchanged.
+
+Per =CLAUDE.md=: stage and commit =skeleton.tres= (and
+=arming_sword.tres= if not already committed) before proceeding.
+
+** EWA-3 — =EncounterResource= weapon override slot
+
+*** EWA-3-0  =data/encounters/encounter_resource.gd= — new field
+
+Add one new =@export= field:
+
+#+BEGIN_SRC gdscript
+## Per-slot primary weapon override, parallel to enemy_resource_paths.
+## Each entry is a String: "" (empty) means "use weapon_paths[0] from
+## the enemy's own .tres"; a non-empty res:// path replaces that weapon
+## for this spawn slot only.  Defaults to [] so all pre-existing
+## encounter .tres files load unchanged with no edits.
+@export var weapon_path_overrides: Array = []
+#+END_SRC
+
+No existing encounter =.tres= file requires any edit — the field
+defaults to =[]=, which the factory treats as "no overrides".
+
+Test: add one test to
+=tests/unit/data/encounters/test_encounter_resource_tiles.gd= (or a
+new file if that file's scope is too narrow) asserting:
+1. A fresh =EncounterResource= has =weapon_path_overrides == []=.
+2. Setting =weapon_path_overrides = ["", "res://data/weapons/shortbow.tres"]=
+   round-trips through =ResourceSaver=/=ResourceLoader= with values
+   intact.
+
+** EWA-4 — =CombatantFactory= enemy build path
+
+*** EWA-4-0  =infrastructure/combatant_factory.gd= — =build_enemy_combatant()=
+
+Add an optional fourth parameter to =build_enemy_combatant()=:
+
+#+BEGIN_SRC gdscript
+func build_enemy_combatant(
+    enemy_path: String,
+    hex_coord,
+    combatant_id: String = "",
+    weapon_path_override: String = ""
+) -> Dictionary:
+#+END_SRC
+
+Replace the body's weapon-resolution logic:
+
+*Old logic (remove entirely):*
+- Read =enemy.weapon= dict for =die=, =proficiency_bonus=, =attribute=.
+- Read =enemy.parry_bonus=, =enemy.block_value=, =enemy.block_die= as
+  top-level fields.
+- Validate each field with typed error returns.
+
+*New logic:*
+1. Determine the weapon path: if =weapon_path_override != ""= use it;
+   otherwise if =enemy.weapon_paths= is non-empty use =enemy.weapon_paths[0]=;
+   otherwise return =_fail_enemy_resource_load(ERR_ENEMY_RESOURCE_WEAPON_UNRESOLVABLE,
+   "weapon_paths is empty — no weapon configured for this enemy", enemy_path)=.
+2. Load a =WeaponResource= via =ResourceLoader.load(resolved_weapon_path)=.
+   If null: return =_fail_enemy_resource_load(ERR_ENEMY_RESOURCE_LOAD_FAILED,
+   "weapon WeaponResource failed to load from '%s'" % resolved_weapon_path,
+   enemy_path)=.
+3. Validate the loaded =WeaponResource= fields using the same
+   non-negative checks as before (=damage_die >= 0=,
+   =proficiency_bonus >= 0=, =parry_bonus >= 0=, =block_value >= 0=,
+   =block_die >= 0=), returning =ERR_ENEMY_RESOURCE_INVALID_WEAPON_FIELD=
+   on failure.
+4. Build the combatant =weapon= dict from =WeaponResource= fields
+   (identical shape to current output): =damage_modifier_attribute=
+   (from =weapon_res.damage_modifier_attribute= directly — no =attribute_map=
+   translation needed since =WeaponResource= already stores full attribute
+   names like ="strength"=), =proficiency_bonus=, =damage_die=,
+   =parry_bonus=, =block_value=, =block_die=.
+5. Also populate =weapons= Array on the combatant dict (see EWA-5):
+   =combatant["weapons"] = [combatant["weapon"].duplicate(true)]=.
+
+The =attribute_map= translation step (={"str": "strength", "dex":
+"dexterity"}=) is removed — =WeaponResource.damage_modifier_attribute=
+already stores the full attribute name (="strength"=, ="dexterity"=),
+unlike the old inline dict's =attribute= key which stored the short
+form.
+
+Call-site update: wherever =build_enemy_combatant(enemy_path,
+hex_coord, combatant_id)= is called and an =EncounterResource= is
+available, pass the relevant =weapon_path_overrides= entry as the
+fourth argument:
+
+#+BEGIN_SRC gdscript
+var override: String = ""
+if encounter_res.weapon_path_overrides.size() > i:
+    override = encounter_res.weapon_path_overrides[i]
+var result = _combatant_factory.build_enemy_combatant(
+    enemy_path, hex_coord, combatant_id, override
+)
+#+END_SRC
+
+*** EWA-4-1  Test rewrites for factory enemy build path
+
+*=tests/unit/test_build_enemy_combatant_weapon_defense.gd=* (132 lines)
+— was: creates a mock =EnemyResource= with =res.weapon = {...}=,
+=res.parry_bonus=, etc.  Rewrite to:
+1. Create a mock =EnemyResource= with
+   =res.weapon_paths = ["res://data/weapons/arming_sword.tres"]=.
+2. Call =build_enemy_combatant= and assert the output =weapon= dict has
+   =parry_bonus == 4=, =block_value == 2=, =block_die == 0=,
+   =damage_die == 6=, =damage_modifier_attribute == "strength"=.
+3. Assert =is_parry_eligible(result["weapon"])= and
+   =is_block_eligible(result["weapon"])= both return true.
+4. Assert =block_die <= 0= fallback: when =block_die == 0= on the
+   loaded weapon, the block resolution still falls back to =damage_die=
+   (this criterion is behavior in =resolution.gd=, not the factory —
+   the factory test may assert the =weapon= dict carries =block_die: 0=
+   and leave the fallback to the existing =test_block_reaction.gd= test,
+   which is unaffected by this change).
+
+*=tests/integration/test_build_enemy_combatant_validation.gd=* (208
+lines) — was: sets =res.weapon = {}= (empty dict, missing ="die"= key)
+to trigger =ERR_ENEMY_RESOURCE_WEAPON_UNRESOLVABLE=; also sets
+=res.parry_bonus = 1=, =res.block_value = 1= directly.  Rewrite to:
+1. =weapon_paths= empty → =ERR_ENEMY_RESOURCE_WEAPON_UNRESOLVABLE=.
+2. =weapon_paths[0]= pointing to a non-existent path →
+   =ERR_ENEMY_RESOURCE_LOAD_FAILED=.
+3. A =weapon_path_override= pointing to a valid =WeaponResource= path
+   overrides =weapon_paths[0]= from the =EnemyResource=.
+4. Retain all non-weapon validation criteria (negative =ac= etc.) unchanged.
+
+*=tests/integration/test_mainscene_skeleton_defense_eligibility.gd=*
+(102 lines) — exercises the real skeleton via boot.  If all the above
+changes are correct this test should pass without modification; verify
+and update only if it fails.
+
+** EWA-5 — =Combatant= entity: =weapons= Array and backward-compat alias
+
+*** EWA-5-0  =core/domain/combatant.gd= — add =weapons= field, keep =weapon=
+
+Add one new field:
+
+#+BEGIN_SRC gdscript
+## All equipped weapons as an Array of weapon dicts (same dict shape
+## as `weapon` below).  Index 0 is the primary weapon used for
+## striking.  Populated by CombatantFactory; defaults to [] for
+## combatants built by legacy test fixtures that predate this field.
+var weapons: Array = []
+#+END_SRC
+
+Keep =var weapon: Dictionary = {}= *exactly as-is*.  =CombatantFactory=
+will set BOTH fields explicitly: =weapon = weapons[0]= (when =weapons=
+is non-empty).  This avoids a computed-property getter and preserves
+the direct-field access pattern all existing code relies on.
+
+=from_dict(spec)= changes:
+- If =spec= contains ="weapons"= key: =c.weapons = (spec["weapons"] as
+  Array).map(func(w): return (w as Dictionary).duplicate(true))=.
+- If =spec= contains ="weapon"= but not ="weapons"= (legacy test
+  fixtures): =c.weapons = [c.weapon.duplicate(true)]=.  This ensures
+  =weapons= is always a non-empty Array when =weapon= is non-empty, so
+  Phase 2 code can safely read =weapons[0]= without a nil guard.
+
+=to_dict()= changes:
+- Add ="weapons": weapons.map(func(w): return w.duplicate(true))= to
+  the returned Dictionary.  Existing ="weapon"= key is unchanged.
+
+Test: add to
+=tests/unit/core/domain/test_combatant_combat_state.gd= (or the
+closest combatant unit test file):
+1. =Combatant.from_dict({"weapon": {…weapon dict…}})= populates
+   =weapons[0]= with the same dict — backward compat for legacy fixtures.
+2. =Combatant.from_dict({"weapons": [{…}]})= populates =weapons[0]=
+   and sets =weapon= to =weapons[0]=.
+3. =to_dict()= round-trip includes both ="weapon"= and ="weapons"= keys
+   and they are consistent.
+
+* Acceptance criteria
+
+1. =data/weapons/arming_sword.tres= exists with the stats from the
+   Weapons table (d6 S, +2 prof, block 2, parry 4).
+2. =EnemyResource= has =weapon_paths: Array= field; =parry_bonus=,
+   =block_value=, =block_die=, and inline =weapon: Dictionary= fields
+   are gone.
+3. =skeleton.tres= has =weapon_paths =
+   ["res://data/weapons/arming_sword.tres"]=; no =weapon=, =parry_bonus=,
+   =block_value=, or =block_die= keys remain.
+4. =EncounterResource= has =weapon_path_overrides: Array=; all existing
+   encounter =.tres= files load without edits.
+5. =build_enemy_combatant(enemy_path, hex_coord, combatant_id,
+   weapon_path_override)= accepts an optional weapon override path and
+   loads from it when non-empty.
+6. The skeleton's built =weapon= dict still carries =parry_bonus == 4=,
+   =block_value == 2=, =block_die == 0=, =damage_die == 6=,
+   =damage_modifier_attribute == "strength"= — identical output shape to
+   before this refactor, so all downstream reaction/resolution code is
+   unchanged.
+7. =Combatant.weapon= alias is backward-compatible: all existing tests
+   that read =combatant.weapon= continue to pass without modification.
+8. =Combatant.weapons[0]= equals =Combatant.weapon= for any combatant
+   built by =CombatantFactory=.
+9. =ci/check_no_duplicate_seams.sh= passes (no new =move_to= or mutator
+   call sites introduced).
+10. GUT gate: ≥ 3556 passing, 0 failing, exit 0.
+
+* Test files to REWRITE (must change — reference old API)
+
+| File | Lines | Nature of change |
+|------+-------+------------------|
+| =tests/unit/test_enemy_resource_weapon_defense_fields.gd= | 91 | Replace top-level field assertions with weapon_paths + WeaponResource load |
+| =tests/unit/test_build_enemy_combatant_weapon_defense.gd= | 132 | Replace mock =res.weapon= dict + top-level fields with =res.weapon_paths= |
+| =tests/unit/test_enemy_resources.gd= | 180 | Replace =skeleton.weapon= dict reads with =weapon_paths[0]= |
+| =tests/unit/test_skeleton_resource_values.gd= | 76 | Same — replace =skeleton.weapon= dict reads |
+| =tests/integration/test_build_enemy_combatant_validation.gd= | 208 | Replace =res.weapon = {}= / =res.parry_bonus= triggers with new API |
+| =tests/integration/test_mainscene_skeleton_defense_eligibility.gd= | 102 | Verify passes; update if needed |
+
+* Test files PROTECTED (do not touch)
+
+The backward-compat =Combatant.weapon= alias and the unchanged trigger
+format insulate the entire reaction/resolution test body:
+
+- All files in =tests/unit/test_block_reaction.gd=,
+  =test_parry_reaction.gd=, =test_reaction_window.gd= — hand-build
+  weapon dicts directly; never touch =EnemyResource=.
+- =tests/gut/test_enemy_strike_reaction_window.gd=,
+  =test_defense_segment_reaction_outcomes.gd=, and all other reaction
+  gut tests — same; hand-built fixtures.
+- =tests/unit/test_enemy_resource_fields.gd= — tests the
+  ac/fortitude/reflex/will/attribute fields that are unchanged.
+- =tests/unit/test_build_enemy_combatant_defenses.gd= — tests
+  ac/fortitude/reflex/will factory output; no weapon changes.
+- =tests/application/test_build_defense_context.gd= and all resolution
+  application tests — read =combatant.weapon= via alias; unaffected.
+
+* Files to create
+
+| Path | Notes |
+|------+-------|
+| =data/weapons/arming_sword.tres= | New WeaponResource; commit immediately after creation |
+
+* Files to modify
+
+| Path | Nature |
+|------+--------|
+| =data/enemies/enemy_resource.gd= | Remove weapon/parry_bonus/block_value/block_die; add weapon_paths |
+| =data/enemies/skeleton.tres= | Point to arming_sword.tres via weapon_paths; commit |
+| =data/encounters/encounter_resource.gd= | Add weapon_path_overrides: Array |
+| =infrastructure/combatant_factory.gd= | Load WeaponResource from weapon_paths; accept override param |
+| =core/domain/combatant.gd= | Add weapons: Array; update from_dict/to_dict |
+| =tests/unit/test_weapon_resource_data.gd= | Add arming_sword.tres spot-check test |
+| =tests/unit/test_enemy_resource_weapon_defense_fields.gd= | Rewrite (see EWA-1-1) |
+| =tests/unit/test_build_enemy_combatant_weapon_defense.gd= | Rewrite (see EWA-4-1) |
+| =tests/unit/test_enemy_resources.gd= | Rewrite weapon criteria (see EWA-1-1) |
+| =tests/unit/test_skeleton_resource_values.gd= | Rewrite weapon criteria (see EWA-1-1) |
+| =tests/integration/test_build_enemy_combatant_validation.gd= | Rewrite (see EWA-4-1) |
+| =tests/integration/test_mainscene_skeleton_defense_eligibility.gd= | Verify; update if needed |
+| =tests/unit/data/encounters/test_encounter_resource_tiles.gd= | Add weapon_path_overrides field test |
+| =tests/unit/core/domain/test_combatant_combat_state.gd= | Add weapons/weapon alias round-trip tests |
+
+* Follow-on (Phase 2 — separate AEF run)
+
+- =data/weapons/small_shield.tres=, =large_shield.tres=, =buckler.tres=
+  authored from the Weapons table.
+- =EncounterResource.off_hand_path_overrides: Array= for shield variants.
+- =Combatant.weapons= fully populated for multi-weapon combatants.
+- =reaction_window._compute_legal_reactions()= enumerates
+  =(reaction × eligible weapon)= pairs and emits option dicts instead
+  of bare strings.
+- =ReactionChooserPort.choose()= contract updated to receive option dicts.
+- Reaction prompt UI shows per-weapon Block/Parry labels and relevant
+  stats per option.
+- AI reaction policy selects best weapon per reaction type.

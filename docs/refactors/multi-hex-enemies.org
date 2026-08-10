@@ -1,0 +1,214 @@
+#+TITLE: Multi-Hex Enemy Support — Architecture Discovery
+#+DATE: 2026-08-09
+#+STATUS: deferred — no Large/Huge enemies in current content
+
+* Summary
+
+Investigation into what it would take to support enemies that occupy more than
+one hex: Large (3 hexes — equilateral triangle footprint) and Huge (7 hexes —
+center + ring).  The current codebase is hardwired to single-hex combatants at
+every layer.  The changes are tractable and localized, but span four distinct
+layers.  Safe to defer until Large/Huge enemies appear in authored content.
+
+* Current state: single-hex everywhere
+
+Every layer assumes one combatant = one hex:
+
+- ~core/domain/combatant.gd~ :: ~hex_coord~ is a single ~HexCoord(q, r)~ —
+  the sole position field, set by ~move_to()~, read by every rule.
+- ~core/rules/movement.gd~ :: occupancy check is ~destination_hex.equals(combatant.hex_coord)~ — one point per combatant.
+- ~core/rules/flanking.gd~ :: adjacency is ~hex_neighbors(a.hex_coord).contains(b.hex_coord)~ — same single-coord assumption.
+- ~core/geometry/encounter_tile_adapter.gd~ :: ~make_combat_is_passable()~ closes
+  over ~all_combatants~ and blocks exactly one hex per combatant (~hex_coord~
+  only).
+- ~presentation/hex_grid_view.gd~ :: places one ~CombatantTokenView~ at
+  ~hex_coord~; click → combatant lookup is a single-coord equality check.
+
+* What would need to change
+
+** 1. Domain model (~core/domain/combatant.gd~, ~core/domain/enemy_resource.gd~)
+
+Add ~size_category~ (Medium / Large / Huge) to both ~Combatant~ and
+~EnemyResource~.  ~hex_coord~ stays as the *anchor* hex (typically the
+south-west corner or center, TBD by art/design convention).
+
+Add a geometry helper — likely in ~core/geometry/hex_math.gd~ or a new
+~core/geometry/hex_footprint.gd~ — that computes the full footprint set from
+anchor + size:
+
+#+BEGIN_SRC gdscript
+# Returns all hexes occupied by a combatant of `size` anchored at `hex_coord`.
+static func footprint(hex_coord: HexCoord, size: String) -> Array[HexCoord]
+#+END_SRC
+
+Medium footprint is just ~[hex_coord]~, so all downstream callers can call
+~footprint()~ unconditionally with no Medium-specific branching.
+
+** 2. Movement rules (~core/rules/movement.gd~)
+
+Two occupancy checks need updating:
+
+1. /Is hex X occupied?/ — currently checks if any combatant's ~hex_coord == X~.
+   Must check if X is in any combatant's ~footprint()~.
+
+2. /Is the destination reachable for the mover?/ — currently checks that
+   ~destination_hex~ is unoccupied.  For a multi-hex mover, the entire
+   ~footprint(destination_hex, mover.size)~ must be clear (excluding the
+   mover's own current footprint).
+
+Step and Stride destination generation (~get_step_destinations~,
+~get_stride_destinations~) both need the updated occupancy check so they
+return only valid landing positions.
+
+** 3. Adjacency / flanking (~core/rules/flanking.gd~, Strike reach, OS)
+
+"Is A adjacent to B?" today: ~hex_neighbors(a.hex_coord).contains(b.hex_coord)~.
+
+For multi-hex combatants: A and B are adjacent if *any hex in A's footprint*
+shares an edge with *any hex in B's footprint*.  This affects:
+
+- Off-Guard eligibility (~flanking.gd~)
+- Strike target selection (~strike_action_controller.gd~ / reach check)
+- Opportunistic Strike eligibility
+
+The fix is a shared helper:
+
+#+BEGIN_SRC gdscript
+static func footprints_adjacent(a_footprint: Array, b_footprint: Array) -> bool
+#+END_SRC
+
+** 4. Pathfinding (~core/geometry/encounter_tile_adapter.gd~, ~MainScene.gd~)
+
+~HexPathfinder~ itself is clean (pure A* with injected callables) and needs no
+changes.  The problems are in ~make_combat_is_passable()~ and its wiring:
+
+*** 4a. Obstacle footprints (encounter_tile_adapter.gd)
+
+Currently blocks only ~combatant.hex_coord~.  A Large enemy at anchor A with
+footprint [A, B, C] leaves B and C invisible — the pathfinder routes through
+them.  Fix: block all hexes in ~footprint(combatant.hex_coord, combatant.size)~.
+
+*** 4b. Mover self-exclusion (MainScene.gd + encounter_tile_adapter.gd)
+
+A self-exception mechanism exists in ~make_combat_is_passable()~ but is never
+used: both the player and AI wiring pass ~mover_id = ""~.  For single-hex
+movers A* implicitly avoids the start (never re-enters it as an entry node).
+For multi-hex movers the entire starting footprint must be excluded.  Fix: pass
+the real ~mover_id~ (and ~mover_size~) through from the MainScene wiring.
+
+*** 4c. Intermediate footprint collisions
+
+As a Large mover's anchor steps through path positions P1→P2→P3, the full
+footprint at each intermediate position is never validated.  A Large enemy
+could legally path through a corridor too narrow for its body.  Fix: for each
+step in the path, check that ~footprint(step, mover.size)~ is clear (excluding
+the mover's own moving footprint from prior steps).
+
+** 5. Rendering (~presentation/hex_grid_view.gd~, animation layer)
+
+This is the least well-defined layer and requires design decisions before
+implementation:
+
+*** 5a. Token visual
+
+A Large token must visually span its footprint.  Options:
+
+- *Single oversized sprite* at the anchor hex, scaled/offset to cover the
+  footprint hexes — simpler to implement, works with the existing
+  ~CombatantTokenView~ by just changing the sprite.
+- *Composite tokens* — one child token per footprint hex — more flexible but
+  heavier.
+
+Recommendation: oversized sprite anchored at the center-of-mass of the
+footprint is the conventional approach in hex-grid tactical games.
+
+*** 5b. Click detection
+
+Currently: ~hex_clicked.emit(hex)~ → overlay resolves which combatant is at
+that hex via single-coord lookup.  For a Large enemy, clicking any of its
+footprint hexes should resolve to that enemy.  Fix: change the lookup to
+"which combatant's ~footprint()~ contains this hex?"
+
+*** 5c. Stride animation (~_animate_token_along_stride_path~ in ~MainScene.gd~)
+
+Currently animates only the anchor token along the path.  For a multi-hex
+token, the visual must shift the entire footprint in lock-step with the anchor.
+If using oversized sprites this may be as simple as moving one node; if using
+composite tokens each sub-token needs to reposition per step.
+
+* Files to change (summary)
+
+| File | Change |
+|------+--------|
+| ~core/domain/combatant.gd~ | Add ~size_category~ field |
+| ~core/domain/enemy_resource.gd~ | Add ~size_category~ field |
+| ~core/geometry/hex_math.gd~ (or new ~hex_footprint.gd~) | Add ~footprint(hex_coord, size)~ |
+| ~core/rules/movement.gd~ | Footprint-aware occupancy + destination generation |
+| ~core/rules/flanking.gd~ | ~footprints_adjacent()~ helper |
+| ~core/geometry/encounter_tile_adapter.gd~ | Block full footprints; mover self-exclusion |
+| ~MainScene.gd~ | Pass real ~mover_id~ + ~mover_size~ to pathfinder wiring |
+| ~presentation/hex_grid_view.gd~ | Multi-hex token placement + click detection |
+| ~MainScene.gd~ / animation layer | Animate full footprint per stride step |
+
+~HexPathfinder~, ~StepActionController~, ~StrideActionController~,
+~StrikeActionController~ — no changes needed if the above helpers are clean.
+
+* Timing
+
+Safe to defer until Large/Huge enemies are needed in authored content.  No
+currently planned features expand the single-hex seam further.  The pathfinding
+gaps (4a–4c) are pre-existing silent bugs for the future multi-hex case, not
+regressions against current single-hex play.
+
+When the time comes, the recommended order is:
+
+1. ~footprint()~ geometry helper first (pure, no side effects, fully testable)
+2. Domain model (~size_category~ field on Combatant/EnemyResource)
+3. Rules layer (movement, flanking) — each file independently
+4. Pathfinding wiring (fix ~mover_id~, update ~make_combat_is_passable~)
+5. Rendering (token visual, click detection, animation) — last, after rules are
+   verified correct via GUT
+
+* Relationship to exploration-mode party pathfinding
+
+When the party moves as a unit in exploration mode, the pathfinding changes
+developed here provide a partial foundation — but party movement is a distinct
+problem.
+
+** What is shared
+
+- The *self-exclusion fix* (passing real ~mover_id~ through
+  ~make_combat_is_passable()~) generalises directly: for party movement, all
+  party members need to be excluded from the obstacle set so they don't block
+  each other's paths.
+- The *"my hexes at each path step"* pattern is the same: tracking which hexes
+  are being vacated vs. entered to avoid false self-collisions during animation.
+
+** Where they diverge
+
+A Large enemy has a *rigid* footprint — geometrically fixed relative to its
+anchor, moves as a single unit.  A party has a *flexible* formation — four
+independent combatants whose relative positions are not fixed and may need to
+rearrange around obstacles or narrow corridors.
+
+Party pathfinding is better modelled as *formation following*: a leader
+pathfinds to the destination normally; the other members follow, maintaining
+approximate relative offsets from the leader and re-queuing behind them in tight
+spaces.  This shares the self-exclusion infrastructure but not the rigid
+footprint geometry.
+
+** Recommended sequencing
+
+Implement multi-hex enemy pathfinding first (it is the simpler, geometrically
+rigid case).  The cleaned-up ~make_combat_is_passable()~ and real ~mover_id~
+wiring will then be the right foundation to build formation following on top of
+rather than working around the current broken self-exclusion.
+
+* Open design questions
+
+- What is the anchor convention for Large/Huge footprints? (Center? South-west
+  corner?)  Matters for art assets and footprint geometry.
+- Does a multi-hex enemy need to face a direction (the footprint rotates)?  Or
+  is the footprint always the same orientation?
+- Can a Large enemy perform Step (1-hex move)?  The entire footprint would need
+  to shift — the Step rule may need a size-aware move distance.

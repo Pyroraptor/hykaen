@@ -1014,11 +1014,20 @@ func _build_reaction_trigger(attacker, target, _target_action_economy = null) ->
 ## resume() pair (rather than its open_and_resolve_prehit_avoidance()
 ## convenience method) never double-spends the same reaction.
 func _build_prehit_avoidance_trigger(attacker, target) -> Dictionary:
+	var atk_mod: int = (
+		attacker.attribute(attacker.weapon.get("damage_modifier_attribute", "strength"))
+		+ attacker.weapon.get("proficiency_bonus", 0)
+	)
 	return {
 		"attacker_id":            attacker.display_id(),
 		"target_id":              target.display_id(),
 		"defense_type":           "ac",
-		"attack_context":         {"attacker_weapon": attacker.weapon},
+		"attack_context":         {
+			"attacker_weapon":  attacker.weapon,
+			"attacker_name":    attacker.name,
+			"reactor_name":     target.name,
+			"attack_modifier":  atk_mod,
+		},
 		"round_number":           _round_number,
 		"attacker":               attacker,
 		"target":                 target,
@@ -1064,12 +1073,18 @@ func _build_prehit_avoidance_trigger(attacker, target) -> Dictionary:
 ## this session never hands a live resolver's own ReactionWindow.resume() the
 ## authority to spend the reactor's reaction directly (see those methods' own
 ## FEAT-008 doc for the full double-spend rationale this mirrors).
-func _build_onhit_mitigation_trigger(attacker, target, attack_hit: bool) -> Dictionary:
+func _build_onhit_mitigation_trigger(attacker, target, attack_hit: bool, roll_total: int = 0, damage_raw: int = 0) -> Dictionary:
 	return {
 		"attacker_id":            attacker.display_id(),
 		"target_id":              target.display_id(),
 		"defense_type":           "ac",
-		"attack_context":         {"attacker_weapon": attacker.weapon},
+		"attack_context":         {
+			"attacker_weapon": attacker.weapon,
+			"attacker_name":   attacker.name,
+			"reactor_name":    target.name,
+			"roll_total":      roll_total,
+			"damage_raw":      damage_raw,
+		},
 		"round_number":           _round_number,
 		"attacker":               attacker,
 		"target":                 target,
@@ -1591,7 +1606,10 @@ func advance_ai_turn() -> Dictionary:
 				strike_damage_raw_for_log = partial.get("damage_raw", 0)
 
 				if ReactionWindowClass.is_on_hit_mitigation_eligible(false, attack_hit):
-					var onhit_trigger: Dictionary = _build_onhit_mitigation_trigger(combatant, target, attack_hit)
+					var onhit_trigger: Dictionary = _build_onhit_mitigation_trigger(
+						combatant, target, attack_hit,
+						partial.get("roll_total", 0), partial.get("damage_raw", 0)
+					)
 					_trace(
 						"onhit_mitigation_trigger_built attacker_id=%s target_id=%s round=%d"
 						% [onhit_trigger.get("attacker_id", ""), onhit_trigger.get("target_id", ""), _round_number]

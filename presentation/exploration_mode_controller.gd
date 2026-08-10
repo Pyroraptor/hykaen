@@ -479,7 +479,13 @@ func load_encounter_from_scenario(scenario, encounter_id: String, seed: int = -1
 
 	var new_party: Array = []
 	for party_combatant_dict in result.get("party_combatants", []):
-		var combatant := CombatantClass.from_dict(party_combatant_dict)
+		var fresh := CombatantClass.from_dict(party_combatant_dict)
+		# Reuse the live Combatant instance from the previous encounter (if any)
+		# so HP, stamina, and other attrition state are preserved across
+		# encounter transitions. On the first encounter party == [] so `existing`
+		# is always null and the resource-defaults Combatant (fresh) is used.
+		var existing = _find_party_combatant(fresh.combatant_id)
+		var combatant: CombatantClass = existing if existing != null else fresh
 		# Use the position the party member walked to during exploration rather
 		# than the encounter's authored starting position.
 		var exploration_hex = scenario_session.party_hex_positions.get(combatant.combatant_id) if scenario_session != null else null
@@ -500,6 +506,13 @@ func load_encounter_from_scenario(scenario, encounter_id: String, seed: int = -1
 
 	combat_triggered.emit(encounter_id)
 	return true
+
+
+func _find_party_combatant(combatant_id: String):
+	for c in party:
+		if c is CombatantClass and c.combatant_id == combatant_id:
+			return c
+	return null
 
 
 ## resume_after_combat_won(encounter_id) -> void — the exploration-side half

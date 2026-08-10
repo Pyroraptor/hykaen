@@ -415,6 +415,7 @@ func test_application_layer_contains_no_new_port_or_use_case_class() -> void:
 		"ai_decision_port.gd",
 		"apply_on_hit_defense_uc.gd",
 		"combat_session_factory.gd",
+		"combatant_snapshot_seeder.gd",
 		"determine_outcome_use_case.gd",
 		"event_sink_port.gd",
 		"exploration_controller.gd",

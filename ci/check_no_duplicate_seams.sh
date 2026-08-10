@@ -233,7 +233,8 @@ if ! check_seam_sole_caller "add_condition"; then
 fi
 
 if ! check_seam_sole_caller "move_to" \
-    "core/rules/movement.gd"; then
+    "core/rules/movement.gd" \
+    "core/application/combatant_snapshot_seeder.gd"; then
     FAILURES=$((FAILURES + 1))
 fi
 

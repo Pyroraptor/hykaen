@@ -107,6 +107,24 @@ static func _round_to_hex_coord(q_frac: float, r_frac: float):
 	return HexCoordClass.new(q, r)
 
 
+## compute_centering_from_combatants(hex_combatants, viewport_size, grid_radius, hex_size) → Vector2
+## Convenience wrapper used by the composition root at boot: builds the six
+## corner hexes of the axial grid (radius = grid_radius), appends every
+## non-null combatant hex_coord, then delegates to compute_centering_offset().
+## Accepts grid_radius and hex_size as explicit parameters to avoid a circular
+## preload dependency with presentation/hex_grid_view.gd.
+static func compute_centering_from_combatants(hex_combatants: Array, viewport_size: Vector2, grid_radius: int, hex_size: float = DEFAULT_HEX_SIZE) -> Vector2:
+	var r: int = grid_radius
+	var extent_hexes: Array = [
+		HexCoordClass.new(r, 0), HexCoordClass.new(r, -r), HexCoordClass.new(0, -r),
+		HexCoordClass.new(-r, 0), HexCoordClass.new(-r, r), HexCoordClass.new(0, r),
+	]
+	for combatant in hex_combatants:
+		if combatant.hex_coord != null:
+			extent_hexes.append(combatant.hex_coord)
+	return compute_centering_offset(extent_hexes, viewport_size, hex_size)
+
+
 ## compute_centering_offset(hex_coords, viewport_size, hex_size) → Vector2 —
 ## see file-level doc. Derives the offset such that the pixel-space bounding
 ## box of `hex_coords` (each hex padded by `hex_size` on every side, so a
