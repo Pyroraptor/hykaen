@@ -244,7 +244,18 @@ func _fail_enemy_resource_load(error_code: String, message: String, enemy_path: 
 ## is already the canonical long-form name on WeaponResource (e.g.
 ## "strength"), so the old str/dex -> strength/dexterity attribute_map
 ## translation is no longer needed.
-func build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String = "") -> Dictionary:
+##
+## FEAT-006 (US-005, ADR-005/ADR-006): `weapon_path_override` (4th arg, ""
+## by default) lets a caller (the encounter spawn-slot orchestration --
+## api/orchestration, a later feature) pin a SPECIFIC weapon path for this
+## spawn, overriding the enemy's own default. Resolution precedence (must
+## match api_contracts exactly):
+##   1. weapon_path_override, when non-empty -- highest precedence.
+##   2. enemy.weapon_paths[0] -- fallback.
+##   3. neither present -- ERR_ENEMY_RESOURCE_WEAPON_UNRESOLVABLE.
+## Everything downstream of path resolution (load + field validation) is
+## UNCHANGED regardless of which branch supplied the path.
+func build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String = "", weapon_path_override: String = "") -> Dictionary:
 	var enemy = ResourceLoader.load(enemy_path)
 	if enemy == null:
 		return _fail_enemy_resource_load(
@@ -253,14 +264,18 @@ func build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String =
 			enemy_path
 		)
 
-	if enemy.weapon_paths.is_empty():
+	var weapon_path: String = ""
+	if weapon_path_override != "":
+		weapon_path = weapon_path_override
+	elif not enemy.weapon_paths.is_empty():
+		weapon_path = enemy.weapon_paths[0]
+	else:
 		return _fail_enemy_resource_load(
 			ERR_ENEMY_RESOURCE_WEAPON_UNRESOLVABLE,
 			"weapon_paths is empty -- no weapon configured for this enemy, refusing to default to a phantom weapon",
 			enemy_path
 		)
 
-	var weapon_path: String = enemy.weapon_paths[0]
 	var weapon_res = ResourceLoader.load(weapon_path)
 	if weapon_res == null:
 		return _fail_enemy_resource_load(
