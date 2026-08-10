@@ -637,7 +637,24 @@ func _finalize_strike_result(
 
 	var target_defeated: bool = target.hp_current <= 0
 	if target_defeated:
-		var target_cid: String = target.get("combatant_id", "") if target is Dictionary else target.combatant_id
+		# FEAT-001 (US-001/FR-001, ADR-001): explicit if/elif type-branching
+		# REPLACES a typed ternary that used to live here
+		# (`target.get("combatant_id", "") if target is Dictionary else
+		# target.combatant_id`). GDScript 4.3 eagerly evaluates BOTH operands
+		# of a ternary assigned to a typed variable, so the untaken branch's
+		# property/key access is still executed — `target.combatant_id`
+		# raised "Invalid access to property or key 'combatant_id' on a base
+		# object of type 'Dictionary'" whenever `target` was a plain
+		# Dictionary lacking that key, aborting this method mid-execution. An
+		# explicit if/elif block is guaranteed short-circuiting control flow
+		# in GDScript (unlike the ternary form), so only the branch matching
+		# target's actual runtime type is ever evaluated — see
+		# docs/iterations/iteration-AD-gut-regression-fix.org's AD-1.
+		var target_cid: String
+		if target is CombatantClass:
+			target_cid = target.combatant_id
+		else:
+			target_cid = target.get("combatant_id", "")
 		var defeated_event = RoundEventsClass.CombatantDefeatedEvent.new(
 			round_number, target.name, combatant.name, target_cid
 		)
