@@ -24,8 +24,39 @@ extends GutTest
 ##      Dictionary for which ResolutionClass.is_parry_eligible() is TRUE.
 ##   2. The same live Skeleton weapon Dictionary is ResolutionClass.
 ##      is_block_eligible() TRUE.
-##   3. The underlying parry_bonus/block_value values driving that
-##      eligibility match the Arming Sword table (4 and 2 respectively).
+##   3. The underlying parry_bonus/block_value/block_die/damage_die/
+##      damage_modifier_attribute values driving that eligibility match the
+##      Arming Sword table (parry_bonus==4, block_value==2, block_die==0,
+##      damage_die==6, damage_modifier_attribute=='strength').
+##
+## FEAT-390 (root-cause fix for the pre-remediation 11-test GUT full-suite
+## regression, NFR-002/PR-003): the design notes for that iteration
+## hypothesized this suite's production seam (infrastructure/
+## combatant_factory.gd's weapon-resolution precedence) as a LIKELY fault
+## location for the 11 unexpected failures captured in
+## .test-output/full_gut_run.log and .test-output/def001_gate_captured_
+## output.log. Triage of those two artifacts found the 11 failing tests
+## were actually test_encounter_round_loop.gd, test_round_events.gd,
+## test_encounter_multiround_balance_smoke.gd,
+## test_encounter_no_hang_typed_events_smoke.gd, tests/sim/test_determinism.gd,
+## and tests/integration/test_encounter_resource_pipeline_e2e.gd
+## (round_history budget_remaining off-by-one, DRAW-instead-of-won/lost
+## outcomes, missing combatant_defeated/terminal encounter_result events, and
+## a missing combatant_id key in EncounterResultEvent.to_dict()) -- NONE of
+## which touch weapon resolution, the weapon/weapons alias, or per-slot
+## override wiring. The actual root cause was a GUT test-discovery basename
+## collision (tests/unit/test_weapon_resource_data.gd vs
+## tests/unit/data/weapons/test_weapon_resource_data.gd) that corrupted
+## unrelated cross-test state during a full `--gut-run-all` pass; it was
+## fixed by renaming the colliding file (FEAT-388, DEF-002) with no
+## production-code changes anywhere. This suite (and
+## infrastructure/combatant_factory.gd / core/domain/combatant.gd) were
+## re-verified defect-free and required NO changes for FEAT-390 -- the two
+## assertions added to test_skeleton_defense_values_match_arming_sword_table_
+## on_real_boot() below (damage_die/damage_modifier_attribute) close the
+## small residual gap so this file alone now proves ALL FIVE Arming Sword
+## values FEAT-390's acceptance criteria name, end to end through the real
+## boot path.
 
 const MAIN_SCENE_PATH: String = "res://MainScene.tscn"
 const ResolutionClass = preload("res://core/rules/resolution.gd")
@@ -100,3 +131,11 @@ func test_skeleton_defense_values_match_arming_sword_table_on_real_boot() -> voi
 	assert_eq(weapon.get("parry_bonus", 0), 4, "the live Skeleton's parry_bonus must be 4 (Arming Sword table)")
 	assert_eq(weapon.get("block_value", 0), 2, "the live Skeleton's block_value must be 2 (Arming Sword table)")
 	assert_eq(weapon.get("block_die", -1), 0, "the live Skeleton's block_die must be 0 (unset, falls back to damage_die)")
+	# FEAT-390: close the residual gap flagged by that iteration's exit-point
+	# criteria -- damage_die/damage_modifier_attribute were already proven via
+	# CombatantFactory directly (tests/unit/infrastructure/
+	# test_build_enemy_combatant_weapon_defense.gd) but not through this
+	# boot-real MainScene seam. Asserted here too so this single file proves
+	# all five Arming Sword values end to end.
+	assert_eq(weapon.get("damage_die", -1), 6, "the live Skeleton's damage_die must be 6 (Arming Sword table)")
+	assert_eq(weapon.get("damage_modifier_attribute", ""), "strength", "the live Skeleton's damage_modifier_attribute must be 'strength' (Arming Sword table)")

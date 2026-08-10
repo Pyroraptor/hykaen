@@ -33,6 +33,26 @@ extends GutTest
 ##      weapon_defense.gd (which exercised the same underlying
 ##      CombatantFactory logic indirectly through the MainScene test seam --
 ##      MainScene._build_enemy_combatant() is a trivial delegate to
+##
+## FEAT-390 (root-cause fix for the pre-remediation 11-test GUT full-suite
+## regression, NFR-002/PR-003): that iteration's design notes flagged THIS
+## file's production seam (infrastructure/combatant_factory.gd's
+## weapon-resolution precedence) as a likely fault location for the 11
+## unexpected failures captured in .test-output/full_gut_run.log and
+## .test-output/def001_gate_captured_output.log. Triage of those artifacts
+## found the actual 11 failing tests lived in test_encounter_round_loop.gd,
+## test_round_events.gd, test_encounter_multiround_balance_smoke.gd,
+## test_encounter_no_hang_typed_events_smoke.gd, tests/sim/test_determinism.gd,
+## and tests/integration/test_encounter_resource_pipeline_e2e.gd -- round-loop/
+## round-event/determinism assertions with no connection to weapon
+## resolution. The real root cause was a GUT test-discovery basename
+## collision (tests/unit/test_weapon_resource_data.gd vs tests/unit/data/
+## weapons/test_weapon_resource_data.gd) that corrupted unrelated cross-test
+## state during a full `--gut-run-all` pass, fixed by renaming the colliding
+## file (FEAT-388, DEF-002) -- NO change to infrastructure/combatant_factory.gd
+## was required or made. This suite was re-run in full as part of FEAT-390
+## triage (7/7 passing) and left unmodified; it already exercises the exact
+## precedence/verbatim-copy contract the design notes described.
 ##      CombatantFactory.build_enemy_combatant(), so exercising the factory
 ##      directly here is equivalent, no MainScene-specific behavior lost).
 
