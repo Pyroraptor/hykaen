@@ -1,8 +1,16 @@
 extends GutTest
-## tests/unit/test_weapon_resource_data.gd
+## tests/unit/test_weapon_resource_field_defaults.gd
 ##
 ## GUT unit test suite for FEAT-001 (US-005 / FR-006): Populate weapon
 ## block_value and parry_bonus data.
+##
+## Renamed from tests/unit/test_weapon_resource_data.gd by FEAT-388
+## (DEF-002/PR-001): the prior basename collided with
+## tests/unit/data/weapons/test_weapon_resource_data.gd (FEAT-001's
+## arming_sword.tres coverage), which could cause GUT's class/script
+## caching to silently shadow one of the two suites during discovery. All
+## assertions below are unchanged from the pre-rename file — only the
+## basename and this header changed.
 ##
 ## Data-layer foundation for the steel thread's reaction mechanics
 ## (docs/iterations/iteration-H-round-loop-fixes-and-reactions-first-pass.org,
