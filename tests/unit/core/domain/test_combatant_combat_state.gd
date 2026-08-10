@@ -36,6 +36,11 @@ func _enemy_spec() -> Dictionary:
 		"intellect":        0,
 		"mage_recharge_budget_remaining": 0,
 		"weapon":           {"damage_die": 6, "proficiency_bonus": 1, "parry_bonus": 0, "block_value": 0, "block_die": 0},
+		# FEAT-005 (US-006; ADR-003): part of the canonical shape now that
+		# to_dict() always emits both keys — weapons[0] mirrors "weapon"
+		# above so this fixture round-trips exactly (see
+		# test_to_dict_round_trips_the_canonical_shape below).
+		"weapons":          [{"damage_die": 6, "proficiency_bonus": 1, "parry_bonus": 0, "block_value": 0, "block_die": 0}],
 		"skills":           {"mobility": 1, "determination": 0},
 		# FEAT-002 (Iteration M P0-0): part of the canonical shape (like
 		# "skills" above) — 0 / [] for this non-caster enemy fixture.
@@ -158,3 +163,73 @@ func test_from_dict_duplicates_containers() -> void:
 	c.add_condition("Prone")
 	assert_eq(spec["weapon"]["damage_die"], 6, "mutating the entity must not alias the source spec's weapon")
 	assert_eq((spec["conditions"] as Array).size(), 1, "mutating the entity must not alias the source spec's conditions")
+
+
+# ── weapons[] / weapon back-compat alias (FEAT-005, US-006, ADR-003) ────────
+
+func test_from_dict_with_only_legacy_weapon_derives_weapons() -> void:
+	# Only spec['weapon'] populated (no 'weapons' key at all) — the historical
+	# shape every pre-existing fixture/caller still uses.
+	var spec := {
+		"name": "Titus",
+		"weapon": {"damage_die": 8, "proficiency_bonus": 2, "parry_bonus": 1, "block_value": 0, "block_die": 0},
+	}
+	var c := CombatantClass.from_dict(spec)
+	assert_eq(c.weapon, spec["weapon"], "legacy weapon field is unchanged")
+	assert_eq(c.weapons.size(), 1, "weapons is derived with exactly one entry")
+	assert_eq(c.weapons[0], spec["weapon"], "weapons == [weapon.duplicate(true)]")
+	# Not aliased: mutating the source dict must not affect the derived entry.
+	spec["weapon"]["damage_die"] = 999
+	assert_eq(c.weapons[0]["damage_die"], 8, "derived weapons[0] must not alias the source spec's weapon dict")
+
+func test_from_dict_with_weapons_and_no_legacy_weapon_key_populates_directly() -> void:
+	# spec['weapons'] populated, no legacy 'weapon' key present at all.
+	var spec := {
+		"name": "Multi-Weapon Enemy",
+		"weapons": [
+			{"damage_die": 6, "proficiency_bonus": 1, "parry_bonus": 0, "block_value": 0, "block_die": 0},
+			{"damage_die": 4, "proficiency_bonus": 0, "parry_bonus": 0, "block_value": 0, "block_die": 0},
+		],
+	}
+	var c := CombatantClass.from_dict(spec)
+	assert_eq(c.weapons.size(), 2, "both weapons entries are populated directly")
+	assert_eq(c.weapons, spec["weapons"], "weapons matches the spec's weapons list")
+	assert_eq(c.weapon, {}, "no legacy 'weapon' key in spec → weapon stays the empty default")
+	# Not aliased.
+	spec["weapons"][0]["damage_die"] = 999
+	assert_eq(c.weapons[0]["damage_die"], 6, "populated weapons entries must not alias the source spec's weapons array")
+
+func test_from_dict_empty_weapons_array_with_nonempty_weapon_repopulates_from_weapon() -> void:
+	# Edge case (RISK-006): spec explicitly carries an EMPTY 'weapons' array
+	# alongside a non-empty legacy 'weapon' dict. The two representations must
+	# not be allowed to diverge (weapons left empty while weapon is populated)
+	# — from_dict() deterministically repopulates weapons from weapon.
+	var spec := {
+		"name": "Skeleton",
+		"weapon": {"damage_die": 6, "proficiency_bonus": 1, "parry_bonus": 0, "block_value": 0, "block_die": 0},
+		"weapons": [],
+	}
+	var c := CombatantClass.from_dict(spec)
+	assert_eq(c.weapons.size(), 1, "an empty weapons array must be repopulated from the non-empty legacy weapon")
+	assert_eq(c.weapons[0], spec["weapon"], "repopulated weapons[0] mirrors weapon")
+
+func test_from_dict_neither_weapon_nor_weapons_leaves_weapons_empty() -> void:
+	var c := CombatantClass.from_dict({"name": "Unarmed"})
+	assert_eq(c.weapon, {}, "no weapon key → weapon stays the empty default")
+	assert_eq(c.weapons, [], "no weapon/weapons keys → weapons stays empty, never raises")
+
+func test_to_dict_always_emits_both_weapon_and_weapons_keys_consistently() -> void:
+	var c := CombatantClass.from_dict({
+		"name": "Titus",
+		"weapon": {"damage_die": 8, "proficiency_bonus": 2, "parry_bonus": 1, "block_value": 0, "block_die": 0},
+	})
+	var d := c.to_dict()
+	assert_true(d.has("weapon"), "to_dict() must always emit 'weapon'")
+	assert_true(d.has("weapons"), "to_dict() must always emit 'weapons'")
+	assert_eq(d["weapons"][0], d["weapon"], "weapons[0] == weapon whenever weapon is non-empty")
+
+func test_to_dict_duplicates_weapons_container() -> void:
+	var c := CombatantClass.from_dict(_enemy_spec())
+	var d := c.to_dict()
+	d["weapons"][0]["damage_die"] = 999
+	assert_eq(c.weapons[0]["damage_die"], 6, "mutating the to_dict() weapons array must not alias the entity")

@@ -132,6 +132,21 @@ var mage_recharge_budget_remaining: int = 0
 
 # ── Loadout / skills ────────────────────────────────────────────────────────
 var weapon: Dictionary = {}
+
+## weapons — FEAT-005 (US-006; FR-007; ADR-003): the multi-weapon-capable
+## representation living ALONGSIDE the unchanged legacy `weapon` field above.
+## Every one of the ~80 protected reaction/resolution consumers reads
+## `weapon` exclusively and stays unmodified; `weapons` is purely additive.
+##
+## from_dict()/to_dict() keep the two representations consistent (see their
+## own docs below for the exact derivation rules and precedence), so a
+## Combatant built either the legacy way (spec['weapon'] only) or the new
+## way (spec['weapons'] only) always exposes BOTH a valid `weapon` dict and
+## a non-aliasing `weapons` array with weapons[0] == weapon whenever weapon
+## is non-empty. Defaults to [] (matches a bare `weapon == {}` combatant —
+## neither field is populated until from_dict()/CombatantFactory sets it).
+var weapons: Array = []
+
 var skills: Dictionary = {}
 
 ## Casting-related authored data (FEAT-002, Iteration M P0-0). Zero-value/
@@ -385,6 +400,27 @@ static func from_dict(spec: Dictionary) -> Combatant:
 	c.intellect       = int(spec.get("intellect", 0))
 	c.mage_recharge_budget_remaining = int(spec.get("mage_recharge_budget_remaining", 0))
 	c.weapon          = (spec.get("weapon", {}) as Dictionary).duplicate(true)
+	# weapons — FEAT-005 (US-006; ADR-003): derivation precedence (must match
+	# api_contracts exactly):
+	#   1. spec['weapons'] non-empty → populate directly (each entry
+	#      duplicated so the entity never aliases the caller's Arrays/Dicts).
+	#   2. otherwise, when the legacy c.weapon (above) is non-empty → derive
+	#      weapons = [weapon.duplicate(true)]. This ALSO covers the
+	#      documented edge case: a spec carrying an explicit-but-EMPTY
+	#      'weapons' array alongside a non-empty legacy 'weapon' dict falls
+	#      through to this branch and is deterministically repopulated from
+	#      `weapon` rather than staying empty (RISK-006 divergence guard).
+	#   3. neither present/non-empty → weapons stays [] (never raises).
+	var weapons_raw: Array = spec.get("weapons", []) as Array
+	if not weapons_raw.is_empty():
+		var derived_weapons: Array = []
+		for entry in weapons_raw:
+			derived_weapons.append((entry as Dictionary).duplicate(true))
+		c.weapons = derived_weapons
+	elif not c.weapon.is_empty():
+		c.weapons = [c.weapon.duplicate(true)]
+	else:
+		c.weapons = []
 	c.skills          = (spec.get("skills", {}) as Dictionary).duplicate(true)
 	c.conditions      = (spec.get("conditions", []) as Array).duplicate()
 	c.spellcasting_attribute_score = int(spec.get("spellcasting_attribute_score", 0))
@@ -398,11 +434,29 @@ static func from_dict(spec: Dictionary) -> Combatant:
 	c.casting_state   = (spec.get("casting_state", {}) as Dictionary).duplicate(true)
 	return c
 
+## _weapons_dict_copy() → Array — a non-aliasing deep copy of `weapons`, used
+## by to_dict() (mirrors weapon.duplicate(true)/skills.duplicate(true)
+## immediately below). Array.duplicate(true) would already deep-copy the
+## nested Dictionaries; this is spelled out per-entry instead to mirror
+## from_dict()'s own per-entry duplication loop above, keeping both
+## directions of the weapons<->dict bridge visibly symmetric.
+func _weapons_dict_copy() -> Array:
+	var out: Array = []
+	for entry in weapons:
+		out.append((entry as Dictionary).duplicate(true))
+	return out
+
 ## to_dict() → Dictionary — emit the CANONICAL combatant shape (all four
 ## defenses + conditions[]; see the header shape-note on normalisation).
 ## Optional identity keys (combatant_id) and casting_state are included only
 ## when set, mirroring CombatantFactory's conditional emit. Containers are
 ## duplicated so callers can't mutate this entity's internals through the dict.
+##
+## weapon/weapons — FEAT-005 (US-006; ADR-003): ALWAYS both emitted (part of
+## the canonical/normalised shape, like "weapon" always was), and kept
+## mutually consistent — weapons[0] == weapon whenever weapon is non-empty —
+## because from_dict() is the only path that ever populates either field and
+## already enforces that invariant (see its docs above).
 func to_dict() -> Dictionary:
 	var d: Dictionary = {
 		"name":             name,
@@ -422,6 +476,7 @@ func to_dict() -> Dictionary:
 		"intellect":        intellect,
 		"mage_recharge_budget_remaining": mage_recharge_budget_remaining,
 		"weapon":           weapon.duplicate(true),
+		"weapons":          _weapons_dict_copy(),
 		"skills":           skills.duplicate(true),
 		"conditions":       conditions.duplicate(),
 		"_initiative_roll": initiative_roll,
