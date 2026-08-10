@@ -40,14 +40,21 @@
 ##                  "combatant_factory" — a CombatantFactoryPort: any object
 ##                  exposing build_party_combatant(path, hex_coord,
 ##                  combatant_id="") -> Dictionary and
-##                  build_enemy_combatant(path, hex_coord,
-##                  combatant_id="") -> Dictionary, each returning either a
-##                  playable combatant Dictionary or {"error": <code>, ...}
-##                  on failure (infrastructure/combatant_factory.gd's own,
-##                  REUSED, ADR-006 real-collaborator-by-default contract).
+##                  build_enemy_combatant(path, hex_coord, combatant_id="",
+##                  weapon_path_override="") -> Dictionary, each returning
+##                  either a playable combatant Dictionary or
+##                  {"error": <code>, ...} on failure
+##                  (infrastructure/combatant_factory.gd's own, REUSED,
+##                  ADR-006 real-collaborator-by-default contract).
 ##                  Defaults to a real CombatantFactory.new() when omitted,
 ##                  so callers/tests that don't care about combatant
-##                  construction never have to wire a double.
+##                  construction never have to wire a double. FEAT-007
+##                  (US-007 / FR-006): the 4th arg is this encounter's own
+##                  weapon_path_overrides[j] for spawn slot j (""
+##                  when the array is shorter than j), resolved by
+##                  execute() itself — a duck-typed double that only
+##                  declares 3 params will now fail loudly (too many
+##                  arguments), by design.
 ##
 ## Returns (result-dict pattern, no exceptions — matches
 ## begin_cast_use_case.gd / resolve_stride_use_case.gd's established
@@ -128,8 +135,17 @@ func execute(scenario, encounter_id: String, deps: Dictionary = {}) -> Dictionar
 	var enemy_combatants: Array = []
 	for j in range(encounter_resource.enemy_resource_paths.size()):
 		var enemy_hex_coord = _hex_coord_at(encounter_resource.enemy_hex_positions, j)
+		# FEAT-007 (US-007 / FR-006, ADR-005/ADR-006): look up this spawn
+		# slot's weapon_path_overrides[j] per the design's "Encounter
+		# spawn-slot override lookup" api_contract -- an index beyond
+		# weapon_path_overrides.size() (or an authored empty string) both
+		# collapse to "" (no override, CombatantFactory falls back to the
+		# enemy's own weapon_paths[0]), never an index-out-of-range error.
+		var weapon_path_override: String = ""
+		if j < encounter_resource.weapon_path_overrides.size():
+			weapon_path_override = encounter_resource.weapon_path_overrides[j]
 		var enemy_combatant: Dictionary = combatant_factory.build_enemy_combatant(
-			encounter_resource.enemy_resource_paths[j], enemy_hex_coord, "enemy_%d" % j
+			encounter_resource.enemy_resource_paths[j], enemy_hex_coord, "enemy_%d" % j, weapon_path_override
 		)
 		if enemy_combatant.has("error"):
 			return {"ok": false, "error_code": ERR_COMBATANT_BUILD_FAILED}
