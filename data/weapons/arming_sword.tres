@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="WeaponResource" load_steps=2 format=3 uid="uid://barmswd1a2b3c4"]
+
+[ext_resource type="Script" uid="uid://bwpns1a2b3c4d" path="res://core/model/weapon_resource.gd" id="1_armswd"]
+
+[resource]
+script = ExtResource("1_armswd")
+weapon_id = "arming_sword"
+name = "Arming Sword"
+damage_die = 6
+damage_type = "S"
+damage_count = 1
+damage_modifier_attribute = "strength"
+proficiency_bonus = 2
+block_value = 2
+parry_bonus = 4
+block_die = 0
+range_hexes = 1
