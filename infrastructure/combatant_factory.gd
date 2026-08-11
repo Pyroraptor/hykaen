@@ -125,6 +125,13 @@ func build_party_combatant(character_path: String, hex_coord, combatant_id: Stri
 		"spellcasting_attribute_score": spellcasting_attribute_score,
 		"known_spell_ids": character.known_spell_ids.duplicate(),
 		"weapon": {
+			# FEAT-004 (US-004 / FR-002): carry the WeaponResource's display
+			# name onto the combatant weapon dict, so reaction-prompt/UI
+			# labels (a later feature) can render "Parry (Mace +1)" instead
+			# of a bare reaction id. Combatant.from_dict()/to_dict() deep-
+			# duplicate arbitrary weapon-dict keys (weapon.duplicate(true)),
+			# so this round-trips with zero domain-layer change.
+			"name":                      weapon_res.name,
 			"damage_modifier_attribute": weapon_res.damage_modifier_attribute,
 			"proficiency_bonus":         weapon_res.proficiency_bonus,
 			"damage_die":                weapon_res.damage_die,
@@ -359,6 +366,10 @@ func build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String =
 		# Dictionary into the combatant.
 		"skills":     enemy.skills.duplicate(),
 		"weapon": {
+			# FEAT-004 (US-004 / FR-002): mirrors build_party_combatant()'s
+			# identical addition above -- carry the WeaponResource's display
+			# name onto the enemy combatant's weapon dict too.
+			"name":                      weapon_res.name,
 			"damage_modifier_attribute": weapon_attribute,
 			"proficiency_bonus":         proficiency_bonus,
 			"damage_die":                damage_die,

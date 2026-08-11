@@ -21,6 +21,8 @@ const CombatantFactoryClass = preload("res://infrastructure/combatant_factory.gd
 const GRAM_MARX_PATH: String = "res://data/characters/gram_marx.tres"
 const MARIGOLD_PATH: String = "res://data/characters/marigold.tres"
 const DWARF_CHANNELER_PATH: String = "res://data/characters/dwarf_channeler.tres"
+const TITUS_PATH: String = "res://data/characters/titus.tres"
+const SKELETON_PATH: String = "res://data/enemies/skeleton.tres"
 
 
 func _has_item_id(equipped_items: Array, item_id: String) -> bool:
@@ -111,4 +113,55 @@ func test_patience_primary_weapon_is_mace_not_shield() -> void:
 	assert_eq(
 		weapon.get("damage_die", -1), 8,
 		"Patience's primary weapon must be the mace (damage_die=8), not the shield (damage_die=4)"
+	)
+
+
+func test_titus_weapon_dict_includes_name_equal_to_weapon_resource_name() -> void:
+	# FEAT-004 (US-004; FR-002): build_party_combatant()'s weapon dict must
+	# carry a 'name' key sourced from the source WeaponResource.name --
+	# Titus's starting_equipment resolves to longsword.tres (name="Longsword").
+	var factory := CombatantFactoryClass.new()
+	var combatant: Dictionary = factory.build_party_combatant(TITUS_PATH, null, "titus_1")
+
+	assert_false(combatant.has("error"), "titus.tres must build a valid combatant with no error")
+	var weapon: Dictionary = combatant.get("weapon", {})
+	var weapon_res = ResourceLoader.load("res://data/weapons/longsword.tres")
+	assert_eq(
+		weapon.get("name", "SENTINEL"), weapon_res.name,
+		"build_party_combatant()'s weapon dict must include 'name' equal to the source WeaponResource.name"
+	)
+
+
+func test_skeleton_weapon_dict_includes_name_equal_to_weapon_resource_name() -> void:
+	# FEAT-004 (US-004; FR-002): build_enemy_combatant()'s weapon dict must
+	# carry a 'name' key sourced from the source WeaponResource.name --
+	# skeleton.tres resolves weapon_paths[0] to arming_sword.tres (name="Arming Sword").
+	var factory := CombatantFactoryClass.new()
+	var combatant: Dictionary = factory.build_enemy_combatant(SKELETON_PATH, null, "skeleton_1")
+
+	assert_false(combatant.has("error"), "skeleton.tres must build a valid combatant with no error")
+	var weapon: Dictionary = combatant.get("weapon", {})
+	var weapon_res = ResourceLoader.load("res://data/weapons/arming_sword.tres")
+	assert_eq(
+		weapon.get("name", "SENTINEL"), weapon_res.name,
+		"build_enemy_combatant()'s weapon dict must include 'name' equal to the source WeaponResource.name"
+	)
+
+
+func test_titus_weapon_name_round_trips_through_combatant_from_dict() -> void:
+	# Combatant.from_dict()/to_dict() deep-duplicate arbitrary weapon-dict
+	# keys (core/domain/combatant.gd's weapon.duplicate(true) path) -- this
+	# regression guard pins that the new 'name' key survives that round-trip
+	# unchanged, per ADR-001/ADR-003 (zero domain-layer changes required).
+	var factory := CombatantFactoryClass.new()
+	var combatant: Dictionary = factory.build_party_combatant(TITUS_PATH, null, "titus_1")
+
+	var weapon: Dictionary = combatant.get("weapon", {})
+	assert_eq(weapon.get("name", "SENTINEL"), "Longsword", "'name' must round-trip unchanged through Combatant.from_dict()")
+
+	var weapons: Array = combatant.get("weapons", [])
+	assert_eq(weapons.size(), 1, "Titus has a single weapon; weapons[0] must mirror the weapon dict, including 'name'")
+	assert_eq(
+		(weapons[0] as Dictionary).get("name", "SENTINEL"), "Longsword",
+		"'name' must round-trip unchanged into weapons[0] as well (weapons[0] == weapon invariant)"
 	)
