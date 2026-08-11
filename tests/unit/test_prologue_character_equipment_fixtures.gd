@@ -337,8 +337,12 @@ func test_dwarf_channeler_field_diff_unchanged() -> void:
 		"dwarf_channeler.attributes must be unchanged"
 	)
 	assert_eq(character.skills, {}, "dwarf_channeler.skills must be unchanged (default {})")
+	# FEAT-002 (US-002 / FR-004): starting_equipment intentionally gains
+	# 'res://data/weapons/small_shield.tres' as the second entry (mace
+	# first, chain shirt last) — this pin is updated to match the new,
+	# intended field value rather than the pre-FEAT-002 2-item list.
 	_assert_starting_equipment_matches(
-		character, ["weapons/mace.tres", "armor/chain_shirt.tres"], "dwarf_channeler.tres"
+		character, ["weapons/mace.tres", "weapons/small_shield.tres", "armor/chain_shirt.tres"], "dwarf_channeler.tres"
 	)
 	assert_eq(character.talent_selections, [], "dwarf_channeler.talent_selections must be unchanged")
 	assert_eq(character.known_spell_ids, [], "dwarf_channeler.known_spell_ids must be unchanged (default [])")
