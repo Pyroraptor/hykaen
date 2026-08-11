@@ -48,7 +48,7 @@ func build_party_combatant(character_path: String, hex_coord, combatant_id: Stri
 	var armor_res = null
 	for equip_path in character.starting_equipment:
 		var equip = ResourceLoader.load(equip_path)
-		if equip is WeaponResourceClass:
+		if equip is WeaponResourceClass and weapon_res == null:
 			weapon_res = equip
 		elif equip is ArmorResourceClass:
 			armor_res = equip

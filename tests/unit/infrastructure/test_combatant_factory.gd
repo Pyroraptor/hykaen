@@ -20,6 +20,7 @@ const CombatantFactoryClass = preload("res://infrastructure/combatant_factory.gd
 
 const GRAM_MARX_PATH: String = "res://data/characters/gram_marx.tres"
 const MARIGOLD_PATH: String = "res://data/characters/marigold.tres"
+const DWARF_CHANNELER_PATH: String = "res://data/characters/dwarf_channeler.tres"
 
 
 func _has_item_id(equipped_items: Array, item_id: String) -> bool:
@@ -95,4 +96,19 @@ func test_marigold_known_spell_ids_unchanged_by_equipped_items_addition() -> voi
 	assert_eq(
 		combatant.get("known_spell_ids", []), ["fire_bolt", "channel"],
 		"regression: marigold's known_spell_ids output must be unchanged by the equipped_items addition"
+	)
+
+
+func test_patience_primary_weapon_is_mace_not_shield() -> void:
+	# Patience's starting_equipment is [mace.tres, small_shield.tres, chain_shirt.tres].
+	# build_party_combatant() must pick the FIRST WeaponResource (mace, damage_die=8),
+	# not the last (small_shield, damage_die=4).
+	var factory := CombatantFactoryClass.new()
+	var combatant: Dictionary = factory.build_party_combatant(DWARF_CHANNELER_PATH, null, "patience_1")
+
+	assert_false(combatant.has("error"), "dwarf_channeler.tres must build without error")
+	var weapon: Dictionary = combatant.get("weapon", {})
+	assert_eq(
+		weapon.get("damage_die", -1), 8,
+		"Patience's primary weapon must be the mace (damage_die=8), not the shield (damage_die=4)"
 	)
