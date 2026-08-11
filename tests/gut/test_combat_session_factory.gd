@@ -87,7 +87,7 @@ class FakeCombatantFactory:
 			"hp_max": 10,
 		}
 
-	func build_enemy_combatant(_path: String, hex_coord, combatant_id: String, _weapon_path_override: String = "") -> Dictionary:
+	func build_enemy_combatant(_path: String, hex_coord, combatant_id: String, _weapon_path_override: String = "", _off_hand_path_override: String = "") -> Dictionary:
 		if fail_enemy_build:
 			return {"error": "ERR_TEST_ENEMY_BUILD_FAILED", "enemy_path": _path}
 		return {

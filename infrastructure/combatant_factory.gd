@@ -263,7 +263,24 @@ func _fail_enemy_resource_load(error_code: String, message: String, enemy_path: 
 ##   3. neither present -- ERR_ENEMY_RESOURCE_WEAPON_UNRESOLVABLE.
 ## Everything downstream of path resolution (load + field validation) is
 ## UNCHANGED regardless of which branch supplied the path.
-func build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String = "", weapon_path_override: String = "") -> Dictionary:
+##
+## FEAT-006 (US-006, EWA2-2-1): `off_hand_path_override` (5th arg, "" by
+## default) resolves an OPTIONAL off-hand weapon for this enemy, mirroring
+## build_party_combatant()'s FEAT-005 off-hand collection. Resolution
+## precedence (must match api_contracts exactly):
+##   1. off_hand_path_override, when non-empty -- highest precedence.
+##   2. enemy.weapon_paths[1], when present -- fallback.
+##   3. neither present -- no off-hand; combatant['weapons'] stays a single-
+##      element Array (regression: skeleton.tres and every other existing
+##      single-weapon enemy fixture is unaffected).
+## Off-hand resolution runs strictly AFTER the primary weapon has already
+## loaded and passed field validation, so a malformed off-hand can never
+## mask (or be masked by) a primary-weapon failure. A resolved off-hand path
+## that fails to load returns ERR_ENEMY_RESOURCE_LOAD_FAILED; a loaded
+## off-hand WeaponResource with a negative damage_die/parry_bonus/
+## block_value/block_die returns ERR_ENEMY_RESOURCE_INVALID_WEAPON_FIELD --
+## the SAME error codes/shape the primary weapon path already uses.
+func build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String = "", weapon_path_override: String = "", off_hand_path_override: String = "") -> Dictionary:
 	var enemy = ResourceLoader.load(enemy_path)
 	if enemy == null:
 		return _fail_enemy_resource_load(
@@ -331,6 +348,72 @@ func build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String =
 
 	var weapon_attribute: String = weapon_res.damage_modifier_attribute
 
+	# FEAT-006 (US-006, EWA2-2-1): resolve an optional off-hand weapon --
+	# see the build_enemy_combatant() doc above for the full precedence and
+	# error-code contract. off_hand_res stays null when no off-hand path
+	# resolves at all (empty override AND enemy.weapon_paths.size() < 2).
+	var off_hand_path: String = ""
+	if off_hand_path_override != "":
+		off_hand_path = off_hand_path_override
+	elif enemy.weapon_paths.size() >= 2:
+		off_hand_path = enemy.weapon_paths[1]
+
+	var off_hand_res = null
+	if off_hand_path != "":
+		off_hand_res = ResourceLoader.load(off_hand_path)
+		if off_hand_res == null:
+			return _fail_enemy_resource_load(
+				ERR_ENEMY_RESOURCE_LOAD_FAILED,
+				"off-hand weapon WeaponResource failed to load from '%s'" % off_hand_path,
+				enemy_path
+			)
+
+		if off_hand_res.damage_die < 0:
+			return _fail_enemy_resource_load(
+				ERR_ENEMY_RESOURCE_INVALID_WEAPON_FIELD,
+				"off-hand damage_die must be non-negative; got %d" % off_hand_res.damage_die,
+				enemy_path
+			)
+
+		if off_hand_res.parry_bonus < 0:
+			return _fail_enemy_resource_load(
+				ERR_ENEMY_RESOURCE_INVALID_WEAPON_FIELD,
+				"off-hand parry_bonus must be non-negative; got %d" % off_hand_res.parry_bonus,
+				enemy_path
+			)
+
+		if off_hand_res.block_value < 0:
+			return _fail_enemy_resource_load(
+				ERR_ENEMY_RESOURCE_INVALID_WEAPON_FIELD,
+				"off-hand block_value must be non-negative; got %d" % off_hand_res.block_value,
+				enemy_path
+			)
+
+		if off_hand_res.block_die < 0:
+			return _fail_enemy_resource_load(
+				ERR_ENEMY_RESOURCE_INVALID_WEAPON_FIELD,
+				"off-hand block_die must be non-negative; got %d" % off_hand_res.block_die,
+				enemy_path
+			)
+
+	# FEAT-006: `primary_weapon_dict` is the SAME shape build_enemy_combatant()
+	# has always built inline as combatant["weapon"] -- extracted to a local
+	# so it can ALSO seed weapons_list[0], guaranteeing the weapons[0] ==
+	# weapon invariant (data_model) by construction, matching
+	# build_party_combatant()'s identical guarantee (FEAT-005).
+	var primary_weapon_dict: Dictionary = {
+		"name":                      weapon_res.name,
+		"damage_modifier_attribute": weapon_attribute,
+		"proficiency_bonus":         proficiency_bonus,
+		"damage_die":                damage_die,
+		"parry_bonus":               weapon_res.parry_bonus,
+		"block_value":               weapon_res.block_value,
+		"block_die":                 weapon_res.block_die
+	}
+	var weapons_list: Array = [primary_weapon_dict]
+	if off_hand_res != null:
+		weapons_list.append(_weapon_dict_from_resource(off_hand_res))
+
 	var combatant: Dictionary = {
 		"name":       enemy.name,
 		"hp_current": enemy.hp,
@@ -366,24 +449,25 @@ func build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String =
 		# all). .duplicate() avoids aliasing the EnemyResource's own mutable
 		# Dictionary into the combatant.
 		"skills":     enemy.skills.duplicate(),
-		"weapon": {
-			# FEAT-004 (US-004 / FR-002): mirrors build_party_combatant()'s
-			# identical addition above -- carry the WeaponResource's display
-			# name onto the enemy combatant's weapon dict too.
-			"name":                      weapon_res.name,
-			"damage_modifier_attribute": weapon_attribute,
-			"proficiency_bonus":         proficiency_bonus,
-			"damage_die":                damage_die,
-			# FEAT-001 (iteration K): carry the DEFENSIVE reaction fields too
-			# (mirrors build_party_combatant()'s identical FEAT-006 fix above)
-			# so is_parry_eligible()/is_block_eligible() read non-zero values
-			# for enemy defenders too — without these, an enemy's weapon dict
-			# always read 0 and the reaction window could never offer the
-			# enemy a Parry/Block choice.
-			"parry_bonus":               weapon_res.parry_bonus,
-			"block_value":               weapon_res.block_value,
-			"block_die":                 weapon_res.block_die
-		}
+		# FEAT-004 (US-004 / FR-002): mirrors build_party_combatant()'s
+		# identical addition above -- carry the WeaponResource's display
+		# name onto the enemy combatant's weapon dict too. FEAT-001
+		# (iteration K): carry the DEFENSIVE reaction fields too (mirrors
+		# build_party_combatant()'s identical FEAT-006 fix above) so
+		# is_parry_eligible()/is_block_eligible() read non-zero values for
+		# enemy defenders too — without these, an enemy's weapon dict always
+		# read 0 and the reaction window could never offer the enemy a
+		# Parry/Block choice.
+		#
+		# FEAT-006 (US-006, EWA2-2-1): `weapon` is `primary_weapon_dict`
+		# (built above) -- SAME shape as before, unchanged. `weapons` is
+		# [primary_weapon_dict] for a single-weapon enemy (regression:
+		# skeleton.tres), or [primary_weapon_dict, off_hand_dict] when an
+		# off-hand resolved via override or enemy.weapon_paths[1].
+		# weapons[0] is always structurally identical to `weapon` by
+		# construction (same primary_weapon_dict instance).
+		"weapon":  primary_weapon_dict,
+		"weapons": weapons_list
 	}
 	if hex_coord != null:
 		combatant["hex_coord"] = hex_coord

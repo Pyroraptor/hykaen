@@ -52,7 +52,7 @@ class AlwaysFailingCombatantFactory:
 	func build_party_combatant(_character_path: String, _hex_coord, _combatant_id: String = "") -> Dictionary:
 		return {"error": ERR_CODE}
 
-	func build_enemy_combatant(_enemy_path: String, _hex_coord, _combatant_id: String = "", _weapon_path_override: String = "") -> Dictionary:
+	func build_enemy_combatant(_enemy_path: String, _hex_coord, _combatant_id: String = "", _weapon_path_override: String = "", _off_hand_path_override: String = "") -> Dictionary:
 		return {"error": ERR_CODE}
 
 

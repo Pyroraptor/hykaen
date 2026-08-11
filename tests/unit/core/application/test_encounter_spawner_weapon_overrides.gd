@@ -73,12 +73,13 @@ class RecordingCombatantFactory:
 			"hp_max": 10,
 		}
 
-	func build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String = "", weapon_path_override: String = "") -> Dictionary:
+	func build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String = "", weapon_path_override: String = "", off_hand_path_override: String = "") -> Dictionary:
 		enemy_calls.append({
 			"enemy_path": enemy_path,
 			"hex_coord": hex_coord,
 			"combatant_id": combatant_id,
 			"weapon_path_override": weapon_path_override,
+			"off_hand_path_override": off_hand_path_override,
 		})
 		return {
 			"combatant_id": combatant_id,
@@ -122,18 +123,26 @@ class FakeEncounterRepository:
 		return combatants_to_return
 
 
-func _encounter_resource(enemy_paths: Array, weapon_overrides: Array) -> EncounterResourceClass:
+func _encounter_resource(enemy_paths: Array, weapon_overrides: Array, off_hand_overrides: Array = []) -> EncounterResourceClass:
 	var res := EncounterResourceClass.new()
 	res.party_resource_paths = ["res://data/characters/fake_party_member.tres"]
 	res.enemy_resource_paths = enemy_paths
-	# EncounterResource.weapon_path_overrides is typed Array[String] -- an
-	# untyped Array literal (even an empty one) cannot be assigned directly
-	# in Godot 4.3's strict typed-array runtime check, so it must be
-	# rebuilt into an explicitly-typed Array[String] first.
+	# EncounterResource.weapon_path_overrides/off_hand_path_overrides are
+	# typed Array[String] -- an untyped Array literal (even an empty one)
+	# cannot be assigned directly in Godot 4.3's strict typed-array runtime
+	# check, so each must be rebuilt into an explicitly-typed Array[String]
+	# first.
 	var typed_overrides: Array[String] = []
 	for entry in weapon_overrides:
 		typed_overrides.append(entry)
 	res.weapon_path_overrides = typed_overrides
+
+	# FEAT-006 (US-006, EWA2-2-1): identical typed-array rebuild for
+	# off_hand_path_overrides.
+	var typed_off_hand_overrides: Array[String] = []
+	for entry in off_hand_overrides:
+		typed_off_hand_overrides.append(entry)
+	res.off_hand_path_overrides = typed_off_hand_overrides
 	return res
 
 
@@ -150,8 +159,8 @@ func _hex_combatants_for(enemy_count: int) -> Array:
 # CombatSessionFactory.build() (core/application/combat_session_factory.gd)
 # ══════════════════════════════════════════════════════════════════════════
 
-func _build_via_combat_session_factory(enemy_paths: Array, weapon_overrides: Array) -> RecordingCombatantFactory:
-	var encounter_resource := _encounter_resource(enemy_paths, weapon_overrides)
+func _build_via_combat_session_factory(enemy_paths: Array, weapon_overrides: Array, off_hand_overrides: Array = []) -> RecordingCombatantFactory:
+	var encounter_resource := _encounter_resource(enemy_paths, weapon_overrides, off_hand_overrides)
 	var factory := RecordingCombatantFactory.new()
 	var deps: Dictionary = {
 		"resource_loader": FakeCombatResourceLoaderPort.new(FIXTURE_ENCOUNTER_PATH, encounter_resource),
@@ -217,12 +226,60 @@ func test_combat_session_factory_more_enemy_slots_than_overrides_defaults_per_sl
 
 
 # ══════════════════════════════════════════════════════════════════════════
+# FEAT-006 (US-006, EWA2-2-1): off_hand_path_overrides[i] -- same index-
+# aligned lookup semantics as weapon_path_overrides above, now for the
+# combatant_factory call's 5th argument.
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_combat_session_factory_off_hand_slot_beyond_overrides_size_passes_empty_override() -> void:
+	var factory := _build_via_combat_session_factory(
+		["res://data/enemies/fake_enemy.tres"],
+		[],
+		[]  # off_hand_path_overrides shorter than enemy_resource_paths
+	)
+
+	assert_eq(factory.enemy_calls.size(), 1)
+	assert_eq(factory.enemy_calls[0]["off_hand_path_override"], "",
+		"slot 0 must resolve to '' when off_hand_path_overrides.size() <= 0")
+
+
+func test_combat_session_factory_off_hand_slot_with_non_empty_override_passes_exact_string() -> void:
+	var factory := _build_via_combat_session_factory(
+		["res://data/enemies/fake_enemy.tres"],
+		[],
+		["res://data/weapons/small_shield.tres"]
+	)
+
+	assert_eq(factory.enemy_calls.size(), 1)
+	assert_eq(factory.enemy_calls[0]["off_hand_path_override"], "res://data/weapons/small_shield.tres",
+		"slot 0's non-empty off-hand override must be passed VERBATIM as the 5th argument")
+
+
+func test_combat_session_factory_off_hand_more_enemy_slots_than_overrides_defaults_per_slot_no_crash() -> void:
+	var factory := _build_via_combat_session_factory(
+		[
+			"res://data/enemies/fake_enemy.tres",
+			"res://data/enemies/fake_enemy.tres",
+			"res://data/enemies/fake_enemy.tres",
+		],
+		[],
+		["res://data/weapons/small_shield.tres"]  # only slot 0 has an off-hand override authored
+	)
+
+	assert_eq(factory.enemy_calls.size(), 3, "no index-out-of-range crash for the two extra enemy slots")
+	assert_eq(factory.enemy_calls[0]["off_hand_path_override"], "res://data/weapons/small_shield.tres",
+		"slot 0 has an authored off-hand override")
+	assert_eq(factory.enemy_calls[1]["off_hand_path_override"], "", "slot 1 has no authored off-hand override -> ''")
+	assert_eq(factory.enemy_calls[2]["off_hand_path_override"], "", "slot 2 has no authored off-hand override -> ''")
+
+
+# ══════════════════════════════════════════════════════════════════════════
 # LoadScenarioEncounterUseCase.execute()
 # (core/application/use_cases/load_scenario_encounter_use_case.gd)
 # ══════════════════════════════════════════════════════════════════════════
 
-func _scenario_for(enemy_paths: Array, weapon_overrides: Array) -> ScenarioResourceClass:
-	var encounter_resource := _encounter_resource(enemy_paths, weapon_overrides)
+func _scenario_for(enemy_paths: Array, weapon_overrides: Array, off_hand_overrides: Array = []) -> ScenarioResourceClass:
+	var encounter_resource := _encounter_resource(enemy_paths, weapon_overrides, off_hand_overrides)
 	encounter_resource.party_hex_positions = [{"q": 0, "r": 0}]
 	encounter_resource.enemy_hex_positions = []
 	for i in range(enemy_paths.size()):
@@ -242,8 +299,8 @@ func _scenario_for(enemy_paths: Array, weapon_overrides: Array) -> ScenarioResou
 	return scenario
 
 
-func _execute_use_case(enemy_paths: Array, weapon_overrides: Array) -> RecordingCombatantFactory:
-	var scenario := _scenario_for(enemy_paths, weapon_overrides)
+func _execute_use_case(enemy_paths: Array, weapon_overrides: Array, off_hand_overrides: Array = []) -> RecordingCombatantFactory:
+	var scenario := _scenario_for(enemy_paths, weapon_overrides, off_hand_overrides)
 	var factory := RecordingCombatantFactory.new()
 	var use_case := LoadScenarioEncounterUseCaseClass.new()
 
@@ -297,3 +354,46 @@ func test_load_scenario_encounter_use_case_more_enemy_slots_than_overrides_defau
 	assert_eq(factory.enemy_calls[0]["weapon_path_override"], "res://data/weapons/arming_sword.tres")
 	assert_eq(factory.enemy_calls[1]["weapon_path_override"], "")
 	assert_eq(factory.enemy_calls[2]["weapon_path_override"], "")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# FEAT-006 (US-006, EWA2-2-1): off_hand_path_overrides[i] wiring for
+# LoadScenarioEncounterUseCase.execute() -- mirrors the CombatSessionFactory
+# coverage above.
+# ══════════════════════════════════════════════════════════════════════════
+
+func test_load_scenario_encounter_use_case_off_hand_slot_beyond_overrides_size_passes_empty_override() -> void:
+	var factory := _execute_use_case(["res://data/enemies/fake_enemy.tres"], [], [])
+
+	assert_eq(factory.enemy_calls.size(), 1)
+	assert_eq(factory.enemy_calls[0]["off_hand_path_override"], "",
+		"slot 0 must resolve to '' when off_hand_path_overrides.size() <= 0")
+
+
+func test_load_scenario_encounter_use_case_off_hand_slot_with_non_empty_override_passes_exact_string() -> void:
+	var factory := _execute_use_case(
+		["res://data/enemies/fake_enemy.tres"],
+		[],
+		["res://data/weapons/small_shield.tres"]
+	)
+
+	assert_eq(factory.enemy_calls.size(), 1)
+	assert_eq(factory.enemy_calls[0]["off_hand_path_override"], "res://data/weapons/small_shield.tres",
+		"slot 0's non-empty off-hand override must be passed VERBATIM as the 5th argument")
+
+
+func test_load_scenario_encounter_use_case_off_hand_more_enemy_slots_than_overrides_defaults_per_slot_no_crash() -> void:
+	var factory := _execute_use_case(
+		[
+			"res://data/enemies/fake_enemy.tres",
+			"res://data/enemies/fake_enemy.tres",
+			"res://data/enemies/fake_enemy.tres",
+		],
+		[],
+		["res://data/weapons/small_shield.tres"]
+	)
+
+	assert_eq(factory.enemy_calls.size(), 3, "no index-out-of-range crash for the two extra enemy slots")
+	assert_eq(factory.enemy_calls[0]["off_hand_path_override"], "res://data/weapons/small_shield.tres")
+	assert_eq(factory.enemy_calls[1]["off_hand_path_override"], "")
+	assert_eq(factory.enemy_calls[2]["off_hand_path_override"], "")

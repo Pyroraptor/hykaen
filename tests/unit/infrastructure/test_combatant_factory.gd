@@ -17,12 +17,20 @@ extends GutTest
 ## application layer importing any Resource/.tres machinery.
 
 const CombatantFactoryClass = preload("res://infrastructure/combatant_factory.gd")
+const EnemyResourceClass = preload("res://data/enemies/enemy_resource.gd")
+const WeaponResourceClass = preload("res://core/model/weapon_resource.gd")
 
 const GRAM_MARX_PATH: String = "res://data/characters/gram_marx.tres"
 const MARIGOLD_PATH: String = "res://data/characters/marigold.tres"
 const DWARF_CHANNELER_PATH: String = "res://data/characters/dwarf_channeler.tres"
 const TITUS_PATH: String = "res://data/characters/titus.tres"
 const SKELETON_PATH: String = "res://data/enemies/skeleton.tres"
+const ARMING_SWORD_PATH: String = "res://data/weapons/arming_sword.tres"
+const SMALL_SHIELD_PATH: String = "res://data/weapons/small_shield.tres"
+const MISSING_WEAPON_PATH_FEAT006: String = "res://data/weapons/does_not_exist_feat_006_off_hand.tres"
+
+const ENEMY_FIXTURE_PATH_FEAT006: String = "user://test_combatant_factory_feat006_enemy_fixture.tres"
+const WEAPON_FIXTURE_PATH_FEAT006: String = "user://test_combatant_factory_feat006_weapon_fixture.tres"
 
 
 func _has_item_id(equipped_items: Array, item_id: String) -> bool:
@@ -274,3 +282,185 @@ func test_build_party_combatant_missing_primary_weapon_error_shape_unchanged() -
 	var factory := CombatantFactoryClass.new()
 	var combatant: Dictionary = factory.build_party_combatant(TITUS_PATH, null, "titus_1")
 	assert_false(combatant.has("error"), "build_party_combatant() must not report an error when a primary weapon is present")
+
+
+## --- FEAT-006 (US-006, EWA2-2-1): off-hand weapon resolution in
+## build_enemy_combatant() -----------------------------------------------
+
+
+func after_each() -> void:
+	var cleanup_dir := DirAccess.open("user://")
+	if cleanup_dir != null:
+		cleanup_dir.remove(ENEMY_FIXTURE_PATH_FEAT006)
+		cleanup_dir.remove(WEAPON_FIXTURE_PATH_FEAT006)
+
+
+func _save_enemy_fixture_feat006(res: EnemyResourceClass) -> String:
+	var save_err := ResourceSaver.save(res, ENEMY_FIXTURE_PATH_FEAT006)
+	assert_eq(save_err, OK, "ResourceSaver.save() must succeed for this test's fixture EnemyResource")
+	return ENEMY_FIXTURE_PATH_FEAT006
+
+
+func _save_weapon_fixture_feat006(res: WeaponResourceClass) -> String:
+	var save_err := ResourceSaver.save(res, WEAPON_FIXTURE_PATH_FEAT006)
+	assert_eq(save_err, OK, "ResourceSaver.save() must succeed for this test's fixture WeaponResource")
+	return WEAPON_FIXTURE_PATH_FEAT006
+
+
+func _single_weapon_enemy_fixture_feat006() -> String:
+	var res := EnemyResourceClass.new()
+	res.name = "SingleWeaponEnemy"
+	res.hp = 5
+	res.str = 1
+	res.dex = 1
+	res.weapon_paths = [ARMING_SWORD_PATH]
+	return _save_enemy_fixture_feat006(res)
+
+
+func test_valid_off_hand_path_override_yields_2_weapons_with_correct_off_hand_stats() -> void:
+	var enemy_path: String = _single_weapon_enemy_fixture_feat006()
+
+	var factory := CombatantFactoryClass.new()
+	var combatant: Dictionary = factory.build_enemy_combatant(
+		enemy_path, null, "off_hand_override_1", "", SMALL_SHIELD_PATH
+	)
+
+	assert_false(combatant.has("error"), "a valid off_hand_path_override must not yield an error; got: %s" % str(combatant))
+	var weapons: Array = combatant.get("weapons", [])
+	assert_eq(weapons.size(), 2, "off_hand_path_override must add a second entry to weapons")
+
+	var shield_res = ResourceLoader.load(SMALL_SHIELD_PATH)
+	var off_hand: Dictionary = weapons[1]
+	assert_eq(off_hand.get("name", "SENTINEL"), shield_res.name, "weapons[1].name must match the override's WeaponResource.name")
+	assert_eq(off_hand.get("block_value", -1), shield_res.block_value, "weapons[1].block_value must match small_shield.tres")
+	assert_eq(off_hand.get("parry_bonus", -1), shield_res.parry_bonus, "weapons[1].parry_bonus must match small_shield.tres")
+	assert_eq(off_hand.get("block_die", -1), shield_res.block_die, "weapons[1].block_die must match small_shield.tres")
+	assert_eq(off_hand.get("damage_die", -1), shield_res.damage_die, "weapons[1].damage_die must match small_shield.tres")
+
+	var weapon: Dictionary = combatant.get("weapon", {})
+	assert_eq(weapon, weapons[0], "combatant['weapon'] must remain structurally identical to weapons[0]")
+
+
+func test_no_override_and_enemy_weapon_paths_1_present_resolves_off_hand_from_weapon_paths_1() -> void:
+	var res := EnemyResourceClass.new()
+	res.name = "TwoWeaponEnemy"
+	res.hp = 5
+	res.str = 1
+	res.dex = 1
+	res.weapon_paths = [ARMING_SWORD_PATH, SMALL_SHIELD_PATH]
+	var enemy_path: String = _save_enemy_fixture_feat006(res)
+
+	var factory := CombatantFactoryClass.new()
+	var combatant: Dictionary = factory.build_enemy_combatant(enemy_path, null, "two_weapon_1")
+
+	assert_false(combatant.has("error"), "an enemy with a 2-entry weapon_paths must build without error; got: %s" % str(combatant))
+	var weapons: Array = combatant.get("weapons", [])
+	assert_eq(weapons.size(), 2, "no override supplied; off-hand must resolve from enemy.weapon_paths[1]")
+
+	var shield_res = ResourceLoader.load(SMALL_SHIELD_PATH)
+	var off_hand: Dictionary = weapons[1]
+	assert_eq(off_hand.get("name", "SENTINEL"), shield_res.name, "weapons[1] must be resolved from enemy.weapon_paths[1] (small_shield.tres)")
+	assert_eq(off_hand.get("block_value", -1), shield_res.block_value)
+	assert_eq(off_hand.get("block_die", -1), shield_res.block_die)
+
+
+func test_off_hand_path_override_takes_precedence_over_enemy_weapon_paths_1() -> void:
+	var res := EnemyResourceClass.new()
+	res.name = "OverridePrecedenceEnemy"
+	res.hp = 5
+	res.str = 1
+	res.dex = 1
+	# enemy.weapon_paths[1] itself is unresolvable -- proves the override
+	# short-circuits BEFORE weapon_paths[1] is ever consulted.
+	res.weapon_paths = [ARMING_SWORD_PATH, MISSING_WEAPON_PATH_FEAT006]
+	var enemy_path: String = _save_enemy_fixture_feat006(res)
+
+	var factory := CombatantFactoryClass.new()
+	var combatant: Dictionary = factory.build_enemy_combatant(
+		enemy_path, null, "override_precedence_1", "", SMALL_SHIELD_PATH
+	)
+
+	assert_false(combatant.has("error"), "off_hand_path_override must win over an unresolvable enemy.weapon_paths[1]; got: %s" % str(combatant))
+	var weapons: Array = combatant.get("weapons", [])
+	assert_eq(weapons.size(), 2)
+	assert_eq((weapons[1] as Dictionary).get("name", "SENTINEL"), "Small Shield")
+
+
+func test_resolved_off_hand_path_fails_to_load_yields_load_failed_error() -> void:
+	var enemy_path: String = _single_weapon_enemy_fixture_feat006()
+
+	var factory := CombatantFactoryClass.new()
+	var result: Dictionary = factory.build_enemy_combatant(
+		enemy_path, null, "off_hand_missing_1", "", MISSING_WEAPON_PATH_FEAT006
+	)
+
+	assert_true(result.has("error"), "an off_hand_path_override that fails to load must yield a typed error Dictionary; got: %s" % str(result))
+	assert_eq(
+		result.get("error", ""), CombatantFactoryClass.ERR_ENEMY_RESOURCE_LOAD_FAILED,
+		"error_code must be ERR_ENEMY_RESOURCE_LOAD_FAILED when the resolved off-hand path fails to load"
+	)
+	assert_false(result.has("weapon"), "a fail-fast error result must never also carry a playable combatant's 'weapon' shape")
+
+
+func _build_with_invalid_off_hand_field_feat006(field_name: String, value: int) -> Dictionary:
+	var weapon_res := WeaponResourceClass.new()
+	weapon_res.weapon_id = "invalid_off_hand_%s_fixture" % field_name
+	weapon_res.name = "Invalid Off-Hand"
+	weapon_res.damage_modifier_attribute = "strength"
+	weapon_res.damage_die = 4
+	weapon_res.proficiency_bonus = 1
+	weapon_res.parry_bonus = 1
+	weapon_res.block_value = 1
+	weapon_res.block_die = 0
+	weapon_res.set(field_name, value)
+	var weapon_path: String = _save_weapon_fixture_feat006(weapon_res)
+
+	var enemy_path: String = _single_weapon_enemy_fixture_feat006()
+
+	var factory := CombatantFactoryClass.new()
+	return factory.build_enemy_combatant(enemy_path, null, "off_hand_invalid_1", "", weapon_path)
+
+
+func test_negative_off_hand_damage_die_yields_invalid_weapon_field_error() -> void:
+	var result: Dictionary = _build_with_invalid_off_hand_field_feat006("damage_die", -6)
+	assert_true(result.has("error"), "negative off-hand damage_die must yield a typed error Dictionary; got: %s" % str(result))
+	assert_eq(result.get("error", ""), CombatantFactoryClass.ERR_ENEMY_RESOURCE_INVALID_WEAPON_FIELD)
+
+
+func test_negative_off_hand_parry_bonus_yields_invalid_weapon_field_error() -> void:
+	var result: Dictionary = _build_with_invalid_off_hand_field_feat006("parry_bonus", -1)
+	assert_true(result.has("error"), "negative off-hand parry_bonus must yield a typed error Dictionary; got: %s" % str(result))
+	assert_eq(result.get("error", ""), CombatantFactoryClass.ERR_ENEMY_RESOURCE_INVALID_WEAPON_FIELD)
+
+
+func test_negative_off_hand_block_value_yields_invalid_weapon_field_error() -> void:
+	var result: Dictionary = _build_with_invalid_off_hand_field_feat006("block_value", -3)
+	assert_true(result.has("error"), "negative off-hand block_value must yield a typed error Dictionary; got: %s" % str(result))
+	assert_eq(result.get("error", ""), CombatantFactoryClass.ERR_ENEMY_RESOURCE_INVALID_WEAPON_FIELD)
+
+
+func test_negative_off_hand_block_die_yields_invalid_weapon_field_error() -> void:
+	var result: Dictionary = _build_with_invalid_off_hand_field_feat006("block_die", -4)
+	assert_true(result.has("error"), "negative off-hand block_die must yield a typed error Dictionary; got: %s" % str(result))
+	assert_eq(result.get("error", ""), CombatantFactoryClass.ERR_ENEMY_RESOURCE_INVALID_WEAPON_FIELD)
+
+
+func test_skeleton_single_weapon_enemy_still_yields_1_weapon_regression() -> void:
+	# Regression guard (RISK-002 merge gate): skeleton.tres has a single-entry
+	# weapon_paths and no off-hand override supplied -- weapons.size() must
+	# stay 1, with the SAME primary stats as before this feature existed.
+	var factory := CombatantFactoryClass.new()
+	var combatant: Dictionary = factory.build_enemy_combatant(SKELETON_PATH, null, "skeleton_1")
+
+	assert_false(combatant.has("error"), "skeleton.tres must build a valid combatant with no error")
+	var weapons: Array = combatant.get("weapons", [])
+	assert_eq(weapons.size(), 1, "skeleton.tres must have exactly 1 weapon (regression: no off-hand fabricated)")
+
+	var weapon_res = ResourceLoader.load(ARMING_SWORD_PATH)
+	var weapon: Dictionary = weapons[0]
+	assert_eq(weapon.get("name", "SENTINEL"), weapon_res.name)
+	assert_eq(weapon.get("damage_die", -1), weapon_res.damage_die)
+	assert_eq(weapon.get("parry_bonus", -1), weapon_res.parry_bonus)
+	assert_eq(weapon.get("block_value", -1), weapon_res.block_value)
+	assert_eq(weapon.get("block_die", -1), weapon_res.block_die)
+	assert_eq(weapon, combatant.get("weapon", {}), "weapons[0] must remain structurally identical to combatant['weapon']")

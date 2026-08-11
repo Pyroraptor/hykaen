@@ -116,8 +116,15 @@ static func build(deps: Dictionary) -> Dictionary:
 		var weapon_path_override: String = ""
 		if j < encounter_resource.weapon_path_overrides.size():
 			weapon_path_override = encounter_resource.weapon_path_overrides[j]
+		# FEAT-006 (US-006, EWA2-2-1): identical index-aligned lookup for
+		# off_hand_path_overrides[j] -- an index beyond the array's bounds
+		# (or an authored empty string) both collapse to "" (no override,
+		# CombatantFactory falls back to enemy.weapon_paths[1] if present).
+		var off_hand_path_override: String = ""
+		if j < encounter_resource.off_hand_path_overrides.size():
+			off_hand_path_override = encounter_resource.off_hand_path_overrides[j]
 		var enemy_combatant: Dictionary = combatant_factory.build_enemy_combatant(
-			encounter_resource.enemy_resource_paths[j], enemy_hex, enemy_id, weapon_path_override
+			encounter_resource.enemy_resource_paths[j], enemy_hex, enemy_id, weapon_path_override, off_hand_path_override
 		)
 		if enemy_combatant.has("error"):
 			push_error(
