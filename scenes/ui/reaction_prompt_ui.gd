@@ -207,7 +207,7 @@ func _rebuild_buttons(context: Dictionary = {}) -> void:
 		_buttons_container.add_child(_context_label)
 
 	for reaction_id in _legal_reactions:
-		_add_option_button(String(reaction_id), String(reaction_id).capitalize())
+		_add_option_button(String(reaction_id), _label_for_reaction(String(reaction_id), context))
 
 	_add_option_button(PASS_CHOICE, PASS_LABEL)
 
@@ -226,6 +226,52 @@ func _build_context_text(context: Dictionary) -> String:
 	if context.has("damage_raw"):
 		lines.append("Damage: %d" % context["damage_raw"])
 	return "\n".join(lines)
+
+
+## _label_for_reaction(reaction_id, context) -> String — FEAT-010 (US-010 /
+## FR-010): the presentation-layer exit point of the "Patience equips a
+## shield" steel thread. Enriches the 'parry'/'block' button labels with the
+## weapon name + stats sourced from the defense-context dict
+## core/application/round_session.gd's _build_defense_context() produces
+## (parry_weapon_name/parry_bonus/block_weapon_name/block_weapon_value/
+## block_weapon_die/block_weapon_damage_die) — e.g. "Block (Small Shield
+## 1d10+4)", "Parry (Mace +1)". Falls back to plain
+## String(reaction_id).capitalize() for every other reaction id, AND for
+## 'parry'/'block' themselves whenever the relevant weapon-derived context
+## keys are absent/blank — this is the explicit backward-compatibility
+## contract for every existing caller (including every pre-existing test in
+## this suite) that omits weapon-derived context. Never mutates `context`;
+## never called with the enriched label itself as `reaction_id` — the
+## `_buttons` Dictionary this feeds is always keyed by the bare
+## `reaction_id` (see _add_option_button() below), preserving the frozen
+## `legal_reactions: Array[String]` contract end-to-end into the UI layer.
+func _label_for_reaction(reaction_id: String, context: Dictionary) -> String:
+	match reaction_id:
+		"block":
+			return _label_for_block_reaction(context)
+		"parry":
+			return _label_for_parry_reaction(context)
+		_:
+			return String(reaction_id).capitalize()
+
+
+func _label_for_block_reaction(context: Dictionary) -> String:
+	var weapon_name: String = String(context.get("block_weapon_name", ""))
+	if weapon_name == "":
+		return String("block").capitalize()
+	var block_value: int = int(context.get("block_weapon_value", 0))
+	var block_die: int = int(context.get("block_weapon_die", 0))
+	if block_die <= 0:
+		block_die = int(context.get("block_weapon_damage_die", 0))
+	return "Block (%s 1d%d+%d)" % [weapon_name, block_die, block_value]
+
+
+func _label_for_parry_reaction(context: Dictionary) -> String:
+	var weapon_name: String = String(context.get("parry_weapon_name", ""))
+	if weapon_name == "":
+		return String("parry").capitalize()
+	var parry_bonus: int = int(context.get("parry_bonus", 0))
+	return "Parry (%s %s%d)" % [weapon_name, "+" if parry_bonus >= 0 else "", parry_bonus]
 
 
 func _add_option_button(reaction_id: String, label: String) -> void:
