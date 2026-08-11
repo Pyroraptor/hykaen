@@ -11,6 +11,13 @@ extends GutTest
 ## weapon override. Backward-compatible: defaults to [] so every
 ## pre-existing encounter .tres continues to load unmodified.
 ##
+## Also covers FEAT-003 (US-003 / FR-005) — the additive
+## `off_hand_path_overrides: Array[String] = []` field, positionally
+## parallel to enemy_resource_paths (matching the weapon_path_overrides
+## convention, ADR-005), enabling an optional per-encounter-slot off-hand
+## weapon override. Backward-compatible: defaults to [] so every
+## pre-existing encounter .tres continues to load unmodified (RISK-009).
+##
 ## Architecture note (Clean Architecture / ADR-001):
 ##   EncounterResource lives in the DOMAIN layer (data/encounters/). It
 ##   extends Resource (never Node/Control/SceneTree), carries ZERO business
@@ -25,14 +32,20 @@ extends GutTest
 ##      default values and types, PLUS the new `tiles` field defaulting to [],
 ##      PLUS the new `weapon_path_overrides` field defaulting to [].
 ##   2. GUT regression: load data/encounters/prologue_encounter.tres and
-##      assert tiles == [] and weapon_path_overrides == [] while every prior
-##      field is intact (matches the committed .tres content verbatim).
+##      assert tiles == [], weapon_path_overrides == [], and
+##      off_hand_path_overrides == [] while every prior field is intact
+##      (matches the committed .tres content verbatim).
 ##   3. GUT: a populated tiles array of HexTileDataResource entries
 ##      round-trips via ResourceSaver.save()/ResourceLoader.load() with no
 ##      field loss (encounter-level fields AND per-tile fields).
 ##   4. GUT: a weapon_path_overrides array with mixed empty-string and
 ##      non-empty-string entries round-trips via ResourceSaver.save()/
 ##      ResourceLoader.load() with no entry loss or mutation.
+##   5. GUT: an off_hand_path_overrides array with mixed empty-string and
+##      non-empty-string entries round-trips via ResourceSaver.save()/
+##      ResourceLoader.load() with no entry loss or mutation, and every
+##      pre-existing encounter .tres file loads without error reporting
+##      off_hand_path_overrides == [].
 
 const EncounterResource  = preload("res://data/encounters/encounter_resource.gd")
 const HexTileDataResource = preload("res://data/tiles/hex_tile_data_resource.gd")
@@ -115,6 +128,18 @@ func test_new_weapon_path_overrides_field_defaults_to_empty_array() -> void:
 	)
 
 
+func test_new_off_hand_path_overrides_field_defaults_to_empty_array() -> void:
+	var res := EncounterResource.new()
+	assert_true(
+		res.off_hand_path_overrides is Array,
+		"EncounterResource.off_hand_path_overrides must be an Array (FEAT-003 / US-003 additive field)"
+	)
+	assert_eq(
+		res.off_hand_path_overrides, [],
+		"EncounterResource.off_hand_path_overrides must default to [] (FEAT-003 / US-003 additive field)"
+	)
+
+
 func test_encounter_resource_gd_extends_resource_not_scene_tree_types() -> void:
 	var file := FileAccess.open("res://data/encounters/encounter_resource.gd", FileAccess.READ)
 	assert_not_null(file, "data/encounters/encounter_resource.gd must be readable")
@@ -175,6 +200,10 @@ func test_prologue_encounter_tres_loads_with_empty_tiles_and_intact_fields() -> 
 	assert_eq(
 		enc.weapon_path_overrides, [],
 		"prologue_encounter.tres must load with weapon_path_overrides == [] — no .tres edit was made in FEAT-004 / US-004"
+	)
+	assert_eq(
+		enc.off_hand_path_overrides, [],
+		"prologue_encounter.tres must load with off_hand_path_overrides == [] — no .tres edit was made in FEAT-003 / US-003"
 	)
 
 
@@ -303,3 +332,53 @@ func test_all_preexisting_encounter_tres_files_load_without_error() -> void:
 				enc.weapon_path_overrides is Array,
 				"%s must expose weapon_path_overrides as an Array after the schema change" % path
 			)
+			assert_true(
+				enc.off_hand_path_overrides is Array,
+				"%s must expose off_hand_path_overrides as an Array after the FEAT-003 / US-003 schema change" % path
+			)
+			assert_eq(
+				enc.off_hand_path_overrides, [],
+				"%s must load with off_hand_path_overrides == [] — no pre-existing .tres file was edited by FEAT-003 / US-003" % path
+			)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-003 / US-003 / FR-005: off_hand_path_overrides — additive,
+# positionally-parallel-to-enemy_resource_paths field on EncounterResource
+# (mirrors weapon_path_overrides per ADR-005)
+# ══════════════════════════════════════════════════════════════════════════════
+
+func test_off_hand_path_overrides_round_trips_mixed_empty_and_non_empty_entries() -> void:
+	var res := EncounterResource.new()
+	res.enemy_resource_paths = [
+		"res://data/enemies/skeleton.tres",
+		"res://data/enemies/skeleton.tres",
+		"res://data/enemies/skeleton.tres",
+	]
+	res.off_hand_path_overrides = [
+		"res://data/weapons/small_shield.tres",
+		"",
+		"res://data/weapons/buckler.tres",
+	]
+
+	var save_err := ResourceSaver.save(res, ROUND_TRIP_TRES_PATH)
+	assert_eq(save_err, OK, "ResourceSaver.save() must succeed for off_hand_path_overrides fixture")
+
+	var reloaded = ResourceLoader.load(ROUND_TRIP_TRES_PATH, "", ResourceLoader.CACHE_MODE_IGNORE)
+	assert_not_null(reloaded, "off_hand_path_overrides round-trip fixture must reload from disk")
+	if reloaded == null:
+		return
+
+	assert_eq(
+		reloaded.off_hand_path_overrides,
+		[
+			"res://data/weapons/small_shield.tres",
+			"",
+			"res://data/weapons/buckler.tres",
+		],
+		"off_hand_path_overrides must round-trip with mixed empty-string and non-empty-string entries preserved exactly"
+	)
+
+	var cleanup_dir := DirAccess.open("user://")
+	if cleanup_dir != null:
+		cleanup_dir.remove(ROUND_TRIP_TRES_PATH)

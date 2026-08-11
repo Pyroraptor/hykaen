@@ -11,7 +11,8 @@
 ##
 ## Fields (FEAT-089 / FR-012; hex position fields added FEAT-001 / US-001;
 ## tiles field added FEAT-004 / US-002, FR-002; weapon_path_overrides field
-## added FEAT-004 / US-004, FR-004, NFR-005 — additive-only, no prior
+## added FEAT-004 / US-004, FR-004, NFR-005; off_hand_path_overrides field
+## added FEAT-003 / US-003, FR-005 — additive-only, no prior
 ## field renamed/removed/altered):
 ##   party_resource_paths  — Array of res:// paths to CharacterResource .tres files
 ##                           for party members (e.g. ["res://data/characters/titus.tres"])
@@ -45,6 +46,20 @@
 ##                           omit this field continue to load unchanged, with no
 ##                           migration required (purely additive, backward
 ##                           compatible).
+##   off_hand_path_overrides — Array of res:// paths to WeaponResource .tres
+##                           files, positionally parallel (by index) to
+##                           enemy_resource_paths — slot i's off-hand override
+##                           lives at off_hand_path_overrides[i] (FEAT-003 /
+##                           US-003, FR-005). An empty string, or an index
+##                           beyond the array's bounds, both mean "no
+##                           override — use the enemy's own weapon_paths[1]
+##                           if present"; resolution happens at
+##                           combatant-build time, not at authoring time.
+##                           Defaults to [] so pre-existing .tres fixtures
+##                           that omit this field continue to load unchanged,
+##                           with no migration required (purely additive,
+##                           backward compatible, matching
+##                           weapon_path_overrides above).
 ##
 ## Usage:
 ##   var enc = ResourceLoader.load("res://data/encounters/prologue_encounter.tres")
@@ -55,6 +70,7 @@
 ##   print(enc.seed)                      # 42
 ##   print(enc.tiles)                     # [] (unless a tiles layout was authored)
 ##   print(enc.weapon_path_overrides)     # [] (unless per-slot weapon overrides were authored)
+##   print(enc.off_hand_path_overrides)   # [] (unless per-slot off-hand overrides were authored)
 
 class_name EncounterResource
 extends Resource
@@ -94,3 +110,13 @@ extends Resource
 ## fixtures that predate this field continue to load unmodified with every
 ## other field unchanged (RISK-003 pattern, matching `tiles` above).
 @export var weapon_path_overrides: Array[String] = []
+
+## Optional per-encounter-slot off-hand weapon overrides (FEAT-003 / US-003,
+## FR-005), positionally parallel to enemy_resource_paths: slot i's override
+## lives at off_hand_path_overrides[i]. An empty string, or an index beyond
+## the array's bounds, both mean "no override — use the enemy's own
+## weapon_paths[1] if present". Additive field: defaults to [] so
+## pre-existing .tres fixtures that predate this field continue to load
+## unmodified with every other field unchanged (RISK-009, matching the
+## weapon_path_overrides convention above per ADR-005).
+@export var off_hand_path_overrides: Array[String] = []
