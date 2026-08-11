@@ -653,6 +653,43 @@ func open_and_resolve_onhit_mitigation(
 	return result
 
 
+## _any_weapon_eligible(weapons, predicate) -> bool — FEAT-009 (US-009 /
+## FR-009): true iff ANY single weapon Dictionary in `weapons` satisfies
+## `predicate` (a Callable(weapon: Dictionary) -> bool — one of
+## core/rules/resolution.gd's UNMODIFIED is_parry_eligible()/
+## is_block_eligible() static predicates, never re-derived here). This is
+## the sole change this feature makes to reaction eligibility: a Combatant
+## carrying multiple weapons (e.g. Patience's mace + small shield) is now
+## eligible for a reaction if EITHER weapon qualifies, rather than only ever
+## consulting `weapon` (the primary slot) as every branch did before this
+## feature.
+##
+## Vacuously false (fail-closed, per this feature's test_criteria) for an
+## empty `weapons` array — an unequipped/malformed combatant offers no
+## weapon-gated reaction, mirroring the single-weapon predicates' own
+## "no weapon capability -> not eligible" behavior.
+static func _any_weapon_eligible(weapons: Array, predicate: Callable) -> bool:
+	for weapon in weapons:
+		if predicate.call(weapon):
+			return true
+	return false
+
+
+## _trigger_weapons(trigger) -> Array — FEAT-009 (US-009 / FR-009): reads
+## `trigger["weapons"]` (the FEAT-007 multi-weapon array
+## round_session.gd's trigger builders now populate on every trigger dict),
+## falling back to a single-element `[trigger.get("weapon", {})]` array for
+## triggers built before this feature (or hand-built test fixtures) that
+## carry only the legacy `weapon` key — including the fully degenerate case
+## where NEITHER key is present, which falls back to `[{}]` and therefore
+## never raises (test_criteria: "no exception raised").
+static func _trigger_weapons(trigger: Dictionary) -> Array:
+	var weapons: Array = trigger.get("weapons", [])
+	if not (weapons is Array) or weapons.is_empty():
+		weapons = [trigger.get("weapon", {})]
+	return weapons
+
+
 ## _compute_legal_reactions(trigger) -> Array — evaluates the
 ## trigger-type-specific eligibility predicate (test_criteria #1) via
 ## core/rules/resolution.gd's FEAT-009 static predicates, never
@@ -661,7 +698,6 @@ func open_and_resolve_onhit_mitigation(
 func _compute_legal_reactions(trigger: Dictionary) -> Array:
 	var trigger_type: String = trigger.get("trigger_type", "")
 	var reactor = trigger.get("reactor", null)
-	var weapon: Dictionary = trigger.get("weapon", {})
 	var defense_type: String = trigger.get("defense_type", "")
 	var attack_context: Dictionary = trigger.get("attack_context", {})
 
@@ -671,11 +707,11 @@ func _compute_legal_reactions(trigger: Dictionary) -> Array:
 				return [REACTION_DODGE]
 			return []
 		"Parry":
-			if ResolutionClass.is_parry_eligible(weapon):
+			if _any_weapon_eligible(_trigger_weapons(trigger), Callable(ResolutionClass, "is_parry_eligible")):
 				return [REACTION_PARRY]
 			return []
 		"Block":
-			if ResolutionClass.is_block_eligible(weapon):
+			if _any_weapon_eligible(_trigger_weapons(trigger), Callable(ResolutionClass, "is_block_eligible")):
 				return [REACTION_BLOCK]
 			return []
 		"Steel":
@@ -723,10 +759,11 @@ func _compute_legal_reactions(trigger: Dictionary) -> Array:
 			var reaction_already_spent: bool = trigger.get("reaction_already_spent", false)
 			if not is_on_hit_mitigation_eligible(reaction_already_spent, attack_hit):
 				return []
+			var onhit_weapons: Array = _trigger_weapons(trigger)
 			var legal_onhit: Array = []
-			if ResolutionClass.is_parry_eligible(weapon):
+			if _any_weapon_eligible(onhit_weapons, Callable(ResolutionClass, "is_parry_eligible")):
 				legal_onhit.append(REACTION_PARRY)
-			if ResolutionClass.is_block_eligible(weapon):
+			if _any_weapon_eligible(onhit_weapons, Callable(ResolutionClass, "is_block_eligible")):
 				legal_onhit.append(REACTION_BLOCK)
 			return legal_onhit
 		"WeaponAttack":
@@ -737,12 +774,13 @@ func _compute_legal_reactions(trigger: Dictionary) -> Array:
 			# predicates the single-type branches above use, never a
 			# re-derived rule. Steel is deliberately excluded (only triggers
 			# off a fortitude/will attack, out of scope for an "ac" Strike).
+			var weapon_attack_weapons: Array = _trigger_weapons(trigger)
 			var legal: Array = []
 			if ResolutionClass.is_dodge_eligible(defense_type, reactor, attack_context):
 				legal.append(REACTION_DODGE)
-			if ResolutionClass.is_parry_eligible(weapon):
+			if _any_weapon_eligible(weapon_attack_weapons, Callable(ResolutionClass, "is_parry_eligible")):
 				legal.append(REACTION_PARRY)
-			if ResolutionClass.is_block_eligible(weapon):
+			if _any_weapon_eligible(weapon_attack_weapons, Callable(ResolutionClass, "is_block_eligible")):
 				legal.append(REACTION_BLOCK)
 			return legal
 		_:

@@ -72,7 +72,18 @@ const _TRIGGER_BUILDER_BLOCK_END: String = "## _find_action_economy_for(combatan
 ## as part of this feature's own test run"). A future change to ANY of
 ## these contracts must be a deliberate, reviewed decision that also
 ## regenerates the corresponding constant below — never a silent drift.
-const PINNED_REACTION_WINDOW_SHA256: String = "61e91ed941786bdeeffa4c6174b58c1b94caa801ca8710020a864d7e9ae00c74"
+## PINNED_REACTION_WINDOW_SHA256 — FEAT-009 (US-009 / FR-009): deliberately
+## regenerated as part of this feature, which makes reaction_window.gd's
+## Parry/Block/OnHitMitigation/WeaponAttack branches weapons-aware (any
+## weapon in trigger["weapons"] — not just trigger["weapon"] — may satisfy
+## is_parry_eligible()/is_block_eligible(), via the new _any_weapon_eligible()
+## helper) so a multi-weapon combatant (e.g. Patience: mace + small shield)
+## is offered every reaction her loadout actually supports. This is exactly
+## the kind of "deliberate, reviewed decision that also regenerates the
+## corresponding constant" this guard's own top-of-file doc anticipates,
+## never a silent drift — Dodge/Steel/PreHitAvoidance/OpportunisticStrike
+## are untouched by this change.
+const PINNED_REACTION_WINDOW_SHA256: String = "98a4403af913898a47b0e3d8a5d93ebb9f2699f3c465a68d9fffd8282dc3048c"
 ## PINNED_ROUND_SESSION_TRIGGER_BUILDER_BLOCK_SHA256 — FEAT-007 (US-007,
 ## ADR-002): deliberately regenerated as part of this feature, which
 ## extends all three trigger builders with a new "weapons" key (see
