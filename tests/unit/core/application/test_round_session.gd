@@ -811,3 +811,213 @@ func test_build_reaction_trigger_regresses_safely_for_a_pre_existing_single_weap
 	var trigger: Dictionary = session._build_reaction_trigger(attacker, legacy_target)
 
 	assert_eq(trigger["weapons"], [legacy_target.weapon], "a pre-existing single-weapon fixture must degrade to a 1-element weapons array matching 'weapon'")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# FEAT-008 (US-008, ADR-002/RISK-002/RISK-003): best-weapon selection in
+# _build_defense_context() — _best_weapon_by(weapons, key), the updated
+# _build_defense_context() using it to pick the parrying/blocking weapon
+# independently across a defender's FULL _safe_weapons() list, and the
+# single-weapon-target / plain-Dictionary-target / empty-weapons
+# backward-compat invariants.
+# ══════════════════════════════════════════════════════════════════════════
+
+# ── _best_weapon_by() — table-driven matrix (RISK-003) ─────────────────────
+
+## Table-driven matrix over _best_weapon_by()'s selection rule: a clear
+## highest-value case, a tie (first-wins), and the empty-array edge case,
+## all exercised through the SAME loop so a future regression on any one
+## row is caught the same way as the others (RISK-003 mitigation).
+func test_best_weapon_by_table_driven_matrix() -> void:
+	var session = _session_for_trigger_tests()
+	var mace: Dictionary = {"name": "Mace", "parry_bonus": 1, "block_value": 2}
+	var small_shield: Dictionary = {"name": "Small Shield", "parry_bonus": 1, "block_value": 4}
+	var dagger: Dictionary = {"name": "Dagger", "parry_bonus": 3, "block_value": 0}
+
+	var cases: Array = [
+		{
+			"desc":     "empty weapons array -> {}",
+			"weapons":  [],
+			"key":      "parry_bonus",
+			"expected": {},
+		},
+		{
+			"desc":     "clear highest value wins (dagger's parry_bonus=3 beats mace/shield's 1)",
+			"weapons":  [mace, small_shield, dagger],
+			"key":      "parry_bonus",
+			"expected": dagger,
+		},
+		{
+			"desc":     "tie on block_value (both 0) -> first weapon wins",
+			"weapons":  [dagger, dagger.duplicate()],
+			"key":      "block_value",
+			"expected": dagger,
+		},
+		{
+			"desc":     "tie on parry_bonus (mace=1, small_shield=1) -> first (mace) wins",
+			"weapons":  [mace, small_shield],
+			"key":      "parry_bonus",
+			"expected": mace,
+		},
+		{
+			"desc":     "clear highest value on block_value (small_shield=4 beats mace=2)",
+			"weapons":  [mace, small_shield],
+			"key":      "block_value",
+			"expected": small_shield,
+		},
+		{
+			"desc":     "single-element array always returns that element",
+			"weapons":  [dagger],
+			"key":      "parry_bonus",
+			"expected": dagger,
+		},
+	]
+
+	for c in cases:
+		var result: Dictionary = session._best_weapon_by(c["weapons"], c["key"])
+		assert_eq(result, c["expected"], "_best_weapon_by: %s" % c["desc"])
+
+
+func test_best_weapon_by_returns_empty_dict_for_an_empty_weapons_array() -> void:
+	var session = _session_for_trigger_tests()
+
+	var result: Dictionary = session._best_weapon_by([], "parry_bonus")
+
+	assert_eq(result, {}, "_best_weapon_by() must return {} for an empty weapons array")
+
+
+func test_best_weapon_by_returns_the_correct_weapon_on_a_clear_highest_value_case() -> void:
+	var session = _session_for_trigger_tests()
+	var weak: Dictionary = {"name": "Weak", "block_value": 1}
+	var strong: Dictionary = {"name": "Strong", "block_value": 9}
+
+	var result: Dictionary = session._best_weapon_by([weak, strong], "block_value")
+
+	assert_eq(result, strong, "_best_weapon_by() must return the weapon with the strictly higher value")
+
+
+func test_best_weapon_by_returns_the_first_weapon_on_a_tie() -> void:
+	var session = _session_for_trigger_tests()
+	var first: Dictionary = {"name": "First", "parry_bonus": 2}
+	var second: Dictionary = {"name": "Second", "parry_bonus": 2}
+
+	var result: Dictionary = session._best_weapon_by([first, second], "parry_bonus")
+
+	assert_eq(result, first, "_best_weapon_by() must first-wins tie-break: the earlier weapon in the array")
+
+
+# ── _build_defense_context() — Patience (mace + small shield) ──────────────
+
+func test_build_defense_context_for_patience_selects_best_weapons_by_key() -> void:
+	var session = _session_for_trigger_tests()
+	var patience = _patience_combatant()
+	var ae = ActionEconomyClass.new()
+
+	var ctx: Dictionary = session._build_defense_context(patience, ae)
+
+	assert_eq(ctx["blocking_weapon"].get("name", ""), "Small Shield", "blocking_weapon must be the small shield (block_value 4 beats mace's 2)")
+	assert_eq(ctx["blocking_weapon"].get("block_value", -1), 4)
+	assert_eq(ctx["blocking_weapon"].get("block_die", -1), 10)
+
+	assert_eq(ctx["parrying_weapon"].get("name", ""), "Mace", "parrying_weapon must be the mace: mace and small shield tie on parry_bonus=1, first (mace) wins")
+
+	assert_eq(ctx["parry_weapon_name"], "Mace")
+	assert_eq(ctx["parry_bonus"], ctx["parrying_weapon"].get("parry_bonus", 0))
+	assert_eq(ctx["block_weapon_name"], "Small Shield")
+	assert_eq(ctx["block_weapon_value"], 4)
+	assert_eq(ctx["block_weapon_die"], 10)
+	assert_eq(ctx["block_weapon_damage_die"], ctx["blocking_weapon"].get("damage_die", 0))
+
+	var expected_parry_attack_bonus: int = (
+		patience.attribute(ctx["parrying_weapon"].get("damage_modifier_attribute", ""))
+		+ int(ctx["parrying_weapon"].get("proficiency_bonus", 0))
+	)
+	assert_eq(ctx["parry_attack_bonus"], expected_parry_attack_bonus, "parry_attack_bonus must be derived from the SELECTED parrying weapon (mace), not just any weapon")
+
+	assert_same(ctx["action_economy"], ae)
+	assert_true(ctx["open_space_available"])
+
+
+# ── Regression: a single-weapon target's parrying_weapon == blocking_weapon ─
+
+func test_build_defense_context_regression_single_weapon_target_parrying_equals_blocking() -> void:
+	var session = _session_for_trigger_tests()
+	# _durable_combatant() builds a single-weapon Combatant (mirrors the
+	# suite's existing single-weapon fixtures, e.g. Titus's real 1-weapon
+	# loadout) -- CombatantClass.from_dict() derives weapons=[weapon] for it.
+	var solo = _durable_combatant("Titus", false)
+	var ae = ActionEconomyClass.new()
+
+	assert_eq(solo.weapons.size(), 1, "fixture assumption: a single-weapon target has exactly 1 weapon")
+
+	var ctx: Dictionary = session._build_defense_context(solo, ae)
+
+	assert_eq(ctx["parrying_weapon"], solo.weapon, "a single-weapon target's parrying_weapon must be its sole weapon")
+	assert_eq(ctx["blocking_weapon"], solo.weapon, "a single-weapon target's blocking_weapon must be its sole weapon")
+	assert_eq(ctx["parrying_weapon"], ctx["blocking_weapon"], "RISK-002/ADR-002 invariant: parrying_weapon == blocking_weapon for a single-weapon target")
+
+
+# ── Fallback: a plain Dictionary target without a 'weapons' key ────────────
+
+func test_build_defense_context_fallback_plain_dictionary_target_resolves_from_weapon_key() -> void:
+	var session = _session_for_trigger_tests()
+	var legacy_weapon: Dictionary = {
+		"name":                      "Legacy Sword",
+		"damage_modifier_attribute": "strength",
+		"proficiency_bonus":         2,
+		"parry_bonus":               3,
+		"block_value":               5,
+		"block_die":                 8,
+		"damage_die":                6,
+	}
+	# A plain Dictionary target (no 'weapons' key at all, the pre-FEAT-007
+	# legacy fixture shape) -- must never raise, and must resolve every
+	# context field from target['weapon'] via _safe_weapons()'s established
+	# fallback.
+	var legacy_target: Dictionary = {
+		"name":     "Legacy",
+		"strength": 4,
+		"weapon":   legacy_weapon,
+	}
+	var ae = ActionEconomyClass.new()
+
+	var ctx: Dictionary = session._build_defense_context(legacy_target, ae)
+
+	assert_eq(ctx["parrying_weapon"], legacy_weapon)
+	assert_eq(ctx["blocking_weapon"], legacy_weapon)
+	assert_eq(ctx["parry_weapon_name"], "Legacy Sword")
+	assert_eq(ctx["parry_bonus"], 3)
+	assert_eq(ctx["block_weapon_name"], "Legacy Sword")
+	assert_eq(ctx["block_weapon_value"], 5)
+	assert_eq(ctx["block_weapon_die"], 8)
+	assert_eq(ctx["block_weapon_damage_die"], 6)
+	# strength(4) + proficiency_bonus(2) = 6.
+	assert_eq(ctx["parry_attack_bonus"], 6, "a plain-Dictionary target must resolve parry_attack_bonus via target.get(attr, 0), not target.attribute()")
+
+
+# ── Empty-weapons edge case: zeroed/default scalar fallbacks, no exception ──
+
+func test_build_defense_context_empty_weapons_edge_case_produces_zeroed_defaults_no_exception() -> void:
+	var session = _session_for_trigger_tests()
+	# A Combatant with no 'weapon'/'weapons' authored at all -- weapon stays
+	# {} and weapons stays [] (combatant.gd's own documented derivation for
+	# "neither present" -- case 3), so _safe_weapons() degrades to a
+	# 1-element [{}] array and _best_weapon_by() selects that same empty
+	# dict for both roles.
+	var bare = CombatantClass.from_dict({"name": "Bare"})
+	var ae = ActionEconomyClass.new()
+
+	assert_eq(bare.weapon, {}, "fixture assumption: a bare combatant's weapon is {}")
+	assert_eq(bare.weapons, [], "fixture assumption: a bare combatant's weapons array is []")
+
+	var ctx: Dictionary = session._build_defense_context(bare, ae)
+
+	assert_eq(ctx["parrying_weapon"], {})
+	assert_eq(ctx["blocking_weapon"], {})
+	assert_eq(ctx["parry_weapon_name"], "")
+	assert_eq(ctx["parry_bonus"], 0)
+	assert_eq(ctx["block_weapon_name"], "")
+	assert_eq(ctx["block_weapon_value"], 0)
+	assert_eq(ctx["block_weapon_die"], 0)
+	assert_eq(ctx["block_weapon_damage_die"], 0)
+	assert_eq(ctx["parry_attack_bonus"], 0)

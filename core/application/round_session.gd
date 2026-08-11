@@ -925,6 +925,29 @@ func _reaction_choice_to_active_defense(reaction_result: Dictionary) -> String:
 ## carries, mirroring core/domain/combatant.gd's own from_dict() derivation
 ## precedence for the SAME fallback (see that file's own doc) without this
 ## file depending on that derivation ever having run.
+##
+## FEAT-008 (US-008, regression fix): `weapons[0]` may be a stale,
+## deep-duplicated SNAPSHOT of `weapon` taken once, at construction time
+## (core/domain/combatant.gd's from_dict() derivation duplicates each of
+## `weapon`/`weapons` independently — they start byte-for-byte equal, but
+## are never the SAME Dictionary object). An established, pre-existing
+## test-fixture determinism technique (e.g.
+## tests/integration/test_mainscene_hit_reaction_apply.gd's
+## `titus["weapon"]["block_value"] = OVERWHELMING_MITIGATION_STAT`) mutates
+## the entity's LIVE `weapon` dict in place after construction — a mutation
+## `weapons[0]`'s own, separate copy would never observe. Since
+## `_build_defense_context()` below now selects its parrying/blocking
+## weapon from THIS method's return value rather than reading `.weapon`
+## directly (its own pre-FEAT-008 behavior), returning the stale
+## `weapons[0]` verbatim would silently resurrect the combatant's ORIGINAL
+## stats for every single-weapon target — a real regression this feature
+## must not introduce. Swapping the first element for the live
+## `primary_weapon` reference (never the other, off-hand entries) restores
+## the documented "weapons[0] structurally identical to weapon" invariant
+## DYNAMICALLY, at every read, rather than only at construction time —
+## value-for-value identical to the pre-fix return whenever `weapon` has
+## not been mutated since construction (every real CombatantFactory-built
+## combatant), so no pre-existing caller/test observes any change.
 func _safe_weapons(combatant) -> Array:
 	var weapons: Array = []
 	var primary_weapon: Dictionary = {}
@@ -936,7 +959,44 @@ func _safe_weapons(combatant) -> Array:
 		primary_weapon = combatant.weapon
 	if not (weapons is Array) or weapons.is_empty():
 		return [primary_weapon]
-	return weapons
+	var result: Array = weapons.duplicate()
+	result[0] = primary_weapon
+	return result
+
+
+## _best_weapon_by(weapons, key) -> Dictionary — FEAT-008 (US-008, ADR-002):
+## a pure, stateless, side-effect-free selection helper over an
+## Array[Dictionary] of weapon dicts (the SAME shape `_safe_weapons()` above
+## always returns) — domain-service-grade logic kept as a private method on
+## this APPLICATION-layer class for locality with its single caller,
+## `_build_defense_context()` below, per this feature's design notes (a
+## future iteration may hoist it into a `WeaponSelectionService` in
+## core/domain/ once a second consumer appears).
+##
+## Selection rule: the weapon dict whose `key` value (read via `.get(key, 0)`
+## so a weapon missing that key never raises/crashes the comparison, just
+## loses every tie) is the LARGEST. FIRST-WINS tie-break — a later weapon
+## must be STRICTLY greater than the current best to replace it, so of two
+## equally-valued candidates the one appearing earlier in `weapons` (i.e.
+## the combatant's primary weapon, by this project's established
+## `starting_equipment`/`weapon_paths` ordering convention) is always
+## returned. Returns `{}` — never null, never throws — for an empty
+## `weapons` array (RISK-003 empty-weapons edge case); every downstream
+## `.get(key, default)` call in `_build_defense_context()` therefore has a
+## safe, previously-tested default path.
+func _best_weapon_by(weapons: Array, key: String) -> Dictionary:
+	if weapons.is_empty():
+		return {}
+
+	var best: Dictionary = weapons[0]
+	var best_value = best.get(key, 0)
+	for i in range(1, weapons.size()):
+		var candidate: Dictionary = weapons[i]
+		var candidate_value = candidate.get(key, 0)
+		if candidate_value > best_value:
+			best = candidate
+			best_value = candidate_value
+	return best
 
 
 ## _build_reaction_trigger(attacker, target, target_action_economy) ->
@@ -1179,16 +1239,40 @@ func _find_action_economy_for(combatant):
 ##                             core/application/reaction_window.gd's resume()
 ##                             never ALSO spends the same reaction a second
 ##                             time.
-##   "parrying_weapon"      — the defender's own weapon Dictionary (the only
-##                             weapon slot this project's combatant model
-##                             carries — see core/rules/resolution.gd's
-##                             is_parry_eligible(), which no-ops when it
-##                             lacks a positive parry_bonus).
-##   "blocking_weapon"      — the SAME weapon Dictionary; is_block_eligible()
-##                             similarly no-ops without a positive
-##                             block_value. A single weapon safely serves
-##                             both roles because resolution.gd never applies
-##                             more than one active_defense per Strike.
+##   "parrying_weapon"      — FEAT-008 (US-008, ADR-002/RISK-002): the BEST
+##                             parrying weapon among the defender's FULL
+##                             `_safe_weapons(target)` list — the weapon with
+##                             the highest `parry_bonus` (first-wins
+##                             tie-break; see `_best_weapon_by()` above), not
+##                             just the primary `weapon`. A single-weapon
+##                             combatant (`_safe_weapons()` degrades to a
+##                             1-element array) trivially selects that same
+##                             sole weapon for both this and `blocking_weapon`
+##                             below — preserving the pre-FEAT-008
+##                             single-weapon-target invariant byte-for-byte
+##                             (ADR-002's "no divergence" guarantee — see
+##                             core/rules/resolution.gd's is_parry_eligible(),
+##                             which no-ops when it lacks a positive
+##                             parry_bonus).
+##   "blocking_weapon"      — FEAT-008: the BEST blocking weapon among the
+##                             SAME `_safe_weapons(target)` list — the weapon
+##                             with the highest `block_value` (first-wins
+##                             tie-break). May legitimately differ from
+##                             `parrying_weapon` for a multi-weapon defender
+##                             (e.g. Patience: mace parries, small shield
+##                             blocks) — is_block_eligible() no-ops without a
+##                             positive block_value.
+##   "parry_weapon_name"/"parry_bonus"/"block_weapon_name"/
+##   "block_weapon_value"/"block_weapon_die"/"block_weapon_damage_die" —
+##                             FEAT-008: display/AI-facing scalars derived
+##                             from `parrying_weapon`/`blocking_weapon` above
+##                             (reaction_prompt_ui.gd's per-button labels,
+##                             infrastructure/ai_reaction_policy.gd's
+##                             `context['parry_bonus']` read). Every read is
+##                             via `.get(key, default)`, so an empty `{}`
+##                             selection (RISK-003 empty-weapons edge case —
+##                             see `_best_weapon_by()`'s own doc) degrades to
+##                             zeroed/blank defaults, never an exception.
 ##   "open_space_available" — true (default-safe; no hex-grid adjacency/
 ##                             occupancy query is wired into RoundSession
 ##                             this feature — see this feature's design
@@ -1197,7 +1281,9 @@ func _find_action_economy_for(combatant):
 ##                             thread a real query in without changing this
 ##                             method's other keys).
 func _build_defense_context(target, target_action_economy) -> Dictionary:
-	var target_weapon: Dictionary = target.weapon
+	var weapons: Array = _safe_weapons(target)
+	var parrying_weapon: Dictionary = _best_weapon_by(weapons, "parry_bonus")
+	var blocking_weapon: Dictionary = _best_weapon_by(weapons, "block_value")
 	# A Parry is an opposed ATTACK roll by the defender: d20 + the defender's
 	# full attack bonus (attribute modifier + weapon proficiency) + the weapon's
 	# parry_bonus — mirroring resolution.gd resolve_to_hit()'s attacker roll
@@ -1205,16 +1291,34 @@ func _build_defense_context(target, target_action_economy) -> Dictionary:
 	# Precomputed here (RoundSession owns the defender combatant + its
 	# attributes) and passed to Resolution.apply_on_hit_defense() via ctx so the
 	# rules layer stays a pure reformatter of already-resolved inputs.
-	var parry_attribute: String = target_weapon.get("damage_modifier_attribute", "")
+	var parry_attribute: String = parrying_weapon.get("damage_modifier_attribute", "")
+	# FEAT-008 (RISK-003/backward-compat): `target.attribute()` is a Combatant
+	# entity METHOD, unavailable on a plain-Dictionary target (a pre-existing
+	# legacy test fixture shape) — mirrors this codebase's established
+	# `target.foo if target is Dictionary else target.method()` duck-typing
+	# convention (e.g. core/application/apply_on_hit_defense_uc.gd,
+	# resolve_action_use_case.gd) rather than a `has_method()` probe, so a
+	# Dictionary-shaped target degrades to its own `.get(attr, 0)` read
+	# instead of raising "Nonexistent function 'attribute'".
+	var parry_attribute_score: int = (
+		int(target.get(parry_attribute, 0)) if target is Dictionary
+		else target.attribute(parry_attribute)
+	)
 	var parry_attack_bonus: int = (
-		target.attribute(parry_attribute) + int(target_weapon.get("proficiency_bonus", 0))
+		parry_attribute_score + int(parrying_weapon.get("proficiency_bonus", 0))
 	)
 	return {
-		"action_economy":       target_action_economy,
-		"parrying_weapon":      target_weapon,
-		"parry_attack_bonus":   parry_attack_bonus,
-		"blocking_weapon":      target_weapon,
-		"open_space_available": true,
+		"action_economy":         target_action_economy,
+		"parrying_weapon":        parrying_weapon,
+		"parry_attack_bonus":     parry_attack_bonus,
+		"parry_weapon_name":      parrying_weapon.get("name", ""),
+		"parry_bonus":            int(parrying_weapon.get("parry_bonus", 0)),
+		"blocking_weapon":        blocking_weapon,
+		"block_weapon_name":      blocking_weapon.get("name", ""),
+		"block_weapon_value":     int(blocking_weapon.get("block_value", 0)),
+		"block_weapon_die":       int(blocking_weapon.get("block_die", 0)),
+		"block_weapon_damage_die": int(blocking_weapon.get("damage_die", 0)),
+		"open_space_available":   true,
 	}
 
 
