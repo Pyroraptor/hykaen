@@ -58,9 +58,24 @@ extends GutTest
 ##
 ## Satisfies: US-004, US-008, FR-008, CR-001 AC-4, CR-001 AC-5
 
-const EncounterClass  = preload("res://core/combat/encounter.gd")
-const RNGClass        = preload("res://core/rules/rng.gd")
-const SimulatorClass  = preload("res://core/sim/simulator.gd")
+const EncounterClass    = preload("res://core/combat/encounter.gd")
+const RNGClass          = preload("res://core/rules/rng.gd")
+const SimulatorClass    = preload("res://core/sim/simulator.gd")
+## FEAT-394 (PR-002, RISK-002/RISK-009): get_round_events() carries TYPED
+## core/rules/round_events.gd value objects (RoundEvents.AttackBroadcast /
+## CombatantDefeatedEvent / EncounterResultEvent) since FEAT-099, never raw
+## Dictionaries. Introspection below uses `is RoundEventsClass.<Type>` +
+## direct field access (the FEAT-103 pattern already established in
+## tests/integration/test_encounter_resource_pipeline_e2e.gd) — calling
+## Dictionary-style `.get("type", "")` on one of these typed RefCounted
+## objects is a runtime SCRIPT ERROR ("Invalid call to function 'get' ...
+## Expected 1 arguments") that aborts the calling test function mid-execution
+## without registering a GUT assertion failure (GUT's engine-error auto-fail
+## hook is a Godot 4.4+ Logger feature and is a documented no-op under the
+## project's pinned Godot 4.3 — see addons/gut/error_tracker.gd), which is
+## exactly the "silently-passing despite a real crash" gap this feature
+## closes.
+const RoundEventsClass  = preload("res://core/rules/round_events.gd")
 
 ## Safety cap on the number of run_round() calls per encounter loop — guards
 ## against an unexpected non-terminating scenario hanging the test process.
@@ -197,6 +212,22 @@ func test_full_2v2_encounter_spans_multiple_rounds() -> void:
 # terminal encounter_result, which is always last when present.
 # ══════════════════════════════════════════════════════════════════════════════
 
+## FEAT-394 (PR-002): maps a typed RoundEvents.* instance to the same
+## "attack" / "combatant_defeated" / "encounter_result" string tag the
+## pre-FEAT-099 raw-Dictionary events used to carry under a "type" key, via
+## `is` type-checks — never Dictionary-style `.get("type", "")`, which
+## crashes on these RefCounted value objects (see the RoundEventsClass
+## const doc comment above). Returns "" for an unrecognized instance.
+func _event_type_tag(ev) -> String:
+	if ev is RoundEventsClass.AttackBroadcast:
+		return "attack"
+	elif ev is RoundEventsClass.CombatantDefeatedEvent:
+		return "combatant_defeated"
+	elif ev is RoundEventsClass.EncounterResultEvent:
+		return "encounter_result"
+	return ""
+
+
 func test_full_encounter_events_emitted_in_correct_order() -> void:
 	var enc = _make_2v2_encounter(4242)
 	var run_data: Dictionary = _run_full_encounter(enc)
@@ -206,7 +237,7 @@ func test_full_encounter_events_emitted_in_correct_order() -> void:
 
 	# Every event must be one of the three documented types.
 	for ev in all_events:
-		var t: String = ev.get("type", "")
+		var t: String = _event_type_tag(ev)
 		assert_true(
 			t == "attack" or t == "combatant_defeated" or t == "encounter_result",
 			"Every round event must have type in ['attack','combatant_defeated','encounter_result']; got '%s'" % t
@@ -214,7 +245,7 @@ func test_full_encounter_events_emitted_in_correct_order() -> void:
 
 	# Exactly one terminal encounter_result event across the whole encounter,
 	# and it must be the LAST event emitted overall.
-	var result_events: Array = all_events.filter(func(e): return e.get("type", "") == "encounter_result")
+	var result_events: Array = all_events.filter(func(e): return _event_type_tag(e) == "encounter_result")
 	assert_eq(
 		result_events.size(), 1,
 		"Exactly one terminal 'encounter_result' event must be emitted across the full encounter; got %d"
@@ -222,11 +253,11 @@ func test_full_encounter_events_emitted_in_correct_order() -> void:
 	)
 	if result_events.size() == 1:
 		assert_eq(
-			all_events[all_events.size() - 1].get("type", ""), "encounter_result",
+			_event_type_tag(all_events[all_events.size() - 1]), "encounter_result",
 			"'encounter_result' must be the LAST event in the full encounter's concatenated event sequence"
 		)
 		assert_eq(
-			result_events[0].get("outcome", ""), run_data["outcome"],
+			result_events[0].outcome, run_data["outcome"],
 			"The terminal encounter_result event's outcome must match the final run_round() outcome"
 		)
 
@@ -235,24 +266,42 @@ func test_full_encounter_events_emitted_in_correct_order() -> void:
 	# last; every event before it is an 'attack' or 'combatant_defeated'.
 	for i in range(all_events.size() - 1):
 		assert_ne(
-			all_events[i].get("type", ""), "encounter_result",
+			_event_type_tag(all_events[i]), "encounter_result",
 			"'encounter_result' may only appear as the FINAL event; found a non-terminal occurrence at index %d" % i
 		)
 
 	# Every 'combatant_defeated' event must be preceded (earlier in the
 	# concatenated sequence) by at least one 'attack' event against that
 	# same combatant — a defeat cannot occur without a prior attack causing it.
+	# FEAT-394 (RISK-002/RISK-009): this loop also directly exercises the
+	# FIX-002-hardened _finalize_strike_result() boundary — this suite's
+	# fixtures are plain Dictionary combatants (see _moderate_combatant()
+	# above), so every CombatantDefeatedEvent reaching this assertion was
+	# produced by the Dictionary branch of the if/elif type-check that
+	# replaced the crashing typed-ternary (docs/iterations/
+	# iteration-AD-gut-regression-fix.org, AD-1). combatant_id is asserted
+	# to be the safe-default "" for these dict-sourced defeats, per the
+	# CombatantDefeatedEvent normalization contract (design_notes
+	# api_contracts §2) — never a SCRIPT ERROR, never omitted from the
+	# to_dict() key set.
 	var attacked_names: Dictionary = {}
 	for ev in all_events:
-		var t: String = ev.get("type", "")
+		var t: String = _event_type_tag(ev)
 		if t == "attack":
-			attacked_names[ev.get("target_name", "")] = true
+			attacked_names[ev.target_name] = true
 		elif t == "combatant_defeated":
-			var defeated_name: String = ev.get("name", "")
+			var defeated_name: String = ev.name
 			assert_true(
 				attacked_names.get(defeated_name, false),
 				"combatant_defeated event for '%s' must be preceded by at least one prior 'attack' event targeting it"
 				% defeated_name
+			)
+			assert_eq(
+				ev.combatant_id, "",
+				("FEAT-394: CombatantDefeatedEvent for dict-sourced combatant '%s' must carry "
+					+ "combatant_id == '' (the documented safe default for the Dictionary branch of "
+					+ "_finalize_strike_result()'s if/elif type-check, AD-1) — never raise, never omit "
+					+ "the key") % defeated_name
 			)
 
 

@@ -123,6 +123,20 @@ func _dead_combatant(p_name: String) -> Dictionary:
 	}
 
 
+## A fragile combatant fixture — starts ALIVE (hp_current=1) with a low AC so
+## it is defeated MID-COMBAT by an incoming Strike, rather than being already
+## dead before the round starts (contrast with _dead_combatant() above). Used
+## by FEAT-394 (PR-002, RISK-002/RISK-009) to directly exercise the
+## FIX-002-hardened Dictionary branch of
+## ResolveActionUseCase._finalize_strike_result() — the target passed to
+## that method is a PLAIN Dictionary here, never a CombatantClass instance.
+func _fragile_combatant(p_name: String) -> Dictionary:
+	return {
+		"name": p_name, "hp_current": 1, "ac": 1, "strength": 0, "intuition": 0, "dexterity": 0,
+		"weapon": {"damage_modifier_attribute": "strength", "proficiency_bonus": 0, "damage_die": 4}
+	}
+
+
 ## Builds a fresh 2-vs-2 Encounter: two party combatants against two enemy
 ## combatants, all moderate-durability, seeded deterministically — used to
 ## exercise a genuine multi-round encounter end-to-end.
@@ -426,3 +440,50 @@ func test_no_hang_guard_path_and_typed_event_path_coexist_in_same_suite_run() ->
 	var normal_attack_events: Array = normal_events.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
 	assert_eq(normal_attack_events.size(), 14, "An ordinary durable-vs-durable round must still emit 14 typed AttackEvent instances")
 	assert_eq(normal_enc.get_outcome(), "", "Neither combatant dies — outcome must remain undecided for the ordinary encounter")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-394 (PR-002, RISK-002/RISK-009): directly exercises the FIX-002-
+# hardened Dictionary branch of ResolveActionUseCase._finalize_strike_result()
+# — a mid-combat kill (not a pre-dead fixture) of a PLAIN Dictionary
+# combatant must emit a typed RoundEvents.CombatantDefeatedEvent with no
+# SCRIPT ERROR and a safely-defaulted combatant_id, closing the verification
+# gap flagged against this originally-named test file (docs/iterations/
+# iteration-AD-gut-regression-fix.org root cause 1).
+# ══════════════════════════════════════════════════════════════════════════════
+
+func test_dict_combatant_mid_combat_defeat_emits_typed_event_with_safe_combatant_id() -> void:
+	var enc = EncounterClass.new(
+		[_durable_combatant("Slayer")], [_fragile_combatant("Fragile")], RNGClass.new(7)
+	)
+	enc.initialize()
+
+	var all_events: Array = []
+	var rounds_run: int = 0
+	while enc.get_outcome() == "" and rounds_run < MAX_ROUNDS_GUARD:
+		enc.run_round()
+		all_events.append_array(enc.get_round_events())
+		rounds_run += 1
+
+	assert_true(
+		rounds_run < MAX_ROUNDS_GUARD,
+		"A 1-HP Dictionary-based target vs. a durable attacker must terminate well within the safety guard"
+	)
+	assert_eq(enc.get_outcome(), "won", "The durable attacker must defeat the 1-HP fragile Dictionary target")
+
+	var defeat_events: Array = all_events.filter(func(e): return e is RoundEventsClass.CombatantDefeatedEvent)
+	assert_eq(
+		defeat_events.size(), 1,
+		"Exactly one typed CombatantDefeatedEvent must be emitted for the fragile Dictionary target"
+	)
+	if defeat_events.size() != 1:
+		return
+
+	assert_eq(defeat_events[0].name, "Fragile", "CombatantDefeatedEvent.name must be the defeated Dictionary combatant's name")
+	assert_eq(defeat_events[0].defeated_by, "Slayer", "CombatantDefeatedEvent.defeated_by must be the attacker's name")
+	assert_eq(
+		defeat_events[0].combatant_id, "",
+		"FEAT-394: a Dictionary-sourced CombatantDefeatedEvent.combatant_id must default to '' "
+		+ "(target.get('combatant_id', '') — AD-1 fix) rather than raising a SCRIPT ERROR "
+		+ "('Invalid access to property or key combatant_id on a base object of type Dictionary')"
+	)
