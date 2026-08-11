@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="WeaponResource" load_steps=2 format=3 uid="uid://bbklr1a2b3c4d5"]
+
+[ext_resource type="Script" uid="uid://bwpns1a2b3c4d" path="res://core/model/weapon_resource.gd" id="1_bklr1"]
+
+[resource]
+script = ExtResource("1_bklr1")
+weapon_id = "buckler"
+name = "Buckler"
+damage_die = 4
+damage_type = "B"
+damage_count = 1
+damage_modifier_attribute = "strength"
+proficiency_bonus = 0
+block_value = 3
+parry_bonus = 3
+block_die = 8
+range_hexes = 1
