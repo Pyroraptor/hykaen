@@ -1,0 +1,653 @@
+#+TITLE: Iteration AE — Enemy Weapon Architecture Phase 2: Off-Hand Weapons & Reaction Enrichment
+#+SPRINT: 44
+#+VERSION: 0.2.5
+
+* Goal
+
+Give combatants equipped with a shield (or any off-hand weapon) richer,
+weapon-aware reaction options.  When Patience (mace + small shield) is
+targeted by an enemy Strike, the reaction prompt should show
+"Block (Small Shield 1d10+4)" — using the shield's dedicated block die —
+rather than a plain "Block" backed by the mace's weaker block stats.
+Enemy AI likewise uses the best eligible weapon per reaction type.
+
+This is the continuation of the Phase 1 data-layer refactor
+(=docs/refactors/enemy-weapon-architecture-phase1.org=).  Phase 1 moved
+=EnemyResource= to =weapon_paths=, gave =Combatant= a =weapons: Array=
+field, and wired =EncounterResource.weapon_path_overrides= for per-slot
+primary weapon overrides.  Phase 2 populates =weapons[1]= with off-hand
+weapons and wires the full array into the trigger, eligibility, and UI
+layers.
+
+* Current state (verified 2026-08-11)
+
+- =Combatant.weapons: Array= exists (Phase 1 EWA-5) but contains exactly
+  one element — =weapons[0]= mirrors the primary =weapon= dict.
+- =build_party_combatant()= scans =character.starting_equipment= for the
+  FIRST =WeaponResource=; Patience's =starting_equipment= has
+  =["res://data/weapons/mace.tres", "res://data/armor/chain_shirt.tres"]=
+  — no shield =WeaponResource=.
+- =data/items/shield_patience.tres= is an =ItemResource= (equipment-slot
+  metadata only) with no weapon stats.
+- No shield =WeaponResource= =.tres= files exist yet.
+- =EncounterResource= has =weapon_path_overrides: Array[String]= (Phase 1)
+  but no =off_hand_path_overrides= field.
+- =build_enemy_combatant()= loads only =weapon_paths[0]= (or the override);
+  no off-hand path support.
+- =trigger["weapon"]= = =target.weapon= (primary only); no ="weapons"= key
+  in trigger dicts.
+- =_compute_legal_reactions()= checks only =trigger.get("weapon", {})= for
+  block/parry eligibility.
+- =_build_defense_context()= sets BOTH =parrying_weapon= and
+  =blocking_weapon= to =target.weapon= (primary only).
+- =AIReactionPolicy= reads =context["parry_bonus"]= — currently the primary
+  weapon's bonus only.
+- Weapon dicts built by =CombatantFactory= carry no ="name"= key.
+- GUT baseline: 3736 passing, 0 failing, exit 0.
+
+* Non-goals
+
+- Changing the =legal_reactions: Array[String]= contract — it stays bare
+  strings (="parry"=, ="block"=, …).  No option dicts, no namespaced
+  strings.  Changing =ReactionChooserPort.choose()='s signature.
+- Letting the player CHOOSE which weapon to use per reaction (e.g. "Block
+  with Mace" vs "Block with Shield" as separate options).  Phase 2 auto-
+  selects the best eligible weapon per reaction type.  Per-weapon player
+  choice is a Phase 3 feature.
+- Giving the Skeleton (or any existing enemy) an off-hand weapon — no
+  prologue enemy has a shield.
+- Authoring Bastard Sword, Dagger, Rapier, or other absent weapon files.
+- Block Breaker property on the Mace (talent/property system, future).
+- Strike-verb weapon selection (attacking with the off-hand weapon).
+- Moving shield combat stats onto =ItemResource= — =shield_patience.tres=
+  stays as equipment-slot metadata only; its combat stats live on the new
+  =WeaponResource= =.tres= file.
+
+* Scope guardrails (frozen files)
+
+Do not modify these contracts even if a change seems to improve consistency:
+
+- =core/application/ports/reaction_chooser_port.gd= — =choose()= signature
+  unchanged.
+- =core/application/reaction_window.gd= — =open()= return shape unchanged
+  (={window_id, legal_reactions, opened, reason}=).  The =legal_reactions=
+  Array still contains bare lowercase strings.
+- The ="parry"= / ="block"= / ="dodge"= / ="steel"= reaction ID strings.
+- All test files that hand-build weapon dicts directly for
+  reaction/resolution testing — they use single-weapon dicts and are
+  insulated from this change by the backward-compat fallback.
+
+* Read first
+
+Before implementing, read:
+
+- =docs/refactors/enemy-weapon-architecture-phase1.org= — Phase 1 scope,
+  completed work, and Phase 2 follow-on list.
+- =infrastructure/combatant_factory.gd= lines 43–171 —
+  =build_party_combatant()= weapon loading loop and =build_enemy_combatant()=
+  weapon-path resolution.
+- =core/application/round_session.gd= lines ~1128–1190 —
+  =_build_defense_context()= and how it derives =parrying_weapon= /
+  =blocking_weapon= / =parry_attack_bonus= from =target.weapon=.
+- =core/application/round_session.gd= lines ~980–1094 — the three trigger
+  builder methods (=_build_reaction_trigger=,
+  =_build_prehit_avoidance_trigger=, =_build_onhit_mitigation_trigger=)
+  and how they set =trigger["weapon"]=.
+- =core/application/reaction_window.gd= lines 661–749 —
+  =_compute_legal_reactions()= and its per-branch eligibility checks.
+- =scenes/ui/reaction_prompt_ui.gd= — =_rebuild_buttons()= and
+  =_add_option_button()=: current plain-capitalize label logic.
+- =infrastructure/ai_reaction_policy.gd= =choose()= — context keys read.
+- =data/weapons/arming_sword.tres= — WeaponResource =.tres= format
+  reference (field names, UID scheme).
+- =data/characters/dwarf_channeler.tres= — Patience's =starting_equipment=
+  and =equipped_items=.
+
+* Shield stats (from docs/design-source/Weapons.pdf)
+
+| Name        | Prof | Dam  | Block | Parry | Range | Prop (block die) |
+|-------------+------+------+-------+-------+-------+------------------|
+| Small Shield | +1   | 1d4 B | 4    | 1     | 5 ft. | Block 1d10       |
+| Large Shield | +1   | 1d4 B | 5    | 2     | 5 ft. | Block 1d12       |
+| Buckler      | +2   | 1d4 B | 3    | 3     | 5 ft. | Block 1d8        |
+
+=damage_modifier_attribute= for all shields: ="strength"= (fallback for
+any shield strike; low priority in practice).
+
+* Features
+
+** EWA2-0  Shield WeaponResource data files
+
+Create three new =WeaponResource= =.tres= files.  Follow the UID scheme from
+=arming_sword.tres= (=uid://b= + short weapon-name slug).
+
+*** =data/weapons/small_shield.tres=
+
+#+BEGIN_SRC
+weapon_id = "small_shield"
+name = "Small Shield"
+proficiency_bonus = 1
+damage_die = 4
+damage_type = "B"
+damage_count = 1
+damage_modifier_attribute = "strength"
+block_value = 4
+parry_bonus = 1
+block_die = 10
+range_hexes = 1
+#+END_SRC
+
+*** =data/weapons/large_shield.tres=
+
+#+BEGIN_SRC
+weapon_id = "large_shield"
+name = "Large Shield"
+proficiency_bonus = 1
+damage_die = 4
+damage_type = "B"
+damage_count = 1
+damage_modifier_attribute = "strength"
+block_value = 5
+parry_bonus = 2
+block_die = 12
+range_hexes = 1
+#+END_SRC
+
+*** =data/weapons/buckler.tres=
+
+#+BEGIN_SRC
+weapon_id = "buckler"
+name = "Buckler"
+proficiency_bonus = 2
+damage_die = 4
+damage_type = "B"
+damage_count = 1
+damage_modifier_attribute = "strength"
+block_value = 3
+parry_bonus = 3
+block_die = 8
+range_hexes = 1
+#+END_SRC
+
+Per =CLAUDE.md=: commit data files before proceeding.
+
+*Test* — add spot-checks to the existing
+=tests/unit/data/weapons/test_weapon_resource_data.gd= (or the nearest
+weapon-data test file):
+- =small_shield.tres= loads; =weapon_id == "small_shield"=,
+  =block_value == 4=, =block_die == 10=, =parry_bonus == 1=.
+- =large_shield.tres= loads; =weapon_id == "large_shield"=,
+  =block_value == 5=, =block_die == 12=, =parry_bonus == 2=.
+- =buckler.tres= loads; =weapon_id == "buckler"=, =block_value == 3=,
+  =block_die == 8=, =parry_bonus == 3=.
+
+** EWA2-1  Add "name" key to all weapon dicts + collect off-hand for party combatants
+
+*Files:* =infrastructure/combatant_factory.gd=,
+=data/characters/dwarf_channeler.tres=
+
+*** EWA2-1-0  "name" key in weapon dict
+
+In BOTH =build_party_combatant()= and the weapon-dict section of
+=build_enemy_combatant()=, add =weapon_res.name= to the weapon dict:
+
+#+BEGIN_SRC gdscript
+"weapon": {
+    "name":                     weapon_res.name,   # ← add this
+    "damage_modifier_attribute": weapon_res.damage_modifier_attribute,
+    "proficiency_bonus":         weapon_res.proficiency_bonus,
+    "damage_die":                weapon_res.damage_die,
+    "parry_bonus":               weapon_res.parry_bonus,
+    "block_value":               weapon_res.block_value,
+    "block_die":                 weapon_res.block_die,
+}
+#+END_SRC
+
+=Combatant.from_dict()= already preserves arbitrary dict keys through its
+deep-duplicate path (Phase 1 EWA-5), so ="name"= round-trips correctly.
+Existing tests use =.get("parry_bonus", ...)= style access and are unaffected
+by the new key.
+
+*** EWA2-1-1  Off-hand weapon collection for party combatants
+
+=build_party_combatant()= currently assigns =weapon_res= to the first
+=WeaponResource= found in =character.starting_equipment= (later entries
+overwrite it — the current loop assigns every WeaponResource to the same
+variable, so the final one wins).  Replace with ordered collection:
+
+1. Walk =starting_equipment=; push each =WeaponResource= load result into a
+   local Array =weapon_res_list= in order.  Retain the first =ArmorResource=
+   as =armor_res= (unchanged).
+2. =weapon_res_list[0]= is the primary weapon (same as today; keep the
+   nil-check/error path unchanged).
+3. =weapon_res_list[1]= (if present) is the off-hand weapon.
+4. Build =combatant["weapon"]= from =weapon_res_list[0]= (unchanged shape +
+   the new ="name"= key from EWA2-1-0).
+5. If =weapon_res_list.size() >= 2=:
+   - Build =off_hand_dict= from =weapon_res_list[1]= with the same key set.
+   - Pass =combatant["weapons"] = [primary_dict, off_hand_dict]= through
+     =CombatantClass.from_dict()= as usual — the entity already handles a
+     two-element ="weapons"= array.
+6. If only one weapon, =combatant["weapons"] = [primary_dict]= (unchanged).
+
+*** EWA2-1-2  Update Patience's starting_equipment
+
+In =data/characters/dwarf_channeler.tres=: append
+="res://data/weapons/small_shield.tres"= as the second entry in
+=starting_equipment=, after the mace path.
+
+Do NOT touch =equipped_items= (=shield_patience.tres= stays as-is).
+
+Per =CLAUDE.md=: commit =dwarf_channeler.tres= before proceeding.
+
+*Tests:*
+- =build_party_combatant("res://data/characters/dwarf_channeler.tres", null)=
+  → =weapons.size() == 2=; =weapons[0]["weapon_id"]= is not asserted (no
+  =weapon_id= key in the dict — see EWA2-1-0; assert =weapons[0]["damage_die"] == 8=
+  for the mace); =weapons[1]["block_value"] == 4= (small shield);
+  =weapons[1]["block_die"] == 10=; =weapons[1]["name"] == "Small Shield"=.
+- =build_party_combatant= for Titus / Gram / Marigold → =weapons.size() == 1=
+  (regression guard — no off-hand for two-handed/orb users).
+- =weapons[0]["name"]= is non-empty for every built party combatant.
+
+** EWA2-2  Enemy off-hand weapon + EncounterResource off-hand slot
+
+*Files:* =data/encounters/encounter_resource.gd=,
+=infrastructure/combatant_factory.gd=
+
+*** EWA2-2-0  =EncounterResource.off_hand_path_overrides=
+
+Add to =encounter_resource.gd=:
+
+#+BEGIN_SRC gdscript
+## Per-slot off-hand weapon path, parallel to enemy_resource_paths.
+## "" means "use weapon_paths[1] from the enemy's own .tres" (or no
+## off-hand if weapon_paths has only one entry).  Defaults to [] so
+## all pre-existing encounter .tres files load unchanged.
+@export var off_hand_path_overrides: Array[String] = []
+#+END_SRC
+
+No existing encounter =.tres= file requires any edit.
+
+*** EWA2-2-1  =build_enemy_combatant()= fifth parameter
+
+Add optional fifth parameter:
+
+#+BEGIN_SRC gdscript
+func build_enemy_combatant(
+    enemy_path: String,
+    hex_coord,
+    combatant_id: String = "",
+    weapon_path_override: String = "",
+    off_hand_path_override: String = ""
+) -> Dictionary:
+#+END_SRC
+
+Off-hand resolution logic (runs AFTER the primary weapon is successfully
+loaded and validated):
+
+1. Determine =off_hand_path=:
+   - If =off_hand_path_override != ""=: use it.
+   - Else if =enemy.weapon_paths.size() >= 2=: use =enemy.weapon_paths[1]=.
+   - Else: =off_hand_path = ""= (no off-hand).
+2. If =off_hand_path != ""=:
+   - Load a =WeaponResource= via =ResourceLoader.load(off_hand_path)=.
+     If null: return =_fail_enemy_resource_load(ERR_ENEMY_RESOURCE_LOAD_FAILED,
+     "off-hand weapon WeaponResource failed to load from '%s'" % off_hand_path,
+     enemy_path)=.
+   - Validate fields (=damage_die >= 0=, =parry_bonus >= 0=,
+     =block_value >= 0=, =block_die >= 0=); return
+     =ERR_ENEMY_RESOURCE_INVALID_WEAPON_FIELD= on failure.
+   - Build =off_hand_dict= with the same key set as =combatant["weapon"]=
+     (including the new ="name"= key).
+   - Set =combatant["weapons"] = [primary_dict, off_hand_dict]= (passed
+     through =CombatantClass.from_dict()= as usual).
+3. If =off_hand_path == ""=:
+   - =combatant["weapons"] = [primary_dict]= (unchanged from today).
+
+Caller update (wherever =build_enemy_combatant= is called with an
+=EncounterResource= available): pass
+=encounter_res.off_hand_path_overrides[i] if i < encounter_res.off_hand_path_overrides.size() else ""=
+as the fifth argument.
+
+*Tests:*
+- Fresh =EncounterResource= has =off_hand_path_overrides == []=.
+- =build_enemy_combatant= with a mock =EnemyResource= whose
+  =weapon_paths = ["res://data/weapons/arming_sword.tres",
+  "res://data/weapons/small_shield.tres"]= → =weapons.size() == 2=,
+  =weapons[1]["block_value"] == 4=, =weapons[1]["block_die"] == 10=.
+- =off_hand_path_override= overrides =weapon_paths[1]= when non-empty.
+- =build_enemy_combatant= with a single-weapon enemy → =weapons.size() == 1=
+  (regression guard — the skeleton's current behaviour is unchanged).
+- Invalid =off_hand_path_override= (non-existent path) →
+  =ERR_ENEMY_RESOURCE_LOAD_FAILED=.
+
+** EWA2-3  Trigger carries full weapons array; best-weapon selection in defense context
+
+*File:* =core/application/round_session.gd=
+
+*** EWA2-3-0  Add ="weapons"= to trigger dicts
+
+In the three trigger builder methods
+(=_build_reaction_trigger=, =_build_prehit_avoidance_trigger=,
+=_build_onhit_mitigation_trigger=): add =target.weapons= alongside the
+existing =target.weapon= entry:
+
+#+BEGIN_SRC gdscript
+"weapon":  target.weapon,
+"weapons": _safe_weapons(target),   # ← add this line
+#+END_SRC
+
+Add a private helper at the bottom of the session:
+
+#+BEGIN_SRC gdscript
+## _safe_weapons(combatant) -> Array — returns the combatant's full
+## weapons array with a backward-compat fallback for plain-Dictionary
+## test fixtures that predate the `weapons` field.
+func _safe_weapons(combatant) -> Array:
+    var ws: Array = (
+        combatant.get("weapons", []) if combatant is Dictionary
+        else combatant.weapons
+    )
+    if ws.is_empty():
+        var primary: Dictionary = (
+            combatant.get("weapon", {}) if combatant is Dictionary
+            else combatant.weapon
+        )
+        return [primary]
+    return ws
+#+END_SRC
+
+*** EWA2-3-1  Best-weapon selection in =_build_defense_context()=
+
+Replace the current single-weapon derivation with multi-weapon selection:
+
+#+BEGIN_SRC gdscript
+func _build_defense_context(target, target_action_economy) -> Dictionary:
+    var weapons_list: Array = _safe_weapons(target)
+
+    # Best weapon for Parry: highest parry_bonus (ties → first wins).
+    var parrying_weapon: Dictionary = _best_weapon_by(weapons_list, "parry_bonus")
+
+    # Best weapon for Block: highest block_value (ties → first wins).
+    var blocking_weapon: Dictionary = _best_weapon_by(weapons_list, "block_value")
+
+    # parry_attack_bonus uses the parrying weapon's attribute + proficiency.
+    var parry_attribute: String = parrying_weapon.get("damage_modifier_attribute", "")
+    var parry_attack_bonus: int = (
+        target.attribute(parry_attribute)
+        + int(parrying_weapon.get("proficiency_bonus", 0))
+    )
+
+    return {
+        "action_economy":      target_action_economy,
+        "parrying_weapon":     parrying_weapon,
+        "parry_attack_bonus":  parry_attack_bonus,
+        "blocking_weapon":     blocking_weapon,
+        "open_space_available": true,
+        # Weapon names + stats for UI display (EWA2-5) and AI context.
+        "parry_weapon_name":   parrying_weapon.get("name", ""),
+        "parry_bonus":         parrying_weapon.get("parry_bonus", 0),
+        "block_weapon_name":   blocking_weapon.get("name", ""),
+        "block_weapon_value":  blocking_weapon.get("block_value", 0),
+        "block_weapon_die":    blocking_weapon.get("block_die", 0),
+        "block_weapon_damage_die": blocking_weapon.get("damage_die", 6),
+    }
+#+END_SRC
+
+Add a private helper:
+
+#+BEGIN_SRC gdscript
+## _best_weapon_by(weapons, key) -> Dictionary — returns the weapon dict
+## with the highest value of `key` (ties → first wins).  Returns {} when
+## `weapons` is empty.
+func _best_weapon_by(weapons: Array, key: String) -> Dictionary:
+    var best: Dictionary = {}
+    var best_val: int = -1
+    for w in weapons:
+        var v: int = (w as Dictionary).get(key, 0)
+        if v > best_val:
+            best_val = v
+            best = w as Dictionary
+    return best
+#+END_SRC
+
+Note: the =target.attribute(parry_attribute)= call requires =target= to
+expose an =attribute()= method (Combatant entity) or equivalent.  For a
+plain-Dictionary target that reaches this function (e.g. an unmigtrated
+test fixture), =target.attribute()= is not available; guard with:
+
+#+BEGIN_SRC gdscript
+var parry_attr_score: int = 0
+if target.has_method("attribute"):
+    parry_attr_score = target.attribute(parry_attribute)
+#+END_SRC
+
+*Tests* — add to the existing =_build_defense_context= test suite (or a new
+=test_defense_context_best_weapon.gd=):
+- Target with =weapons=[mace_dict, small_shield_dict]= where mace has
+  =block_value=2, parry_bonus=1= and shield has =block_value=4, parry_bonus=1=
+  → =parrying_weapon== mace (tie, first wins), =blocking_weapon== small_shield.
+- Same target: =attack_context["parry_weapon_name"] == "Mace"=;
+  =attack_context["block_weapon_name"] == "Small Shield"=;
+  =attack_context["block_weapon_die"] == 10=.
+- Target with =weapons=[arming_sword_dict]= only → =parrying_weapon==
+  =blocking_weapon== arming_sword_dict (regression — single weapon unchanged).
+- Plain-Dictionary target with no ="weapons"= key → fallback to =target["weapon"]=
+  (backward compat for legacy test fixtures).
+
+** EWA2-4  =_compute_legal_reactions()= checks all weapons for eligibility
+
+*File:* =core/application/reaction_window.gd=
+
+Currently reads =weapon: Dictionary = trigger.get("weapon", {})= and passes
+it to =ResolutionClass.is_parry_eligible(weapon)= and
+=ResolutionClass.is_block_eligible(weapon)=.
+
+Replace with weapons-aware eligibility: a reaction is legal if ANY weapon in
+the =weapons= array qualifies.
+
+Add a private helper:
+
+#+BEGIN_SRC gdscript
+## _any_weapon_eligible(weapons, predicate) -> bool — true if ANY weapon
+## dict in `weapons` satisfies `predicate`.  Works with an empty array
+## (returns false).
+func _any_weapon_eligible(weapons: Array, predicate: Callable) -> bool:
+    for w in weapons:
+        if predicate.call(w):
+            return true
+    return false
+#+END_SRC
+
+Update =_compute_legal_reactions()=:
+
+#+BEGIN_SRC gdscript
+var weapons: Array = trigger.get("weapons", [])
+if weapons.is_empty():
+    weapons = [trigger.get("weapon", {})]   # backward compat
+#+END_SRC
+
+Then in every branch that checks Parry or Block eligibility, replace the
+single-weapon check:
+
+#+BEGIN_SRC gdscript
+# Before:
+if ResolutionClass.is_parry_eligible(weapon):
+# After:
+if _any_weapon_eligible(weapons, ResolutionClass.is_parry_eligible):
+#+END_SRC
+
+#+BEGIN_SRC gdscript
+# Before:
+if ResolutionClass.is_block_eligible(weapon):
+# After:
+if _any_weapon_eligible(weapons, ResolutionClass.is_block_eligible):
+#+END_SRC
+
+Apply this substitution to all four affected branches: ="Parry"=, ="Block"=,
+="OnHitMitigation"=, ="WeaponAttack"=.  Leave ="Dodge"=, ="Steel"=,
+="PreHitAvoidance"=, and ="OpportunisticStrike"= branches completely unchanged
+— they do not read the weapon.
+
+=legal_reactions= return type and values are UNCHANGED (still
+=Array[String]=).  The =_open_legal_reactions.has(choice)= guard in =resume()=
+is unaffected.
+
+*Tests:*
+- Trigger with =weapons=[mace_dict, small_shield_dict]= (mace:
+  =parry_bonus=1, block_value=2=; shield: =block_value=4, block_die=10=) →
+  both ="parry"= and ="block"= in =legal_reactions=.
+- Trigger with =weapons=[shortbow_dict]= (=parry_bonus=0, block_value=0=) →
+  neither ="parry"= nor ="block"= (regression guard).
+- Trigger with ="weapon"= key but no ="weapons"= key → backward-compat:
+  still passes the single-weapon dict through the fallback.
+- ="Dodge"= / ="Steel"= branches still ignore the weapons array.
+
+** EWA2-5  Reaction prompt UI shows weapon name in button label
+
+*File:* =scenes/ui/reaction_prompt_ui.gd=
+
+Add a private helper that enriches the plain capitalize-label with weapon
+stats from =context= when available:
+
+#+BEGIN_SRC gdscript
+func _label_for_reaction(reaction_id: String, context: Dictionary) -> String:
+    var base: String = String(reaction_id).capitalize()
+    match reaction_id:
+        "parry":
+            var weapon_name: String = context.get("parry_weapon_name", "")
+            var bonus: int = context.get("parry_bonus", 0)
+            if weapon_name != "":
+                return "%s (%s +%d)" % [base, weapon_name, bonus]
+        "block":
+            var weapon_name: String = context.get("block_weapon_name", "")
+            var bval: int = context.get("block_weapon_value", 0)
+            var bdie: int = context.get("block_weapon_die", 0)
+            var fallback_die: int = context.get("block_weapon_damage_die", 6)
+            var die_str: String = "1d%d" % (bdie if bdie > 0 else fallback_die)
+            if weapon_name != "":
+                return "%s (%s %s+%d)" % [base, weapon_name, die_str, bval]
+    return base
+#+END_SRC
+
+In =_rebuild_buttons()=, replace the plain capitalize call:
+
+#+BEGIN_SRC gdscript
+# Before:
+_add_option_button(String(reaction_id), String(reaction_id).capitalize())
+# After:
+_add_option_button(String(reaction_id), _label_for_reaction(String(reaction_id), context))
+#+END_SRC
+
+The =context= dict is already passed into =_rebuild_buttons()= from
+=open_prompt(legal_reactions, context)= — wire it through to the per-button
+label call.  The Pass button continues to use =PASS_LABEL= ("Pass") unchanged.
+
+*Tests* — add to =tests/integration/test_reaction_prompt_ui.gd=:
+- =open_prompt(["parry", "block"], {"parry_weapon_name": "Mace",
+  "parry_bonus": 1, "block_weapon_name": "Small Shield",
+  "block_weapon_die": 10, "block_weapon_value": 4})= → parry button text
+  contains "Mace"; block button text contains "Small Shield" and "1d10".
+- =open_prompt(["parry", "block"], {})= → falls back to plain "Parry" /
+  "Block" (backward compat for callers that omit weapon names).
+- Pass button still shows "Pass" regardless of context.
+- Weapon-enriched labels do not affect the button's =reaction_id= key in
+  =_buttons= (the key is still ="parry"= / ="block"=, not the label string).
+
+** EWA2-6  AI reaction policy context invariant (doc test only)
+
+*File:* =infrastructure/ai_reaction_policy.gd=
+
+No code changes.  After EWA2-3, =context["parry_bonus"]= already reflects the
+best parry weapon's bonus (populated by =_build_defense_context()=).
+=AIReactionPolicy.choose()= reads it correctly as-is.
+
+*Test* — add to =tests/infrastructure/test_ai_reaction_policy.gd=:
+- A context where =parry_bonus= = 1 (mace) and the target ALSO has a small
+  shield → =choose(["parry"], context)= evaluates against =parry_bonus=1=
+  (the mace, since mace wins the parry-first tie — mace and shield both have
+  =parry_bonus=1=, mace is first in the array).  The AI decision is determined
+  by the context key, not the weapons array directly.
+- This test is observational: it pins the expected =parry_bonus= value the
+  AI sees so a future best-weapon-selection change is caught immediately.
+
+** EWA2-7  End-to-end steel thread
+
+*File:* new =tests/integration/test_patience_shield_block_e2e.gd= (or added
+to the nearest existing boot-level reaction test)
+
+A full boot-level test verifying the complete off-hand-weapon path:
+
+1. Build Patience's combatant via =build_party_combatant("res://data/characters/dwarf_channeler.tres", null)=.
+2. Assert =weapons.size() == 2=; =weapons[1]["block_die"] == 10=.
+3. Build a defense context via =_build_defense_context= (or the real
+   =round_session= trigger path) against Patience as target.
+4. Assert =defense_context["blocking_weapon"]["block_die"] == 10= (small shield
+   selected over mace's =block_die=0= fallback).
+5. Assert =defense_context["block_weapon_name"] == "Small Shield"=.
+6. Call =_compute_legal_reactions= with a trigger that carries Patience's
+   =weapons= array; assert ="block"= is in =legal_reactions= (shield's
+   =block_value=4 > 0=) and ="parry"= is in =legal_reactions= (mace or shield
+   both have =parry_bonus=1 > 0=).
+7. Open a reaction prompt with the context; assert the block button label
+   contains "Small Shield".
+
+* Acceptance criteria
+
+1. =data/weapons/small_shield.tres=, =large_shield.tres=, and =buckler.tres=
+   exist with the exact stats from the Weapons.pdf table above.
+2. =build_party_combatant(dwarf_channeler)= yields =weapons.size() == 2=;
+   =weapons[1]["block_value"] == 4=, =weapons[1]["block_die"] == 10=.
+3. =build_party_combatant= for Titus, Gram, and Marigold yields
+   =weapons.size() == 1= (regression: no off-hand for two-handed / orb users).
+4. Every weapon dict built by the factory carries a non-empty ="name"= key.
+5. =EncounterResource= has =off_hand_path_overrides: Array[String] = []=;
+   all pre-existing encounter =.tres= files load without edits.
+6. =build_enemy_combatant= with a two-entry =weapon_paths= enemy yields
+   =weapons.size() == 2=.
+7. =_build_defense_context= for a mace+small-shield target returns
+   =blocking_weapon["block_die"] == 10= and =blocking_weapon["block_value"] == 4=.
+8. =_compute_legal_reactions= with =weapons=[mace, small_shield]= returns
+   both ="parry"= and ="block"=.
+9. The reaction prompt block button for Patience reads something like
+   "Block (Small Shield 1d10+4)"; the parry button reads "Parry (Mace +1)".
+10. =AIReactionPolicy= behaves identically to today (no code change; context
+    keys already correct after EWA2-3).
+11. =ci/accepted_known_failures.json= stays =[]=.
+12. GUT gate: ≥ 3736 passing, 0 failing, exit 0.
+
+* Test files to create or extend
+
+| File | Action |
+|------+--------|
+| =tests/unit/data/weapons/test_weapon_resource_data.gd= | Add shield spot-checks |
+| =tests/unit/infrastructure/test_build_enemy_combatant_weapon_defense.gd= | Add off-hand weapon tests |
+| =tests/unit/infrastructure/test_build_party_combatant_off_hand.gd= | New — party off-hand weapon |
+| =tests/unit/data/encounters/test_encounter_resource_tiles.gd= | Add off_hand_path_overrides field test |
+| =tests/integration/test_reaction_prompt_ui.gd= | Add weapon-label tests |
+| =tests/infrastructure/test_ai_reaction_policy.gd= | Add parry_bonus invariant test |
+| =tests/integration/test_patience_shield_block_e2e.gd= | New — end-to-end steel thread |
+
+* Files to modify
+
+| File | Nature |
+|------+--------|
+| =data/weapons/small_shield.tres= | New WeaponResource; commit immediately |
+| =data/weapons/large_shield.tres= | New WeaponResource; commit immediately |
+| =data/weapons/buckler.tres= | New WeaponResource; commit immediately |
+| =data/characters/dwarf_channeler.tres= | Add small_shield.tres to starting_equipment; commit immediately |
+| =data/encounters/encounter_resource.gd= | Add off_hand_path_overrides: Array[String] |
+| =infrastructure/combatant_factory.gd= | Collect all WeaponResources; build off-hand dict; add "name" key |
+| =core/application/round_session.gd= | _safe_weapons(), _best_weapon_by(), updated _build_defense_context(), "weapons" in triggers |
+| =core/application/reaction_window.gd= | _any_weapon_eligible(), updated _compute_legal_reactions() |
+| =scenes/ui/reaction_prompt_ui.gd= | _label_for_reaction(), pass context to _rebuild_buttons() |
+
+* Files PROTECTED (do not touch)
+
+- =core/application/ports/reaction_chooser_port.gd= — contract unchanged.
+- All reaction/resolution test files that hand-build single-weapon dicts —
+  protected by backward-compat fallback in =_compute_legal_reactions()= and
+  =_build_defense_context()=.
+- =data/enemies/skeleton.tres= — no off-hand in the prologue.
+- =core/domain/combatant.gd= — =weapons: Array= field already correct (Phase 1).
