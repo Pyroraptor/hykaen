@@ -40,6 +40,16 @@ const SeededRandomAdapterClass     = preload("res://core/combat/seeded_random_ad
 const RoundEventsClass             = preload("res://core/rules/round_events.gd")
 const CombatantClass               = preload("res://core/domain/combatant.gd")
 const HexCoordClass                = preload("res://core/geometry/hex_coord.gd")
+## CombatantFactoryClass — FEAT-007 (US-007): preloaded ONLY by the
+## "Patience real fixture" tests below (Criterion 5), to build a REAL,
+## 2-weapon Patience combatant Dictionary from data/characters/
+## dwarf_channeler.tres via the actual infrastructure adapter (the same one
+## tests/unit/infrastructure/test_combatant_factory.gd already exercises for
+## FEAT-005/US-006's weapons array), rather than a hand-authored stand-in.
+## This is a TEST-file-only dependency on infrastructure/ — round_session.gd
+## itself never imports infrastructure/ (ADR-001/ADR-002 unaffected).
+const CombatantFactoryClass        = preload("res://infrastructure/combatant_factory.gd")
+const DWARF_CHANNELER_PATH: String = "res://data/characters/dwarf_channeler.tres"
 
 
 # ── Fake/double port implementations (mirrors tests/test_run_round_use_case.gd) ──
@@ -613,3 +623,191 @@ func test_finish_resets_action_economy_and_returns_round_result_shape() -> void:
 	assert_eq(result.get("history", null), [])
 	assert_false(entries[0]["action_economy"].is_spent())
 	assert_eq(entries[0]["action_economy"].get_remaining(), ActionEconomyClass.MAX_BUDGET, "finish() must call end_of_round() on every combatant")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# FEAT-007 (US-007, ADR-002): _safe_weapons() and the "weapons" key the
+# three ReactionTrigger builders (_build_reaction_trigger/
+# _build_prehit_avoidance_trigger/_build_onhit_mitigation_trigger) now
+# populate alongside the existing "weapon" key.
+# ══════════════════════════════════════════════════════════════════════════
+
+## _session_for_trigger_tests() — a minimally-wired, REAL RoundSession (same
+## rig convention as every other suite in this file) whose only purpose here
+## is to expose the private _safe_weapons()/_build_*_trigger() methods under
+## test — the round's own cursor/turn-order state is irrelevant to these
+## pure, side-effect-free helpers.
+func _session_for_trigger_tests():
+	var alpha = _durable_combatant("Alpha", false)
+	var entries: Array = [_entry(alpha)]
+	var rig: Dictionary = _make_use_case(entries, FakeAIDecisionPort.new(), 1)
+	return rig["use_case"].begin_round(1, [alpha], [])
+
+
+func _attacker_fixture():
+	return _durable_combatant("Attacker", true, "attacker")
+
+
+## Patience's real 2-weapon loadout (mace primary, small shield off-hand),
+## built via the ACTUAL infrastructure adapter from her real character
+## resource — not a hand-authored stand-in — mirroring
+## tests/unit/infrastructure/test_combatant_factory.gd's own established
+## Patience fixture convention.
+func _patience_combatant():
+	var factory := CombatantFactoryClass.new()
+	var combatant_dict: Dictionary = factory.build_party_combatant(DWARF_CHANNELER_PATH, null, "patience_1")
+	assert_false(combatant_dict.has("error"), "fixture: dwarf_channeler.tres must build without error")
+	return CombatantClass.from_dict(combatant_dict)
+
+
+# ── _safe_weapons() ─────────────────────────────────────────────────────────
+
+func test_safe_weapons_returns_the_entitys_weapons_array_when_present() -> void:
+	var session = _session_for_trigger_tests()
+	var patience = _patience_combatant()
+
+	assert_eq(patience.weapons.size(), 2, "fixture assumption: Patience must have 2 weapons (mace + small shield)")
+
+	var weapons: Array = session._safe_weapons(patience)
+
+	assert_eq(weapons, patience.weapons, "_safe_weapons() must return the entity's own weapons array when present")
+	assert_eq(weapons.size(), 2)
+
+
+func test_safe_weapons_falls_back_to_weapon_for_an_entity_lacking_a_weapons_key() -> void:
+	var session = _session_for_trigger_tests()
+	# CombatantClass.from_dict() itself always derives a non-empty `weapons`
+	# array once a spec carries a `weapon` (see combatant.gd's own doc) --
+	# to genuinely exercise the empty-`weapons` fallback branch on the
+	# ENTITY side, this fixture blanks `weapons` back out after construction.
+	var solo = CombatantClass.from_dict({
+		"name":   "Solo",
+		"weapon": {"damage_modifier_attribute": "strength", "proficiency_bonus": 1, "damage_die": 6},
+	})
+	solo.weapons = []
+
+	var weapons: Array = session._safe_weapons(solo)
+
+	assert_eq(weapons, [solo.weapon], "_safe_weapons() must fall back to [weapon] when the entity's own weapons array is empty")
+
+
+func test_safe_weapons_falls_back_to_weapon_for_a_dictionary_lacking_a_weapons_key() -> void:
+	var session = _session_for_trigger_tests()
+	var legacy_fixture: Dictionary = {
+		"name":   "Legacy",
+		"weapon": {"damage_modifier_attribute": "dexterity", "proficiency_bonus": 2, "damage_die": 4},
+	}
+
+	var weapons: Array = session._safe_weapons(legacy_fixture)
+
+	assert_eq(weapons, [legacy_fixture["weapon"]], "_safe_weapons() must fall back to [weapon] for a Dictionary fixture lacking a 'weapons' key")
+
+
+func test_safe_weapons_returns_the_dictionarys_weapons_array_when_present() -> void:
+	var session = _session_for_trigger_tests()
+	var weapons_array: Array = [{"name": "Mace"}, {"name": "Small Shield"}]
+	var legacy_fixture: Dictionary = {
+		"name":    "Legacy",
+		"weapon":  {"name": "Mace"},
+		"weapons": weapons_array,
+	}
+
+	var weapons: Array = session._safe_weapons(legacy_fixture)
+
+	assert_eq(weapons, weapons_array, "_safe_weapons() must return the Dictionary's own 'weapons' array when present")
+
+
+# ── Trigger builders populate 'weapons' alongside 'weapon' ─────────────────
+
+func test_build_reaction_trigger_populates_weapons_key_alongside_weapon() -> void:
+	var session = _session_for_trigger_tests()
+	var attacker = _attacker_fixture()
+	var target = _durable_combatant("Target", false)
+
+	var trigger: Dictionary = session._build_reaction_trigger(attacker, target)
+
+	assert_true(trigger.has("weapon"), "the pre-existing 'weapon' key must remain, byte-for-byte unchanged")
+	assert_eq(trigger["weapon"], target.weapon)
+	assert_true(trigger.has("weapons"), "_build_reaction_trigger() must now also populate a 'weapons' key")
+	assert_eq(trigger["weapons"], session._safe_weapons(target))
+
+
+func test_build_prehit_avoidance_trigger_populates_weapons_key_alongside_weapon() -> void:
+	var session = _session_for_trigger_tests()
+	var attacker = _attacker_fixture()
+	var target = _durable_combatant("Target", false)
+
+	var trigger: Dictionary = session._build_prehit_avoidance_trigger(attacker, target)
+
+	assert_true(trigger.has("weapon"))
+	assert_eq(trigger["weapon"], target.weapon)
+	assert_true(trigger.has("weapons"), "_build_prehit_avoidance_trigger() must now also populate a 'weapons' key")
+	assert_eq(trigger["weapons"], session._safe_weapons(target))
+
+
+func test_build_onhit_mitigation_trigger_populates_weapons_key_alongside_weapon() -> void:
+	var session = _session_for_trigger_tests()
+	var attacker = _attacker_fixture()
+	var target = _durable_combatant("Target", false)
+
+	var trigger: Dictionary = session._build_onhit_mitigation_trigger(attacker, target, true, 15, 6)
+
+	assert_true(trigger.has("weapon"))
+	assert_eq(trigger["weapon"], target.weapon)
+	assert_true(trigger.has("weapons"), "_build_onhit_mitigation_trigger() must now also populate a 'weapons' key")
+	assert_eq(trigger["weapons"], session._safe_weapons(target))
+
+
+# ── Patience's real 2-element weapons array reaches every trigger builder ──
+
+func test_build_reaction_trigger_weapons_reflects_patiences_2_element_array_when_she_is_the_target() -> void:
+	var session = _session_for_trigger_tests()
+	var attacker = _attacker_fixture()
+	var patience = _patience_combatant()
+
+	var trigger: Dictionary = session._build_reaction_trigger(attacker, patience)
+
+	assert_eq(trigger["weapons"].size(), 2, "Patience's 'weapons' array on the trigger must reflect her real 2-weapon loadout (mace + small shield)")
+	assert_eq(trigger["weapons"], patience.weapons)
+	assert_eq(trigger["weapons"][0].get("name", ""), "Mace")
+	assert_eq(trigger["weapons"][1].get("name", ""), "Small Shield")
+
+
+func test_build_prehit_avoidance_trigger_weapons_reflects_patiences_2_element_array_when_she_is_the_target() -> void:
+	var session = _session_for_trigger_tests()
+	var attacker = _attacker_fixture()
+	var patience = _patience_combatant()
+
+	var trigger: Dictionary = session._build_prehit_avoidance_trigger(attacker, patience)
+
+	assert_eq(trigger["weapons"].size(), 2)
+	assert_eq(trigger["weapons"], patience.weapons)
+
+
+func test_build_onhit_mitigation_trigger_weapons_reflects_patiences_2_element_array_when_she_is_the_target() -> void:
+	var session = _session_for_trigger_tests()
+	var attacker = _attacker_fixture()
+	var patience = _patience_combatant()
+
+	var trigger: Dictionary = session._build_onhit_mitigation_trigger(attacker, patience, true, 15, 6)
+
+	assert_eq(trigger["weapons"].size(), 2)
+	assert_eq(trigger["weapons"], patience.weapons)
+
+
+# ── Regression: pre-existing trigger-builder fixtures lacking a 'weapons'
+#    key (built with only a 'weapon' key, the pre-FEAT-007 shape) still
+#    resolve a single-element 'weapons' array and never raise. ─────────────
+
+func test_build_reaction_trigger_regresses_safely_for_a_pre_existing_single_weapon_fixture() -> void:
+	var session = _session_for_trigger_tests()
+	var attacker = _attacker_fixture()
+	# A pre-FEAT-007-shaped fixture: only a "weapon" key, no "weapons" array
+	# authored -- CombatantClass.from_dict() derives weapons=[weapon] for it
+	# automatically (combatant.gd's own established derivation), exactly the
+	# ADR-002 backward-compatibility seam this feature relies on.
+	var legacy_target = _durable_combatant("LegacyTarget", false)
+
+	var trigger: Dictionary = session._build_reaction_trigger(attacker, legacy_target)
+
+	assert_eq(trigger["weapons"], [legacy_target.weapon], "a pre-existing single-weapon fixture must degrade to a 1-element weapons array matching 'weapon'")

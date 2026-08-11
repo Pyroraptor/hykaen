@@ -73,7 +73,14 @@ const _TRIGGER_BUILDER_BLOCK_END: String = "## _find_action_economy_for(combatan
 ## these contracts must be a deliberate, reviewed decision that also
 ## regenerates the corresponding constant below — never a silent drift.
 const PINNED_REACTION_WINDOW_SHA256: String = "61e91ed941786bdeeffa4c6174b58c1b94caa801ca8710020a864d7e9ae00c74"
-const PINNED_ROUND_SESSION_TRIGGER_BUILDER_BLOCK_SHA256: String = "dfa96eaac4e5562aa1c171f77592cecafd9db46cd13fd9f3666cac001b6c24f6"
+## PINNED_ROUND_SESSION_TRIGGER_BUILDER_BLOCK_SHA256 — FEAT-007 (US-007,
+## ADR-002): deliberately regenerated as part of this feature, which
+## extends all three trigger builders with a new "weapons" key (see
+## round_session.gd's _safe_weapons() and this block's own updated doc) —
+## exactly the kind of "deliberate, reviewed decision that also
+## regenerates the corresponding constant" this guard's own top-of-file doc
+## anticipates, never a silent drift.
+const PINNED_ROUND_SESSION_TRIGGER_BUILDER_BLOCK_SHA256: String = "5a8a893db3f9edfbebc9be7017f27ef06db68c71e40dcb9b75169e723a6ccf08"
 const PINNED_RESOLUTION_SHA256: String = "c40c480fe874e3b4334edd801f74ca99ba0a4b4bdd4ac5264056515b12bab194"
 const PINNED_REACTION_CHOOSER_PORT_SHA256: String = "fae5434a8a4c9cde299e687572daed7695b6a7e7b007aa440cc041cdb0ca235d"
 const PINNED_REACTION_WINDOW_PORT_SHA256: String = "c221ba7800e6f3d7d5918d13109b69a49843480ac7634ea936dbb1fb7e7d45d9"

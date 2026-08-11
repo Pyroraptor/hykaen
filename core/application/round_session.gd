@@ -912,6 +912,33 @@ func _reaction_choice_to_active_defense(reaction_result: Dictionary) -> String:
 	return choice
 
 
+## _safe_weapons(combatant) -> Array — FEAT-007 (US-007 / FR-007, ADR-002):
+## returns `combatant`'s full weapons array, tolerating BOTH a Combatant
+## entity (its own `weapons` property, core/domain/combatant.gd) and a
+## legacy Dictionary-shaped test fixture (a `weapons` key, read via
+## `.get()`). Falls back to a single-element `[weapon]` array (Dictionary
+## `.get("weapon", {})` or entity `.weapon`) whenever no non-empty `weapons`
+## collection is present on `combatant` — this is the ADR-002 backward-
+## compatibility seam that lets every pre-existing protected test fixture
+## (authored before the multi-weapon `weapons` field existed) keep passing
+## unmodified: such a fixture simply degrades to the one weapon it already
+## carries, mirroring core/domain/combatant.gd's own from_dict() derivation
+## precedence for the SAME fallback (see that file's own doc) without this
+## file depending on that derivation ever having run.
+func _safe_weapons(combatant) -> Array:
+	var weapons: Array = []
+	var primary_weapon: Dictionary = {}
+	if combatant is Dictionary:
+		weapons = combatant.get("weapons", [])
+		primary_weapon = combatant.get("weapon", {})
+	else:
+		weapons = combatant.weapons if "weapons" in combatant else []
+		primary_weapon = combatant.weapon
+	if not (weapons is Array) or weapons.is_empty():
+		return [primary_weapon]
+	return weapons
+
+
 ## _build_reaction_trigger(attacker, target, target_action_economy) ->
 ## Dictionary — FEAT-003 (attacker_id/target_id/defense_type/attack_context/
 ## round_number), extended by FEAT-004 (US-003 / FR-003, ADR-004): the
@@ -993,6 +1020,7 @@ func _build_reaction_trigger(attacker, target, _target_action_economy = null) ->
 		"trigger_type":           "WeaponAttack",
 		"reactor":                target,
 		"weapon":                 target.weapon,
+		"weapons":                _safe_weapons(target),
 	}
 
 
@@ -1035,6 +1063,7 @@ func _build_prehit_avoidance_trigger(attacker, target) -> Dictionary:
 		"trigger_type":           "PreHitAvoidance",
 		"reactor":                target,
 		"weapon":                 target.weapon,
+		"weapons":                _safe_weapons(target),
 	}
 
 
@@ -1092,6 +1121,7 @@ func _build_onhit_mitigation_trigger(attacker, target, attack_hit: bool, roll_to
 		"trigger_type":           "OnHitMitigation",
 		"reactor":                target,
 		"weapon":                 target.weapon,
+		"weapons":                _safe_weapons(target),
 		"attack_hit":             attack_hit,
 		"reaction_already_spent": false,
 	}
