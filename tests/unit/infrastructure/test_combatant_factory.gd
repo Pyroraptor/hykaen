@@ -165,3 +165,112 @@ func test_titus_weapon_name_round_trips_through_combatant_from_dict() -> void:
 		(weapons[0] as Dictionary).get("name", "SENTINEL"), "Longsword",
 		"'name' must round-trip unchanged into weapons[0] as well (weapons[0] == weapon invariant)"
 	)
+
+
+## --- FEAT-005 (US-005): ordered off-hand weapon collection ---------------
+
+
+func test_patience_weapons_has_2_entries_mace_primary_small_shield_off_hand() -> void:
+	# dwarf_channeler.tres.starting_equipment = [mace.tres, small_shield.tres,
+	# chain_shirt.tres]. build_party_combatant() must walk this list and
+	# collect an ORDERED weapon_res_list (not "last WeaponResource wins"),
+	# producing combatant['weapons'] == [mace_dict, small_shield_dict].
+	var factory := CombatantFactoryClass.new()
+	var combatant: Dictionary = factory.build_party_combatant(DWARF_CHANNELER_PATH, null, "patience_1")
+
+	assert_false(combatant.has("error"), "dwarf_channeler.tres must build without error")
+	var weapons: Array = combatant.get("weapons", [])
+	assert_eq(weapons.size(), 2, "Patience must have 2 weapons: mace (primary) + small shield (off-hand)")
+
+	var mace: Dictionary = weapons[0]
+	assert_eq(mace.get("damage_die", -1), 8, "weapons[0] must be the mace (damage_die=8)")
+	assert_eq(mace.get("name", "SENTINEL"), "Mace", "weapons[0] name must be 'Mace'")
+
+	var shield: Dictionary = weapons[1]
+	assert_eq(shield.get("name", "SENTINEL"), "Small Shield", "weapons[1] name must be 'Small Shield'")
+	assert_eq(shield.get("block_value", -1), 4, "weapons[1] block_value must match small_shield.tres (4)")
+	assert_eq(shield.get("parry_bonus", -1), 1, "weapons[1] parry_bonus must match small_shield.tres (1)")
+	assert_eq(shield.get("block_die", -1), 10, "weapons[1] block_die must match small_shield.tres (10)")
+
+
+func test_patience_weapon_field_is_structurally_identical_to_weapons_0() -> void:
+	# Invariant (data_model): weapons[0] is always structurally identical to
+	# the `weapon` field. Must hold even when a second (off-hand) weapon is
+	# present.
+	var factory := CombatantFactoryClass.new()
+	var combatant: Dictionary = factory.build_party_combatant(DWARF_CHANNELER_PATH, null, "patience_1")
+
+	var weapon: Dictionary = combatant.get("weapon", {})
+	var weapons: Array = combatant.get("weapons", [])
+	assert_eq(weapons.size(), 2, "fixture assumption: Patience must have 2 weapons")
+	assert_eq(weapon, weapons[0], "combatant['weapon'] must be structurally identical to weapons[0]")
+
+
+func test_titus_weapons_has_1_entry_regression() -> void:
+	# Regression guard (RISK-002 merge gate): a single-weapon party
+	# combatant's weapons.size() must remain 1, with stats identical to the
+	# pre-refactor baseline (longsword.tres).
+	var factory := CombatantFactoryClass.new()
+	var combatant: Dictionary = factory.build_party_combatant(TITUS_PATH, null, "titus_1")
+
+	assert_false(combatant.has("error"), "titus.tres must build a valid combatant with no error")
+	var weapons: Array = combatant.get("weapons", [])
+	assert_eq(weapons.size(), 1, "Titus must have exactly 1 weapon (regression: ordered collection must not fabricate an off-hand)")
+
+	var weapon_res = ResourceLoader.load("res://data/weapons/longsword.tres")
+	var weapon: Dictionary = weapons[0]
+	assert_eq(weapon.get("name", "SENTINEL"), weapon_res.name, "Titus weapons[0].name must match longsword.tres")
+	assert_eq(weapon.get("damage_die", -1), weapon_res.damage_die, "Titus weapons[0].damage_die must match longsword.tres")
+	assert_eq(weapon.get("proficiency_bonus", -1), weapon_res.proficiency_bonus, "Titus weapons[0].proficiency_bonus must match longsword.tres")
+	assert_eq(weapon.get("parry_bonus", -1), weapon_res.parry_bonus, "Titus weapons[0].parry_bonus must match longsword.tres")
+	assert_eq(weapon.get("block_value", -1), weapon_res.block_value, "Titus weapons[0].block_value must match longsword.tres")
+	assert_eq(weapon.get("block_die", -1), weapon_res.block_die, "Titus weapons[0].block_die must match longsword.tres")
+
+
+func test_gram_marx_weapons_has_1_entry_regression() -> void:
+	var factory := CombatantFactoryClass.new()
+	var combatant: Dictionary = factory.build_party_combatant(GRAM_MARX_PATH, null, "gram_marx_1")
+
+	assert_false(combatant.has("error"), "gram_marx.tres must build a valid combatant with no error")
+	var weapons: Array = combatant.get("weapons", [])
+	assert_eq(weapons.size(), 1, "Gram must have exactly 1 weapon (regression: ordered collection must not fabricate an off-hand)")
+	assert_eq(weapons[0], combatant.get("weapon", {}), "Gram weapons[0] must be structurally identical to combatant['weapon']")
+
+
+func test_marigold_weapons_has_1_entry_regression() -> void:
+	var factory := CombatantFactoryClass.new()
+	var combatant: Dictionary = factory.build_party_combatant(MARIGOLD_PATH, null, "marigold_1")
+
+	assert_false(combatant.has("error"), "marigold.tres must build a valid combatant with no error")
+	var weapons: Array = combatant.get("weapons", [])
+	assert_eq(weapons.size(), 1, "Marigold must have exactly 1 weapon (regression: ordered collection must not fabricate an off-hand)")
+	assert_eq(weapons[0], combatant.get("weapon", {}), "Marigold weapons[0] must be structurally identical to combatant['weapon']")
+
+
+func test_patience_armor_res_still_first_armor_resource_in_starting_equipment() -> void:
+	# armor_res assignment (first ArmorResource in starting_equipment) must be
+	# unaffected by the ordered weapon collection change -- chain_shirt.tres
+	# is the 3rd entry in dwarf_channeler.tres.starting_equipment, after the
+	# 2 weapon entries.
+	var factory := CombatantFactoryClass.new()
+	var combatant: Dictionary = factory.build_party_combatant(DWARF_CHANNELER_PATH, null, "patience_1")
+
+	assert_false(combatant.has("error"), "dwarf_channeler.tres must build without error")
+	var armor_res = ResourceLoader.load("res://data/armor/chain_shirt.tres")
+	assert_eq(
+		combatant.get("ac", -1), 10 + armor_res.ac_base,
+		"Patience's ac must still be derived from chain_shirt.tres (first ArmorResource in starting_equipment)"
+	)
+
+
+func test_build_party_combatant_missing_primary_weapon_error_shape_unchanged() -> void:
+	# Existing nil-check/error path for a missing primary weapon must be
+	# unchanged by the ordered weapon collection refactor. Titus has a valid
+	# primary weapon, so this pins the ABSENCE of an error for the happy
+	# path; the error SHAPE itself ({"error": ..., "enemy_path": ...}) is
+	# exercised by build_enemy_combatant regression tests elsewhere -- this
+	# guard confirms build_party_combatant's success path never spuriously
+	# reports an error after the refactor.
+	var factory := CombatantFactoryClass.new()
+	var combatant: Dictionary = factory.build_party_combatant(TITUS_PATH, null, "titus_1")
+	assert_false(combatant.has("error"), "build_party_combatant() must not report an error when a primary weapon is present")

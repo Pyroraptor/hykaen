@@ -44,14 +44,21 @@ func build_party_combatant(character_path: String, hex_coord, combatant_id: Stri
 	var character = ResourceLoader.load(character_path)
 	var class_data = character.class_ref
 
-	var weapon_res = null
+	# FEAT-005 (US-005 / FR-003, RISK-002 mitigation): walk starting_equipment
+	# and collect an ORDERED weapon_res_list of every WeaponResource found,
+	# instead of resolving a single `weapon_res` variable. Order is
+	# semantically significant (data_model): index 0 = primary, index 1 =
+	# off-hand. weapon_res (below) stays the primary weapon for every
+	# existing downstream read in this function -- this is purely additive.
+	var weapon_res_list: Array = []
 	var armor_res = null
 	for equip_path in character.starting_equipment:
 		var equip = ResourceLoader.load(equip_path)
-		if equip is WeaponResourceClass and weapon_res == null:
-			weapon_res = equip
+		if equip is WeaponResourceClass:
+			weapon_res_list.append(equip)
 		elif equip is ArmorResourceClass:
 			armor_res = equip
+	var weapon_res = weapon_res_list[0] if not weapon_res_list.is_empty() else null
 
 	var attrs := AttributesClass.new(RNGClass.new(0))
 	var hp: int = attrs.compute_hp(character.attributes, class_data)
@@ -124,28 +131,22 @@ func build_party_combatant(character_path: String, hex_coord, combatant_id: Stri
 		# SAME construction path every party combatant uses.
 		"spellcasting_attribute_score": spellcasting_attribute_score,
 		"known_spell_ids": character.known_spell_ids.duplicate(),
-		"weapon": {
-			# FEAT-004 (US-004 / FR-002): carry the WeaponResource's display
-			# name onto the combatant weapon dict, so reaction-prompt/UI
-			# labels (a later feature) can render "Parry (Mace +1)" instead
-			# of a bare reaction id. Combatant.from_dict()/to_dict() deep-
-			# duplicate arbitrary weapon-dict keys (weapon.duplicate(true)),
-			# so this round-trips with zero domain-layer change.
-			"name":                      weapon_res.name,
-			"damage_modifier_attribute": weapon_res.damage_modifier_attribute,
-			"proficiency_bonus":         weapon_res.proficiency_bonus,
-			"damage_die":                weapon_res.damage_die,
-			# FEAT-006 real-play fix: carry the DEFENSIVE reaction fields too, so
-			# the live reaction window can offer Parry/Block (not just Dodge) and
-			# resolution.gd's Parry/Block math has the values it needs. Without
-			# these, is_parry_eligible()/is_block_eligible() read 0 and the pop-up
-			# only ever shows Dodge — the reaction-window aggregation + weapon data
-			# (parry_bonus/block_value on the WeaponResource) were correct, this
-			# composition-root combatant build was the sole missing link.
-			"parry_bonus":               weapon_res.parry_bonus,
-			"block_value":               weapon_res.block_value,
-			"block_die":                 weapon_res.block_die
-		}
+		# FEAT-004 (US-004 / FR-002): carry the WeaponResource's display
+		# name onto the combatant weapon dict, so reaction-prompt/UI
+		# labels (a later feature) can render "Parry (Mace +1)" instead
+		# of a bare reaction id. Combatant.from_dict()/to_dict() deep-
+		# duplicate arbitrary weapon-dict keys (weapon.duplicate(true)),
+		# so this round-trips with zero domain-layer change.
+		#
+		# FEAT-005 (US-005 / FR-003): `weapon` is built from
+		# weapon_res_list[0] (the primary) via the shared
+		# _weapon_dict_from_resource() helper -- SAME shape as before,
+		# unchanged. `weapons` is the new ordered per-slot list: [primary]
+		# for a single-weapon combatant, or [primary, off_hand] for a
+		# shield-bearer like Patience. weapons[0] is always structurally
+		# identical to `weapon` (invariant pinned by regression tests).
+		"weapon": _weapon_dict_from_resource(weapon_res),
+		"weapons": _weapon_dicts_from_resources(weapon_res_list)
 	}
 	if hex_coord != null:
 		combatant["hex_coord"] = hex_coord
@@ -396,6 +397,44 @@ func build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String =
 	# fail-fast error path above is deliberately NOT routed through the entity —
 	# it keeps returning the {"error": ...} Dictionary the call-site guard checks.
 	return CombatantClass.from_dict(combatant).to_dict()
+
+
+## _weapon_dict_from_resource(weapon_res) -> Dictionary
+##
+## FEAT-005 (US-005 / FR-003): the single shared mapping from a loaded
+## WeaponResource to the combatant weapon-dict shape (name,
+## damage_modifier_attribute, proficiency_bonus, damage_die, parry_bonus,
+## block_value, block_die). Extracted so build_party_combatant()'s
+## `weapon` (primary) and `weapons` (ordered list) fields are built from
+## the EXACT same mapping -- this is what guarantees the weapons[0] ==
+## weapon invariant (data_model) by construction, not by a separate
+## equality check.
+func _weapon_dict_from_resource(weapon_res) -> Dictionary:
+	return {
+		"name":                      weapon_res.name,
+		"damage_modifier_attribute": weapon_res.damage_modifier_attribute,
+		"proficiency_bonus":         weapon_res.proficiency_bonus,
+		"damage_die":                weapon_res.damage_die,
+		"parry_bonus":               weapon_res.parry_bonus,
+		"block_value":               weapon_res.block_value,
+		"block_die":                 weapon_res.block_die
+	}
+
+
+## _weapon_dicts_from_resources(weapon_res_list) -> Array
+##
+## FEAT-005 (US-005 / FR-003): maps an ORDERED Array of loaded
+## WeaponResources (as collected by build_party_combatant()'s
+## starting_equipment walk) to an Array of weapon dicts via
+## _weapon_dict_from_resource(), preserving order (index 0 = primary,
+## index 1 = off-hand). Returns [] for an empty list -- the pre-existing
+## nil-check/error path for a missing primary weapon is unchanged; this
+## helper never raises.
+func _weapon_dicts_from_resources(weapon_res_list: Array) -> Array:
+	var result: Array = []
+	for weapon_res in weapon_res_list:
+		result.append(_weapon_dict_from_resource(weapon_res))
+	return result
 
 
 ## compute_mage_recharge_budget_remaining(intellect, equipped_items) -> int
