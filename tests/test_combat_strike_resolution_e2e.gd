@@ -110,7 +110,7 @@ const _STEEL_THREAD_SCRIPT_PATHS: Array = [
 	"res://tests/test_encounter_round_loop.gd",
 	"res://tests/test_simulator_determinism.gd",
 	"res://ci/test_known_failures_allowlist.gd",
-	"res://tests/test_steel_thread_strike_resolution_e2e.gd",
+	"res://tests/test_combat_strike_resolution_e2e.gd",
 ]
 
 
