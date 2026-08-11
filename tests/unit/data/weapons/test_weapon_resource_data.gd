@@ -231,6 +231,7 @@ func test_small_shield_stats() -> void:
 	assert_not_null(res, "small_shield.tres must load")
 	if res == null:
 		return
+	assert_eq(res.proficiency_bonus, 1, "small_shield proficiency_bonus must be 1")
 	assert_eq(res.block_value, 4, "small_shield block_value must be 4")
 	assert_eq(res.parry_bonus, 1, "small_shield parry_bonus must be 1")
 	assert_eq(res.block_die, 10, "small_shield block_die must be 10 (1d10)")
@@ -270,6 +271,7 @@ func test_large_shield_stats() -> void:
 	assert_not_null(res, "large_shield.tres must load")
 	if res == null:
 		return
+	assert_eq(res.proficiency_bonus, 1, "large_shield proficiency_bonus must be 1")
 	assert_eq(res.block_value, 5, "large_shield block_value must be 5")
 	assert_eq(res.parry_bonus, 2, "large_shield parry_bonus must be 2")
 	assert_eq(res.block_die, 12, "large_shield block_die must be 12 (1d12)")
@@ -309,6 +311,7 @@ func test_buckler_stats() -> void:
 	assert_not_null(res, "buckler.tres must load")
 	if res == null:
 		return
+	assert_eq(res.proficiency_bonus, 2, "buckler proficiency_bonus must be 2")
 	assert_eq(res.block_value, 3, "buckler block_value must be 3")
 	assert_eq(res.parry_bonus, 3, "buckler parry_bonus must be 3")
 	assert_eq(res.block_die, 8, "buckler block_die must be 8 (1d8)")
