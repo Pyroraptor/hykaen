@@ -66,6 +66,22 @@ class UnusedRandomNumberPort:
 		return 0
 
 
+## FEAT-393 (US-001/US-002, RISK-001 remediation, PR-006): a target that is
+## NEITHER a CombatantClass instance NOR a Dictionary — the caller-contract
+## violation the if/elif type-branch must fail CLOSED against rather than
+## silently defaulting combatant_id as if it were the legitimate
+## dict-missing-combatant_id case. Deliberately carries `name`/`hp_current`
+## (so it clears the earlier, unrelated `target.name`/`target.hp_current <=
+## 0` reads _finalize_strike_result() performs for EVERY target shape) but
+## has NO `combatant_id` property and does not extend CombatantClass or
+## Dictionary — isolating this test to the type-branch under repair.
+class _MalformedTarget:
+	extends RefCounted
+
+	var name: String = "Malformed"
+	var hp_current: int = 0
+
+
 # ── Shared fixtures ──────────────────────────────────────────────────────────
 
 func _attacker():
@@ -277,3 +293,98 @@ func test_dictionary_target_with_explicit_combatant_id_is_read_without_error() -
 	assert_eq(defeated_events[0].round, 1, "round_number must be threaded through unchanged when combatant_id is explicit")
 	assert_eq(defeated_events[0].name, "Fragile", "the defeated target's name must be threaded through unchanged when combatant_id is explicit")
 	assert_eq(defeated_events[0].defeated_by, "Attacker", "the attacking combatant's name must be threaded through unchanged when combatant_id is explicit")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-393 (US-001/US-002, RISK-001 remediation, PR-006): targeted hardening
+# review of the if/elif type-branch — edge-case inputs beyond the two
+# happy-path shapes (typed CombatantClass, well-formed Dictionary) already
+# pinned above.
+# ══════════════════════════════════════════════════════════════════════════════
+
+## Regression re-affirmation (RISK-001 test #1): a well-formed Dictionary
+## target missing the optional "combatant_id" key must still emit
+## CombatantDefeatedEvent.combatant_id == "" with no exception — this is the
+## exact shape that crashed the pre-FEAT-001 eager ternary. Already exercised
+## by test_dictionary_target_at_zero_hp_is_defeated_with_no_script_error()
+## above; re-affirmed here explicitly under FEAT-393 for traceability against
+## RISK-001's own acceptance bullet.
+func test_feat393_wellformed_dictionary_missing_combatant_id_still_defeats_cleanly() -> void:
+	var rig: Dictionary = _make_use_case()
+	var attacker = _attacker()
+	var target: Dictionary = _fragile_combatant("ReAffirmed", 0)
+	assert_false(target.has("combatant_id"), "fixture precondition: _fragile_combatant must not carry a combatant_id key")
+
+	var result: Dictionary = rig["use_case"]._finalize_strike_result(
+		attacker, _fresh_ae(), target, "Strike", 1, 0, {"remaining": 6}, _zero_damage_strike_result()
+	)
+
+	assert_true(result.get("target_defeated", false), "a well-formed Dictionary missing combatant_id must still report target_defeated == true")
+	var defeated_events: Array = rig["event_sink"].events.filter(func(e): return e is RoundEventsClass.CombatantDefeatedEvent)
+	assert_eq(defeated_events.size(), 1, "exactly one combatant_defeated event must be emitted")
+	assert_eq(defeated_events[0].combatant_id, "", "combatant_id must default to '' — never raise — when the key is absent")
+
+
+## RISK-001 test #2: a Dictionary target carrying ONLY the two fields the
+## documented contract guarantees ("hp_current" and "name") — no "ac", no
+## "weapon", no "combatant_id", no other non-critical field — must still
+## compute target_defeated correctly and must not crash. This isolates the
+## Dictionary branch from every optional field a richer fixture (like
+## _fragile_combatant) happens to also carry.
+func test_bare_dictionary_with_only_hp_current_and_name_computes_defeat_without_crash() -> void:
+	var rig: Dictionary = _make_use_case()
+	var attacker = _attacker()
+	var bare_target: Dictionary = {"hp_current": 0, "name": "Bare"}
+
+	var result: Dictionary = rig["use_case"]._finalize_strike_result(
+		attacker, _fresh_ae(), bare_target, "Strike", 1, 0, {"remaining": 6}, _zero_damage_strike_result()
+	)
+
+	assert_true(result.get("target_defeated", false), "a bare Dictionary with only hp_current/name at hp_current<=0 must report target_defeated == true")
+	var defeated_events: Array = rig["event_sink"].events.filter(func(e): return e is RoundEventsClass.CombatantDefeatedEvent)
+	assert_eq(defeated_events.size(), 1, "exactly one combatant_defeated event must be emitted for the bare Dictionary")
+	assert_eq(defeated_events[0].combatant_id, "", "a bare Dictionary lacking every optional field, including combatant_id, must default to '' — never raise")
+	assert_eq(defeated_events[0].name, "Bare", "the defeated target's name must be threaded through unchanged for the bare Dictionary")
+	assert_eq(defeated_events[0].defeated_by, "Attacker", "the attacking combatant's name must be threaded through unchanged for the bare Dictionary")
+
+	# Surviving case: same minimal shape, but hp_current > 0.
+	var bare_survivor: Dictionary = {"hp_current": 1, "name": "BareSurvivor"}
+	var survivor_result: Dictionary = rig["use_case"]._finalize_strike_result(
+		attacker, _fresh_ae(), bare_survivor, "Strike", 1, 0, {"remaining": 6}, _zero_damage_strike_result()
+	)
+	assert_false(survivor_result.get("target_defeated", true), "a bare Dictionary at hp_current>0 must report target_defeated == false")
+
+
+## RISK-001 test #3 (the risk's own scenario — "may miss an edge case ...
+## reintroducing a crash under a different input pattern"): a target that is
+## NEITHER a CombatantClass instance NOR a Dictionary is a caller contract
+## violation the if/elif branch must fail CLOSED against — it must NOT raise
+## a fresh engine error, and it must NOT silently emit a
+## CombatantDefeatedEvent whose combatant_id is masked/defaulted as if this
+## were the legitimate dict-missing-combatant_id path (that would hide the
+## contract violation behind output indistinguishable from a normal case).
+## The verifiable, non-swallowed fail-closed signal this suite asserts on is
+## the ABSENCE of any emitted CombatantDefeatedEvent for the malformed
+## target — an absent event can never be mistaken for the documented ''
+## default, whereas an emitted one with combatant_id == "" could.
+func test_unrecognized_target_type_fails_closed_without_masked_defeat_event() -> void:
+	var rig: Dictionary = _make_use_case()
+	var attacker = _attacker()
+	var malformed_target = _MalformedTarget.new()
+	assert_false(malformed_target is Dictionary, "fixture precondition: _MalformedTarget must not be a Dictionary")
+
+	var result: Dictionary = rig["use_case"]._finalize_strike_result(
+		attacker, _fresh_ae(), malformed_target, "Strike", 1, 0, {"remaining": 6}, _zero_damage_strike_result()
+	)
+
+	assert_true(result is Dictionary, "_finalize_strike_result() must still return its normal Dictionary shape rather than crashing outright")
+
+	var defeated_events: Array = rig["event_sink"].events.filter(func(e): return e is RoundEventsClass.CombatantDefeatedEvent)
+	assert_eq(defeated_events.size(), 0, "an unrecognized target type must NEVER produce a CombatantDefeatedEvent — fail closed rather than silently defaulting combatant_id, per RISK-001/the fail-closed design contract")
+
+	# The 'attack' event is unrelated to the combatant_id type-branch under
+	# repair and must still be emitted normally — this confirms the fail-
+	# closed behavior is scoped to the CombatantDefeatedEvent construction
+	# only, not a wholesale abort of _finalize_strike_result().
+	var attack_events: Array = rig["event_sink"].events.filter(func(e): return e is RoundEventsClass.AttackBroadcast)
+	assert_eq(attack_events.size(), 1, "the unrelated 'attack' event must still be emitted even when the defeat event is withheld")

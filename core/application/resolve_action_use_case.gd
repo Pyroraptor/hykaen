@@ -657,15 +657,43 @@ func _finalize_strike_result(
 		# defaults to "" when the key is absent (RISK-003 regression guard).
 		# round_number/target.name/combatant.name below are untouched by
 		# either branch.
-		var target_cid: String
+		#
+		# FEAT-393 (US-001/US-002, RISK-001 remediation, PR-006): the
+		# `else:` catch-all that used to sit here silently ran the Dictionary
+		# branch's `.get("combatant_id", "")` idiom against ANY non-
+		# CombatantClass target — including a target that is neither a
+		# CombatantClass NOR a Dictionary (a caller contract violation). That
+		# would either raise a fresh engine error (Object.get() does not
+		# accept a default-value argument the way Dictionary.get() does) or,
+		# worse, silently succeed and mask the violation behind a
+		# combatant_id == "" event indistinguishable from the legitimate
+		# "well-formed Dictionary with no combatant_id key" case. Per the
+		# design's security section, type-branching here MUST fail CLOSED:
+		# an unrecognized target type is logged via push_error() (the same
+		# "log the boundary violation, never crash" idiom already used by
+		# _sanitize_active_defense() above) and the CombatantDefeatedEvent is
+		# deliberately NOT constructed/emitted at all — an absent event is
+		# observably distinct from the documented '' default, so a genuine
+		# contract violation can never be mistaken for the normal
+		# dict-missing-combatant_id path. See
+		# tests/test_finalize_strike_result.gd for the pinned coverage.
+		var target_cid: String = ""
+		var target_type_recognized: bool = true
 		if target is CombatantClass:
 			target_cid = target.combatant_id
-		else:
+		elif target is Dictionary:
 			target_cid = target.get("combatant_id", "")
-		var defeated_event = RoundEventsClass.CombatantDefeatedEvent.new(
-			round_number, target.name, combatant.name, target_cid
-		)
-		_emit_event(defeated_event)
+		else:
+			target_type_recognized = false
+			push_error(
+				"ResolveActionUseCase._finalize_strike_result: target is neither CombatantClass nor Dictionary (a %s) — contract violation; refusing to emit a CombatantDefeatedEvent with a masked/default combatant_id" % [target.get_class() if target != null and target is Object else typeof(target)]
+			)
+
+		if target_type_recognized:
+			var defeated_event = RoundEventsClass.CombatantDefeatedEvent.new(
+				round_number, target.name, combatant.name, target_cid
+			)
+			_emit_event(defeated_event)
 
 	var history_entry = RoundEventsClass.RoundHistoryEntry.new(
 		round_number,
