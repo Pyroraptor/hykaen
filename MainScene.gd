@@ -743,6 +743,9 @@ func _on_combat_won() -> void:
 		hex_grid_view.remove_combatants(enemy_ids)
 	_enemies = []
 
+	for combatant in _party:
+		combatant.cancel_cast()
+
 	var current_game_state := _current_game_state()
 	current_game_state.snapshot_from_session(_boot_scenario_path, scenario_session, _party)
 	current_game_state.save_to_slot(0)

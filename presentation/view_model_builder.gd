@@ -52,7 +52,7 @@ func build_status_view_models(hex_combatants: Array, party: Array, enemies: Arra
 			"hp_current":               combatant.hp_current,
 			"hp_max":                   combatant.hp_max,
 			"stamina_current":          combatant.stamina,
-			"stamina_max":              combatant.stamina,
+			"stamina_max":              combatant.stamina_max,
 			"action_budget_remaining":  action_economy.get_remaining() if action_economy != null else 0,
 			"spent":                    action_economy.is_spent() if action_economy != null else false,
 			"conditions":               [],
