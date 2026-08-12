@@ -198,7 +198,8 @@ func test_confirming_long_rest_rendered_ui_shows_fully_restored_hp_and_stamina_b
 
 
 func test_confirming_long_rest_rendered_ui_shows_restored_budget_before_close() -> void:
-	var gram := _combatant("gram_marx_1", "Gram Marx", 3, 15, 0, 4, 5, 1)
+	var orb := FakeEquippedItem.new(true, 1, "Orb of Gram")
+	var gram := _combatant("gram_marx_1", "Gram Marx", 3, 15, 0, 4, 5, 1, [orb])
 	_panel.open([gram])
 	_panel.get_long_rest_tab_button().pressed.emit()
 

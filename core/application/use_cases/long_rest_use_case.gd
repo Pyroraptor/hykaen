@@ -53,7 +53,7 @@ func execute(party: Array) -> Dictionary:
 
 		combatant.hp_current = combatant.hp_max
 		combatant.stamina = combatant.stamina_max
-		combatant.mage_recharge_budget_remaining = combatant.intellect
+		combatant.mage_recharge_budget_remaining = _compute_budget(combatant)
 
 		var equipped_items: Array = _duck_get(combatant, "equipped_items", [])
 		for item in equipped_items:
@@ -65,6 +65,19 @@ func execute(party: Array) -> Dictionary:
 				item.is_charged = true
 
 	return {"success": true, "restored_combatants": party.size()}
+
+
+## _compute_budget(combatant) -> int — mirrors CombatantFactory.compute_mage_recharge_budget_remaining():
+## returns intellect only when the combatant has at least one equipped item with energy_cost > 0,
+## otherwise 0. Non-mages carry no such item, so they always restore to 0.
+func _compute_budget(combatant) -> int:
+	var equipped_items: Array = _duck_get(combatant, "equipped_items", [])
+	for item in equipped_items:
+		if item == null:
+			continue
+		if int(_duck_get(item, "energy_cost", 0)) > 0:
+			return int(_duck_get(combatant, "intellect", 0))
+	return 0
 
 
 ## _duck_get(obj, key, default) -> Variant — the SAME defensive duck-typed

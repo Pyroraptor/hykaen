@@ -91,7 +91,10 @@ func test_execute_restores_stamina_to_stamina_max_for_every_combatant() -> void:
 
 
 func test_execute_restores_mage_recharge_budget_remaining_to_intellect() -> void:
-	var gram := _combatant("gram_marx_1", 15, 15, 4, 4, 5, 1)
+	# Gram must have at least one equipped item with energy_cost > 0 — that is
+	# what marks a combatant as Mage-paradigm and gates the budget restore.
+	var orb := FakeEquippedItem.new(true, 1)
+	var gram := _combatant("gram_marx_1", 15, 15, 4, 4, 5, 1, [orb])
 	var use_case := LongRestUseCaseClass.new()
 
 	use_case.execute([gram])
@@ -125,12 +128,14 @@ func test_execute_recharges_discharged_dischargeable_items() -> void:
 # ══════════════════════════════════════════════════════════════════════════
 
 func test_execute_leaves_non_mage_combatant_budget_at_zero() -> void:
-	var titus := _combatant("titus_1", 5, 20, 1, 5, 0, 0)
+	# intellect=1 matches fighters' real attribute; the bug was long rest bumped
+	# budget to intellect (1) for any combatant regardless of equipped items.
+	var titus := _combatant("titus_1", 5, 20, 1, 5, 1, 0)
 	var use_case := LongRestUseCaseClass.new()
 
 	use_case.execute([titus])
 
-	assert_eq(titus.mage_recharge_budget_remaining, 0, "a non-Mage combatant's derived budget stays 0 (0 -> intellect(0) is a no-op)")
+	assert_eq(titus.mage_recharge_budget_remaining, 0, "non-Mage combatant's budget must stay 0 after long rest — intellect alone does not gate the budget")
 	assert_eq(titus.hp_current, titus.hp_max)
 	assert_eq(titus.stamina, titus.stamina_max)
 
