@@ -179,8 +179,13 @@ var _result_text: String = ""
 
 
 func _ready() -> void:
+	# The root Control must not eat battlefield or UI clicks — only the label
+	# itself is interactive-adjacent (display only). Mirrors status_panel_view.gd,
+	# event_log_view.gd, and initiative_view.gd's established MOUSE_FILTER_IGNORE pattern.
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if _result_label != null:
 		_result_label.visible = false
+		_result_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_result_label.text = ""
 
 
