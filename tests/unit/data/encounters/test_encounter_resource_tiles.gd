@@ -318,11 +318,13 @@ func test_weapon_path_overrides_round_trips_mixed_empty_and_non_empty_entries() 
 
 
 func test_all_preexisting_encounter_tres_files_load_without_error() -> void:
+	# long_hall.tres is intentionally excluded here because it now carries a
+	# non-empty off_hand_path_overrides (slot 1 = small_shield) — see
+	# test_long_hall_encounter_has_shielded_skeleton() below.
 	var encounter_paths := [
 		"res://data/encounters/prologue_encounter.tres",
 		"res://data/encounters/batty_guard.tres",
 		"res://data/encounters/dripping_cave.tres",
-		"res://data/encounters/long_hall.tres",
 	]
 	for path in encounter_paths:
 		var enc = ResourceLoader.load(path, "", ResourceLoader.CACHE_MODE_IGNORE)
@@ -340,6 +342,19 @@ func test_all_preexisting_encounter_tres_files_load_without_error() -> void:
 				enc.off_hand_path_overrides, [],
 				"%s must load with off_hand_path_overrides == [] — no pre-existing .tres file was edited by FEAT-003 / US-003" % path
 			)
+
+
+func test_long_hall_encounter_has_shielded_skeleton() -> void:
+	var enc = ResourceLoader.load("res://data/encounters/long_hall.tres", "", ResourceLoader.CACHE_MODE_IGNORE)
+	assert_not_null(enc, "long_hall.tres must load without error")
+	if enc == null:
+		return
+	assert_eq(enc.off_hand_path_overrides.size(), 2,
+		"long_hall.tres must have 2 off_hand_path_overrides entries (one per enemy slot)")
+	assert_eq(enc.off_hand_path_overrides[0], "",
+		"long_hall slot 0 (plain skeleton) must have no off-hand override")
+	assert_eq(enc.off_hand_path_overrides[1], "res://data/weapons/small_shield.tres",
+		"long_hall slot 1 must carry a small shield override")
 
 
 # ══════════════════════════════════════════════════════════════════════════════

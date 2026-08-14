@@ -1,22 +1,27 @@
 extends GutTest
 ## tests/integration/test_skeleton_shielded_block_e2e.gd
 ##
-## END-TO-END STEEL THREAD: proves the shielded skeleton pipeline from raw
-## .tres data through to the rendered reaction-prompt block button.
+## END-TO-END STEEL THREAD: proves the per-encounter off-hand weapon override
+## pipeline from raw .tres data through to the rendered reaction-prompt block
+## button. A plain skeleton.tres (arming sword only) is given a small shield
+## via the off_hand_path_override argument — the same mechanism
+## EncounterResource.off_hand_path_overrides[i] feeds at runtime — so a
+## single enemy .tres can appear armed differently in different encounters
+## without duplicating the resource.
 ##
-##   DATA         -> data/enemies/skeleton_shielded.tres,
+##   DATA         -> data/enemies/skeleton.tres,
 ##                   data/weapons/{arming_sword,small_shield}.tres
 ##   INFRASTRUCTURE -> infrastructure/combatant_factory.gd
-##                   (CombatantFactory.build_enemy_combatant())
+##                   (CombatantFactory.build_enemy_combatant() with off-hand override)
 ##   APPLICATION  -> core/application/round_session.gd
 ##                   (_build_defense_context(), _build_reaction_trigger())
 ##                   and core/application/reaction_window.gd
 ##                   (_compute_legal_reactions())
 ##   PRESENTATION -> scenes/ui/reaction_prompt_ui.gd (open_prompt())
 ##
-## Entry point: CombatantFactory.build_enemy_combatant() on
-## skeleton_shielded.tres. Exit point: rendered "Block (Small Shield 1d10+4)"
-## Button, keyed by bare reaction id "block".
+## Entry point: build_enemy_combatant("skeleton.tres", off_hand="small_shield.tres").
+## Exit point: rendered "Block (Small Shield 1d10+4)" Button, keyed by bare
+## reaction id "block".
 
 const CombatantFactoryClass        = preload("res://infrastructure/combatant_factory.gd")
 const CombatantClass               = preload("res://core/domain/combatant.gd")
@@ -28,7 +33,8 @@ const SeededRandomAdapterClass     = preload("res://core/combat/seeded_random_ad
 const ReactionWindowClass          = preload("res://core/application/reaction_window.gd")
 const ReactionPromptUIScene        = preload("res://scenes/ui/reaction_prompt_ui.tscn")
 
-const SKELETON_SHIELDED_PATH: String = "res://data/enemies/skeleton_shielded.tres"
+const SKELETON_PATH:       String = "res://data/enemies/skeleton.tres"
+const SMALL_SHIELD_PATH:   String = "res://data/weapons/small_shield.tres"
 
 
 class FakeTurnOrderPort:
@@ -86,22 +92,25 @@ func _round_session_for_trigger_tests(alpha):
 
 
 func test_skeleton_shielded_block_reaction_prompt_end_to_end() -> void:
-	# DATA -> INFRASTRUCTURE: build from the real skeleton_shielded.tres.
+	# DATA -> INFRASTRUCTURE: plain skeleton.tres with a small shield injected
+	# via off_hand_path_override — the same path EncounterResource.
+	# off_hand_path_overrides[i] feeds at runtime (long_hall.tres slot 1).
 	var factory := CombatantFactoryClass.new()
 	var combatant_dict: Dictionary = factory.build_enemy_combatant(
-		SKELETON_SHIELDED_PATH, null, "enemy_1"
+		SKELETON_PATH, null, "enemy_1", "", SMALL_SHIELD_PATH
 	)
 
 	assert_false(combatant_dict.has("error"),
-		"skeleton_shielded.tres must build without error (got: %s)" % [combatant_dict])
+		"skeleton.tres + small_shield override must build without error (got: %s)" % [combatant_dict])
 	var weapons: Array = combatant_dict.get("weapons", [])
 	assert_eq(weapons.size(), 2,
-		"shielded skeleton must carry 2 weapons: arming sword (primary) + small shield (off-hand)")
+		"skeleton with off-hand override must carry 2 weapons: arming sword (primary) + small shield")
 	assert_eq((weapons[1] as Dictionary).get("block_die", -1), 10,
 		"weapons[1] (Small Shield) block_die must be 10")
 
 	var skeleton = CombatantClass.from_dict(combatant_dict)
-	assert_eq(skeleton.weapons.size(), 2, "Combatant entity must carry the same 2-weapon loadout")
+	assert_eq(skeleton.weapons.size(), 2,
+		"Combatant entity must carry the same 2-weapon loadout after from_dict()")
 
 	# APPLICATION: _build_defense_context() selects the small shield as best blocker.
 	var attacker = _durable_attacker()

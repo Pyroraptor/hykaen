@@ -3054,7 +3054,8 @@ is_safe_area = true
 [resource]
 script = ExtResource("1_akjmo")
 party_resource_paths = []
-enemy_resource_paths = ["res://data/enemies/skeleton.tres", "res://data/enemies/skeleton_shielded.tres"]
+enemy_resource_paths = ["res://data/enemies/skeleton.tres", "res://data/enemies/skeleton.tres"]
+off_hand_path_overrides = ["", "res://data/weapons/small_shield.tres"]
 party_hex_positions = [{
 "q": -8,
 "r": 4
