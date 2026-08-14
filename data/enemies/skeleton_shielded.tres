@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="EnemyResource" load_steps=2 format=3 uid="uid://skshld1a2b3c4"]
+
+[ext_resource type="Script" uid="uid://enmyres1a2b3c" path="res://data/enemies/enemy_resource.gd" id="1_enemres"]
+
+[resource]
+script = ExtResource("1_enemres")
+name = "Skeleton"
+hp = 8
+str = 2
+dex = 1
+weapon_paths = ["res://data/weapons/arming_sword.tres", "res://data/weapons/small_shield.tres"]
+ac = 14
+fortitude = 13
+reflex = 12
+will = 12
+constitution = 1
+intuition = 1
+willpower = 1
+social = 1
+intellect = 0
+skills = {"determination": 1, "mobility": 1}
