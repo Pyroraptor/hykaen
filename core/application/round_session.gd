@@ -1487,7 +1487,20 @@ func advance_ai_turn() -> Dictionary:
 	# AIDecisionPort (no resolver injected on the real core/combat/ai.gd, or
 	# any 2-argument test double), this `await` never actually suspends and
 	# resolves synchronously within the same call (NFR-004).
-	var ai_decision: Dictionary = await _decide_ai_action(combatant, action_economy)
+	# FEAT-009 (US-009 / FR-016, ADR-002): _decide_ai_action() now always
+	# returns an Array (see that method's own doc). advance_ai_turn() itself
+	# is NOT the feature that consumes a multi-item plan (that is US-010's
+	# _execute_ai_plan(), a separate, later feature) -- every port currently
+	# wired here (the real core/combat/ai.gd, every FakeDecisionPort/
+	# BrokenAIDecisionPort test double) still takes the legacy fallback path,
+	# which wraps its single Dictionary result in a single-element Array
+	# ([legacy_result]) precisely so this unwrap reproduces the exact
+	# pre-FEAT-009 `ai_decision` Dictionary byte-for-byte (NFR-004). An empty
+	# Array (a plan_turn()-shaped port returning [] / WAIT) degrades safely
+	# to an empty Dictionary here, matching the "no action type" no-op shape
+	# `action_name == ""` below already handles.
+	var ai_decision_plan: Array = await _decide_ai_action(combatant, action_economy)
+	var ai_decision: Dictionary = ai_decision_plan[0] if ai_decision_plan.size() > 0 else {}
 	var action_name: String = ai_decision.get("action_type", "")
 	var target = ai_decision.get("target", null)
 
@@ -1998,9 +2011,9 @@ func advance_ai_turn() -> Dictionary:
 	return _after_action_resolved()
 
 
-## _decide_ai_action(combatant, action_economy) -> Dictionary — FEAT-006
-## (US-006 / FR-010, ADR-002): drives the injected AIDecisionPort's
-## decide_action(). Every pre-existing 2-argument adapter/test-double
+## _decide_ai_action(combatant, action_economy) -> Array — LEGACY FALLBACK
+## PATH, FEAT-006 (US-006 / FR-010, ADR-002): drives the injected
+## AIDecisionPort's decide_action(). Every pre-existing 2-argument adapter/test-double
 ## (core/application/ai_decision_port.gd's documented contract:
 ## decide_action(combatant, targets) -> Dictionary — e.g. this suite's own
 ## FakeAIDecisionPort/BrokenAIDecisionPort doubles) is called EXACTLY as
@@ -2018,6 +2031,12 @@ func advance_ai_turn() -> Dictionary:
 ## `_stride_reaction_resolver_fn` doc) is genuinely awaited to completion —
 ## every pre-existing 2-argument test double's call remains un-awaited (those
 ## never contain `await` internally, so nothing here changes for them).
+##
+## This entire decide_action()-reflection path is now ONLY reached as the
+## fallback half of FEAT-009's dispatch — see the FEAT-009 doc block
+## immediately above the function body below for the new, preferred
+## plan_turn() branch and the exact Array-wrapping contract this legacy path
+## must still honor.
 ## _build_ai_world_context(combatant, action_economy) -> Dictionary — FEAT-008
 ## (US-008 / FR-015): assembles the AIWorldContext DTO { party, enemies,
 ## action_economy } handed to a DOMAIN AI planner (AIPlannerPort.plan_turn())
@@ -2058,17 +2077,58 @@ func _build_ai_world_context(_combatant, action_economy) -> Dictionary:
 	}
 
 
-func _decide_ai_action(combatant, action_economy) -> Dictionary:
+## _decide_ai_action(combatant, action_economy) -> Array — FEAT-009 (US-009 /
+## FR-016, ADR-002; RISK-006): the dispatch seam that lets the NEW
+## AIPlannerPort.plan_turn() contract (core/application/ai_planner_port.gd,
+## FEAT-001) and the frozen, pre-existing AIDecisionPort.decide_action()
+## reflection path (documented immediately above) coexist on the SAME
+## `_ai_decision_port` collaborator, without an adapter class and without
+## modifying either frozen contract file (ai_decision_port.gd, core/combat/
+## ai.gd).
+##
+## Dispatch rule: a duck-typed `Callable(_ai_decision_port,
+## "plan_turn").is_valid()` check — never a static type check/`is`/
+## `instanceof`-style cast, which would reject a purely duck-typed planner
+## double under GDScript's static type checking, and never a `has_method()`
+## string check either, mirroring this file's own established Callable-based
+## seam convention (e.g. `_reaction_resolver_fn`/`_hex_choice_resolver_fn`
+## above). Both branches return an Array; this method's OWN return type is
+## always Array from this feature forward:
+##
+##   plan_turn() IS valid (a new-style AIPlannerPort/duck-typed planner is
+##     wired as `_ai_decision_port`) — calls
+##     `plan_turn(combatant, _build_ai_world_context(combatant,
+##     action_economy))` (FEAT-008's DTO, built fresh for this call, never
+##     cached) and returns its Array VERBATIM, bypassing the legacy
+##     decide_action() reflection path entirely — no 2/4-arg
+##     `get_argument_count()` probe is ever made against a plan_turn-shaped
+##     port.
+##
+##   plan_turn() is NOT valid (every pre-existing AIDecisionPort
+##     adapter/test-double, including the real core/combat/ai.gd and every
+##     FakeDecisionPort/BrokenAIDecisionPort double in this suite) — falls
+##     back UNMODIFIED to the existing 2/4-arg decide_action() reflection
+##     call documented above, wrapping its single Dictionary result in a
+##     single-element Array (`[legacy_result]`). This wrapping — not a
+##     behavior change to the legacy call itself — is the sole difference a
+##     pre-existing caller of THIS method would observe; advance_ai_turn()
+##     below unwraps element 0 to preserve its own pre-FEAT-009 Dictionary-
+##     shaped contract byte-for-byte (NFR-004 default-safety).
+func _decide_ai_action(combatant, action_economy) -> Array:
+	var plan_turn_callable := Callable(_ai_decision_port, "plan_turn")
+	if plan_turn_callable.is_valid():
+		return plan_turn_callable.call(combatant, _build_ai_world_context(combatant, action_economy))
+
 	var decide_callable := Callable(_ai_decision_port, "decide_action")
 	if decide_callable.get_argument_count() < 4:
-		return decide_callable.call(combatant, _party)
+		return [decide_callable.call(combatant, _party)]
 
 	var other_combatants: Array = []
 	for enemy in _enemies:
 		if not is_same(enemy, combatant):
 			other_combatants.append(enemy)
 
-	return await decide_callable.call(combatant, _party, action_economy, other_combatants)
+	return [await decide_callable.call(combatant, _party, action_economy, other_combatants)]
 
 
 ## _reposition_token_after_ai_stride(combatant, ai_decision) -> void —
