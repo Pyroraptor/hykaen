@@ -320,6 +320,47 @@ func set_token_animate_path_fn(fn: Callable) -> void:
 	_token_animate_path_fn = fn
 
 
+## _enemy_combine_resolver — OPTIONAL (FEAT-400 / US-010 / FR-017, FR-018):
+## an injected, duck-typed collaborator satisfying `resolve(item: Dictionary,
+## combatant, action_economy) -> Dictionary`, that _execute_ai_plan()'s
+## "Combine" match case delegates to when a "Combine" ActionPlanItem is
+## dispatched. Mirrors `_token_reposition_fn`/`_reaction_resolver_fn`'s own
+## established seam pattern exactly (ADR-002's Dependency Inversion
+## mechanism in lieu of GDScript interfaces/generics): RoundSession depends
+## on this collaborator ONLY as a duck-typed shape and NEVER
+## imports/references core/combat/enemy_combine_resolver.gd or any other
+## concrete Presentation/Infrastructure/bridge class by type
+## (ADR-001/ADR-002) — that concrete bridge does not even exist yet as of
+## this feature (named for completeness in the iteration's design notes,
+## out of scope here).
+##
+## Left `null` — the default — for every pre-existing caller/test double,
+## including every headless/sim caller and the ENTIRE existing GUT suite,
+## none of which ever call set_enemy_combine_resolver() below. With this
+## field left null, _execute_ai_plan()'s "Combine" case is a full,
+## documented no-op: no economy spend, no reposition, no error raised, and
+## `any_action_taken` is left completely unaffected by that item — this is
+## the "guaranteed zero behavioral change" this feature's own test_criteria
+## require, since a Combine stub with no resolver wired byte-for-byte
+## reproduces the pre-FEAT-400 stub behavior FEAT-010 already established
+## (see _execute_ai_plan()'s own doc, "Combine" section).
+var _enemy_combine_resolver = null
+
+
+## set_enemy_combine_resolver(resolver) -> void — FEAT-400 (US-010 /
+## FR-017, FR-018): injects the duck-typed Combine-resolving collaborator
+## described above. Intended to be called once by a future composition
+## root, the SAME way set_token_reposition_fn()/set_reaction_resolver_fn()
+## already are, e.g.:
+##   round_session.set_enemy_combine_resolver(enemy_combine_resolver_instance)
+## Never calling this method (every pre-existing caller/test double,
+## including every headless/sim caller and the pre-existing GUT suite)
+## leaves RoundSession's "Combine" handling byte-for-byte unchanged — see
+## _execute_ai_plan()'s "Combine" case below.
+func set_enemy_combine_resolver(resolver) -> void:
+	_enemy_combine_resolver = resolver
+
+
 ## _reaction_resolver_fn — OPTIONAL (FEAT-002 / US-002 / FR-002, ADR-002):
 ## an injected, duck-typed Callable satisfying the ReactionResolverPort
 ## contract — `async func(trigger: Dictionary) -> Dictionary`, returning at
@@ -1912,8 +1953,18 @@ func _other_combatants_for(combatant) -> Array:
 ##     partial-plan-execution outcome the design notes' error_handling #4
 ##     documents as accepted, never rolled back.
 ##
-##   "Combine" — still a documented NO-OP stub (real dispatch lands in a
-##     later feature); no economy spend, no reposition, no error raised.
+##   "Combine" — FEAT-400 (US-010 / FR-017, FR-018): delegates to the
+##     injected `_enemy_combine_resolver`'s duck-typed
+##     `resolve(item, combatant, action_economy) -> Dictionary` when one has
+##     been wired via set_enemy_combine_resolver() (see that field's own doc
+##     above); the returned Dictionary's "resolved" key (default false)
+##     drives `any_action_taken`, mirroring the Stride/Step/Strike
+##     `result.get("resolved", false)` convention already established
+##     above. When `_enemy_combine_resolver` is null — its default, and the
+##     case for the ENTIRE pre-existing GUT suite, none of which ever wires
+##     one — this remains the SAME documented full NO-OP FEAT-010
+##     established: no economy spend, no reposition, no error raised, and
+##     `any_action_taken` is left completely unaffected. Either way,
 ##     core/controllers/combine_action_controller.gd's execute() signature is
 ##     untouched by this feature (US-010's own test_criteria).
 ##
@@ -2478,10 +2529,16 @@ func _execute_ai_plan(plan: Array, combatant, action_economy) -> Dictionary:
 							"delta":       reaction_budget_delta,
 						})
 			"Combine":
-				# Documented no-op stub — real dispatch lands in a later feature
-				# (RISK-001's incremental-commit mitigation); no economy spend,
-				# no reposition, no error raised.
-				pass
+				# FEAT-400 (US-010 / FR-017, FR-018): delegate to the injected
+				# resolver seam when wired; otherwise a documented full no-op
+				# (RISK-001's incremental-commit mitigation) — no economy
+				# spend, no reposition, no error raised, any_action_taken
+				# left completely unaffected. See _enemy_combine_resolver's
+				# and this method's own doc above.
+				if _enemy_combine_resolver != null:
+					var combine_result: Dictionary = await _enemy_combine_resolver.resolve(item, combatant, action_economy)
+					if combine_result.get("resolved", false):
+						any_action_taken = true
 
 			_:
 				pass
