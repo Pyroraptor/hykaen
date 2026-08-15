@@ -1,0 +1,644 @@
+#+TITLE: Iteration AF — Enemy AI Sophistication: Tiered Planners + Multi-Action Turns
+#+SPRINT: 45
+#+VERSION: 0.2.6
+
+* Goal
+
+Give enemies genuine multi-action turns and tiered AI sophistication.
+A basic skeleton stays simple (nearest target, Strike only), while a Grunt
+may Step-then-Strike in the same turn, and a Soldier may open with a
+Stride+Strike Combination, close with a ranged Step-to-safety, or zero in
+on the party's caster.
+
+All tiers share the same application-layer verb execution — the enemy
+=CombineActionController.execute()= path is the SAME one the player uses.
+No rule divergence.  Enemy-specific code is confined to *which actions to
+plan* (tier logic), not *how actions execute*.
+
+* Current state (verified 2026-08-15)
+
+- =AIDecisionPort.decide_action(combatant, targets) -> Dictionary= returns
+  exactly one action per call (={action_type, target}=).
+- =_decide_ai_action()= in =round_session.gd= (line 2021) uses
+  =Callable.get_argument_count()= reflection to dispatch 2-arg vs 4-arg
+  decide_action() variants.
+- =advance_ai_turn()= reads =ai_decision["action_type"]= and handles only
+  ="Stride"= or =Strike= (melee) — no multi-action sequence, no Combine,
+  no ranged verb.
+- All enemies share the same AI class regardless of enemy type.
+  =EnemyResource= has no =ai_tier= field.
+- Targeting: nearest living party member.  Tie-breaks by lowest =(q,r)=.
+- Stride-then-Strike is one decision split across two turns: decide_action()
+  executes the Stride inside its own body, then returns a Strike decision.
+  This is a legacy artifact (FEAT-004 doc comment) that becomes a clean
+  two-item plan under the new architecture.
+- GUT baseline: 3824 passing, 0 failing, exit 0.
+
+* Non-goals
+
+- *Tactician AI* (cover-driven repositioning, chokepoints, elevation) —
+  deferred until cover/terrain systems exist.  =HexScorer= wires cover and
+  terrain as zero-weighted hooks from day one; no logic behind them yet.
+- *Weapon swap AI* (stow weapon + draw other) — bad action economy; talent
+  compresses it later.  Ranged→melee fallback uses whatever the enemy
+  already holds in =weapons[0]=.
+- *Enemy spell AI* — no enemy mages in the prologue.  Spell-casting enemies
+  are deferred; intellect-gated budget logic is already in domain.
+- *Multi-hex enemy footprint* — tracked in
+  =docs/refactors/multi-hex-enemies.org=; separate large refactor.
+- *Per-player-weapon-choice reactions* — enemy reaction AI uses the same
+  best-weapon auto-selection Phase 2 (EWA Phase 2) established.
+- *New prologue encounter content* beyond wiring =skeleton.tres= to
+  =ai_tier = "mindless"= and (optional) a new enemy =.tres= to
+  =ai_tier = "grunt"=.
+
+* Scope guardrails (frozen files)
+
+Do not modify these contracts even if a change seems to improve consistency:
+
+- =core/application/ai_decision_port.gd= — KEEP the class and its
+  =decide_action()= contract intact.  =AIPlannerPort= is a NEW parallel
+  interface, not a replacement.  Existing test doubles that =extend
+  AIDecisionPort= must continue to compile.
+- =core/combat/ai.gd= — DO NOT modify.  The production =ai.gd= satisfies
+  the 4-arg decide_action() contract today.  It becomes the backing
+  implementation of =MindlessAI= (which wraps it) rather than being
+  rewritten.  Wiring it through =MindlessAI= is done at composition root
+  (=infrastructure/combatant_factory.gd=), not inside =ai.gd= itself.
+- =core/application/round_session.gd= lines 1463–1720 (=advance_ai_turn=
+  body) — the ONLY permitted change is replacing the single
+  =_decide_ai_action()= call with a =_execute_ai_plan()= loop.  The
+  reaction-window, two-phase-commit, and token-reposition logic inside the
+  existing Strike branch MUST NOT be refactored in this sprint.
+- =CombineActionController.execute()= — the execute signature and payload
+  shape =({queue, actor, context, accumulated})= are frozen (Iteration N).
+- =core/application/reaction_window.gd= — =open()= return shape and the
+  bare-string =legal_reactions= contract are unchanged.
+- All existing test files: no test file is modified to accommodate AI
+  changes.  The new planner tests are all-new files.
+
+* Architecture
+
+** AIPlannerPort
+
+A NEW port interface (=core/application/ai_planner_port.gd=) parallel to
+=AIDecisionPort=:
+
+#+BEGIN_SRC gdscript
+class_name AIPlannerPort
+extends RefCounted
+
+## plan_turn(combatant, world_context) -> Array
+##   Returns an ordered list of action plan dicts, each carrying:
+##     { action_type: String, target?, destination?, combined_queue? }
+##   Empty array = no actions (WAITs the turn).
+##   The caller (RoundSession._execute_ai_plan) iterates the list and
+##   dispatches each item in order, stopping if action_economy is exhausted.
+func plan_turn(_combatant, _world_context: Dictionary) -> Array:
+    push_error("AIPlannerPort.plan_turn() is abstract")
+    return []
+#+END_SRC
+
+Each action plan item has the shape:
+| Key              | Type       | Meaning                                        |
+|------------------+------------+------------------------------------------------|
+| =action_type=    | String     | ="Strike"=, ="Step"=, ="Stride"=, ="Combine"=  |
+| =target=         | Dictionary | Enemy target dict (Strike/Combine with target) |
+| =destination=    | HexCoord   | Hex to move to (Step/Stride)                   |
+| =combined_queue= | Array      | Combination verb IDs (Combine only)            |
+
+** AIWorldContext
+
+A Dictionary built by =RoundSession= immediately before =plan_turn()= is called:
+
+#+BEGIN_SRC gdscript
+{
+    "party":          [<living party Combatant objects>],
+    "enemies":        [<all enemy Combatant objects>],
+    "action_economy": <ActionEconomy for this actor's turn>,
+}
+#+END_SRC
+
+=plan_turn()= implementations use it for targeting, movement, and economy
+checks — they never call into RoundSession directly.
+
+** Tier registry
+
+=core/combat/ai_tier_registry.gd= — a static mapping from tier string to
+planner class.  Loaded lazily; one instance per planner class.
+
+| Tier string   | Planner class    | Notes                                  |
+|---------------+------------------+----------------------------------------|
+| ="mindless"=  | =MindlessAI=     | Default; nearest target, Strike only   |
+| ="grunt"=     | =GruntAI=        | Lowest-HP target, Step-before-Strike   |
+| ="soldier"=   | =SoldierAI=      | Combine + ranged priority, caster lock |
+| (unrecognized) | =MindlessAI=    | Defensive fallback                     |
+
+** Backward compat adapter
+
+=_decide_ai_action()= in =round_session.gd= gains a second code path: if
+=_ai_decision_port= responds to =plan_turn= (duck-typed check), call
+=plan_turn(combatant, world_context)= directly.  Otherwise fall back to the
+existing 2/4-arg =decide_action()= reflection path and wrap the result in a
+single-element Array.  This means ALL existing test doubles continue to work
+unchanged.
+
+* Read first
+
+Before implementing, read:
+
+- =core/application/ai_decision_port.gd= — contract to keep, not replace.
+- =core/combat/ai.gd= — the live 4-arg =decide_action()= implementation;
+  =MindlessAI= wraps (not rewrites) this.
+- =core/application/round_session.gd= lines 2021–2045 —
+  =_decide_ai_action()= reflection dispatch; this is the seam to extend.
+- =core/application/round_session.gd= lines 1463–1720 —
+  =advance_ai_turn()= full body; the Strike/Stride dispatch branches become
+  the inside of =_execute_ai_plan()='s per-item switch.
+- =core/rules/movement.gd= lines 221–330 —
+  =get_step_destinations()= and =get_stride_destinations()= (shared domain
+  rules; AI must use these, not re-derive adjacency).
+- =core/controllers/combine_action_controller.gd= line 263 —
+  =execute(payload: Dictionary)= signature; enemy combine calls this directly.
+- =infrastructure/combatant_factory.gd= — =build_enemy_combatant()=;
+  needs to read =enemy_resource.ai_tier= and =enemy_resource.stamina_max=
+  and store both in the combatant dict (line ~421 hardcodes =stamina: 0=).
+- =data/enemies/enemy_resource.gd= — =EnemyResource= field list; add
+  =ai_tier= and =stamina_max= here.
+- =tests/integration/test_skeleton_shielded_block_e2e.gd= — pattern for
+  integration/E2E tests that build via =CombatantFactory=.
+
+* Features
+
+** AISP-0  AIPlannerPort interface
+
+*File:* =core/application/ai_planner_port.gd= (new)
+
+Write the abstract port class exactly as shown in the Architecture section
+above.  Class name: =AIPlannerPort=, extends =RefCounted=.
+
+*Test* (new =tests/unit/core/application/test_ai_planner_port.gd=):
+- Calling the abstract =plan_turn()= on a bare =AIPlannerPort= instance
+  triggers =push_error= and returns =[]=.
+
+** AISP-1  EnemyResource.ai_tier field
+
+*File:* =data/enemies/enemy_resource.gd=
+
+Add:
+#+BEGIN_SRC gdscript
+## ai_tier: String — which AI planner class governs this enemy type.
+## Recognized values: "mindless" (default), "grunt", "soldier".
+## Unrecognized values fall back to MindlessAI.
+@export var ai_tier: String = "mindless"
+#+END_SRC
+
+*File:* =data/enemies/skeleton.tres=
+
+Add (or verify already present after this feature is done):
+#+BEGIN_SRC
+ai_tier = "mindless"
+#+END_SRC
+
+Per =CLAUDE.md=: commit =skeleton.tres= before proceeding.
+
+*Test* — add to existing =tests/unit/data/enemies/= suite (or nearest enemy
+resource test file):
+- =skeleton.tres= loads; =ai_tier == "mindless"=.
+
+** AISP-1b  EnemyResource.stamina_max field + factory wiring
+
+Enemies need a stamina pool so AI tiers that use Combine can actually spend
+it.  Without this, =CombineActionController.execute()= fails stamina
+validation for every enemy and the Combine branch silently never fires.
+
+*** AISP-1b-0  EnemyResource.stamina_max field
+
+*File:* =data/enemies/enemy_resource.gd=
+
+Add:
+#+BEGIN_SRC gdscript
+## stamina_max: int — authored maximum stamina pool for this enemy type.
+## Governs how many stamina-spending actions (e.g. Combine) the enemy can
+## use per encounter before exhausting their pool. Default 0 means the
+## enemy never Combines.  Authored directly, never derived from attributes
+## (same ADR-104 discipline as ac/fortitude/reflex/will).
+@export var stamina_max: int = 0
+#+END_SRC
+
+*** AISP-1b-1  skeleton.tres stamina_max
+
+*File:* =data/enemies/skeleton.tres=
+
+Add:
+#+BEGIN_SRC
+stamina_max = 0
+#+END_SRC
+
+Skeletons are Mindless and never Combine; 0 is the correct authored value.
+
+Per =CLAUDE.md=: commit before proceeding.
+
+*** AISP-1b-2  CombatantFactory reads stamina_max for enemy combatants
+
+*File:* =infrastructure/combatant_factory.gd= — =build_enemy_combatant()=
+
+Currently line 421 hardcodes =stamina: 0= and =stamina_max: 0= for every
+enemy.  Replace both hardcoded zeros with the authored resource value:
+
+#+BEGIN_SRC gdscript
+"stamina":     enemy_res.stamina_max,   # starts full, same as party combatants
+"stamina_max": enemy_res.stamina_max,
+#+END_SRC
+
+=Combatant.from_dict()= already handles the =stamina= / =stamina_max=
+fields (they are authored on the player path).  No changes to =combatant.gd=.
+
+*Test* (new or extend =tests/unit/infrastructure/test_combatant_factory.gd=):
+- Build a fake =EnemyResource= with =stamina_max = 3=; assert returned dict
+  has =stamina == 3= and =stamina_max == 3=.
+- Build from =skeleton.tres=; assert =stamina == 0=, =stamina_max == 0=
+  (regression — skeleton stays non-Combining).
+
+*** Authored stamina values for Combine-capable enemies
+
+Any enemy of tier ="soldier"= or higher that should use Combine needs an
+authored =stamina_max > 0= on its =.tres= file.  The rule of thumb from
+design: *1–3 stamina for most enemies*.  A new =.tres= file is only needed
+if no existing enemy has the right tier; otherwise update the existing file.
+
+Example ranges (for reference when authoring new enemy resources):
+| Enemy type     | stamina_max | Notes                                   |
+|----------------+-------------+-----------------------------------------|
+| Skeleton       | 0           | Mindless; never Combines                |
+| Orc Grunt      | 2           | Grunt tier; Step+Strike only (no pool)  |
+| Town Guard     | 3           | Soldier tier; Stride+Strike Combination |
+| Tactician      | 4           | Future tier; Combine 2–3× per fight     |
+
+** AISP-2  CombatantFactory carries ai_tier through to combatant dict
+
+*File:* =infrastructure/combatant_factory.gd= — =build_enemy_combatant()=
+
+After loading =EnemyResource=, add =ai_tier= to the combatant dict:
+#+BEGIN_SRC gdscript
+combatant_dict["ai_tier"] = enemy_res.ai_tier
+#+END_SRC
+
+=Combatant.from_dict()= already deep-duplicates arbitrary keys, so no
+changes to =combatant.gd= are needed.
+
+*Test* (new or extend =tests/unit/infrastructure/test_combatant_factory.gd=):
+- =build_enemy_combatant("res://data/enemies/skeleton.tres", ...)=
+  → returned dict has =ai_tier == "mindless"=.
+
+** AISP-3  AITierRegistry
+
+*File:* =core/combat/ai_tier_registry.gd= (new)
+
+A plain GDScript class (extends =RefCounted=).  No =class_name= — loaded
+via =preload= at call sites.
+
+#+BEGIN_SRC gdscript
+static func get_planner(ai_tier: String):
+    match ai_tier:
+        "grunt":   return GruntAI.new()
+        "soldier": return SoldierAI.new()
+        _:         return MindlessAI.new()
+#+END_SRC
+
+=MindlessAI=, =GruntAI=, =SoldierAI= are preloaded at the top of this file.
+
+*Test* (new =tests/unit/core/combat/test_ai_tier_registry.gd=):
+- ="mindless"= → instance of MindlessAI.
+- ="grunt"= → instance of GruntAI.
+- ="soldier"= → instance of SoldierAI.
+- Unrecognized string ="orc_chieftain"= → instance of MindlessAI (fallback).
+
+** AISP-4  MindlessAI
+
+*File:* =core/combat/mindless_ai.gd= (new)
+
+Extends =AIPlannerPort=.  Formalizes the behavior =core/combat/ai.gd=
+currently provides.
+
+Algorithm:
+1. Select nearest living party member from =world_context["party"]=.
+   Tie-break: lowest =(q, r)= (same rule as legacy =ai.gd=).
+2. If in melee reach → return =[{action_type: "Strike", target: target_dict}]=.
+3. If out of reach:
+   a. Get =get_stride_destinations()= from =core/rules/movement.gd=.
+   b. Pick destination that minimises =HexMath.hex_distance()= to target
+      (same tie-break).  Only Stride if distance is strictly reduced.
+   c. Return =[{action_type: "Stride", destination: best_dest},
+              {action_type: "Strike", target: target_dict}]=.
+4. No target (all party dead) → =[]=.
+
+Do NOT copy any logic from =ai.gd=.  Call =Movement.get_stride_destinations()=
+directly for the legal-destination set.  The "Stride-then-Strike" plan items
+are what =advance_ai_turn()= previously assembled across two turns; they now
+return as a two-item plan in ONE turn.
+
+*Test* (new =tests/unit/core/combat/test_mindless_ai.gd=):
+- Target already adjacent → plan has exactly one =Strike= item.
+- Target two hexes away → plan = =[Stride(best_dest), Strike(target)]=.
+- No living targets → =[]=.
+- Tie-break: two equidistant targets → selects lowest =(q, r)=.
+
+** AISP-5  HexScorer
+
+*File:* =core/combat/hex_scorer.gd= (new)
+
+Extends =RefCounted=.  Pure function; no state.
+
+#+BEGIN_SRC gdscript
+## score_hex(hex, actor, context) -> float
+##   Returns a desirability score for `hex` as a destination.
+##   Higher is better.  Cover and terrain hooks exist but are zero-weighted
+##   until those systems are implemented.
+func score_hex(_hex, _actor, _context: Dictionary) -> float:
+    var score: float = 0.0
+    # cover_bonus_hook: 0.0 weight (no cover system yet)
+    # terrain_bonus_hook: 0.0 weight (no terrain system yet)
+    return score
+#+END_SRC
+
+GruntAI and SoldierAI import this and call it to rank candidate hexes.
+When all hexes score 0.0, they fall back to the same =(q, r)= tie-break
+MindlessAI uses.
+
+*Test*: =score_hex()= with any inputs returns a float and does not error.
+
+** AISP-6  GruntAI
+
+*File:* =core/combat/grunt_ai.gd= (new)
+
+Extends =AIPlannerPort=.
+
+Differences from MindlessAI:
+
+| Behaviour         | MindlessAI             | GruntAI                                    |
+|-------------------+------------------------+--------------------------------------------|
+| Target selection  | Nearest living target  | Lowest =hp_current= (tie: nearest)         |
+| Step vs Stride    | Always Strides         | Steps (free) if target is 1 hex away;      |
+|                   |                        | Strides only if gap ≥ 2 hexes              |
+| Destination rank  | Min distance to target | =HexScorer.score_hex()= (currently 0.0, falls |
+|                   |                        | back to min-distance / =(q,r)= tie-break)  |
+
+Step check: call =Movement.get_step_destinations()=; if target hex is
+reachable by a Step, emit =[{action_type: "Step", destination: adj_hex},
+{action_type: "Strike", target: target_dict}]= rather than a Stride.
+Step costs zero actions (free movement trait); the Strike costs one.
+
+*Test* (new =tests/unit/core/combat/test_grunt_ai.gd=):
+- Lowest-HP target selected even when a different target is nearer.
+- Target 1 hex away → plan = =[Step(adj_hex), Strike(target)]=.
+- Target 2+ hexes away → plan = =[Stride(best_dest), Strike(target)]=.
+- No living targets → =[]=.
+
+** AISP-7  EnemyCombineResolver
+
+*File:* =core/combat/enemy_combine_resolver.gd= (new)
+
+Extends =RefCounted=.  Bridges the AI planning layer to
+=CombineActionController.execute()= without introducing a parallel rule.
+
+#+BEGIN_SRC gdscript
+## resolve(queue, actor, world_context) -> Dictionary
+##   Builds `accumulated` programmatically (auto-selecting targets /
+##   destinations from world_context), then calls
+##   CombineActionController.execute({queue, actor, context, accumulated}).
+##   Returns the execute() result dict.
+func resolve(queue: Array, actor, world_context: Dictionary) -> Dictionary:
+    var accumulated: Dictionary = _build_accumulated(queue, actor, world_context)
+    return _combine_controller.execute({
+        "queue":       queue,
+        "actor":       actor,
+        "context":     world_context,
+        "accumulated": accumulated,
+    })
+#+END_SRC
+
+=_build_accumulated()= walks the =queue= array.  For each verb that needs a
+target, it picks the same target =SoldierAI= would pick.  For each verb that
+needs a destination hex, it picks from =get_stride_destinations()= or
+=get_step_destinations()= (whichever the verb requires).  The resolver never
+prompts the player; it resolves all choices in pure code.
+
+=_combine_controller= is injected in =_init()= so tests can replace it with
+a spy.
+
+*Test* (new =tests/unit/core/combat/test_enemy_combine_resolver.gd=):
+- Spy on =CombineActionController.execute()=.
+- =resolve(["stride", "strike"], actor, ctx)= →  =execute()= called once
+  with a =payload= that has =queue= + =accumulated= keys.
+- =accumulated= contains a =destination= for the =stride= verb and a
+  =target= for the =strike= verb.
+- Returns whatever =execute()= returned (pass-through check).
+
+** AISP-8  SoldierAI
+
+*File:* =core/combat/soldier_ai.gd= (new)
+
+Extends =AIPlannerPort=.
+
+Targeting:
+1. *Caster priority*: if any party member has =mage_recharge_budget_remaining > 0=
+   AND is alive, that combatant is the preferred target (tie: lowest HP).
+2. Else: lowest =hp_current= living party member (same as GruntAI).
+
+Turn planning (in priority order; stops when =action_economy= is exhausted):
+
+*** Branch A — ranged engagement
+
+Conditions: acting combatant carries =weapons[0]= with =range_hexes > 1=
+AND target is not within OS-trigger range of any enemy (i.e. moving won't
+draw an Opportunistic Strike).
+
+1. Find a "safe hex": a hex within =weapons[0].range_hexes= of the chosen
+   target that is NOT adjacent to any living enemy AND reachable by a Step
+   or Stride.
+2. If a safe hex exists:
+   - Step/Stride to it (same Step-vs-Stride logic as GruntAI).
+   - Ranged Strike at target.
+   - Plan: =[{action_type: "Step"/"Stride", destination: safe_hex},
+             {action_type: "Strike", target: target_dict}]=.
+3. If no safe hex → fall through to Branch B (melee).
+
+*** Branch B — Combine (Stride + Strike)
+
+Conditions: =EnemyCombineResolver= is available AND =combatant.stamina > 0=
+(the authored pool from AISP-1b — a Soldier with =stamina_max = 0= authored
+on its =.tres= never enters this branch).
+
+Use =EnemyCombineResolver.resolve(["stride", "strike"], actor, ctx)=.
+Plan item: =[{action_type: "Combine", combined_queue: ["stride", "strike"],
+              target: target_dict}]=.  The resolver handles execution.
+
+*** Branch C — plain melee fallback
+
+If neither Branch A nor B applies, falls back to GruntAI's plan
+(Step/Stride + Strike).
+
+*Test* (new =tests/unit/core/combat/test_soldier_ai.gd=):
+- Caster (=mage_recharge_budget_remaining > 0=) prioritized over a nearer
+  non-caster.
+- Ranged safe hex found → Branch A plan =[Step, Strike]=.
+- No safe hex, combine available → Branch B plan =[Combine]=.
+- Neither A nor B → Branch C plan matches GruntAI output.
+
+** AISP-9  RoundSession: _execute_ai_plan + AIWorldContext builder
+
+*File:* =core/application/round_session.gd=
+
+Two methods are added or modified.
+
+*** AISP-9-0  _build_ai_world_context(combatant, action_economy)
+
+New private helper.  Returns the =AIWorldContext= dict described in the
+Architecture section.
+
+#+BEGIN_SRC gdscript
+func _build_ai_world_context(combatant, action_economy) -> Dictionary:
+    return {
+        "party":          _party.filter(func(c): return c.hp_current > 0),
+        "enemies":        _enemies.duplicate(),
+        "action_economy": action_economy,
+    }
+#+END_SRC
+
+*** AISP-9-1  _decide_ai_action() extended with plan_turn() path
+
+Extend the existing reflection dispatch (line 2021) with a second branch.
+Before the existing =get_argument_count()= check, test whether the port
+object has a =plan_turn= method via =Callable(_ai_decision_port, "plan_turn").is_valid()=.
+If yes: call =plan_turn(combatant, _build_ai_world_context(...))= and return
+the resulting Array directly (no wrapping).  If no: fall through to the
+existing decide_action() reflection path and wrap the result in =[result]=.
+The caller (=advance_ai_turn=) must now accept an Array.
+
+*** AISP-9-2  _execute_ai_plan(plan, combatant, action_economy)
+
+New private helper.  Iterates the plan Array and dispatches each item:
+
+#+BEGIN_SRC gdscript
+func _execute_ai_plan(plan: Array, combatant, action_economy) -> Dictionary:
+    var any_action_taken: bool = false
+    for item in plan:
+        var action_type: String = item.get("action_type", "")
+        match action_type:
+            "Stride":
+                # Move the token (same logic as current advance_ai_turn's Stride branch)
+                any_action_taken = true
+                _reposition_token_after_ai_stride(combatant, item)
+            "Step":
+                # Free movement; no action economy spend (movement trait)
+                Movement.step(combatant, item["destination"], _all_combatants())
+                any_action_taken = true
+                _reposition_token_after_ai_stride(combatant, item)
+            "Strike":
+                # Existing Strike resolution (reaction window, two-phase-commit,
+                # resolve_action_use_case) — lift verbatim from advance_ai_turn body.
+                if not action_economy.can_spend_action():
+                    break
+                # ... existing Strike resolution ...
+                any_action_taken = true
+            "Combine":
+                # Delegate to EnemyCombineResolver; advance_ai_turn wires it in.
+                var result = await _enemy_combine_resolver.resolve(
+                    item.get("combined_queue", []),
+                    combatant,
+                    _build_ai_world_context(combatant, action_economy)
+                )
+                any_action_taken = any_action_taken or result.get("ok", false)
+    return {"ok": true, "any_action_taken": any_action_taken}
+#+END_SRC
+
+=advance_ai_turn()= is refactored to call =_decide_ai_action()= (which now
+returns an Array) and immediately pass the result to =_execute_ai_plan()=.
+The existing =any_action_taken= logic and the =WAIT= path after it remain
+in =advance_ai_turn()=.
+
+*Important*: the two-phase-commit Strike block (pre-hit avoidance + on-hit
+mitigation reaction windows) is a direct cut-paste from the current
+=advance_ai_turn()= Strike branch into the ="Strike"= case of
+=_execute_ai_plan()=.  Do NOT simplify or refactor it — it is exercised by
+existing GUT tests that will break if the shape changes.
+
+*** _enemy_combine_resolver field
+
+=RoundSession= gets a new optional field:
+#+BEGIN_SRC gdscript
+var _enemy_combine_resolver = null  ## EnemyCombineResolver, injected post-init
+#+END_SRC
+
+And a setter:
+#+BEGIN_SRC gdscript
+func set_enemy_combine_resolver(resolver) -> void:
+    _enemy_combine_resolver = resolver
+#+END_SRC
+
+The ="Combine"= branch of =_execute_ai_plan()= is a no-op
+(=any_action_taken= stays false for that item) when =_enemy_combine_resolver=
+is null.  This ensures every pre-existing headless test that never wires a
+resolver is completely unaffected.
+
+*Tests* (new =tests/unit/core/application/test_round_session_ai_plan.gd=):
+- A =FakePlannerPort= (extends =AIPlannerPort=) returning a two-item
+  =[Stride, Strike]= plan results in =advance_ai_turn()= executing both
+  (token reposition called + strike resolution called) in a single turn.
+- A FakePlannerPort returning =[]= → =advance_ai_turn()= WAITs (no
+  action taken).
+- An old-style =FakeDecisionPort= (extends =AIDecisionPort=, has no
+  =plan_turn= method) still works: backward-compat path wraps the
+  single-action dict in an Array and the turn resolves as before.
+
+** AISP-10  Composition root: wire AIPlannerPort from EnemyResource.ai_tier
+
+*File:* =core/application/run_round_use_case.gd= (or the nearest
+composition-root wiring site — wherever =AIDecisionPort= is currently
+injected into =RoundSession=).
+
+After =RoundSession= is constructed, check if =_ai_decision_port= responds
+to =plan_turn= (duck-typed).  If so, it is already an =AIPlannerPort=; use
+it directly.
+
+=CombatSessionFactory= (or equivalent composition root) maps each enemy
+combatant's =ai_tier= (read from the combatant dict built by
+=CombatantFactory=) to a planner via =AITierRegistry.get_planner(ai_tier)=.
+One =RoundSession= per encounter receives a single =_ai_decision_port= —
+the highest-tier planner present in the encounter — OR each combatant dict
+carries its own planner reference.  Choose whichever is cleaner given the
+existing =RoundSession= constructor signature; document the decision inline.
+
+Recommendation: store =ai_planner= on the =entry= dict inside
+=RoundSession._entries=, alongside =combatant= and =action_economy=.
+=_decide_ai_action()= reads =entry["ai_planner"]= (or falls back to the
+legacy port if absent).  This allows different enemies in the same encounter
+to have different AI tiers without requiring per-combatant RoundSession
+instances.
+
+If this recommendation is accepted, the =run_round_use_case.gd= constructor
+and every =FakeTurnOrderPort= in tests must accommodate the new optional
+=ai_planner= key on each entry dict.  Use =.get("ai_planner", null)= access
+so every pre-existing test that omits the key continues to compile and pass
+without modification.
+
+*Test* — extend the existing
+=tests/integration/test_skeleton_shielded_block_e2e.gd= pattern:
+Create =tests/integration/test_grunt_ai_step_strike_e2e.gd=:
+- Build a skeleton combatant with =ai_tier = "grunt"= and place it 1 hex
+  from a party member.
+- Wire =GruntAI= as its planner.
+- Call =advance_ai_turn()=.
+- Assert: Step was executed (token position changed to adjacent hex) AND
+  Strike was attempted against the party member — both in a single
+  =advance_ai_turn()= call.
+
+* GUT gate
+
+Run =./ci/run_tests.sh= (or equivalent) after each feature.  Exit 0, 0 failing,
+no regressions against the 3824-passing baseline before adding new tests.
+
+Commit data files (=data/enemies/skeleton.tres= and any new =.tres= files)
+before running the full gate — =test_combine_data_commit_hygiene.gd= will
+fail on uncommitted data files.
