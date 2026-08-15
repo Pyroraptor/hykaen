@@ -1492,517 +1492,74 @@ func advance_ai_turn() -> Dictionary:
 	# suspending Stride reaction resolver (core/combat/ai.gd's
 	# `_stride_reaction_resolver_fn` seam, wired by MainScene.gd to the real
 	# player-facing pop-up for an enemy Stride's OpportunisticStrike window)
-	# is fully resolved BEFORE `ai_decision` is read below — mirrors this
+	# is fully resolved BEFORE `ai_decision_plan` is read below — mirrors this
 	# method's own established "audit every caller in the await chain"
 	# discipline (see the FEAT-003 doc above). For every pre-existing
 	# AIDecisionPort (no resolver injected on the real core/combat/ai.gd, or
 	# any 2-argument test double), this `await` never actually suspends and
 	# resolves synchronously within the same call (NFR-004).
-	# FEAT-009 (US-009 / FR-016, ADR-002): _decide_ai_action() now always
-	# returns an Array (see that method's own doc). advance_ai_turn() itself
-	# is NOT the feature that consumes a multi-item plan (that is US-010's
-	# _execute_ai_plan(), a separate, later feature) -- every port currently
-	# wired here (the real core/combat/ai.gd, every FakeDecisionPort/
-	# BrokenAIDecisionPort test double) still takes the legacy fallback path,
-	# which wraps its single Dictionary result in a single-element Array
-	# ([legacy_result]) precisely so this unwrap reproduces the exact
-	# pre-FEAT-009 `ai_decision` Dictionary byte-for-byte (NFR-004). An empty
-	# Array (a plan_turn()-shaped port returning [] / WAIT) degrades safely
-	# to an empty Dictionary here, matching the "no action type" no-op shape
-	# `action_name == ""` below already handles.
 	var ai_decision_plan: Array = await _decide_ai_action(combatant, action_economy)
-	var ai_decision: Dictionary = ai_decision_plan[0] if ai_decision_plan.size() > 0 else {}
-	var action_name: String = ai_decision.get("action_type", "")
-	var target = ai_decision.get("target", null)
 
+	# FEAT-399 (US-010 / FR-017, FR-018, ADR-007): advance_ai_turn() is now the
+	# two-call sequence this file's design has been building toward since
+	# FEAT-008/FEAT-009 -- _decide_ai_action() (above) obtains the plan, and
+	# _execute_ai_plan() (below) dispatches EVERY item in it (Stride/Step/
+	# Strike/Combine), in order, within this SAME call. This replaces the old
+	# inline Stride-only/Strike-only if/elif that used to live directly in
+	# this method's body -- the reaction-window/two-phase-commit Strike logic
+	# was cut-pasted VERBATIM into _execute_ai_plan()'s own "Strike" match
+	# case (see that method's own doc); nothing about ITS behavior changed,
+	# only where it lives.
+	#
+	# WAIT gate (US-001 / FR-001, ADR-010 -- preserved byte-for-byte):
+	# _ai_plan_is_dispatchable() below reproduces the EXACT pre-FEAT-399
+	# condition this method used to test directly against the unwrapped
+	# `ai_decision` (`action_name == "Stride" or (action_name != "" and
+	# target != null)`), now evaluated against the plan's first item -- the
+	# legacy decide_action() fallback path (FEAT-009) never wraps more than
+	# one item, so "first item" and "the one-and-only ai_decision" are the
+	# same thing for every pre-existing caller (NFR-004 default-safety). A
+	# genuinely empty plan_turn() Array ([] -- the first-class WAIT value a
+	# new-style AIPlannerPort may return, FEAT-001) and the legacy
+	# no-living-target sentinel ([{"action_type": "", "target": null}]) both
+	# fail this check identically, both resolving as an explicit WAIT via
+	# Actions.resolve_wait() below -- the SAME per-turn budget-depleting WAIT
+	# every enemy turn has always resolved to when it has nothing else to do
+	# (US-001's CWE-835 round-termination guarantee applies equally to a
+	# new-style planner's empty plan).
 	var any_action_taken: bool = false
 
-	if action_name == "Stride":
-		# The Stride itself already happened inside decide_action() (see
-		# file-level doc above) — nothing further to resolve for it here.
-		# FEAT-007: never a composite — the Strike half (if any) is decided
-		# on this combatant's next turn, never resolved in this same call.
-		any_action_taken = true
-		_reposition_token_after_ai_stride(combatant, ai_decision)
-	elif action_name != "" and target != null:
-		# FEAT-003 proved awaiting the injected ReactionResolverPort BEFORE
-		# resolving an enemy-Strikes-player Strike is safe (no deadlock, no
-		# double-advance). FEAT-004 (US-003 / FR-003, ADR-004) now ACTS on
-		# the resolver's answer: the resolved `active_defense` and a freshly
-		# built DefenseContext (see _build_defense_context()'s doc) are
-		# threaded verbatim into resolve_action_use_case.resolve()'s
-		# trailing parameters — the SAME pass-through
-		# resolve()/_resolve_strike() have accepted since FEAT-001, and the
-		# SAME core/rules/resolution.gd math every other reaction-enabled
-		# call site (e.g. reaction_window.gd's open_and_resolve_attack())
-		# already exercises; this method never re-implements Dodge/Block/
-		# Parry/Steel math or re-derives eligibility itself. A malformed or
-		# un-injected resolver still degrades safely to active_defense
-		# "none" / defense_context {} (see
-		# _reaction_choice_to_active_defense()'s doc), which resolves
-		# byte-for-byte identically to the pre-FEAT-004 default-only call --
-		# tests/characterization/test_strike_characterization.gd's pin, and
-		# this feature's own "Pass reproduces the exact pre-sprint unreacted
-		# outcome" test_criterion.
-		var active_defense: String = "none"
-		var defense_context: Dictionary = {}
-		# FEAT-008 (US-008 / FR-007): populated by whichever reaction branch
-		# below actually resolved a defense for this Strike (the PreHitAvoidance
-		# Dodge/Steel branch, or the OnHitMitigation Parry/Block branch inside
-		# the two_phase_commit_pending block) — consumed once, right after
-		# record_attack() below, to call RenderCombatLogUseCase.
-		## record_reaction_outcome() so the rich row's Defense segment reflects
-		## the ACTUAL outcome rather than always defaulting to "none".
-		## reaction_window_id_for_log stays "" (no recording call) whenever
-		## neither branch below resolved a reaction-eligible window for this
-		## Strike (e.g. the legacy single-window "WeaponAttack" fallback path,
-		## which no real composition-root boot ever takes — see this method's
-		## own doc on `_onhit_mitigation_resolver_fn.is_valid()`).
-		var reaction_window_id_for_log: String = ""
-		var reaction_choice_for_log: String = "none"
-		var reaction_success_for_log: bool = false
-		var reaction_reduced_by_for_log: int = 0
-		# FEAT-003 (US-002 / FR-002, G3 remediation): true once this Strike has
-		# opted into GENUINE two-phase commit -- see the `else` branch below
-		# (immediately preceding the removed trace-only stub this feature
-		# replaces). When true, the atomic call to _resolve_action_use_case's
-		# resolve() method a few lines down is SKIPPED ENTIRELY in favor of the deferred
-		# resolve_to_hit_uc -> await OnHitMitigation -> apply_on_hit_defense_uc
-		# sequence inlined below (still literally inside advance_ai_turn()'s own
-		# body -- see tests/gut's/core/application/tests' static source-shape
-		# audit, which requires the SECOND await point to remain coded directly
-		# in this function, never delegated to a helper it merely calls).
-		var two_phase_commit_pending: bool = false
-		# FEAT-003 (US-003 / FR-002): declared here (rather than inside the
-		# nested "Strike" branch below) so the budget-delta gate after
-		# resolve_action_use_case.resolve() below -- which needs
-		# `target_action_economy` -- can see the SAME variable the Strike
-		# branch populates. `action_name` is always "Strike" whenever this
-		# elif is reached (see the file-level "EXACTLY ONE action -- Strike
-		# or Stride, never both" doc above); left null/-1 for any other
-		# action_name so the gate below is a no-op in that case.
-		var target_action_economy = null
-		var reaction_budget_before: int = -1
-		if action_name == "Strike":
-			target_action_economy = _find_action_economy_for(target)
-			# FEAT-003 (US-003 / FR-002): snapshot the defender's
-			# reaction-eligible budget BEFORE either reaction window
-			# (PreHitAvoidance below, and -- when not suppressed -- the
-			# existing on-hit WeaponAttack window) is ever awaited for this
-			# Strike. The budget-delta gate below compares this snapshot
-			# against the same ActionEconomy's remaining budget once the
-			# ENTIRE Strike (both windows, plus
-			# resolve_action_use_case.resolve()'s own reaction-spending
-			# resolve_weapon_attack() call) has resolved, proving AT MOST ONE
-			# reaction was spent across the whole Strike regardless of which
-			# branch below actually ran -- the shared spend_reaction() gate's
-			# budget-delta assertion this feature adds (design notes: "a
-			# budget-delta assertion (<=1 spent per Strike) in the shared
-			# reaction resolution path").
-			if target_action_economy != null:
-				reaction_budget_before = target_action_economy.get_remaining()
-
-			# FEAT-002 (US-002 / FR-001, Iteration J Part B): the
-			# PreHitAvoidance window (Dodge/Steel only) is awaited FIRST --
-			# BEFORE the existing WeaponAttack trigger is even built, and
-			# before any call in this chain ever reaches
-			# core/rules/resolution.gd's resolve_to_hit() (test_criteria
-			# #5). For every existing caller/test double (no
-			# set_prehit_avoidance_resolver_fn() call -- see that seam's own
-			# doc), _resolve_prehit_avoidance() resolves against its
-			# synchronous {"choice": "none"} default-safety fallback, so
-			# prehit_choice below is always "none" and this branch's
-			# behavior is byte-for-byte unchanged (NFR-004).
-			var prehit_trigger: Dictionary = _build_prehit_avoidance_trigger(combatant, target)
-			var prehit_result: Dictionary = await _resolve_prehit_avoidance(prehit_trigger)
-			var prehit_choice: String = _reaction_choice_to_active_defense(prehit_result)
-			var prehit_on_hit_suppressed: bool = prehit_result.get("on_hit_suppressed", false)
-
-			if prehit_choice == "dodge" or prehit_choice == "steel":
-				# A pre-hit reaction was already decided by the
-				# PreHitAvoidance window -- resolve_action_use_case.resolve()'s
-				# own resolve_to_hit() call (FEAT-001) remains the SOLE place
-				# the actual dodge/steel roll happens (this session never
-				# re-derives it); this window only ever decided the CHOICE.
-				# The existing WeaponAttack window is deliberately never
-				# asked in this branch -- the <=1-reaction-per-Strike budget
-				# invariant means a reactor who already chose Dodge/Steel
-				# here must never ALSO be offered a second reaction for the
-				# same Strike (dodge-fail's "on_hit_suppressed" contract,
-				# test_criteria #3).
-				active_defense = prehit_choice
-				defense_context = _build_defense_context(target, target_action_economy)
-			elif not prehit_on_hit_suppressed:
-				# FEAT-005 (US-005 / FR-005, Iteration J Part A): two-phase mode is
-				# opted into once a caller injects a DEDICATED OnHitMitigation
-				# resolver (set_onhit_mitigation_resolver_fn() -- MainScene.gd wires
-				# this for real play, this feature). In that mode the legacy
-				# combined "WeaponAttack" ask below (Dodge+Parry+Block unioned
-				# BEFORE the roll even happens) is retired in favor of asking
-				# Block/Parry strictly AFTER the hit result is known -- see the
-				# two-phase commit block below (the SECOND await point this
-				# coroutine awaits). active_defense/defense_context are
-				# deliberately left "none"/{} here -- when two_phase_commit_pending
-				# is set, they are never even handed to
-				# _resolve_action_use_case's atomic resolve() at all (that atomic call is
-				# skipped entirely in favor of the deferred commit below).
-				#
-				# Every pre-existing caller/test double that never calls
-				# set_onhit_mitigation_resolver_fn() (NFR-004 default-safety) takes
-				# the unchanged legacy path in the `if` branch instead, so this
-				# feature introduces zero behavior change for them.
-				if not _onhit_mitigation_resolver_fn.is_valid():
-					var trigger: Dictionary = _build_reaction_trigger(combatant, target, target_action_economy)
-					# FEAT-007 (observability #2): trigger-built trace point.
-					_trace(
-						"reaction_trigger_built attacker_id=%s target_id=%s round=%d"
-						% [trigger.get("attacker_id", ""), trigger.get("target_id", ""), _round_number]
-					)
-					# FEAT-007: awaiting-resolver-start trace point -- emitted
-					# immediately BEFORE the await below, so a genuinely hung/
-					# never-resolving resolver is visible as "this line printed, but
-					# resolver_resolved never did" rather than a silent freeze.
-					_trace(
-						"awaiting_resolver_start attacker_id=%s target_id=%s round=%d"
-						% [trigger.get("attacker_id", ""), trigger.get("target_id", ""), _round_number]
-					)
-					var reaction_result: Dictionary = await _resolve_reaction(trigger)
-					# FEAT-007: resolver-resolved trace point.
-					_trace(
-						"resolver_resolved choice=%s round=%d"
-						% [str(reaction_result.get("choice", "")), _round_number]
-					)
-					active_defense = _reaction_choice_to_active_defense(reaction_result)
-					defense_context = _build_defense_context(target, target_action_economy)
-				else:
-					# FEAT-003 (US-002 / FR-002, G3 remediation): two-phase mode --
-					# defer to the genuine deferred-commit block below instead of
-					# the atomic resolve() call.
-					two_phase_commit_pending = true
-			# else: prehit_on_hit_suppressed with no explicit dodge/steel
-			# choice (a defensive/malformed-resolver case) -- active_defense/
-			# defense_context stay "none"/{}, matching Pass.
-
-		# FEAT-006 (US-006 / FR-006, Iteration J-R2 Part D): capture the
-		# append-order index the plain-format on_attack_event() row is ABOUT
-		# to land at -- inside whichever resolve path below synchronously
-		# emits this Strike's AttackEvent via EventSinkPort -- BEFORE
-		# resolving, mirroring MainScene.gd's `_verb_bar_strike_execute()`
-		# player-path convention (FEAT-005) exactly. -1 (a safe no-op sentinel
-		# for the overwrite call below) when no entry-count Callable was
-		# injected -- every pre-existing caller/test double (NFR-004).
-		var pending_entry_index: int = (
-			_event_log_entry_count_fn.call() if _event_log_entry_count_fn.is_valid() else -1
-		)
-
-		var resolve_result: Dictionary = {}
-		# FEAT-219 (PR-002 remediation): the RAW (pre-mitigation) damage for
-		# THIS Strike, captured directly from the to-hit phase's own partial
-		# result (`partial.get("damage_raw", 0)`) inside the two_phase_commit_pending
-		# branch below -- NEVER re-derived from resolution.gd a second way.
-		# -1 is a "not captured this call" sentinel (the legacy atomic
-		# `else` branch below never populates it -- resolve_action_use_case.gd
-		# is out of this feature's scope; see the structured_attack_event
-		# construction below, which falls back to its pre-existing
-		# damage_final-duplicate behavior in that case, an unchanged NFR-004
-		# default-safety path). Consumed below to fix core/log/attack_event.gd's
-		# damage_raw field, which this call site previously populated with a
-		# SECOND COPY of damage_final instead of the true raw damage --
-		# silently making it impossible for any observer (rich log row,
-		# get_structured_attack()) to ever see that Parry/Block genuinely
-		# reduced damage relative to the raw roll (the exact gap DEF-001/
-		# PR-002 flagged: mitigation could regress to a no-op without any
-		# code-verifiable signal catching it).
-		var strike_damage_raw_for_log: int = -1
-
-		if two_phase_commit_pending:
-			# FEAT-003 (US-002 / FR-002, G3 remediation): the GENUINE two-phase
-			# Strike commit -- replaces the old trace-but-don't-apply stub this
-			# feature exists to fix (see this file's FEAT-003 top-level doc; the
-			# anti-pattern that caused DEF-001, previously at ~line 1141-1167).
-			# Spends the action, rolls ONLY the to-hit phase via
-			# _resolve_action_use_case.get_resolve_to_hit_use_case() (NO
-			# hp_current mutation, NO event emitted -- ResolveToHitUseCase's own
-			# documented contract), AWAITS the OnHitMitigation window -- the
-			# SECOND await point this coroutine awaits, coded directly here so
-			# it stays inside advance_ai_turn()'s own body -- ONLY when the roll
-			# actually hit (ReactionWindowClass.is_on_hit_mitigation_eligible()'s
-			# own gate, never re-derived a second way; reaction_already_spent is
-			# always false at this call site -- prehit already proved it did not
-			# suppress this Strike's one reaction), and ONLY THEN commits via
-			# _resolve_action_use_case.get_apply_on_hit_defense_use_case().apply()
-			# -- the SOLE hp_current mutation / AttackEvent emission for this
-			# Strike. A resolved Parry/Block choice therefore genuinely reduces
-			# the damage actually committed, rather than being asked about and
-			# discarded (test_criteria: Parry/Block mitigation actually applies;
-			# Pass reproduces the raw/unmitigated outcome byte-for-byte).
-			#
-			# Precondition checks deliberately mirror ONLY
-			# _resolve_action_use_case's atomic resolve()'s action-economy spend
-			# (ERR_NO_ACTION_REMAINING) -- the melee-reach precondition is
-			# intentionally NOT re-derived here: this branch's sole caller
-			# (advance_ai_turn()'s enemy-Strikes-player path) only ever reaches a
-			# target core/combat/ai.gd's decide_action() already chose as
-			# adjacent/in-range (ai.gd's own job -- see
-			# tests/unit/core/combat/test_ai_reach_strike.gd); re-deriving the
-			# same reach math here would be a second, drifting copy of a rule
-			# resolve_action_use_case.gd already owns, not a genuine
-			# defense-in-depth gain for this call path.
-			var spend_result: Dictionary = action_economy.spend_action({"name": action_name, "traits": []})
-			if not spend_result.get("success", false):
-				resolve_result = {"resolved": false, "ok": false, "error": "ERR_NO_ACTION_REMAINING"}
-			else:
-				var weapon: Dictionary = combatant.weapon
-				var to_hit_uc = _resolve_action_use_case.get_resolve_to_hit_use_case()
-				var partial: Dictionary = to_hit_uc.resolve_to_hit(combatant, target, weapon, "ac", "none", {})
-				var attack_hit: bool = partial.get("hit", false)
-				var on_hit_defense: String = "none"
-				# FEAT-219 (PR-002 remediation): capture the true pre-mitigation
-				# damage for this Strike straight off the to-hit phase's own
-				# result -- the SAME `partial` dict apply_uc.apply() below is
-				# handed, never a second/re-derived read.
-				strike_damage_raw_for_log = partial.get("damage_raw", 0)
-
-				if ReactionWindowClass.is_on_hit_mitigation_eligible(false, attack_hit):
-					var onhit_trigger: Dictionary = _build_onhit_mitigation_trigger(
-						combatant, target, attack_hit,
-						partial.get("roll_total", 0), partial.get("damage_raw", 0)
-					)
-					_trace(
-						"onhit_mitigation_trigger_built attacker_id=%s target_id=%s round=%d"
-						% [onhit_trigger.get("attacker_id", ""), onhit_trigger.get("target_id", ""), _round_number]
-					)
-					var onhit_result: Dictionary = await _resolve_onhit_mitigation(onhit_trigger)
-					on_hit_defense = _reaction_choice_to_active_defense(onhit_result)
-					_trace(
-						"onhit_mitigation_resolved choice=%s round=%d"
-						% [on_hit_defense, _round_number]
-					)
-
-				var onhit_defense_context: Dictionary = _build_defense_context(target, target_action_economy)
-				var actor_updated_action_budget: Dictionary = {
-					"remaining": spend_result.get("remaining", -1),
-					"spent":     action_economy.is_spent(),
-				}
-
-				var apply_uc = _resolve_action_use_case.get_apply_on_hit_defense_use_case()
-				var apply_result: Dictionary = apply_uc.apply(
-					partial, combatant, target, on_hit_defense, onhit_defense_context,
-					_round_number, actor_updated_action_budget
-				)
-
-				# FEAT-008 (US-008 / FR-007): capture the OnHitMitigation
-				# outcome for RenderCombatLogUseCase below -- reformats
-				# apply_on_hit_defense()'s ALREADY-COMPUTED
-				# active_defense_applied/on_hit_suppressed/damage_final fields
-				# (never re-derived here). reduced_by is the actual
-				# damage-reduction amount Block applied (0 for a non-Block
-				# choice, or a Block that reduced nothing); success mirrors
-				# on_hit_suppressed, meaningful only for a Parry (see
-				# render_combat_log_use_case.gd's _derive_outcome() doc).
-				reaction_window_id_for_log = RenderCombatLogUseCaseClass.WINDOW_ON_HIT_MITIGATION
-				reaction_choice_for_log = apply_result.get("active_defense_applied", "none")
-				reaction_success_for_log = apply_result.get("on_hit_suppressed", false)
-				reaction_reduced_by_for_log = max(0, partial.get("damage_raw", 0) - apply_result.get("damage_final", 0))
-
-				var history_entry = RoundEventsClass.RoundHistoryEntry.new(
-					_round_number, _cycle_index, combatant.name, action_name, spend_result.get("remaining", -1)
-				)
-				_round_history_port.append({
-					"attacker":         combatant,
-					"action":           action_name,
-					"target":           target,
-					"roll":             partial.get("roll_total", 0),
-					"damage_final":     apply_result.get("damage_final", 0),
-					"budget_remaining": spend_result.get("remaining", -1),
-					"round":            _round_number,
-					"cycle_index":      _cycle_index,
-					"entry":            history_entry
-				})
-
-				resolve_result = {
-					"resolved":        true,
-					"ok":              true,
-					"event":           apply_result.get("event", null),
-					"target_defeated": apply_result.get("defender_defeated", false),
-					"damage_final":    apply_result.get("damage_final", 0),
-				}
+	if _ai_plan_is_dispatchable(ai_decision_plan):
+		if _is_legacy_pre_executed_stride(ai_decision_plan):
+			# FEAT-399: the LEGACY AIDecisionPort.decide_action() fallback
+			# path (core/combat/ai.gd, and every 2/4-argument
+			# FakeAIDecisionPort test double standing in for it) has ALWAYS
+			# fully owned Stride execution itself -- see this method's own
+			# file-level doc ("decide_action() has already EXECUTED the
+			# Stride itself..."). This method has therefore NEVER
+			# re-derived or re-validated that movement on this path (no
+			# Movement.stride() call, no hex_coord/origin requirement of
+			# its own) -- it simply trusts the decision's "destination" and
+			# repositions the on-screen token to match, byte-for-byte the
+			# pre-FEAT-399 inline handling (two-argument test doubles that
+			# return a canned "Stride" Dictionary without ever touching
+			# hex_coord/ActionEconomy themselves -- e.g.
+			# tests/unit/core/application/test_round_session.gd's
+			# FakeStrideAIDecisionPort -- have relied on exactly this trust
+			# since before this feature existed). This is deliberately NOT
+			# routed through _execute_ai_plan()'s "Stride" case, which
+			# genuinely re-executes movement via Movement.stride() -- the
+			# correct (and ONLY correct) behavior for a not-yet-executed
+			# AIPlannerPort.plan_turn()-produced Stride item, but would be
+			# wrong here since this Stride already happened (and, for a
+			# combatant fixture carrying no hex_coord at all, would
+			# spuriously fail ERR_ORIGIN_MISSING and silently drop the
+			# token reposition this branch must still perform).
+			any_action_taken = true
+			_reposition_token_after_ai_stride(combatant, ai_decision_plan[0])
 		else:
-			resolve_result = _resolve_action_use_case.resolve(
-				combatant, action_economy, target, action_name, _round_number, _cycle_index,
-				"", active_defense, defense_context
-			)
-
-			# FEAT-008 (US-008 / FR-007): capture the PreHitAvoidance outcome
-			# for RenderCombatLogUseCase below -- only reachable when
-			# active_defense is "dodge"/"steel" (a genuine pre-hit reaction was
-			# chosen; see the branch above that set it). Dodge/Steel succeeded
-			# iff the JUST-resolved Strike's own "event" reports the attack
-			# missed (core/rules/resolution.gd's resolve_to_hit() `not hit`
-			# result, mirrored onto RoundEvents.AttackBroadcast.hit here) -- never
-			# re-derived, only read back from the SAME resolved event this
-			# method already forwards to record_attack() below.
-			if active_defense == "dodge" or active_defense == "steel":
-				var resolved_event_for_reaction = resolve_result.get("event", null)
-				if resolved_event_for_reaction != null:
-					reaction_window_id_for_log = RenderCombatLogUseCaseClass.WINDOW_PRE_HIT_AVOIDANCE
-					reaction_choice_for_log = active_defense
-					reaction_success_for_log = not resolved_event_for_reaction.hit
-
-		any_action_taken = resolve_result.get("resolved", false)
-
-		# FEAT-007 (US-007 / FR-008) / FEAT-006 (US-006 / FR-006): forward a
-		# STRUCTURED AttackEvent (core/log/attack_event.gd) for this
-		# JUST-resolved Strike to whatever record_attack Callable the
-		# composition root injected via set_event_log_record_attack_fn() --
-		# a complete no-op for every pre-existing caller/test double
-		# (NFR-004). Deliberately built from the SAME resolve_result["event"]
-		# instance emitted via EventSinkPort above -- never a second,
-		# re-derived roll/damage computation. FEAT-006 additionally renders
-		# and overwrites the plain-format row in place (see the inline doc
-		# immediately below) -- exactly one rich row per resolved enemy
-		# Strike, mirroring MainScene.gd's player-path wiring (FEAT-005).
-		if action_name == "Strike" and any_action_taken:
-			var resolved_attack_event_for_log = resolve_result.get("event", null)
-			if resolved_attack_event_for_log != null:
-				var attack_event_id: String = _generate_attack_event_id()
-				var log_weapon: Dictionary = combatant.weapon
-				# FEAT-219 (PR-002 remediation): the structured, storage-shaped
-				# AttackEvent's damage_raw field must carry the ACTUAL
-				# pre-mitigation damage (strike_damage_raw_for_log, captured
-				# above straight off the to-hit phase) -- previously this call
-				# site passed a SECOND COPY of damage_final into this slot,
-				# making it impossible for any observer (get_structured_attack(),
-				# the rendered rich log row) to ever see that a successful
-				# Parry/Block genuinely reduced damage relative to the raw
-				# roll. The -1 sentinel (legacy atomic path, out of this
-				# feature's scope) preserves the pre-existing damage_final-
-				# duplicate fallback byte-for-byte (NFR-004 default-safety).
-				var log_damage_raw: int = (
-					strike_damage_raw_for_log
-					if strike_damage_raw_for_log >= 0
-					else resolved_attack_event_for_log.damage_final
-				)
-				var structured_attack_event = AttackEventClass.new(
-					attack_event_id,
-					_round_number,
-					combatant.display_id(),
-					target.display_id(),
-					log_weapon.get("weapon_id", log_weapon.get("name", "")),
-					resolved_attack_event_for_log.roll,
-					resolved_attack_event_for_log.hit,
-					resolved_attack_event_for_log.crit,
-					log_damage_raw,
-					resolved_attack_event_for_log.damage_final,
-					false,
-					false
-				)
-
-				if _event_log_record_attack_fn.is_valid():
-					_event_log_record_attack_fn.call(structured_attack_event)
-
-				# FEAT-008 (US-008 / FR-007): pair this Strike's ACTUAL
-				# dodge/steel/parry/block outcome (captured above by whichever
-				# reaction branch this Strike actually took --
-				# reaction_window_id_for_log/reaction_choice_for_log/
-				# reaction_success_for_log/reaction_reduced_by_for_log) to the
-				# JUST-recorded structured AttackEvent via
-				# RenderCombatLogUseCase.record_reaction_outcome(), so
-				# render_attack_entry() below renders the CORRECT
-				# 'Defense: <outcome>' segment instead of always falling back
-				# to "none". A no-op (no ReactionResolvedEvent recorded) when
-				# neither reaction branch resolved a window for this Strike --
-				# reaction_window_id_for_log stays "" in that case (see its own
-				# doc above).
-				if reaction_window_id_for_log != "":
-					var render_combat_log_use_case := RenderCombatLogUseCaseClass.new()
-					render_combat_log_use_case.record_reaction_outcome(
-						attack_event_id, reaction_window_id_for_log, reaction_choice_for_log,
-						"human", reaction_success_for_log, reaction_reduced_by_for_log,
-						_event_log_record_reaction_fn
-					)
-
-				# FEAT-006 (US-006 / FR-006, Iteration J-R2 Part D): mirror
-				# MainScene.gd's `_verb_bar_strike_execute()` player-path rich-log
-				# rendering (FEAT-005) for this enemy-strikes-player call site.
-				# render_attack_entry() formats the roll/raw/final-damage rich text
-				# from the JUST-recorded structured AttackEvent above (never a
-				# second, re-derived roll/damage computation), and
-				# overwrite_entry_as_rich() overwrites the plain-format row
-				# on_attack_event() appended (at pending_entry_index, captured
-				# above BEFORE this Strike resolved) in place -- so exactly one,
-				# rich-format row is visible for this Strike, never a basic+rich
-				# duplicate pair. A complete no-op (the plain row is left as-is)
-				# when either Callable was never injected, or no entry-count
-				# Callable was injected (pending_entry_index stays -1) — every
-				# pre-existing caller/test double (NFR-004).
-				if (
-					_event_log_render_attack_entry_fn.is_valid()
-					and _event_log_overwrite_entry_fn.is_valid()
-					and pending_entry_index != -1
-				):
-					var rich_text: String = _event_log_render_attack_entry_fn.call(attack_event_id)
-					_event_log_overwrite_entry_fn.call(pending_entry_index, rich_text, attack_event_id)
-
-		# ── Dodge-Step (US-002) LIVE INVOCATION: a successful Dodge sets
-		# defender_stepped=true (resolution.gd, surfaced through resolve()), which
-		# entitles the defender to a follow-up Step to a legal adjacent hex.
-		# advance_ai_turn()'s enemy-Strikes-player path is exactly where Titus's
-		# Dodge resolves, so THIS is where _resolve_dodge_step_prompt() (the
-		# player-picks-hex prompt + token-reposition seam) must actually fire in
-		# real play — previously it was only ever called directly from tests, so
-		# the whole Dodge-Step chain was dead in the running game. A no-op for
-		# every non-dodged Strike (defender_stepped false) and for the two-phase
-		# Parry/Block path (its resolve_result never carries the flag). The await
-		# is safe: advance_ai_turn() is already a coroutine.
-		if action_name == "Strike" and resolve_result.get("defender_stepped", false):
-			await _resolve_dodge_step_prompt(target, resolve_result)
-
-		# FEAT-005 (US-005 / FR-005, Iteration J Part A) / FEAT-003 (G3
-		# remediation): the SECOND await point this feature introduces into
-		# advance_ai_turn's coroutine chain -- a genuinely POST-HIT
-		# "OnHitMitigation" ask (Parry/Block only) -- now lives directly inside
-		# the `two_phase_commit_pending` block above (still coded literally
-		# inside advance_ai_turn()'s own body), fired strictly AFTER the to-hit
-		# phase has already determined this Strike's hit/miss result, and ONLY
-		# when: (a) this is a Strike, (b) two-phase mode was opted into (a
-		# dedicated OnHitMitigation resolver was injected -- see the elif
-		# branch above), and (c) no reaction has been spent yet this Strike (a
-		# Dodge/Steel choice from the PreHitAvoidance window always sets
-		# active_defense to something else, correctly skipping two-phase mode
-		# entirely per the <=1-reaction-per-Strike budget rule). Firing order is
-		# therefore always PreHitAvoidance (above) THEN, conditionally,
-		# OnHitMitigation (in the two_phase_commit_pending block above) --
-		# never reversed, never duplicated (fires at most once per Strike). The
-		# resolved choice GENUINELY reduces the damage committed -- see the
-		# two_phase_commit_pending block's own doc; this is the G3 remediation
-		# fix (previously a trace-but-don't-apply stub lived here).
-
-		# FEAT-003 (US-003 / FR-002): the shared budget-delta gate — proves
-		# AT MOST ONE reaction was actually spent from the defender's
-		# ActionEconomy across this ENTIRE Strike (the PreHitAvoidance
-		# window, the existing on-hit WeaponAttack window, and
-		# resolve_action_use_case.resolve()'s own resolve_weapon_attack()
-		# call — whichever combination of branches above actually ran),
-		# never re-deriving the <=1-reaction-per-Strike invariant a second,
-		# drifting way. A no-op (delta always 0 or 1) for every correctly
-		# behaving call path, including every pre-existing test — this is a
-		# detective regression guard, not a behavior change (NFR-004).
-		if target_action_economy != null:
-			var reaction_budget_after: int = target_action_economy.get_remaining()
-			var reaction_budget_delta: int = reaction_budget_before - reaction_budget_after
-			var budget_gate_label: String = "round=%d attacker=%s target=%s" % [
-				_round_number,
-				combatant.display_id(),
-				target.display_id(),
-			]
-			if not ReactionWindowClass.assert_reaction_budget_delta(reaction_budget_delta, budget_gate_label):
-				_reaction_budget_violations.append({
-					"round_number": _round_number,
-					"attacker_id": combatant.display_id(),
-					"target_id":   target.display_id(),
-					"delta":       reaction_budget_delta,
-				})
+			var execute_result: Dictionary = await _execute_ai_plan(ai_decision_plan, combatant, action_economy)
+			any_action_taken = execute_result.get("any_action_taken", false)
 	else:
 		# US-001 / FR-001 (ADR-010): the null-action AI sentinel — resolve it
 		# as an explicit WAIT (see the doc block above) instead of a bare,
@@ -2020,6 +1577,59 @@ func advance_ai_turn() -> Dictionary:
 		return {"ok": true, "resolved": false}
 
 	return _after_action_resolved()
+
+
+## _ai_plan_is_dispatchable(plan) -> bool — FEAT-399 (US-010 / FR-017,
+## ADR-007): the WAIT gate advance_ai_turn() consults BEFORE ever calling
+## _execute_ai_plan(), reproducing the exact pre-FEAT-399 condition that
+## used to gate entry into this method's own inline Strike branch
+## (`action_name == "Stride" or (action_name != "" and target != null)`),
+## now evaluated against `plan`'s first item rather than a single unwrapped
+## `ai_decision` Dictionary. Only the first item is consulted -- exactly
+## mirroring the pre-FEAT-399 method, which only ever SAW a single
+## Dictionary (the legacy decide_action() fallback path, FEAT-009, never
+## wraps more than one plan item into the Array _decide_ai_action() returns).
+##
+## "Step" and "Combine" are additionally treated as always-dispatchable here
+## -- neither action type existed in the pre-FEAT-399 world (no legacy
+## AIDecisionPort ever produced them, so there is no old behavior to
+## preserve for them), both are genuine AIPlannerPort.plan_turn() action
+## types _execute_ai_plan() already dispatches (Step since FEAT-010,
+## Combine as a documented no-op stub until FEAT-012), and neither is
+## reliably shaped with a "target" key the way Strike/Stride are -- folding
+## them into the byte-for-byte legacy `target != null` check below would
+## incorrectly route a genuine Step-first plan (e.g. GruntAI's
+## "Step-before-Strike" tier) into a WAIT it never earned.
+func _ai_plan_is_dispatchable(plan: Array) -> bool:
+	if plan.is_empty():
+		return false
+
+	var first_item: Dictionary = plan[0]
+	var first_action_type: String = first_item.get("action_type", "")
+	if first_action_type == "Stride" or first_action_type == "Step" or first_action_type == "Combine":
+		return true
+
+	return first_action_type != "" and first_item.get("target", null) != null
+
+
+## _is_legacy_pre_executed_stride(plan) -> bool — FEAT-399 (US-010 / FR-017,
+## ADR-007): true iff `plan` is the single-element, already-taken-care-of
+## Stride Array _decide_ai_action()'s LEGACY AIDecisionPort.decide_action()
+## fallback path (FEAT-009) wraps a decision in -- i.e. `_ai_decision_port`
+## is not plan_turn()-shaped (the SAME duck-typed
+## `Callable(_ai_decision_port, "plan_turn").is_valid()` check
+## _decide_ai_action() itself uses to choose a dispatch path, deliberately
+## re-run here rather than threaded through as a return value, so this
+## method's own signature/contract is untouched) AND that one item's
+## "action_type" is "Stride". A genuine AIPlannerPort.plan_turn()-produced
+## Stride item (MindlessAI/GruntAI, or a test double exposing plan_turn())
+## always returns false here, even when it happens to be the plan's only
+## item -- it must still flow through _execute_ai_plan()'s real
+## Movement.stride()-driven "Stride" case, exactly as FEAT-010 established.
+func _is_legacy_pre_executed_stride(plan: Array) -> bool:
+	if Callable(_ai_decision_port, "plan_turn").is_valid():
+		return false
+	return plan[0].get("action_type", "") == "Stride"
 
 
 ## _decide_ai_action(combatant, action_economy) -> Array — LEGACY FALLBACK
@@ -2214,16 +1824,17 @@ func _other_combatants_for(combatant) -> Array:
 
 ## _execute_ai_plan(plan, combatant, action_economy) -> Dictionary — FEAT-010
 ## (US-010 / FR-017, FR-018; RISK-001 mitigation: incremental commits per
-## action-type branch): the APPLICATION-layer use-case step that iterates an
-## ordered AIPlannerPort.plan_turn()-produced plan (core/application/
-## ai_planner_port.gd's ActionPlanItem contract — an Array of Dictionaries
-## shaped {"action_type": "Stride"|"Step"|"Strike"|"Combine", ...}, e.g.
-## core/combat/mindless_ai.gd's/core/combat/grunt_ai.gd's own return values)
-## and dispatches each item against DOMAIN movement rules or existing
-## resolution logic.
-##
-## This is the FIRST increment of that dispatch (US-010's declared scope for
-## this feature) — only "Stride" and "Step" have real branches:
+## action-type branch) established this method; FEAT-399 (US-010 / FR-017,
+## FR-018, ADR-007) is its SECOND increment. The APPLICATION-layer use-case
+## step that iterates an ordered plan -- either a genuine
+## AIPlannerPort.plan_turn()-produced Array (core/application/
+## ai_planner_port.gd's ActionPlanItem contract — Dictionaries shaped
+## {"action_type": "Stride"|"Step"|"Strike"|"Combine", ...}, e.g.
+## core/combat/mindless_ai.gd's/core/combat/grunt_ai.gd's own return values),
+## or the single-element Array _decide_ai_action() wraps a legacy
+## AIDecisionPort.decide_action() result in (FEAT-009) -- and dispatches
+## each item, in order, against DOMAIN movement rules or existing
+## resolution logic via a `match action_type:` statement:
 ##
 ##   "Stride" — Movement.stride(combatant, destination, action_economy,
 ##     other_combatants) (core/rules/movement.gd): the SAME domain call a
@@ -2235,57 +1846,645 @@ func _other_combatants_for(combatant) -> Array:
 ##     _reposition_token_after_ai_stride() seam immediately above (reused
 ##     verbatim, ADR-002 "no duplicate seam" — `item` already carries the
 ##     SAME "destination" key `ai_decision` did).
+##
+##     FEAT-399: the legacy AIDecisionPort fallback path (core/combat/ai.gd)
+##     already EXECUTES a Stride itself -- calling this SAME Movement.stride()
+##     internally -- before its decision ever reaches _decide_ai_action()'s
+##     [legacy_result] wrapper (see that method's own doc). Calling
+##     Movement.stride() a SECOND time against an already-moved combatant
+##     would be rejected by action_economy's own `_movement_used`/`_action_used`
+##     gates (core/rules/action_economy.gd spend_action()) -- harmlessly
+##     wrong (no double-move is possible, spend_action() itself refuses a
+##     second charge), but it would still call spend_action() a second time,
+##     which existing regression coverage (tests/unit/test_ai_decision_single_action.gd's
+##     SpyActionEconomy call-count assertion) treats as a genuine defect, and
+##     it would incorrectly report any_action_taken:false / skip the token
+##     reposition for a Stride that, from the caller's perspective, already
+##     happened. So: when `action_economy.can_take_movement_action()` is
+##     ALREADY false by the time this branch runs, this Stride item is
+##     treated as already-executed-by-the-decision-path — Movement.stride()
+##     is never called a second time; the token is simply repositioned to
+##     match the domain state ai.gd already committed, and any_action_taken
+##     is set true, matching this codebase's pre-FEAT-399
+##     advance_ai_turn()-inline Stride handling byte-for-byte. A genuinely
+##     fresh ActionEconomy (can_take_movement_action() true — every
+##     AIPlannerPort.plan_turn()-produced Stride item, which never
+##     pre-executes movement itself, per those DOMAIN planners' own "pure
+##     data, no I/O" contract) takes the real Movement.stride() path exactly
+##     as FEAT-010 established, unchanged.
+##
 ##   "Step" — Movement.step(combatant, destination, other_combatants)
 ##     (core/rules/movement.gd), called WITHOUT an `action_economy` argument
 ##     so it is structurally FREE — movement.gd's own file-level doc: step()
 ##     "never touches an ActionEconomy instance ... at all" when none is
 ##     passed, so this can never decrement `action_economy`'s budget or mark
 ##     it Spent — then the SAME token-reposition seam as Stride.
-##   "Strike" / "Combine" — documented NO-OP stubs for this increment (real
-##     dispatch branches land in FEAT-011/FEAT-012 respectively); no economy
-##     spend, no reposition, no error raised for either.
 ##
-## An item whose "destination" is missing/null (a malformed plan) is skipped
-## rather than raising, and a Movement call that itself fails (e.g.
-## ERR_DESTINATION_OCCUPIED, ERR_ACTION_UNAVAILABLE) leaves `any_action_taken`
-## unaffected by that item rather than raising — this method never throws.
+##   "Strike" — FEAT-399: the reaction-window/two-phase-commit Strike
+##     resolution logic that used to live directly inside
+##     advance_ai_turn()'s own body (every FEAT-001..FEAT-008 increment of
+##     it) — cut-pasted VERBATIM into this case (no logic
+##     simplification/reordering; the ONLY changes are the loop-local
+##     `any_action_taken` bookkeeping, documented at its own site below, and
+##     the entry setup immediately below this paragraph). Still the
+##     IDENTICAL PreHitAvoidance/OnHitMitigation reaction windows, the
+##     IDENTICAL genuine two-phase commit (to-hit roll -> await
+##     OnHitMitigation -> apply_on_hit_defense), the IDENTICAL
+##     budget-delta gate, rich-log recording, and Dodge-Step prompt —
+##     core/combat/reaction_window.gd is never touched by this move (US-010's
+##     own test_criteria).
+##
+##     Precondition (US-010 / FR-018, "stopping if action_economy is
+##     exhausted"): BEFORE any of that verbatim logic runs,
+##     `action_economy.can_take_action()` (this codebase's established,
+##     documented single source of truth for "has this combatant's one
+##     action this turn already been spent" — core/rules/action_economy.gd)
+##     is consulted. When false — this Strike is the SECOND action-costing
+##     item in the SAME plan (e.g. a plan_turn()-produced [Stride, Strike],
+##     im­possible to fully resolve given this ActionEconomy's one-action-
+##     per-turn gate, core/combat/ai.gd's own established "Stride now,
+##     Strike next turn" contract) or the budget was already exhausted
+##     before this plan began — the `for` loop is BROKEN (not merely
+##     skipped via `continue`): no exception is raised, no further plan
+##     items are attempted, and every already-applied item's effects (a
+##     preceding Stride's repositioning, e.g.) are left genuinely in place.
+##     This is the soft-stop US-010's test_criteria require, and the
+##     partial-plan-execution outcome the design notes' error_handling #4
+##     documents as accepted, never rolled back.
+##
+##   "Combine" — still a documented NO-OP stub (real dispatch lands in a
+##     later feature); no economy spend, no reposition, no error raised.
+##     core/controllers/combine_action_controller.gd's execute() signature is
+##     untouched by this feature (US-010's own test_criteria).
+##
+## An item whose "destination"/"target" is missing/null (a malformed plan)
+## is skipped (`continue`) rather than raising, and a Movement/Strike call
+## that itself fails (e.g. ERR_DESTINATION_OCCUPIED, ERR_NO_ACTION_REMAINING)
+## leaves `any_action_taken` unaffected by that item rather than raising —
+## this method never throws.
 ##
 ## Returns {ok: true, any_action_taken: bool} — any_action_taken is true iff
-## AT LEAST ONE plan item actually resolved (a successful Stride or Step).
-## An empty plan (`[]`, the first-class WAIT value AIPlannerPort.plan_turn()
-## may return) short-circuits the loop entirely and returns
-## {ok: true, any_action_taken: false} with no errors — the same holds for a
-## non-empty plan whose every item failed to resolve, was skipped, or was a
-## Strike/Combine stub.
+## AT LEAST ONE plan item actually resolved (a successful Stride, Step, or
+## Strike). An empty plan (`[]`, the first-class WAIT value
+## AIPlannerPort.plan_turn() may return) short-circuits the loop entirely
+## and returns {ok: true, any_action_taken: false} with no errors — the same
+## holds for a non-empty plan whose every item failed to resolve, was
+## skipped, or was a Combine stub. advance_ai_turn() never calls this method
+## for a plan that would resolve here to any_action_taken:false-for-every-item
+## in the first place (see _ai_plan_is_dispatchable()'s own doc) — this
+## method's own empty-plan/all-failed no-op contract is exercised directly
+## by tests/unit/application/test_execute_ai_plan_stride_step.gd, unchanged
+## by this feature.
 func _execute_ai_plan(plan: Array, combatant, action_economy) -> Dictionary:
 	var any_action_taken: bool = false
 
 	for item in plan:
 		var action_type: String = item.get("action_type", "")
 
-		if action_type == "Stride":
-			var destination = item.get("destination", null)
-			if destination == null:
-				continue
-			var other_combatants: Array = _other_combatants_for(combatant)
-			var result: Dictionary = MovementClass.stride(combatant, destination, action_economy, other_combatants)
-			if result.get("resolved", false):
-				any_action_taken = true
-				_reposition_token_after_ai_stride(combatant, item)
+		match action_type:
+			"Stride":
+				var destination = item.get("destination", null)
+				if destination == null:
+					continue
+				if not action_economy.can_take_movement_action():
+					# FEAT-399: already executed by the legacy AIDecisionPort
+					# fallback path (core/combat/ai.gd) before this plan item ever
+					# reached _decide_ai_action()'s [legacy_result] wrapper — see
+					# this method's own doc above. Reposition only; never re-spend.
+					any_action_taken = true
+					_reposition_token_after_ai_stride(combatant, item)
+					continue
+				var other_combatants: Array = _other_combatants_for(combatant)
+				var result: Dictionary = MovementClass.stride(combatant, destination, action_economy, other_combatants)
+				if result.get("resolved", false):
+					any_action_taken = true
+					_reposition_token_after_ai_stride(combatant, item)
 
-		elif action_type == "Step":
-			var destination = item.get("destination", null)
-			if destination == null:
-				continue
-			var other_combatants: Array = _other_combatants_for(combatant)
-			var result: Dictionary = MovementClass.step(combatant, destination, other_combatants)
-			if result.get("resolved", false):
-				any_action_taken = true
-				_reposition_token_after_ai_stride(combatant, item)
+			"Step":
+				var destination = item.get("destination", null)
+				if destination == null:
+					continue
+				var other_combatants: Array = _other_combatants_for(combatant)
+				var result: Dictionary = MovementClass.step(combatant, destination, other_combatants)
+				if result.get("resolved", false):
+					any_action_taken = true
+					_reposition_token_after_ai_stride(combatant, item)
 
-		# "Strike" / "Combine" — documented no-op stubs until FEAT-011/FEAT-012
-		# land their own dispatch branches (RISK-001's incremental-commit
-		# mitigation) — intentionally no else/default branch beyond this.
+			"Strike":
+				# US-010 / FR-018 soft-stop precondition — see this method's own
+				# doc above. Checked BEFORE any reaction window is ever awaited,
+				# so an economy-exhausted actor never even asks a
+				# PreHitAvoidance/OnHitMitigation resolver to run for a Strike
+				# that could never be paid for.
+				if not action_economy.can_take_action():
+					break
+				var target = item.get("target", null)
+				if target == null:
+					continue
+				# FEAT-399: `action_name` re-established here (always "Strike" in
+				# this match case) so the verbatim body immediately below —
+				# cut-pasted byte-for-byte from the pre-FEAT-399
+				# advance_ai_turn() Strike branch, which read `action_name`/
+				# `target` from its own outer-scope locals — needs no internal
+				# edits.
+				var action_name: String = "Strike"
+				# FEAT-003 proved awaiting the injected ReactionResolverPort BEFORE
+				# resolving an enemy-Strikes-player Strike is safe (no deadlock, no
+				# double-advance). FEAT-004 (US-003 / FR-003, ADR-004) now ACTS on
+				# the resolver's answer: the resolved `active_defense` and a freshly
+				# built DefenseContext (see _build_defense_context()'s doc) are
+				# threaded verbatim into resolve_action_use_case.resolve()'s
+				# trailing parameters — the SAME pass-through
+				# resolve()/_resolve_strike() have accepted since FEAT-001, and the
+				# SAME core/rules/resolution.gd math every other reaction-enabled
+				# call site (e.g. reaction_window.gd's open_and_resolve_attack())
+				# already exercises; this method never re-implements Dodge/Block/
+				# Parry/Steel math or re-derives eligibility itself. A malformed or
+				# un-injected resolver still degrades safely to active_defense
+				# "none" / defense_context {} (see
+				# _reaction_choice_to_active_defense()'s doc), which resolves
+				# byte-for-byte identically to the pre-FEAT-004 default-only call --
+				# tests/characterization/test_strike_characterization.gd's pin, and
+				# this feature's own "Pass reproduces the exact pre-sprint unreacted
+				# outcome" test_criterion.
+				var active_defense: String = "none"
+				var defense_context: Dictionary = {}
+				# FEAT-008 (US-008 / FR-007): populated by whichever reaction branch
+				# below actually resolved a defense for this Strike (the PreHitAvoidance
+				# Dodge/Steel branch, or the OnHitMitigation Parry/Block branch inside
+				# the two_phase_commit_pending block) — consumed once, right after
+				# record_attack() below, to call RenderCombatLogUseCase.
+				## record_reaction_outcome() so the rich row's Defense segment reflects
+				## the ACTUAL outcome rather than always defaulting to "none".
+				## reaction_window_id_for_log stays "" (no recording call) whenever
+				## neither branch below resolved a reaction-eligible window for this
+				## Strike (e.g. the legacy single-window "WeaponAttack" fallback path,
+				## which no real composition-root boot ever takes — see this method's
+				## own doc on `_onhit_mitigation_resolver_fn.is_valid()`).
+				var reaction_window_id_for_log: String = ""
+				var reaction_choice_for_log: String = "none"
+				var reaction_success_for_log: bool = false
+				var reaction_reduced_by_for_log: int = 0
+				# FEAT-003 (US-002 / FR-002, G3 remediation): true once this Strike has
+				# opted into GENUINE two-phase commit -- see the `else` branch below
+				# (immediately preceding the removed trace-only stub this feature
+				# replaces). When true, the atomic call to _resolve_action_use_case's
+				# resolve() method a few lines down is SKIPPED ENTIRELY in favor of the deferred
+				# resolve_to_hit_uc -> await OnHitMitigation -> apply_on_hit_defense_uc
+				# sequence inlined below (still literally inside advance_ai_turn()'s own
+				# body -- see tests/gut's/core/application/tests' static source-shape
+				# audit, which requires the SECOND await point to remain coded directly
+				# in this function, never delegated to a helper it merely calls).
+				var two_phase_commit_pending: bool = false
+				# FEAT-003 (US-003 / FR-002): declared here (rather than inside the
+				# nested "Strike" branch below) so the budget-delta gate after
+				# resolve_action_use_case.resolve() below -- which needs
+				# `target_action_economy` -- can see the SAME variable the Strike
+				# branch populates. `action_name` is always "Strike" whenever this
+				# elif is reached (see the file-level "EXACTLY ONE action -- Strike
+				# or Stride, never both" doc above); left null/-1 for any other
+				# action_name so the gate below is a no-op in that case.
+				var target_action_economy = null
+				var reaction_budget_before: int = -1
+				if action_name == "Strike":
+					target_action_economy = _find_action_economy_for(target)
+					# FEAT-003 (US-003 / FR-002): snapshot the defender's
+					# reaction-eligible budget BEFORE either reaction window
+					# (PreHitAvoidance below, and -- when not suppressed -- the
+					# existing on-hit WeaponAttack window) is ever awaited for this
+					# Strike. The budget-delta gate below compares this snapshot
+					# against the same ActionEconomy's remaining budget once the
+					# ENTIRE Strike (both windows, plus
+					# resolve_action_use_case.resolve()'s own reaction-spending
+					# resolve_weapon_attack() call) has resolved, proving AT MOST ONE
+					# reaction was spent across the whole Strike regardless of which
+					# branch below actually ran -- the shared spend_reaction() gate's
+					# budget-delta assertion this feature adds (design notes: "a
+					# budget-delta assertion (<=1 spent per Strike) in the shared
+					# reaction resolution path").
+					if target_action_economy != null:
+						reaction_budget_before = target_action_economy.get_remaining()
+
+					# FEAT-002 (US-002 / FR-001, Iteration J Part B): the
+					# PreHitAvoidance window (Dodge/Steel only) is awaited FIRST --
+					# BEFORE the existing WeaponAttack trigger is even built, and
+					# before any call in this chain ever reaches
+					# core/rules/resolution.gd's resolve_to_hit() (test_criteria
+					# #5). For every existing caller/test double (no
+					# set_prehit_avoidance_resolver_fn() call -- see that seam's own
+					# doc), _resolve_prehit_avoidance() resolves against its
+					# synchronous {"choice": "none"} default-safety fallback, so
+					# prehit_choice below is always "none" and this branch's
+					# behavior is byte-for-byte unchanged (NFR-004).
+					var prehit_trigger: Dictionary = _build_prehit_avoidance_trigger(combatant, target)
+					var prehit_result: Dictionary = await _resolve_prehit_avoidance(prehit_trigger)
+					var prehit_choice: String = _reaction_choice_to_active_defense(prehit_result)
+					var prehit_on_hit_suppressed: bool = prehit_result.get("on_hit_suppressed", false)
+
+					if prehit_choice == "dodge" or prehit_choice == "steel":
+						# A pre-hit reaction was already decided by the
+						# PreHitAvoidance window -- resolve_action_use_case.resolve()'s
+						# own resolve_to_hit() call (FEAT-001) remains the SOLE place
+						# the actual dodge/steel roll happens (this session never
+						# re-derives it); this window only ever decided the CHOICE.
+						# The existing WeaponAttack window is deliberately never
+						# asked in this branch -- the <=1-reaction-per-Strike budget
+						# invariant means a reactor who already chose Dodge/Steel
+						# here must never ALSO be offered a second reaction for the
+						# same Strike (dodge-fail's "on_hit_suppressed" contract,
+						# test_criteria #3).
+						active_defense = prehit_choice
+						defense_context = _build_defense_context(target, target_action_economy)
+					elif not prehit_on_hit_suppressed:
+						# FEAT-005 (US-005 / FR-005, Iteration J Part A): two-phase mode is
+						# opted into once a caller injects a DEDICATED OnHitMitigation
+						# resolver (set_onhit_mitigation_resolver_fn() -- MainScene.gd wires
+						# this for real play, this feature). In that mode the legacy
+						# combined "WeaponAttack" ask below (Dodge+Parry+Block unioned
+						# BEFORE the roll even happens) is retired in favor of asking
+						# Block/Parry strictly AFTER the hit result is known -- see the
+						# two-phase commit block below (the SECOND await point this
+						# coroutine awaits). active_defense/defense_context are
+						# deliberately left "none"/{} here -- when two_phase_commit_pending
+						# is set, they are never even handed to
+						# _resolve_action_use_case's atomic resolve() at all (that atomic call is
+						# skipped entirely in favor of the deferred commit below).
+						#
+						# Every pre-existing caller/test double that never calls
+						# set_onhit_mitigation_resolver_fn() (NFR-004 default-safety) takes
+						# the unchanged legacy path in the `if` branch instead, so this
+						# feature introduces zero behavior change for them.
+						if not _onhit_mitigation_resolver_fn.is_valid():
+							var trigger: Dictionary = _build_reaction_trigger(combatant, target, target_action_economy)
+							# FEAT-007 (observability #2): trigger-built trace point.
+							_trace(
+								"reaction_trigger_built attacker_id=%s target_id=%s round=%d"
+								% [trigger.get("attacker_id", ""), trigger.get("target_id", ""), _round_number]
+							)
+							# FEAT-007: awaiting-resolver-start trace point -- emitted
+							# immediately BEFORE the await below, so a genuinely hung/
+							# never-resolving resolver is visible as "this line printed, but
+							# resolver_resolved never did" rather than a silent freeze.
+							_trace(
+								"awaiting_resolver_start attacker_id=%s target_id=%s round=%d"
+								% [trigger.get("attacker_id", ""), trigger.get("target_id", ""), _round_number]
+							)
+							var reaction_result: Dictionary = await _resolve_reaction(trigger)
+							# FEAT-007: resolver-resolved trace point.
+							_trace(
+								"resolver_resolved choice=%s round=%d"
+								% [str(reaction_result.get("choice", "")), _round_number]
+							)
+							active_defense = _reaction_choice_to_active_defense(reaction_result)
+							defense_context = _build_defense_context(target, target_action_economy)
+						else:
+							# FEAT-003 (US-002 / FR-002, G3 remediation): two-phase mode --
+							# defer to the genuine deferred-commit block below instead of
+							# the atomic resolve() call.
+							two_phase_commit_pending = true
+					# else: prehit_on_hit_suppressed with no explicit dodge/steel
+					# choice (a defensive/malformed-resolver case) -- active_defense/
+					# defense_context stay "none"/{}, matching Pass.
+
+				# FEAT-006 (US-006 / FR-006, Iteration J-R2 Part D): capture the
+				# append-order index the plain-format on_attack_event() row is ABOUT
+				# to land at -- inside whichever resolve path below synchronously
+				# emits this Strike's AttackEvent via EventSinkPort -- BEFORE
+				# resolving, mirroring MainScene.gd's `_verb_bar_strike_execute()`
+				# player-path convention (FEAT-005) exactly. -1 (a safe no-op sentinel
+				# for the overwrite call below) when no entry-count Callable was
+				# injected -- every pre-existing caller/test double (NFR-004).
+				var pending_entry_index: int = (
+					_event_log_entry_count_fn.call() if _event_log_entry_count_fn.is_valid() else -1
+				)
+
+				var resolve_result: Dictionary = {}
+				# FEAT-219 (PR-002 remediation): the RAW (pre-mitigation) damage for
+				# THIS Strike, captured directly from the to-hit phase's own partial
+				# result (`partial.get("damage_raw", 0)`) inside the two_phase_commit_pending
+				# branch below -- NEVER re-derived from resolution.gd a second way.
+				# -1 is a "not captured this call" sentinel (the legacy atomic
+				# `else` branch below never populates it -- resolve_action_use_case.gd
+				# is out of this feature's scope; see the structured_attack_event
+				# construction below, which falls back to its pre-existing
+				# damage_final-duplicate behavior in that case, an unchanged NFR-004
+				# default-safety path). Consumed below to fix core/log/attack_event.gd's
+				# damage_raw field, which this call site previously populated with a
+				# SECOND COPY of damage_final instead of the true raw damage --
+				# silently making it impossible for any observer (rich log row,
+				# get_structured_attack()) to ever see that Parry/Block genuinely
+				# reduced damage relative to the raw roll (the exact gap DEF-001/
+				# PR-002 flagged: mitigation could regress to a no-op without any
+				# code-verifiable signal catching it).
+				var strike_damage_raw_for_log: int = -1
+
+				if two_phase_commit_pending:
+					# FEAT-003 (US-002 / FR-002, G3 remediation): the GENUINE two-phase
+					# Strike commit -- replaces the old trace-but-don't-apply stub this
+					# feature exists to fix (see this file's FEAT-003 top-level doc; the
+					# anti-pattern that caused DEF-001, previously at ~line 1141-1167).
+					# Spends the action, rolls ONLY the to-hit phase via
+					# _resolve_action_use_case.get_resolve_to_hit_use_case() (NO
+					# hp_current mutation, NO event emitted -- ResolveToHitUseCase's own
+					# documented contract), AWAITS the OnHitMitigation window -- the
+					# SECOND await point this coroutine awaits, coded directly here so
+					# it stays inside advance_ai_turn()'s own body -- ONLY when the roll
+					# actually hit (ReactionWindowClass.is_on_hit_mitigation_eligible()'s
+					# own gate, never re-derived a second way; reaction_already_spent is
+					# always false at this call site -- prehit already proved it did not
+					# suppress this Strike's one reaction), and ONLY THEN commits via
+					# _resolve_action_use_case.get_apply_on_hit_defense_use_case().apply()
+					# -- the SOLE hp_current mutation / AttackEvent emission for this
+					# Strike. A resolved Parry/Block choice therefore genuinely reduces
+					# the damage actually committed, rather than being asked about and
+					# discarded (test_criteria: Parry/Block mitigation actually applies;
+					# Pass reproduces the raw/unmitigated outcome byte-for-byte).
+					#
+					# Precondition checks deliberately mirror ONLY
+					# _resolve_action_use_case's atomic resolve()'s action-economy spend
+					# (ERR_NO_ACTION_REMAINING) -- the melee-reach precondition is
+					# intentionally NOT re-derived here: this branch's sole caller
+					# (advance_ai_turn()'s enemy-Strikes-player path) only ever reaches a
+					# target core/combat/ai.gd's decide_action() already chose as
+					# adjacent/in-range (ai.gd's own job -- see
+					# tests/unit/core/combat/test_ai_reach_strike.gd); re-deriving the
+					# same reach math here would be a second, drifting copy of a rule
+					# resolve_action_use_case.gd already owns, not a genuine
+					# defense-in-depth gain for this call path.
+					var spend_result: Dictionary = action_economy.spend_action({"name": action_name, "traits": []})
+					if not spend_result.get("success", false):
+						resolve_result = {"resolved": false, "ok": false, "error": "ERR_NO_ACTION_REMAINING"}
+					else:
+						var weapon: Dictionary = combatant.weapon
+						var to_hit_uc = _resolve_action_use_case.get_resolve_to_hit_use_case()
+						var partial: Dictionary = to_hit_uc.resolve_to_hit(combatant, target, weapon, "ac", "none", {})
+						var attack_hit: bool = partial.get("hit", false)
+						var on_hit_defense: String = "none"
+						# FEAT-219 (PR-002 remediation): capture the true pre-mitigation
+						# damage for this Strike straight off the to-hit phase's own
+						# result -- the SAME `partial` dict apply_uc.apply() below is
+						# handed, never a second/re-derived read.
+						strike_damage_raw_for_log = partial.get("damage_raw", 0)
+
+						if ReactionWindowClass.is_on_hit_mitigation_eligible(false, attack_hit):
+							var onhit_trigger: Dictionary = _build_onhit_mitigation_trigger(
+								combatant, target, attack_hit,
+								partial.get("roll_total", 0), partial.get("damage_raw", 0)
+							)
+							_trace(
+								"onhit_mitigation_trigger_built attacker_id=%s target_id=%s round=%d"
+								% [onhit_trigger.get("attacker_id", ""), onhit_trigger.get("target_id", ""), _round_number]
+							)
+							var onhit_result: Dictionary = await _resolve_onhit_mitigation(onhit_trigger)
+							on_hit_defense = _reaction_choice_to_active_defense(onhit_result)
+							_trace(
+								"onhit_mitigation_resolved choice=%s round=%d"
+								% [on_hit_defense, _round_number]
+							)
+
+						var onhit_defense_context: Dictionary = _build_defense_context(target, target_action_economy)
+						var actor_updated_action_budget: Dictionary = {
+							"remaining": spend_result.get("remaining", -1),
+							"spent":     action_economy.is_spent(),
+						}
+
+						var apply_uc = _resolve_action_use_case.get_apply_on_hit_defense_use_case()
+						var apply_result: Dictionary = apply_uc.apply(
+							partial, combatant, target, on_hit_defense, onhit_defense_context,
+							_round_number, actor_updated_action_budget
+						)
+
+						# FEAT-008 (US-008 / FR-007): capture the OnHitMitigation
+						# outcome for RenderCombatLogUseCase below -- reformats
+						# apply_on_hit_defense()'s ALREADY-COMPUTED
+						# active_defense_applied/on_hit_suppressed/damage_final fields
+						# (never re-derived here). reduced_by is the actual
+						# damage-reduction amount Block applied (0 for a non-Block
+						# choice, or a Block that reduced nothing); success mirrors
+						# on_hit_suppressed, meaningful only for a Parry (see
+						# render_combat_log_use_case.gd's _derive_outcome() doc).
+						reaction_window_id_for_log = RenderCombatLogUseCaseClass.WINDOW_ON_HIT_MITIGATION
+						reaction_choice_for_log = apply_result.get("active_defense_applied", "none")
+						reaction_success_for_log = apply_result.get("on_hit_suppressed", false)
+						reaction_reduced_by_for_log = max(0, partial.get("damage_raw", 0) - apply_result.get("damage_final", 0))
+
+						var history_entry = RoundEventsClass.RoundHistoryEntry.new(
+							_round_number, _cycle_index, combatant.name, action_name, spend_result.get("remaining", -1)
+						)
+						_round_history_port.append({
+							"attacker":         combatant,
+							"action":           action_name,
+							"target":           target,
+							"roll":             partial.get("roll_total", 0),
+							"damage_final":     apply_result.get("damage_final", 0),
+							"budget_remaining": spend_result.get("remaining", -1),
+							"round":            _round_number,
+							"cycle_index":      _cycle_index,
+							"entry":            history_entry
+						})
+
+						resolve_result = {
+							"resolved":        true,
+							"ok":              true,
+							"event":           apply_result.get("event", null),
+							"target_defeated": apply_result.get("defender_defeated", false),
+							"damage_final":    apply_result.get("damage_final", 0),
+						}
+				else:
+					resolve_result = _resolve_action_use_case.resolve(
+						combatant, action_economy, target, action_name, _round_number, _cycle_index,
+						"", active_defense, defense_context
+					)
+
+					# FEAT-008 (US-008 / FR-007): capture the PreHitAvoidance outcome
+					# for RenderCombatLogUseCase below -- only reachable when
+					# active_defense is "dodge"/"steel" (a genuine pre-hit reaction was
+					# chosen; see the branch above that set it). Dodge/Steel succeeded
+					# iff the JUST-resolved Strike's own "event" reports the attack
+					# missed (core/rules/resolution.gd's resolve_to_hit() `not hit`
+					# result, mirrored onto RoundEvents.AttackBroadcast.hit here) -- never
+					# re-derived, only read back from the SAME resolved event this
+					# method already forwards to record_attack() below.
+					if active_defense == "dodge" or active_defense == "steel":
+						var resolved_event_for_reaction = resolve_result.get("event", null)
+						if resolved_event_for_reaction != null:
+							reaction_window_id_for_log = RenderCombatLogUseCaseClass.WINDOW_PRE_HIT_AVOIDANCE
+							reaction_choice_for_log = active_defense
+							reaction_success_for_log = not resolved_event_for_reaction.hit
+
+				# FEAT-399 (US-010 / FR-018): OR-accumulate rather than overwrite --
+				# unlike the pre-FEAT-399 single-action advance_ai_turn() body this
+				# was cut-pasted from (where this was always the ONLY action being
+				# resolved this turn, so a bare assignment was equivalent), this now
+				# runs inside _execute_ai_plan()'s multi-item loop -- a PRIOR plan
+				# item (e.g. a Stride) may have already set any_action_taken true,
+				# and this Strike failing to resolve (e.g. the soft-stop above, or a
+				# target dying/moving out of reach between items) must never erase
+				# that already-applied progress (design notes error_handling #4:
+				# partial-plan execution is accepted, never rolled back).
+				if resolve_result.get("resolved", false):
+					any_action_taken = true
+
+				# FEAT-007 (US-007 / FR-008) / FEAT-006 (US-006 / FR-006): forward a
+				# STRUCTURED AttackEvent (core/log/attack_event.gd) for this
+				# JUST-resolved Strike to whatever record_attack Callable the
+				# composition root injected via set_event_log_record_attack_fn() --
+				# a complete no-op for every pre-existing caller/test double
+				# (NFR-004). Deliberately built from the SAME resolve_result["event"]
+				# instance emitted via EventSinkPort above -- never a second,
+				# re-derived roll/damage computation. FEAT-006 additionally renders
+				# and overwrites the plain-format row in place (see the inline doc
+				# immediately below) -- exactly one rich row per resolved enemy
+				# Strike, mirroring MainScene.gd's player-path wiring (FEAT-005).
+				if action_name == "Strike" and any_action_taken:
+					var resolved_attack_event_for_log = resolve_result.get("event", null)
+					if resolved_attack_event_for_log != null:
+						var attack_event_id: String = _generate_attack_event_id()
+						var log_weapon: Dictionary = combatant.weapon
+						# FEAT-219 (PR-002 remediation): the structured, storage-shaped
+						# AttackEvent's damage_raw field must carry the ACTUAL
+						# pre-mitigation damage (strike_damage_raw_for_log, captured
+						# above straight off the to-hit phase) -- previously this call
+						# site passed a SECOND COPY of damage_final into this slot,
+						# making it impossible for any observer (get_structured_attack(),
+						# the rendered rich log row) to ever see that a successful
+						# Parry/Block genuinely reduced damage relative to the raw
+						# roll. The -1 sentinel (legacy atomic path, out of this
+						# feature's scope) preserves the pre-existing damage_final-
+						# duplicate fallback byte-for-byte (NFR-004 default-safety).
+						var log_damage_raw: int = (
+							strike_damage_raw_for_log
+							if strike_damage_raw_for_log >= 0
+							else resolved_attack_event_for_log.damage_final
+						)
+						var structured_attack_event = AttackEventClass.new(
+							attack_event_id,
+							_round_number,
+							combatant.display_id(),
+							target.display_id(),
+							log_weapon.get("weapon_id", log_weapon.get("name", "")),
+							resolved_attack_event_for_log.roll,
+							resolved_attack_event_for_log.hit,
+							resolved_attack_event_for_log.crit,
+							log_damage_raw,
+							resolved_attack_event_for_log.damage_final,
+							false,
+							false
+						)
+
+						if _event_log_record_attack_fn.is_valid():
+							_event_log_record_attack_fn.call(structured_attack_event)
+
+						# FEAT-008 (US-008 / FR-007): pair this Strike's ACTUAL
+						# dodge/steel/parry/block outcome (captured above by whichever
+						# reaction branch this Strike actually took --
+						# reaction_window_id_for_log/reaction_choice_for_log/
+						# reaction_success_for_log/reaction_reduced_by_for_log) to the
+						# JUST-recorded structured AttackEvent via
+						# RenderCombatLogUseCase.record_reaction_outcome(), so
+						# render_attack_entry() below renders the CORRECT
+						# 'Defense: <outcome>' segment instead of always falling back
+						# to "none". A no-op (no ReactionResolvedEvent recorded) when
+						# neither reaction branch resolved a window for this Strike --
+						# reaction_window_id_for_log stays "" in that case (see its own
+						# doc above).
+						if reaction_window_id_for_log != "":
+							var render_combat_log_use_case := RenderCombatLogUseCaseClass.new()
+							render_combat_log_use_case.record_reaction_outcome(
+								attack_event_id, reaction_window_id_for_log, reaction_choice_for_log,
+								"human", reaction_success_for_log, reaction_reduced_by_for_log,
+								_event_log_record_reaction_fn
+							)
+
+						# FEAT-006 (US-006 / FR-006, Iteration J-R2 Part D): mirror
+						# MainScene.gd's `_verb_bar_strike_execute()` player-path rich-log
+						# rendering (FEAT-005) for this enemy-strikes-player call site.
+						# render_attack_entry() formats the roll/raw/final-damage rich text
+						# from the JUST-recorded structured AttackEvent above (never a
+						# second, re-derived roll/damage computation), and
+						# overwrite_entry_as_rich() overwrites the plain-format row
+						# on_attack_event() appended (at pending_entry_index, captured
+						# above BEFORE this Strike resolved) in place -- so exactly one,
+						# rich-format row is visible for this Strike, never a basic+rich
+						# duplicate pair. A complete no-op (the plain row is left as-is)
+						# when either Callable was never injected, or no entry-count
+						# Callable was injected (pending_entry_index stays -1) — every
+						# pre-existing caller/test double (NFR-004).
+						if (
+							_event_log_render_attack_entry_fn.is_valid()
+							and _event_log_overwrite_entry_fn.is_valid()
+							and pending_entry_index != -1
+						):
+							var rich_text: String = _event_log_render_attack_entry_fn.call(attack_event_id)
+							_event_log_overwrite_entry_fn.call(pending_entry_index, rich_text, attack_event_id)
+
+				# ── Dodge-Step (US-002) LIVE INVOCATION: a successful Dodge sets
+				# defender_stepped=true (resolution.gd, surfaced through resolve()), which
+				# entitles the defender to a follow-up Step to a legal adjacent hex.
+				# advance_ai_turn()'s enemy-Strikes-player path is exactly where Titus's
+				# Dodge resolves, so THIS is where _resolve_dodge_step_prompt() (the
+				# player-picks-hex prompt + token-reposition seam) must actually fire in
+				# real play — previously it was only ever called directly from tests, so
+				# the whole Dodge-Step chain was dead in the running game. A no-op for
+				# every non-dodged Strike (defender_stepped false) and for the two-phase
+				# Parry/Block path (its resolve_result never carries the flag). The await
+				# is safe: advance_ai_turn() is already a coroutine.
+				if action_name == "Strike" and resolve_result.get("defender_stepped", false):
+					await _resolve_dodge_step_prompt(target, resolve_result)
+
+				# FEAT-005 (US-005 / FR-005, Iteration J Part A) / FEAT-003 (G3
+				# remediation): the SECOND await point this feature introduces into
+				# advance_ai_turn's coroutine chain -- a genuinely POST-HIT
+				# "OnHitMitigation" ask (Parry/Block only) -- now lives directly inside
+				# the `two_phase_commit_pending` block above (still coded literally
+				# inside advance_ai_turn()'s own body), fired strictly AFTER the to-hit
+				# phase has already determined this Strike's hit/miss result, and ONLY
+				# when: (a) this is a Strike, (b) two-phase mode was opted into (a
+				# dedicated OnHitMitigation resolver was injected -- see the elif
+				# branch above), and (c) no reaction has been spent yet this Strike (a
+				# Dodge/Steel choice from the PreHitAvoidance window always sets
+				# active_defense to something else, correctly skipping two-phase mode
+				# entirely per the <=1-reaction-per-Strike budget rule). Firing order is
+				# therefore always PreHitAvoidance (above) THEN, conditionally,
+				# OnHitMitigation (in the two_phase_commit_pending block above) --
+				# never reversed, never duplicated (fires at most once per Strike). The
+				# resolved choice GENUINELY reduces the damage committed -- see the
+				# two_phase_commit_pending block's own doc; this is the G3 remediation
+				# fix (previously a trace-but-don't-apply stub lived here).
+
+				# FEAT-003 (US-003 / FR-002): the shared budget-delta gate — proves
+				# AT MOST ONE reaction was actually spent from the defender's
+				# ActionEconomy across this ENTIRE Strike (the PreHitAvoidance
+				# window, the existing on-hit WeaponAttack window, and
+				# resolve_action_use_case.resolve()'s own resolve_weapon_attack()
+				# call — whichever combination of branches above actually ran),
+				# never re-deriving the <=1-reaction-per-Strike invariant a second,
+				# drifting way. A no-op (delta always 0 or 1) for every correctly
+				# behaving call path, including every pre-existing test — this is a
+				# detective regression guard, not a behavior change (NFR-004).
+				if target_action_economy != null:
+					var reaction_budget_after: int = target_action_economy.get_remaining()
+					var reaction_budget_delta: int = reaction_budget_before - reaction_budget_after
+					var budget_gate_label: String = "round=%d attacker=%s target=%s" % [
+						_round_number,
+						combatant.display_id(),
+						target.display_id(),
+					]
+					if not ReactionWindowClass.assert_reaction_budget_delta(reaction_budget_delta, budget_gate_label):
+						_reaction_budget_violations.append({
+							"round_number": _round_number,
+							"attacker_id": combatant.display_id(),
+							"target_id":   target.display_id(),
+							"delta":       reaction_budget_delta,
+						})
+			"Combine":
+				# Documented no-op stub — real dispatch lands in a later feature
+				# (RISK-001's incremental-commit mitigation); no economy spend,
+				# no reposition, no error raised.
+				pass
+
+			_:
+				pass
 
 	return {"ok": true, "any_action_taken": any_action_taken}
 

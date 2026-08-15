@@ -140,7 +140,7 @@ func test_stride_plan_item_repositions_token_and_spends_action_economy() -> void
 	var action_economy := ActionEconomyClass.new()
 	var budget_before: int = action_economy.get_remaining()
 
-	var result: Dictionary = session._execute_ai_plan(plan, enemy, action_economy)
+	var result: Dictionary = await session._execute_ai_plan(plan, enemy, action_economy)
 
 	assert_true(result.get("ok", false), "_execute_ai_plan() must report ok == true")
 	assert_true(result.get("any_action_taken", false), "a resolved Stride must set any_action_taken == true")
@@ -170,7 +170,7 @@ func test_step_plan_item_repositions_token_and_spends_no_action_economy() -> voi
 	var action_economy := ActionEconomyClass.new()
 	var budget_before: int = action_economy.get_remaining()
 
-	var result: Dictionary = session._execute_ai_plan(plan, enemy, action_economy)
+	var result: Dictionary = await session._execute_ai_plan(plan, enemy, action_economy)
 
 	assert_true(result.get("ok", false), "_execute_ai_plan() must report ok == true")
 	assert_true(result.get("any_action_taken", false), "a resolved Step must set any_action_taken == true")
@@ -196,7 +196,7 @@ func test_step_plan_item_only_moves_one_hex_regardless_of_budget() -> void:
 	var plan: Array = [{"action_type": "Step", "destination": far_destination}]
 	var action_economy := ActionEconomyClass.new()
 
-	var result: Dictionary = session._execute_ai_plan(plan, enemy, action_economy)
+	var result: Dictionary = await session._execute_ai_plan(plan, enemy, action_economy)
 
 	assert_false(result.get("any_action_taken", true), "a non-adjacent Step destination must fail Movement.step() and never report any_action_taken")
 	assert_true(enemy.hex_coord.equals(HexCoordClass.new(0, 0)), "a failed Step must leave the combatant's hex_coord untouched")
@@ -214,7 +214,7 @@ func test_empty_plan_results_in_no_action_taken_and_no_errors() -> void:
 	var action_economy := ActionEconomyClass.new()
 	var budget_before: int = action_economy.get_remaining()
 
-	var result: Dictionary = session._execute_ai_plan([], enemy, action_economy)
+	var result: Dictionary = await session._execute_ai_plan([], enemy, action_economy)
 
 	assert_true(result.get("ok", false), "an empty plan must still report ok == true")
 	assert_false(result.get("any_action_taken", true), "an empty plan (WAIT) must result in any_action_taken == false")
@@ -223,24 +223,32 @@ func test_empty_plan_results_in_no_action_taken_and_no_errors() -> void:
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# 4. Strike/Combine stubs — documented no-ops for this increment
+# 4. Combine stub — still a documented no-op (real dispatch lands in a
+#    later feature). "Strike" is deliberately no longer part of this test:
+#    FEAT-399 (US-010 / FR-017, FR-018) gave _execute_ai_plan()'s "Strike"
+#    match case its own real, verbatim reaction-window/two-phase-commit
+#    dispatch (cut-pasted from the pre-FEAT-399 advance_ai_turn() Strike
+#    branch) -- it is no longer a no-op stub, so pinning "Strike never sets
+#    any_action_taken/never spends economy" here would now pin a behavior
+#    this feature was explicitly required to REMOVE. Strike's real dispatch
+#    (including its own soft-stop precondition) is covered by
+#    tests/unit/application/test_execute_ai_plan_strike.gd instead.
 # ══════════════════════════════════════════════════════════════════════════
 
-func test_strike_and_combine_items_are_no_op_stubs_for_this_increment() -> void:
+func test_combine_item_is_a_no_op_stub_for_this_increment() -> void:
 	var enemy  = _combatant_at("Grunt", true, 0, 0)
 	var target = _combatant_at("Target", false, 1, 0)
 	var session = _make_session([target], [enemy], 5)
 
 	var plan: Array = [
-		{"action_type": "Strike", "target": target},
 		{"action_type": "Combine", "combined_queue": ["Stride", "Strike"]},
 	]
 	var action_economy := ActionEconomyClass.new()
 	var budget_before: int = action_economy.get_remaining()
 
-	var result: Dictionary = session._execute_ai_plan(plan, enemy, action_economy)
+	var result: Dictionary = await session._execute_ai_plan(plan, enemy, action_economy)
 
-	assert_true(result.get("ok", false), "Strike/Combine stub items must still report ok == true")
-	assert_false(result.get("any_action_taken", true), "Strike/Combine stub items must NOT set any_action_taken (real dispatch lands in FEAT-011/FEAT-012)")
-	assert_eq(action_economy.get_remaining(), budget_before, "Strike/Combine stub items must never spend action economy")
-	assert_eq(target.hp_current, 10, "a stubbed Strike must never deal damage")
+	assert_true(result.get("ok", false), "a Combine stub item must still report ok == true")
+	assert_false(result.get("any_action_taken", true), "a Combine stub item must NOT set any_action_taken (real dispatch lands in a later feature)")
+	assert_eq(action_economy.get_remaining(), budget_before, "a Combine stub item must never spend action economy")
+	assert_eq(target.hp_current, 10, "a stubbed Combine must never deal damage")

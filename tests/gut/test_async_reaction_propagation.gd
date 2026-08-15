@@ -389,20 +389,38 @@ func test_turn_controller_set_session_without_an_injected_resolver_is_still_sync
 # awaiting for it to return).
 # ══════════════════════════════════════════════════════════════════════════
 
+## FEAT-399 (US-010 / FR-017, FR-018, ADR-007) moved the Strike branch that
+## used to `await _resolve_reaction(...)` directly inside advance_ai_turn()'s
+## own body out into core/application/round_session.gd's
+## `_execute_ai_plan()` (cut-pasted verbatim, no logic
+## simplification/reordering -- see that method's own doc). advance_ai_turn()
+## itself now awaits `_execute_ai_plan()` instead -- the SAME await chain,
+## with one additional (still strictly forward, still acyclic) hop:
+## advance_ai_turn() -> _execute_ai_plan() -> _resolve_reaction(). This test
+## is updated accordingly (rather than deleted) so the "exactly once, no
+## back-edge" guarantee this feature's design pins keeps being enforced at
+## its new location.
 func test_audit_round_session_advance_ai_turn_awaits_resolve_reaction_exactly_once() -> void:
 	var content: String = _read_file("res://core/application/round_session.gd")
-	var body: String = _extract_function_body(content, "func advance_ai_turn(")
+	var advance_ai_turn_body: String = _extract_function_body(content, "func advance_ai_turn(")
+	var execute_ai_plan_body: String = _extract_function_body(content, "func _execute_ai_plan(")
 
 	assert_eq(
-		body.count("await _resolve_reaction("), 1,
-		"advance_ai_turn() must await _resolve_reaction() exactly once -- the single new await point this feature introduces into the round loop"
+		advance_ai_turn_body.count("await _execute_ai_plan("), 1,
+		"advance_ai_turn() must await _execute_ai_plan() exactly once -- the single await point FEAT-399 introduces into the round loop"
 	)
-	# No back-edge: advance_ai_turn() must never call back into anything
-	# that itself (transitively) awaits advance_ai_turn() -- that would be
-	# the classic self-deadlock this feature's error_handling design note
-	# calls out explicitly.
-	assert_false(body.contains("_drive("), "advance_ai_turn() must never call back into TurnController._drive() (no self-deadlock cycle)")
-	assert_false(body.contains("set_session("), "advance_ai_turn() must never call back into TurnController.set_session() (no self-deadlock cycle)")
+	assert_eq(
+		execute_ai_plan_body.count("await _resolve_reaction("), 1,
+		"_execute_ai_plan()'s relocated Strike case must await _resolve_reaction() exactly once, unchanged from its pre-FEAT-399 call count"
+	)
+	# No back-edge: neither advance_ai_turn() nor _execute_ai_plan() must
+	# ever call back into anything that itself (transitively) awaits
+	# advance_ai_turn() -- that would be the classic self-deadlock this
+	# feature's error_handling design note calls out explicitly.
+	assert_false(advance_ai_turn_body.contains("_drive("), "advance_ai_turn() must never call back into TurnController._drive() (no self-deadlock cycle)")
+	assert_false(advance_ai_turn_body.contains("set_session("), "advance_ai_turn() must never call back into TurnController.set_session() (no self-deadlock cycle)")
+	assert_false(execute_ai_plan_body.contains("_drive("), "_execute_ai_plan() must never call back into TurnController._drive() (no self-deadlock cycle)")
+	assert_false(execute_ai_plan_body.contains("set_session("), "_execute_ai_plan() must never call back into TurnController.set_session() (no self-deadlock cycle)")
 
 
 func test_audit_resolve_reaction_never_calls_back_into_advance_ai_turn() -> void:
