@@ -1539,7 +1539,7 @@ func advance_ai_turn() -> Dictionary:
 	# AIDecisionPort (no resolver injected on the real core/combat/ai.gd, or
 	# any 2-argument test double), this `await` never actually suspends and
 	# resolves synchronously within the same call (NFR-004).
-	var ai_decision_plan: Array = await _decide_ai_action(combatant, action_economy)
+	var ai_decision_plan: Array = await _decide_ai_action(combatant, action_economy, entry)
 
 	# FEAT-399 (US-010 / FR-017, FR-018, ADR-007): advance_ai_turn() is now the
 	# two-call sequence this file's design has been building toward since
@@ -1571,7 +1571,7 @@ func advance_ai_turn() -> Dictionary:
 	var any_action_taken: bool = false
 
 	if _ai_plan_is_dispatchable(ai_decision_plan):
-		if _is_legacy_pre_executed_stride(ai_decision_plan):
+		if _is_legacy_pre_executed_stride(ai_decision_plan, entry):
 			# FEAT-399: the LEGACY AIDecisionPort.decide_action() fallback
 			# path (core/combat/ai.gd, and every 2/4-argument
 			# FakeAIDecisionPort test double standing in for it) has ALWAYS
@@ -1667,8 +1667,8 @@ func _ai_plan_is_dispatchable(plan: Array) -> bool:
 ## always returns false here, even when it happens to be the plan's only
 ## item -- it must still flow through _execute_ai_plan()'s real
 ## Movement.stride()-driven "Stride" case, exactly as FEAT-010 established.
-func _is_legacy_pre_executed_stride(plan: Array) -> bool:
-	if Callable(_ai_decision_port, "plan_turn").is_valid():
+func _is_legacy_pre_executed_stride(plan: Array, entry: Dictionary = {}) -> bool:
+	if Callable(_resolve_ai_decision_port(entry), "plan_turn").is_valid():
 		return false
 	return plan[0].get("action_type", "") == "Stride"
 
@@ -1776,12 +1776,28 @@ func _build_ai_world_context(_combatant, action_economy) -> Dictionary:
 ##     pre-existing caller of THIS method would observe; advance_ai_turn()
 ##     below unwraps element 0 to preserve its own pre-FEAT-009 Dictionary-
 ##     shaped contract byte-for-byte (NFR-004 default-safety).
-func _decide_ai_action(combatant, action_economy) -> Array:
-	var plan_turn_callable := Callable(_ai_decision_port, "plan_turn")
+## FEAT-401 (US-011 / FR-019 part 1, ADR-003) amendment: the collaborator
+## every check above dispatches against is no longer ALWAYS `_ai_decision_port`
+## verbatim -- it is now `_resolve_ai_decision_port(entry)` (see that helper's
+## own doc immediately below), which prefers the CURRENT actor's entry-level
+## `entry['ai_planner']` (wired per enemy at the composition root,
+## run_round_use_case.gd's begin_round(), via AITierRegistry.get_planner())
+## over the session-wide `_ai_decision_port`, whenever the entry-level one is
+## present. `entry` is OPTIONAL (default `{}`) purely so every pre-existing
+## direct caller of this private-by-convention helper (this suite's own
+## `session._decide_ai_action(combatant, action_economy)` 2-argument call
+## sites, predating FEAT-401) keeps compiling and passing unmodified --
+## `{}.get('ai_planner', null)` resolves to null exactly like an entry that
+## genuinely omits the key, so those callers transparently keep using
+## `_ai_decision_port` alone, byte-for-byte (NFR-004 default-safety).
+func _decide_ai_action(combatant, action_economy, entry: Dictionary = {}) -> Array:
+	var decision_port = _resolve_ai_decision_port(entry)
+
+	var plan_turn_callable := Callable(decision_port, "plan_turn")
 	if plan_turn_callable.is_valid():
 		return plan_turn_callable.call(combatant, _build_ai_world_context(combatant, action_economy))
 
-	var decide_callable := Callable(_ai_decision_port, "decide_action")
+	var decide_callable := Callable(decision_port, "decide_action")
 	if decide_callable.get_argument_count() < 4:
 		return [decide_callable.call(combatant, _party)]
 
@@ -1791,6 +1807,40 @@ func _decide_ai_action(combatant, action_economy) -> Array:
 			other_combatants.append(enemy)
 
 	return [await decide_callable.call(combatant, _party, action_economy, other_combatants)]
+
+
+## _resolve_ai_decision_port(entry) -> Object -- FEAT-401 (US-011 / FR-019
+## part 1, ADR-003): the SINGLE seam this file uses to decide WHICH
+## decision-making collaborator governs the CURRENT turn, implementing the
+## documented entry-level-overrides-session-level precedence rule:
+##
+##   1. `entry.get('ai_planner', null)`, when non-null -- the PER-ENEMY
+##      AIPlannerPort the composition root (run_round_use_case.gd's
+##      begin_round()) wired for this specific combatant via
+##      `AITierRegistry.get_planner(combatant's authored ai_tier)`. Takes
+##      precedence whenever present, so different enemies in the SAME
+##      encounter/RoundSession may run different AI tiers without requiring
+##      per-combatant RoundSession instances.
+##   2. Otherwise, `_ai_decision_port` -- the single, session-wide
+##      collaborator every pre-FEAT-401 caller already injects (either a
+##      legacy AIDecisionPort, or a duck-typed AIPlannerPort wired directly
+##      as the session-level port -- both already handled by the
+##      plan_turn()/decide_action() dispatch above, unchanged).
+##
+## `entry.get('ai_planner', null)` (never `entry['ai_planner']`) so every
+## pre-existing entry Dictionary that OMITS the 'ai_planner' key entirely
+## (the ENTIRE pre-FEAT-401 test suite, and every entry begin_round() leaves
+## untouched because its combatant carries no ai_tier data -- see that
+## method's own doc) still compiles and resolves to `_ai_decision_port`,
+## byte-for-byte unchanged (NFR-004 default-safety). Consulted by BOTH
+## `_decide_ai_action()` above and `_is_legacy_pre_executed_stride()` below,
+## so the two stay in agreement about which port actually produced a given
+## plan.
+func _resolve_ai_decision_port(entry: Dictionary):
+	var entry_planner = entry.get("ai_planner", null)
+	if entry_planner != null:
+		return entry_planner
+	return _ai_decision_port
 
 
 ## _reposition_token_after_ai_stride(combatant, ai_decision) -> void —

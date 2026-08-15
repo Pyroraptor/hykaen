@@ -69,6 +69,18 @@ extends RefCounted
 
 const RoundSessionClass = preload("res://core/application/round_session.gd")
 
+## AITierRegistryClass — FEAT-401 (US-011 / FR-019 part 1, ADR-003): the
+## DOMAIN-layer tier-string -> AIPlannerPort factory (core/combat/
+## ai_tier_registry.gd) this composition root calls, per enemy entry, to wire
+## a per-combatant planner ahead of RoundSession ever dispatching that
+## combatant's turn. Preloaded here (not by round_session.gd) because THIS
+## file is the composition root — the one layer allowed to know about every
+## concrete planner type (see this iteration's design notes, "PRESENTATION /
+## composition root" section); round_session.gd only ever consumes whatever
+## the resulting entry['ai_planner'] duck-types as (a plain Callable check),
+## never importing AITierRegistry or any concrete planner class itself.
+const AITierRegistryClass = preload("res://core/combat/ai_tier_registry.gd")
+
 var _turn_order_port             ## TurnOrderPort — injected
 var _event_sink_port             ## EventSinkPort — injected
 var _round_history_port          ## RoundHistoryPort — injected
@@ -166,6 +178,37 @@ func begin_round(round_number: int, party: Array, enemies: Array) -> RoundSessio
 	for entry in entries:
 		entry["action_economy"].start_of_round()
 
+		# FEAT-401 (US-011 / FR-019 part 1, ADR-003): per-enemy AIPlannerPort
+		# wiring. When `entry`'s combatant carries EXPLICIT ai_tier data
+		# (infrastructure/combatant_factory.gd's build_enemy_combatant()
+		# output, or any future combatant shape that authors the field),
+		# AITierRegistry.get_planner() maps it to a freshly-constructed
+		# planner instance, stored as entry['ai_planner']. This is a PER-ENTRY
+		# override — RoundSession._decide_ai_action() (core/application/
+		# round_session.gd) reads entry.get('ai_planner', null) and PREFERS
+		# it over the single, session-wide _ai_decision_port whenever both are
+		# present, so heterogeneous AI tiers can coexist within one encounter
+		# without per-combatant RoundSession instances (see that method's own
+		# doc for the full precedence rule).
+		#
+		# Deliberately gated on ai_tier being genuinely PRESENT (not merely
+		# defaulted): core/domain/combatant.gd's Combatant entity does not
+		# (yet) carry an ai_tier field across its from_dict()/to_dict()
+		# round-trip (see infrastructure/combatant_factory.gd's FEAT-007 doc),
+		# so every entry built from today's real composition-root pipeline
+		# (CombatSessionFactory) resolves no ai_tier here and is left
+		# untouched — entry['ai_planner'] is simply never set, and every
+		# pre-existing caller keeps relying on the session-level
+		# _ai_decision_port exactly as before (NFR-004 default-safety). Were
+		# this instead gated on AITierRegistry's own "" -> MindlessAI
+		# fallback (i.e. always wiring SOME planner for every is_enemy
+		# combatant), it would silently override every pre-existing test's
+		# hand-injected _ai_decision_port test double for every enemy in the
+		# entire suite — a correctness regression this gate exists to avoid.
+		var ai_tier = _read_ai_tier_if_present(entry.get("combatant"))
+		if ai_tier != null:
+			entry["ai_planner"] = AITierRegistryClass.get_planner(String(ai_tier))
+
 	return RoundSessionClass.new(
 		entries,
 		party,
@@ -177,3 +220,27 @@ func begin_round(round_number: int, party: Array, enemies: Array) -> RoundSessio
 		_event_sink_port,
 		_round_history_port
 	)
+
+
+## _read_ai_tier_if_present(combatant) -> Variant (String or null) —
+## FEAT-401 (US-011): returns `combatant`'s authored ai_tier verbatim when
+## genuinely present, else null. Duck-typed across BOTH shapes this
+## composition root may see:
+##   - a Dictionary carrying an "ai_tier" key (e.g. infrastructure/
+##     combatant_factory.gd's build_enemy_combatant() output) —
+##     Dictionary.get("ai_tier", null).
+##   - an Object exposing an "ai_tier" property — Object.get("ai_tier"),
+##     which itself already returns null for a property the Object does not
+##     declare (e.g. today's core/domain/combatant.gd Combatant entity), no
+##     try/catch or has_method() probe required.
+## Deliberately distinguishes "field absent" (null, this combatant carries no
+## ai_tier data at all) from "field present but empty string" (a genuine,
+## if minimal, authored value — still routed through AITierRegistry, whose
+## own "" -> MindlessAI fallback is a SEPARATE, later degradation) — see
+## begin_round()'s own doc for why this distinction matters.
+func _read_ai_tier_if_present(combatant):
+	if combatant == null:
+		return null
+	if combatant is Dictionary:
+		return combatant.get("ai_tier", null)
+	return combatant.get("ai_tier")
