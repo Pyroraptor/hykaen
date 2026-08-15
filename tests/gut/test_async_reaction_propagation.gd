@@ -470,7 +470,13 @@ func test_audit_await_chain_forms_a_strict_dag_with_no_cycle() -> void:
 	#                          RoundSession)
 	#          ^
 	#          | awaited by
-	#   advance_ai_turn()     (awaits _resolve_reaction() on the Strike path)
+	#   _execute_ai_plan()    (awaits _resolve_reaction() on the Strike path
+	#                          -- FEAT-399/400 relocated this hop here, see
+	#                          test_audit_round_session_advance_ai_turn_awaits_resolve_reaction_exactly_once())
+	#          ^
+	#          | awaited by
+	#   advance_ai_turn()     (awaits _execute_ai_plan(), which transitively
+	#                          awaits _resolve_reaction())
 	#          ^
 	#          | awaited by
 	#   _drive()               (awaits advance_ai_turn() in its loop)
@@ -488,27 +494,32 @@ func test_audit_await_chain_forms_a_strict_dag_with_no_cycle() -> void:
 	var turn_controller_source: String = _read_file("res://presentation/turn_controller.gd")
 
 	var expected_edges: Array = [
-		"advance_ai_turn -> _resolve_reaction",
+		"advance_ai_turn -> _execute_ai_plan",
+		"_execute_ai_plan -> _resolve_reaction",
 		"_drive -> advance_ai_turn",
 		"set_session -> _drive",
 		"on_end_turn_pressed -> _drive",
 	]
 
 	assert_true(
-		_extract_function_body(round_session_source, "func advance_ai_turn(").contains("await _resolve_reaction("),
+		_extract_function_body(round_session_source, "func advance_ai_turn(").contains("await _execute_ai_plan("),
 		"missing edge: %s" % expected_edges[0]
 	)
 	assert_true(
-		_extract_function_body(turn_controller_source, "func _drive(").contains("await _round_session.advance_ai_turn("),
+		_extract_function_body(round_session_source, "func _execute_ai_plan(").contains("await _resolve_reaction("),
 		"missing edge: %s" % expected_edges[1]
 	)
 	assert_true(
-		_extract_function_body(turn_controller_source, "func set_session(").contains("await _drive("),
+		_extract_function_body(turn_controller_source, "func _drive(").contains("await _round_session.advance_ai_turn("),
 		"missing edge: %s" % expected_edges[2]
 	)
 	assert_true(
-		_extract_function_body(turn_controller_source, "func on_end_turn_pressed(").contains("await _drive("),
+		_extract_function_body(turn_controller_source, "func set_session(").contains("await _drive("),
 		"missing edge: %s" % expected_edges[3]
+	)
+	assert_true(
+		_extract_function_body(turn_controller_source, "func on_end_turn_pressed(").contains("await _drive("),
+		"missing edge: %s" % expected_edges[4]
 	)
 
 	# And the terminal leaf never re-enters the graph (proven above in

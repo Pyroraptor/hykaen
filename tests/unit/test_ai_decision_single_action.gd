@@ -326,6 +326,19 @@ func test_round_session_advance_ai_turn_contains_no_will_strike_branch() -> void
 	# `will_strike` inside advance_ai_turn() to attempt a second
 	# resolve_action_use_case.resolve() call for the Strike half. That
 	# branch, and any local `will_strike` variable, must be fully removed.
+	#
+	# FEAT-399/400 amendment (US-010 / FR-017, FR-018, ADR-007):
+	# advance_ai_turn() was refactored into a two-call sequence --
+	# _decide_ai_action() obtains the plan, and _execute_ai_plan() dispatches
+	# every item in it (including the Strike branch's
+	# resolve_action_use_case.resolve() call, cut-pasted verbatim out of this
+	# method's old inline body). The single legal resolve() call site this
+	# criterion guards against a second (Strike-after-Stride) call site now
+	# therefore lives in _execute_ai_plan(), reached from advance_ai_turn(),
+	# rather than inline in advance_ai_turn() itself -- so this check spans
+	# BOTH function bodies (the whole advance_ai_turn()->_execute_ai_plan()
+	# call chain this criterion actually cares about), not just the former's
+	# textual body.
 	var file := FileAccess.open("res://core/application/round_session.gd", FileAccess.READ)
 	assert_not_null(file, "core/application/round_session.gd must be readable")
 	if file == null:
@@ -333,18 +346,25 @@ func test_round_session_advance_ai_turn_contains_no_will_strike_branch() -> void
 	var content: String = file.get_as_text()
 	file.close()
 
-	var fn_start: int = content.find("func advance_ai_turn(")
-	assert_true(fn_start >= 0, "fixture assumption: advance_ai_turn() must exist")
-	var next_fn_start: int = content.find("\nfunc ", fn_start + 1)
-	var fn_body: String = content.substr(fn_start, next_fn_start - fn_start)
+	var advance_fn_start: int = content.find("func advance_ai_turn(")
+	assert_true(advance_fn_start >= 0, "fixture assumption: advance_ai_turn() must exist")
+	var advance_next_fn_start: int = content.find("\nfunc ", advance_fn_start + 1)
+	var advance_fn_body: String = content.substr(advance_fn_start, advance_next_fn_start - advance_fn_start)
+
+	var execute_fn_start: int = content.find("func _execute_ai_plan(")
+	assert_true(execute_fn_start >= 0, "fixture assumption: _execute_ai_plan() must exist")
+	var execute_next_fn_start: int = content.find("\nfunc ", execute_fn_start + 1)
+	var execute_fn_body: String = content.substr(execute_fn_start, execute_next_fn_start - execute_fn_start)
+
+	var combined_body: String = advance_fn_body + execute_fn_body
 
 	assert_false(
-		fn_body.contains("will_strike"),
-		"advance_ai_turn() must no longer reference will_strike -- the composite Stride-then-Strike handling must be fully removed"
+		combined_body.contains("will_strike"),
+		"advance_ai_turn()/_execute_ai_plan() must no longer reference will_strike -- the composite Stride-then-Strike handling must be fully removed"
 	)
 	assert_eq(
-		fn_body.count("_resolve_action_use_case.resolve("), 1,
-		"advance_ai_turn() must call resolve_action_use_case.resolve() at most once per turn -- no second (Strike-after-Stride) call site may remain"
+		combined_body.count("_resolve_action_use_case.resolve("), 1,
+		"advance_ai_turn()'s dispatch chain must call resolve_action_use_case.resolve() at most once per turn -- no second (Strike-after-Stride) call site may remain"
 	)
 
 
