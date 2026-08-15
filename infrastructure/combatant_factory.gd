@@ -414,14 +414,22 @@ func build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String =
 	if off_hand_res != null:
 		weapons_list.append(_weapon_dict_from_resource(off_hand_res))
 
+	# FEAT-007 (US-007 / FR-006 / FR-008): stamina/stamina_max are now READ
+	# from the EnemyResource's own authored stamina_max field (data/enemies/
+	# enemy_resource.gd, FEAT-002) rather than hardcoded to 0. A freshly-built
+	# enemy combatant starts at full stamina (stamina == stamina_max), mirroring
+	# build_party_combatant()'s identical stamina/stamina_max-from-source
+	# convention above. skeleton.tres authors stamina_max = 0, so this is a
+	# byte-for-byte regression-safe no-op for every enemy that has not yet
+	# authored a non-zero stamina_max.
+	var enemy_stamina_max: int = enemy.stamina_max
+
 	var combatant: Dictionary = {
 		"name":       enemy.name,
 		"hp_current": enemy.hp,
 		"hp_max":     enemy.hp,
-		"stamina":    0,
-		# FEAT-001 (US-001; iteration AB-0): enemies never Rest -- 0 for all
-		# three new fields, mirroring "stamina": 0 immediately above.
-		"stamina_max": 0,
+		"stamina":    enemy_stamina_max,
+		"stamina_max": enemy_stamina_max,
 		"ac":         enemy.ac,
 		"fortitude":  enemy.fortitude,
 		"reflex":     enemy.reflex,
@@ -480,7 +488,19 @@ func build_enemy_combatant(enemy_path: String, hex_coord, combatant_id: String =
 	# resolution signatures to consume the instance directly. The FEAT-227
 	# fail-fast error path above is deliberately NOT routed through the entity —
 	# it keeps returning the {"error": ...} Dictionary the call-site guard checks.
-	return CombatantClass.from_dict(combatant).to_dict()
+	var result: Dictionary = CombatantClass.from_dict(combatant).to_dict()
+	# FEAT-007 (US-007 / FR-006 / FR-008): 'ai_tier' is set on the returned
+	# Dictionary AFTER the Combatant entity round-trip, mirroring
+	# build_party_combatant()'s identical post-round-trip 'equipped_items'
+	# attachment above. core/domain/combatant.gd's from_dict()/to_dict() only
+	# round-trip a FIXED, named field set (see that file's header note) and do
+	# NOT carry arbitrary keys through -- 'stamina'/'stamina_max' already
+	# survive the round-trip because they are among those fixed fields, but
+	# 'ai_tier' is not, so it would be silently dropped if attached to the
+	# `combatant` literal above instead. This keeps core/domain/combatant.gd
+	# itself untouched (no ai_tier field added to the frozen entity schema).
+	result["ai_tier"] = enemy.ai_tier
+	return result
 
 
 ## _weapon_dict_from_resource(weapon_res) -> Dictionary
