@@ -104,6 +104,17 @@ const ResolveDodgeStepUseCaseClass = preload("res://core/application/resolve_dod
 ## this section.
 const EnergyPoolClass = preload("res://core/domain/energy_pool.gd")
 
+## MovementClass — FEAT-010 (US-010 / FR-017, FR-018): preloaded ONLY so
+## _execute_ai_plan() below can dispatch "Stride"/"Step" ActionPlanItems
+## through the SAME domain movement rules (core/rules/movement.gd) a
+## player-driven Stride/Step already goes through — never a second, parallel
+## movement implementation (ADR-001/ADR-002 "no duplicate seam"). Both files
+## live in the SAME dependency direction this file already establishes
+## elsewhere (APPLICATION depending on DOMAIN, e.g. EnergyPoolClass above) —
+## RoundSession never imports anything from presentation/ or infrastructure/
+## to do this.
+const MovementClass = preload("res://core/rules/movement.gd")
+
 var _entries: Array
 var _party: Array
 var _enemies: Array
@@ -2179,6 +2190,104 @@ func _reposition_token_after_ai_stride(combatant, ai_decision: Dictionary) -> vo
 	_token_reposition_fn.call(actor_id, destination)
 	if _after_ai_reposition_fn.is_valid():
 		_after_ai_reposition_fn.call()
+
+
+## _other_combatants_for(combatant) -> Array — FEAT-010 (US-010): the
+## occupancy set Movement.stride()/Movement.step() need for their
+## destination-occupancy check — `_party + _enemies`, excluding `combatant`
+## itself by identity (is_same()). Mirrors core/combat/ai.gd's own
+## `targets + other_combatants` occupancy assembly (see _decide_ai_action()
+## above) and core/combat/mindless_ai.gd's/core/combat/grunt_ai.gd's own
+## `party + enemies` occupancy set — the SAME occupancy definition a
+## plan_turn() producer already used to CHOOSE `item["destination"]`, so a
+## planner-chosen destination remains legal by the time it reaches here.
+func _other_combatants_for(combatant) -> Array:
+	var others: Array = []
+	for member in _party:
+		if not is_same(member, combatant):
+			others.append(member)
+	for enemy in _enemies:
+		if not is_same(enemy, combatant):
+			others.append(enemy)
+	return others
+
+
+## _execute_ai_plan(plan, combatant, action_economy) -> Dictionary — FEAT-010
+## (US-010 / FR-017, FR-018; RISK-001 mitigation: incremental commits per
+## action-type branch): the APPLICATION-layer use-case step that iterates an
+## ordered AIPlannerPort.plan_turn()-produced plan (core/application/
+## ai_planner_port.gd's ActionPlanItem contract — an Array of Dictionaries
+## shaped {"action_type": "Stride"|"Step"|"Strike"|"Combine", ...}, e.g.
+## core/combat/mindless_ai.gd's/core/combat/grunt_ai.gd's own return values)
+## and dispatches each item against DOMAIN movement rules or existing
+## resolution logic.
+##
+## This is the FIRST increment of that dispatch (US-010's declared scope for
+## this feature) — only "Stride" and "Step" have real branches:
+##
+##   "Stride" — Movement.stride(combatant, destination, action_economy,
+##     other_combatants) (core/rules/movement.gd): the SAME domain call a
+##     player-driven Stride already goes through, spending exactly one
+##     Movement-trait action from `action_economy` (movement.gd's own
+##     documented "one action" contract) and mutating `combatant`'s
+##     hex_coord in place on success. On success, the acting combatant's
+##     on-screen token is repositioned via the EXISTING
+##     _reposition_token_after_ai_stride() seam immediately above (reused
+##     verbatim, ADR-002 "no duplicate seam" — `item` already carries the
+##     SAME "destination" key `ai_decision` did).
+##   "Step" — Movement.step(combatant, destination, other_combatants)
+##     (core/rules/movement.gd), called WITHOUT an `action_economy` argument
+##     so it is structurally FREE — movement.gd's own file-level doc: step()
+##     "never touches an ActionEconomy instance ... at all" when none is
+##     passed, so this can never decrement `action_economy`'s budget or mark
+##     it Spent — then the SAME token-reposition seam as Stride.
+##   "Strike" / "Combine" — documented NO-OP stubs for this increment (real
+##     dispatch branches land in FEAT-011/FEAT-012 respectively); no economy
+##     spend, no reposition, no error raised for either.
+##
+## An item whose "destination" is missing/null (a malformed plan) is skipped
+## rather than raising, and a Movement call that itself fails (e.g.
+## ERR_DESTINATION_OCCUPIED, ERR_ACTION_UNAVAILABLE) leaves `any_action_taken`
+## unaffected by that item rather than raising — this method never throws.
+##
+## Returns {ok: true, any_action_taken: bool} — any_action_taken is true iff
+## AT LEAST ONE plan item actually resolved (a successful Stride or Step).
+## An empty plan (`[]`, the first-class WAIT value AIPlannerPort.plan_turn()
+## may return) short-circuits the loop entirely and returns
+## {ok: true, any_action_taken: false} with no errors — the same holds for a
+## non-empty plan whose every item failed to resolve, was skipped, or was a
+## Strike/Combine stub.
+func _execute_ai_plan(plan: Array, combatant, action_economy) -> Dictionary:
+	var any_action_taken: bool = false
+
+	for item in plan:
+		var action_type: String = item.get("action_type", "")
+
+		if action_type == "Stride":
+			var destination = item.get("destination", null)
+			if destination == null:
+				continue
+			var other_combatants: Array = _other_combatants_for(combatant)
+			var result: Dictionary = MovementClass.stride(combatant, destination, action_economy, other_combatants)
+			if result.get("resolved", false):
+				any_action_taken = true
+				_reposition_token_after_ai_stride(combatant, item)
+
+		elif action_type == "Step":
+			var destination = item.get("destination", null)
+			if destination == null:
+				continue
+			var other_combatants: Array = _other_combatants_for(combatant)
+			var result: Dictionary = MovementClass.step(combatant, destination, other_combatants)
+			if result.get("resolved", false):
+				any_action_taken = true
+				_reposition_token_after_ai_stride(combatant, item)
+
+		# "Strike" / "Combine" — documented no-op stubs until FEAT-011/FEAT-012
+		# land their own dispatch branches (RISK-001's incremental-commit
+		# mitigation) — intentionally no else/default branch beyond this.
+
+	return {"ok": true, "any_action_taken": any_action_taken}
 
 
 ## end_current_turn() -> Dictionary — ends the current (player) actor's
