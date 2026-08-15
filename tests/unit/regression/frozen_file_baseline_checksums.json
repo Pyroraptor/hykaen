@@ -1,0 +1,24 @@
+{
+    "_comment": "FEAT-405 (resolves FINDING-004, mitigates RISK-002) -- committed baseline for tests/unit/regression/test_frozen_files_checksum.gd. Every value below was captured from the ACTUAL working tree at the time this feature was implemented (post-US-010/FEAT-399, post-US-012 wiring) using the SAME SHA-256-of-file-text (String.sha256_text() on FileAccess.get_as_text()) convention already established by tests/tools/test_protected_files_unchanged.gd's PINNED_* constants -- this file simply externalizes that convention into a committed JSON fixture instead of GDScript constants, so future frozen-contract baselines can be regenerated/reviewed as a plain data diff. A mismatch against any value here means the corresponding frozen file/region/signature drifted from its recorded, reviewed baseline -- see NFR-003 (frozen-contract constraint) and RISK-002/FINDING-004 (previously only a manual git-log spot-check).",
+
+    "frozen_files_sha256": {
+        "_comment": "Whole-file SHA-256 of the three NFR-003 frozen contract files. core/combat/reaction_window.gd (the path several existing round_session.gd doc comments use, e.g. its US-010 _execute_ai_plan() doc: 'core/combat/reaction_window.gd is never touched by this move') is this project's established doc-comment alias for the file that actually lives at core/application/reaction_window.gd -- the same file tests/tools/test_protected_files_unchanged.gd already pins byte-for-byte (PINNED_REACTION_WINDOW_SHA256), confirmed identical to the hash recorded below.",
+        "core/application/ai_decision_port.gd": "b9e70e612e8c0a3ea3454ba5c5ecf576eb1f9c8b794746b215d51aed76a6c287",
+        "core/combat/ai.gd": "ecda179843ea2af9273510c1b3fab29a5c94999c0dfdc97577a12830879e632e",
+        "core/application/reaction_window.gd": "98a4403af913898a47b0e3d8a5d93ebb9f2699f3c465a68d9fffd8282dc3048c"
+    },
+
+    "combine_action_controller_execute_signature": {
+        "_comment": "core/controllers/combine_action_controller.gd -- the exact source line declaring CombineActionController.execute(), extracted via plain text-line parsing (not a real AST). Param names/types/order/return type must match verbatim.",
+        "file": "core/controllers/combine_action_controller.gd",
+        "signature": "func execute(payload: Dictionary = {}) -> Dictionary:"
+    },
+
+    "round_session_strike_dispatch_region": {
+        "_comment": "The Strike-dispatch/reaction-window/two-phase-commit region of core/application/round_session.gd's _execute_ai_plan() moved there verbatim by US-010/FEAT-399 -- the SAME PreHitAvoidance/OnHitMitigation reaction windows, genuine two-phase commit (to-hit roll -> await OnHitMitigation -> apply_on_hit_defense), budget-delta gate, rich-log recording, and Dodge-Step prompt call-outs that file's own _execute_ai_plan() doc and US-010 test_criteria describe as cut-pasted byte-for-byte from the pre-FEAT-399 advance_ai_turn() body. Delimited by two markers that are each verified unique in the file: start_marker is the match-statement's \"Strike\": case label (3-tab indent) inside _execute_ai_plan(); end_marker is the immediately-following \"Combine\": case label (3-tab indent) in the SAME match statement -- so the extracted region is everything from the Strike case through (not including) the Combine case, i.e. content.substr(content.find(start_marker), content.find(end_marker) - content.find(start_marker)).",
+        "file": "core/application/round_session.gd",
+        "start_marker": "\t\t\t\"Strike\":",
+        "end_marker": "\t\t\t\"Combine\":",
+        "sha256": "f6ba11a6e88c78647f3cac881d8423e958d1d0422e360940fd0911ed32b21390"
+    }
+}
