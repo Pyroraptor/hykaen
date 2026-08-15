@@ -410,9 +410,23 @@ func test_application_layer_contains_no_new_port_or_use_case_class() -> void:
 	# GameStateData/ScenarioResource/EncounterResource/PartyResource types,
 	# whitelisted here purely because this check's dir.list_dir_begin() scan
 	# is name-based, not type-based.
+	#
+	# Enemy AI sophistication iteration, FEAT-001 (US-001 / FR-001, ADR-001)
+	# deliberately extends this whitelist by ONE more file:
+	# core/application/ai_planner_port.gd (AIPlannerPort) -- a NEW, PARALLEL
+	# APPLICATION-layer port (abstract plan_turn(combatant, world_context)
+	# -> Array) that tier-specific DOMAIN AI planners (MindlessAI/GruntAI)
+	# will implement and that RoundSession will duck-type against, per
+	# ADR-001's explicit decision to add a parallel port rather than modify
+	# the frozen core/application/ai_decision_port.gd. This is a genuinely
+	# new port (unlike most other whitelist entries above, which are DTOs or
+	# use cases), whitelisted here purely because this check's
+	# dir.list_dir_begin() scan is name-based, not type-based, and this
+	# feature's own explicit files_to_create names this exact path.
 	var expected_files: Array = [
 		"_build_defense_context.gd",
 		"ai_decision_port.gd",
+		"ai_planner_port.gd",
 		"apply_on_hit_defense_uc.gd",
 		"combat_session_factory.gd",
 		"combatant_snapshot_seeder.gd",
