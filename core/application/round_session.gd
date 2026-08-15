@@ -2018,6 +2018,46 @@ func advance_ai_turn() -> Dictionary:
 ## `_stride_reaction_resolver_fn` doc) is genuinely awaited to completion —
 ## every pre-existing 2-argument test double's call remains un-awaited (those
 ## never contain `await` internally, so nothing here changes for them).
+## _build_ai_world_context(combatant, action_economy) -> Dictionary — FEAT-008
+## (US-008 / FR-015): assembles the AIWorldContext DTO { party, enemies,
+## action_economy } handed to a DOMAIN AI planner (AIPlannerPort.plan_turn())
+## immediately before it is invoked. This isolates DOMAIN planners from
+## RoundSession's own internal `_party`/`_enemies` state shape -- a planner
+## only ever sees this DTO, never RoundSession's own collections directly.
+##
+##   party         -- living-only (hp_current > 0) members of `_party`. A
+##                     fresh Array built by filtering, never `_party` itself.
+##   enemies       -- a DISTINCT DUPLICATE of `_enemies` (Array.duplicate()),
+##                     never an alias -- mutating the returned Array (append/
+##                     remove/reorder) must never affect RoundSession's own
+##                     `_enemies` collection (mutation-safety, per this
+##                     feature's design note). Individual Combatant entries
+##                     within the duplicate remain the SAME live references
+##                     as `_enemies` holds (only the Array container itself
+##                     is duplicated) -- planners reading a combatant's own
+##                     fields still see live data, they just cannot resize/
+##                     reorder RoundSession's own bookkeeping collection.
+##   action_economy -- `action_economy` verbatim (the SAME instance passed
+##                     in, never a copy) -- the CURRENT actor's ActionEconomy,
+##                     matching every other call site's established
+##                     convention of threading the live ActionEconomy through
+##                     unmodified.
+##
+## Built fresh on every call -- no caching, no staleness risk (design notes:
+## "no caching, no staleness risk").
+func _build_ai_world_context(_combatant, action_economy) -> Dictionary:
+	var living_party: Array = []
+	for member in _party:
+		if member.hp_current > 0:
+			living_party.append(member)
+
+	return {
+		"party": living_party,
+		"enemies": _enemies.duplicate(),
+		"action_economy": action_economy,
+	}
+
+
 func _decide_ai_action(combatant, action_economy) -> Dictionary:
 	var decide_callable := Callable(_ai_decision_port, "decide_action")
 	if decide_callable.get_argument_count() < 4:
