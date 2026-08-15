@@ -19,3 +19,5 @@ willpower = 1
 social = 1
 intellect = 0
 skills = {"determination": 1, "mobility": 1}
+ai_tier = "mindless"
+stamina_max = 0

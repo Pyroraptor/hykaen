@@ -182,10 +182,22 @@ const MAX_ROUNDS_GUARD: int = 50
 ## off the removed inline Dictionary. The resolved numeric values are
 ## UNCHANGED (arming_sword.tres already carried these exact stats), so
 ## win_rate/avg_rounds are NOT expected to shift.
+## FEAT-002 (US-002 / FR-002-FR-005 / ADR-004, steel thread entry point)
+## intentionally re-pins the skeleton.tres hash below AGAIN: this feature
+## adds `ai_tier: String = "mindless"` and `stamina_max: int = 0` fields to
+## EnemyResource and authors ai_tier="mindless"/stamina_max=0 onto
+## skeleton.tres. Neither field is read anywhere on the passive-defense-
+## only simulator.gd path exercised by this test (simulator.gd's
+## _build_skeleton_combatant() has no AI-tier or stamina concept yet — that
+## wiring is a later feature in this iteration, infrastructure/
+## combatant_factory.gd's build_enemy_combatant(), which simulator.gd does
+## not call), so this data-layer addition is not expected to shift
+## win_rate/avg_rounds. See tests/unit/data/enemies/
+## test_skeleton_ai_tier_stamina.gd for the FEAT-002 data suite.
 const _EXPECTED_HASHES: Dictionary = {
 	"res://core/sim/simulator.gd":      "59c97bffa4c3c35c2dab6b095c6b5fbb",
 	"res://data/characters/titus.tres": "acf236d8858a0cf0a714415a6f3d69c9",
-	"res://data/enemies/skeleton.tres": "512fc0972708c6b4c71d811288cbbc6e",
+	"res://data/enemies/skeleton.tres": "fd45b544bfbd92c93ee8d88365589593",
 	"res://data/weapons/longsword.tres": "248339f6e3f256d6cdc6a943ca824587",
 	"res://data/armor/chain_shirt.tres": "6be0c7c1b55b7a91233bca0f62fadd16",
 	"res://data/armor/scale_mail.tres":  "7c724303a7db4ad78a7341bc9e7f46f1",

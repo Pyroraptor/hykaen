@@ -110,3 +110,23 @@ extends Resource
 ## Data-layer prerequisite for skill-based reaction/defense checks
 ## (Dodge/Steel).
 @export var skills: Dictionary = {}
+
+## AI planner tier selector (FEAT-002 / US-002 / FR-002-FR-005 / ADR-004).
+## Authored String naming which domain AI planner (see
+## core/combat/ai_tier_registry.gd) should govern this enemy's turns.
+## Defaults to 'mindless' — the safest/simplest tier — so any pre-existing
+## or unauthored .tres that never sets this field still resolves to a
+## valid planner rather than an unrecognized/empty value. Known tiers as
+## of this iteration: 'mindless', 'grunt'; any other String (including
+## typos) is treated as unrecognized and defensively falls back to
+## MindlessAI at the AITierRegistry boundary — validated there, not here
+## (ADR-104: this Resource carries zero business logic).
+@export var ai_tier: String = "mindless"
+
+## Maximum stamina pool (FEAT-002 / US-002 / FR-002-FR-005 / ADR-004).
+## Authored directly, plain data — NOT derived from any other attribute
+## (e.g. not computed from constitution or hp) per ADR-004, avoiding a
+## transitive-dependency anomaly. Defaults to 0 (no stamina pool
+## configured is a valid state for tiers that don't yet consume stamina,
+## e.g. 'mindless').
+@export var stamina_max: int = 0
